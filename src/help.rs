@@ -27,6 +27,8 @@ pub enum Action {
     Close,
     /// Open the syntax examples as a new sheet to play with.
     OpenExamples,
+    /// Open the update window.
+    OpenUpdate,
 }
 
 const KEYS: &[(&str, &[(&str, &str)])] = &[
@@ -239,7 +241,14 @@ pub fn examples_sheet() -> String {
     s
 }
 
-pub fn show(ctx: &egui::Context, tab: &mut Tab, theme: &Theme, engine: &Engine) -> Option<Action> {
+/// `update` is a newer version, if one is out; it's offered next to the version.
+pub fn show(
+    ctx: &egui::Context,
+    tab: &mut Tab,
+    theme: &Theme,
+    engine: &Engine,
+    update: Option<&str>,
+) -> Option<Action> {
     let mut action = None;
     let screen = ctx.content_rect();
     let size = vec2(
@@ -280,6 +289,17 @@ pub fn show(ctx: &egui::Context, tab: &mut Tab, theme: &Theme, engine: &Engine) 
                     ui.ctx().open_url(egui::OpenUrl::new_tab(format!(
                         "https://github.com/avinashjoshi/omacus/releases/tag/{version}"
                     )));
+                }
+                if let Some(new) = update {
+                    let offer = egui::Button::new(
+                        RichText::new(format!("· v{new} available"))
+                            .size(13.0)
+                            .color(theme.accent),
+                    )
+                    .frame(false);
+                    if ui.add(offer).on_hover_text("Update Omacus").clicked() {
+                        action = Some(Action::OpenUpdate);
+                    }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let close = egui::Button::new(RichText::new("✕").color(theme.dim)).frame(false);

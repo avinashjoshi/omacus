@@ -18,6 +18,7 @@ use crate::highlight;
 use crate::rates::Rates;
 use crate::sheets::Store;
 use crate::theme::{self, Theme};
+use crate::update::{self, Method, State, Updates};
 
 const FONT_SIZE: f32 = 16.0;
 const SIDEBAR_WIDTH: f32 = 210.0;
@@ -92,6 +93,8 @@ pub struct OmacusApp {
     focus_editor: bool,
     title: String,
     help: Option<help::Tab>,
+    updates: Updates,
+    update_open: bool,
     /// Developer option for the website: `OMACUS_SCREENSHOT=out.png` saves the window's
     /// own pixels (nothing behind it) and quits.
     screenshot: Option<(std::path::PathBuf, u32)>,
@@ -105,6 +108,8 @@ impl OmacusApp {
         let rates = Rates::load(move || ctx.request_repaint());
         let ctx = cc.egui_ctx.clone();
         let theme_changed = theme::watch(move || ctx.request_repaint());
+        let ctx = cc.egui_ctx.clone();
+        let updates = Updates::check(move || ctx.request_repaint());
 
         let system_dark = is_system_dark(&cc.egui_ctx);
         let theme = Theme::load(system_dark);
@@ -128,8 +133,12 @@ impl OmacusApp {
             restored: HashSet::new(),
             focus_editor: true,
             title: String::new(),
+            updates,
+            // With OMACUS_SCREENSHOT, "update" opens the update window instead of help.
+            update_open: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "update"),
             help: std::env::var("OMACUS_SCREENSHOT_HELP")
                 .ok()
+                .filter(|t| t != "update")
                 .map(|t| help::Tab::from_name(&t)),
             screenshot: std::env::var_os("OMACUS_SCREENSHOT").map(|p| (p.into(), 0)),
         };
@@ -206,6 +215,15 @@ impl OmacusApp {
         });
         if toggle_help {
             self.toggle_help();
+        }
+        if self.update_open {
+            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
+                && self.updates.state() != State::Installing
+            {
+                self.update_open = false;
+                self.focus_editor = true;
+            }
+            return;
         }
         if self.help.is_some() {
             if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
@@ -371,7 +389,14 @@ impl OmacusApp {
 
     fn show_help(&mut self, ctx: &egui::Context) {
         let Some(mut tab) = self.help else { return };
-        let action = help::show(ctx, &mut tab, &self.theme, &self.engine);
+        let available = self.updates.available();
+        let action = help::show(
+            ctx,
+            &mut tab,
+            &self.theme,
+            &self.engine,
+            available.as_deref(),
+        );
         self.help = Some(tab);
         match action {
             Some(help::Action::Close) => {
@@ -383,7 +408,132 @@ impl OmacusApp {
                 self.store.new_sheet(&help::examples_sheet());
                 self.sheet_switched();
             }
+            Some(help::Action::OpenUpdate) => {
+                self.help = None;
+                self.update_open = true;
+            }
             None => {}
+        }
+    }
+
+    /// The update window: what's new, and installing it.
+    fn show_update(&mut self, ctx: &egui::Context) {
+        if !self.update_open {
+            return;
+        }
+        let Some(latest) = self.updates.available() else {
+            self.update_open = false;
+            return;
+        };
+        let theme = self.theme.clone();
+        let state = self.updates.state();
+        let method = update::method();
+        let busy = state == State::Installing;
+        let (mut install, mut restart, mut close) = (false, false, false);
+
+        let body = match (&state, method) {
+            (State::Installing, _) => "Updating… this takes a few seconds.".to_string(),
+            (State::Installed, _) => {
+                format!("Updated. Restart Omacus to use {latest}; your sheets are saved.")
+            }
+            (State::Failed(e), _) => format!("The update didn't finish: {e}"),
+            (_, Method::Installer) => format!("You have {}.", update::current()),
+            (_, Method::Download) => format!(
+                "You have {}. Download the new version from the releases page.",
+                update::current()
+            ),
+        };
+
+        let frame = Frame::NONE
+            .fill(theme.sidebar)
+            .stroke(egui::Stroke::new(1.0, theme.selection))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(Margin::symmetric(24, 20));
+        let modal = egui::Modal::new(egui::Id::unique("omacus-update"))
+            .frame(frame)
+            .backdrop_color(Color32::from_black_alpha(150))
+            .show(ctx, |ui| {
+                ui.set_width(380.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Omacus").size(20.0).color(theme.accent));
+                    ui.label(
+                        egui::RichText::new(format!("{latest} is available"))
+                            .size(15.0)
+                            .color(theme.foreground),
+                    );
+                });
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new(body).size(13.5).color(theme.dim));
+                ui.add_space(18.0);
+                ui.horizontal(|ui| {
+                    let primary = |ui: &mut egui::Ui, label: &str| {
+                        ui.add(
+                            egui::Button::new(
+                                egui::RichText::new(label)
+                                    .size(13.5)
+                                    .color(theme.background),
+                            )
+                            .fill(theme.accent)
+                            .corner_radius(CornerRadius::same(6))
+                            .min_size(vec2(0.0, 30.0)),
+                        )
+                    };
+                    match (&state, method) {
+                        (State::Installing, _) => {
+                            ui.spinner();
+                        }
+                        (State::Installed, _) => restart = primary(ui, "Restart").clicked(),
+                        (State::Failed(_), _) | (_, Method::Download) => {
+                            if primary(ui, "Download").clicked() {
+                                ui.ctx().open_url(egui::OpenUrl::new_tab(format!(
+                                    "{}/latest",
+                                    update::RELEASES_URL
+                                )));
+                            }
+                        }
+                        (_, Method::Installer) => install = primary(ui, "Update now").clicked(),
+                    }
+                    if !busy {
+                        let quiet = |label: &str| {
+                            egui::Button::new(
+                                egui::RichText::new(label)
+                                    .size(13.5)
+                                    .color(theme.foreground),
+                            )
+                            .corner_radius(CornerRadius::same(6))
+                            .min_size(vec2(0.0, 30.0))
+                        };
+                        if ui.add(quiet("What's new")).clicked() {
+                            ui.ctx()
+                                .open_url(egui::OpenUrl::new_tab(update::notes_url(&latest)));
+                        }
+                        let later = if state == State::Installed {
+                            "Later"
+                        } else {
+                            "Not now"
+                        };
+                        close = ui.add(quiet(later)).clicked();
+                    }
+                });
+            });
+        if modal.should_close() && !busy {
+            close = true;
+        }
+
+        if install {
+            let ctx = ctx.clone();
+            self.updates.install(move || ctx.request_repaint());
+        }
+        if restart {
+            self.store.save();
+            match update::relaunch() {
+                Ok(()) => ctx.send_viewport_cmd(ViewportCommand::Close),
+                Err(e) => eprintln!("omacus: couldn't restart: {e}"),
+            }
+        }
+        if close {
+            self.update_open = false;
+            self.focus_editor = true;
         }
     }
 
@@ -414,9 +564,11 @@ impl OmacusApp {
 
         let titles: Vec<String> = self.store.sheets.iter().map(|s| s.title()).collect();
         let count = titles.len();
+        let available = self.updates.available();
+        let footer = if available.is_some() { 58.0 } else { 34.0 };
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
-            .max_height(ui.available_height() - 34.0)
+            .max_height(ui.available_height() - footer)
             .show(ui, |ui| {
                 for (i, title) in titles.into_iter().enumerate() {
                     let active = i == self.store.active;
@@ -461,6 +613,20 @@ impl OmacusApp {
             });
 
         ui.add_space(6.0);
+        if let Some(version) = available {
+            let offer = ui.add(
+                egui::Button::new(
+                    egui::RichText::new(format!("↑  v{version} available"))
+                        .size(12.0)
+                        .color(theme.accent),
+                )
+                .frame(false),
+            );
+            if offer.on_hover_text("See what's new and update").clicked() {
+                self.update_open = true;
+                self.help = None;
+            }
+        }
         let help = ui.add(
             egui::Button::new(
                 egui::RichText::new(format!("?  Help & shortcuts   {}", help::keys("F1")))
@@ -729,6 +895,7 @@ impl eframe::App for OmacusApp {
 
         self.popup(&ctx);
         self.show_help(&ctx);
+        self.show_update(&ctx);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

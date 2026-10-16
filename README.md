@@ -68,6 +68,7 @@ CLI:
 omacus '$100 in EUR'
 printf 'a = 5\na * 3\n' | omacus -
 omacus --version
+omacus update        # install the latest version
 ```
 
 ## Install
@@ -165,9 +166,17 @@ On other desktops, bind a global shortcut to `omacus` in your keyboard settings.
 |---|---|---|---|
 | Sheets | `~/.local/share/omacus` | `~/Library/Application Support/omacus` | `%APPDATA%\omacus` |
 | Custom theme | `~/.config/omacus/theme.toml` | `~/Library/Application Support/omacus/theme.toml` | `%APPDATA%\omacus\theme.toml` |
+| Settings | `~/.config/omacus/settings.toml` | `~/Library/Application Support/omacus/settings.toml` | `%APPDATA%\omacus\settings.toml` |
 
 Colors: your `theme.toml` if present (Omarchy `colors.toml` format), else the active Omarchy theme,
 else the system's light or dark mode. On macOS, shortcuts use ⌘ wherever this README says Ctrl.
+
+### Updating
+
+A notice appears at the bottom of the sidebar when a new version is out; click it to update and
+restart. Or run `omacus update`. Omacus checks GitHub for the latest version at most once a day;
+`check_for_updates = false` in `settings.toml` turns that off. Installed from a .deb or .rpm, or on
+Windows, the notice links to the download instead.
 
 ## Feedback and issues
 
