@@ -49,6 +49,7 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
         "Sheets",
         &[
             ("Ctrl+N", "New sheet"),
+            ("Ctrl+P", "Go to a sheet by name"),
             ("Ctrl+Tab  /  Ctrl+Shift+Tab", "Next / previous sheet"),
             ("Ctrl+PgDn  /  Ctrl+PgUp", "Next / previous sheet"),
             ("Ctrl+1 … Ctrl+9", "Jump to a sheet"),
@@ -62,6 +63,7 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("Click a result", "Copy it"),
             ("Ctrl+Shift+C", "Copy the last result"),
+            ("Ctrl+Shift+S", "Copy the sheet with its answers"),
         ],
     ),
     (
@@ -159,6 +161,8 @@ const SYNTAX: &[(&str, &[&str])] = &[
         &[
             "6pm PST in Tokyo",
             "3pm PST on Dec 1 in London",
+            "in 90 minutes in Tokyo",
+            "3pm + 45 min",
             "time in Sydney",
             "10:30 London to New York",
             "now in Berlin",
@@ -211,6 +215,14 @@ const TIPS: &[(&str, &str)] = &[
     (
         "Deleted isn't gone",
         "Deleted sheets go to `{data}/trash`. Sheets are plain text files in `{data}/sheets`, so search, sync or back them up.",
+    ),
+    (
+        "Share a sheet",
+        "`Ctrl+Shift+S` copies the whole sheet with each answer lined up after its line, ready to paste into a message or a doc.",
+    ),
+    (
+        "Jump between sheets",
+        "`Ctrl+P` and a few letters of a sheet's name (or something written in it), then Enter.",
     ),
     (
         "Copy fast",

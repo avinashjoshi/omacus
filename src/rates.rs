@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 
 const RATES_URL: &str = "https://open.er-api.com/v6/latest/USD";
 const MAX_AGE: Duration = Duration::from_secs(12 * 60 * 60);
+/// After a failed refresh (offline), wait this long before trying again.
+const RETRY_AFTER: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Default, Serialize, Deserialize)]
 struct Cache {
@@ -29,6 +31,10 @@ struct ApiResponse {
 pub struct Rates {
     table: Arc<RwLock<HashMap<String, f64>>>,
     version: Arc<AtomicU64>,
+    /// When the rates in `table` were fetched, and when a refresh was last tried.
+    fetched_at: Arc<AtomicU64>,
+    tried_at: Arc<AtomicU64>,
+    fetching: Arc<AtomicBool>,
 }
 
 impl Rates {
@@ -36,20 +42,33 @@ impl Rates {
     pub fn load(on_update: impl Fn() + Send + 'static) -> Self {
         let rates = Self::default();
         let cache = read_cache();
-        let stale = now_secs().saturating_sub(cache.fetched_at) > MAX_AGE.as_secs();
+        rates.fetched_at.store(cache.fetched_at, Ordering::Relaxed);
         rates.set(cache.rates);
-
-        if stale {
-            let rates = rates.clone();
-            std::thread::spawn(move || {
-                if let Ok(fresh) = fetch() {
-                    write_cache(&fresh);
-                    rates.set(fresh);
-                    on_update();
-                }
-            });
-        }
+        rates.refresh_if_stale(on_update);
         rates
+    }
+
+    /// Fetch new rates in the background when they're over 12 hours old. Called at
+    /// launch and then every minute, so a window left open for days stays current.
+    pub fn refresh_if_stale(&self, on_update: impl Fn() + Send + 'static) {
+        let now = now_secs();
+        let stale = now.saturating_sub(self.fetched_at.load(Ordering::Relaxed)) > MAX_AGE.as_secs();
+        let retry =
+            now.saturating_sub(self.tried_at.load(Ordering::Relaxed)) > RETRY_AFTER.as_secs();
+        if !stale || !retry || self.fetching.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        self.tried_at.store(now, Ordering::Relaxed);
+        let rates = self.clone();
+        std::thread::spawn(move || {
+            if let Ok(fresh) = fetch() {
+                write_cache(&fresh);
+                rates.fetched_at.store(now_secs(), Ordering::Relaxed);
+                rates.set(fresh);
+                on_update();
+            }
+            rates.fetching.store(false, Ordering::Relaxed);
+        });
     }
 
     /// For the CLI: fetch synchronously when there is no cache yet, since the

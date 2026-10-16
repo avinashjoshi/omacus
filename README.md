@@ -38,7 +38,8 @@ adds the notepad conventions on top.
 - On Omarchy, `SUPER + CTRL + ALT + =` opens Omacus (or focuses it), floating and centered.
 - `Esc` or `Ctrl+Q` closes it. Nothing is ever lost: like Sublime Text, every sheet is saved as you
   type and reopens exactly where you left it, cursor included.
-- Click a result to copy it; `Ctrl+Shift+C` copies the last result.
+- Click a result to copy it; `Ctrl+Shift+C` copies the last result, and `Ctrl+Shift+S` copies
+  the whole sheet with its answers lined up.
 - `Ctrl` `+` / `-` zooms.
 - Colors follow the active Omarchy theme (`colors.toml`) and update live on `omarchy theme set`.
 
@@ -47,6 +48,7 @@ adds the notepad conventions on top.
 | Key | |
 |---|---|
 | `Ctrl+N` | New sheet |
+| `Ctrl+P` | Go to a sheet by name |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` (or `Ctrl+PgDn` / `PgUp`) | Next / previous sheet |
 | `Ctrl+1` … `Ctrl+9` | Jump to sheet |
 | `Alt+↑` / `Alt+↓` | Move sheet up / down |

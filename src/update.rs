@@ -101,6 +101,8 @@ pub struct Updates {
     latest: Arc<Mutex<Option<String>>>,
     state: Arc<Mutex<State>>,
     check: Arc<Mutex<Check>>,
+    /// When GitHub was last asked (or a try was made), for the daily schedule.
+    checked_at: Arc<Mutex<u64>>,
 }
 
 impl Updates {
@@ -111,19 +113,32 @@ impl Updates {
             latest: Arc::new(Mutex::new(cache.latest)),
             state: Arc::new(Mutex::new(State::Idle)),
             check: Arc::new(Mutex::new(Check::Idle)),
+            checked_at: Arc::new(Mutex::new(cache.checked_at)),
         };
-        let stale = now_secs().saturating_sub(cache.checked_at) > CHECK_EVERY.as_secs();
-        if enabled() && stale {
-            let latest = updates.latest.clone();
-            std::thread::spawn(move || {
-                if let Ok(version) = fetch_latest() {
-                    write_cache(&version);
-                    *latest.lock().unwrap() = Some(version);
-                    on_update();
-                }
-            });
-        }
+        updates.check_if_due(on_update);
         updates
+    }
+
+    /// Ask GitHub if the last check was over a day ago. Called at launch and then
+    /// every minute, so a window that stays open still hears about new versions.
+    pub fn check_if_due(&self, on_update: impl Fn() + Send + 'static) {
+        let now = now_secs();
+        {
+            let mut checked_at = self.checked_at.lock().unwrap();
+            if !enabled() || now.saturating_sub(*checked_at) <= CHECK_EVERY.as_secs() {
+                return;
+            }
+            // Count the try, so an offline machine asks again tomorrow, not every minute.
+            *checked_at = now;
+        }
+        let latest = self.latest.clone();
+        std::thread::spawn(move || {
+            if let Ok(version) = fetch_latest() {
+                write_cache(&version);
+                *latest.lock().unwrap() = Some(version);
+                on_update();
+            }
+        });
     }
 
     /// A newer version than this one, if there is one. With checking turned off,

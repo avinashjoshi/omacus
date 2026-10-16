@@ -27,6 +27,22 @@ re!(
     r"(?i)^(?:what\s+)?(?:time|now)\s+(?:in|at)\s+(.+?)\??$"
 );
 re!(CONVERT, r"(?i)^(.+?)\s+(?:in|to|as)\s+(.+)$");
+// One "<number> <unit>" of a duration; bare m, w and d are left to fend
+// (metres, watts, days are ambiguous on their own).
+re!(
+    DURATION_PART,
+    r"(?i)^(\d+(?:\.\d+)?)\s*(weeks?|days?|hours?|hrs?|hr|h|minutes?|mins?|min)\b"
+);
+// "in 3 hours", "90 minutes from now", optionally "in <zone>".
+re!(
+    FROM_NOW,
+    r"(?i)^(?:in\s+((?:\d+(?:\.\d+)?\s*(?:weeks?|days?|hours?|hrs?|hr|h|minutes?|mins?|min)\b\s*)+)|((?:\d+(?:\.\d+)?\s*(?:weeks?|days?|hours?|hrs?|hr|h|minutes?|mins?|min)\b\s*)+)from\s+now)(?:\s+(?:in|at)\s+(.+?))?$"
+);
+// "<time> + <duration>", optionally "in <zone>".
+re!(
+    SHIFT,
+    r"(?i)^(.+?)\s*([+-])\s*((?:\d+(?:\.\d+)?\s*(?:weeks?|days?|hours?|hrs?|hr|h|minutes?|mins?|min)\b\s*)+)(?:\s+(?:in|to)\s+(.+))?$"
+);
 // A date on a time to convert: "on Dec 1", "1 December 2026", "2026-12-01",
 // "tomorrow", "Friday", "next Monday".
 re!(
@@ -209,7 +225,10 @@ fn label(tz: Tz, abbr: &str) -> String {
 }
 
 pub fn eval(line: &str) -> Option<String> {
-    eval_date(line).or_else(|| eval_zone(line, Utc::now()))
+    let now = Utc::now();
+    eval_date(line)
+        .or_else(|| eval_relative(line, now))
+        .or_else(|| eval_zone(line, now))
 }
 
 /// Names offered by autocomplete.
@@ -224,10 +243,31 @@ fn eval_zone(line: &str, now: DateTime<Utc>) -> Option<String> {
 
     let c = CONVERT.captures(line)?;
     let target = zone(&c[2])?;
-    let (lhs, date) = take_date(c[1].trim());
+    let (instant, source, date) = instant(&c[1], now)?;
+    let (from_date, _) = source.at(instant);
+    let (to_date, shown) = target.at(instant);
+    if date.is_some() {
+        // A date was asked for, so say which date it is there.
+        return Some(format!("{shown}, {}", to_date.format("%a %-d %b")));
+    }
+    Some(with_day_change(shown, from_date, to_date))
+}
+
+/// "(next day)" or "(prev day)" when a time lands on another date.
+fn with_day_change(shown: String, from: NaiveDate, to: NaiveDate) -> String {
+    match (to - from).num_days() {
+        1 => format!("{shown} (next day)"),
+        -1 => format!("{shown} (prev day)"),
+        _ => shown,
+    }
+}
+
+/// The moment a time like "Standup 9:30am PST on Dec 1" means: a label is
+/// skipped, a date is optional, and no zone means local time.
+fn instant(lhs: &str, now: DateTime<Utc>) -> Option<(DateTime<Utc>, Zone, Option<DateSpec>)> {
+    let (lhs, date) = take_date(lhs.trim());
     // Allow a label first: "Sunset 6:12pm IST in Sydney".
-    let lhs = lhs.as_str();
-    let t = std::iter::successors(Some(lhs), |s| {
+    let t = std::iter::successors(Some(lhs.as_str()), |s| {
         s.split_once(char::is_whitespace)
             .map(|(_, rest)| rest.trim_start())
     })
@@ -239,50 +279,100 @@ fn eval_zone(line: &str, now: DateTime<Utc>) -> Option<String> {
         zone(rest)?
     };
 
-    let instant = if t
-        .get(1)
+    if t.get(1)
         .is_some_and(|m| m.as_str().eq_ignore_ascii_case("now"))
     {
-        now
-    } else {
-        let time = match t.get(1).map(|m| m.as_str().to_ascii_lowercase()) {
-            Some(w) if w == "noon" => NaiveTime::from_hms_opt(12, 0, 0)?,
-            Some(_) => NaiveTime::from_hms_opt(0, 0, 0)?,
-            None => {
-                let mut hour: u32 = t[2].parse().ok()?;
-                let minute: u32 = t.get(3).map_or(Ok(0), |m| m.as_str().parse()).ok()?;
-                let meridiem = t.get(4).map(|m| m.as_str().to_ascii_lowercase());
-                // A bare "15 in IST" is a number, not a time.
-                if meridiem.is_none() && t.get(3).is_none() && rest.is_empty() {
-                    return None;
-                }
-                match meridiem.as_deref().map(|m| m.starts_with('p')) {
-                    Some(true) if hour < 12 => hour += 12,
-                    Some(false) if hour == 12 => hour = 0,
-                    _ => {}
-                }
-                NaiveTime::from_hms_opt(hour, minute, 0)?
-            }
-        };
-        let today = source.at(now).0;
-        let day = match date {
-            Some(d) => d.resolve(today)?,
-            None => today,
-        };
-        source.to_utc(day, time)?
-    };
-
-    let (from_date, _) = source.at(instant);
-    let (to_date, shown) = target.at(instant);
-    if date.is_some() {
-        // A date was asked for, so say which date it is there.
-        return Some(format!("{shown}, {}", to_date.format("%a %-d %b")));
+        return Some((now, source, date));
     }
-    Some(match (to_date - from_date).num_days() {
-        1 => format!("{shown} (next day)"),
-        -1 => format!("{shown} (prev day)"),
+    let time = match t.get(1).map(|m| m.as_str().to_ascii_lowercase()) {
+        Some(w) if w == "noon" => NaiveTime::from_hms_opt(12, 0, 0)?,
+        Some(_) => NaiveTime::from_hms_opt(0, 0, 0)?,
+        None => {
+            let mut hour: u32 = t[2].parse().ok()?;
+            let minute: u32 = t.get(3).map_or(Ok(0), |m| m.as_str().parse()).ok()?;
+            let meridiem = t.get(4).map(|m| m.as_str().to_ascii_lowercase());
+            // A bare "15 in IST" is a number, not a time.
+            if meridiem.is_none() && t.get(3).is_none() && rest.is_empty() {
+                return None;
+            }
+            match meridiem.as_deref().map(|m| m.starts_with('p')) {
+                Some(true) if hour < 12 => hour += 12,
+                Some(false) if hour == 12 => hour = 0,
+                _ => {}
+            }
+            NaiveTime::from_hms_opt(hour, minute, 0)?
+        }
+    };
+    let today = source.at(now).0;
+    let day = match date {
+        Some(d) => d.resolve(today)?,
+        None => today,
+    };
+    Some((source.to_utc(day, time)?, source, date))
+}
+
+/// A length of time: "45 min", "2 hours", "1 hour 30 minutes", "3 days".
+fn duration(text: &str) -> Option<Duration> {
+    let mut seconds = 0.0;
+    let mut rest = text.trim();
+    while !rest.is_empty() {
+        let c = DURATION_PART.captures(rest)?;
+        let n: f64 = c[1].parse().ok()?;
+        let unit = c[2].to_ascii_lowercase();
+        seconds += n * match unit.as_bytes()[0] {
+            b'w' => 7.0 * 86400.0,
+            b'd' => 86400.0,
+            b'h' => 3600.0,
+            _ => 60.0,
+        };
+        rest = rest[c.get(0)?.end()..].trim_start();
+    }
+    Some(Duration::seconds(seconds.round() as i64))
+}
+
+/// "in 3 hours", "90 minutes from now", "in 2 days in Tokyo",
+/// "3pm + 45 min", "9:30am PST + 2 hours in London".
+fn eval_relative(line: &str, now: DateTime<Utc>) -> Option<String> {
+    if let Some(c) = FROM_NOW.captures(line) {
+        let span = duration(c.get(1).or(c.get(2))?.as_str())?;
+        let target = match c.get(3) {
+            Some(z) => zone(z.as_str())?,
+            None => Zone::Local,
+        };
+        let then = now + span;
+        let (today, _) = target.at(now);
+        let (day, shown) = target.at(then);
+        let shown = match target {
+            Zone::Local => clock(then.with_timezone(&Local).time()),
+            Zone::Tz(_) => shown,
+        };
+        return Some(if day == today {
+            shown
+        } else {
+            format!("{shown}, {}", day.format("%a %-d %b"))
+        });
+    }
+
+    let c = SHIFT.captures(line)?;
+    let (start, source, _) = instant(&c[1], now)?;
+    let span = duration(&c[3])?;
+    let then = if &c[2] == "-" {
+        start - span
+    } else {
+        start + span
+    };
+    let target = match c.get(4) {
+        Some(z) => zone(z.as_str())?,
+        None => source,
+    };
+    let (from_date, _) = source.at(start);
+    let (to_date, shown) = target.at(then);
+    // Plain clock math in local time doesn't need a zone name.
+    let shown = match (c.get(4), target) {
+        (None, Zone::Local) => clock(then.with_timezone(&Local).time()),
         _ => shown,
-    })
+    };
+    Some(with_day_change(shown, from_date, to_date))
 }
 
 /// A date written on a time, resolved against "today" in the source zone.
@@ -516,6 +606,30 @@ mod tests {
             conv("Sunday brunch 11am PST in London").unwrap(),
             "7:00 PM BST, Sun 18 Oct"
         );
+    }
+
+    #[test]
+    fn relative_times() {
+        let rel = |line: &str| eval_relative(line, now());
+        // now() is 12:00 UTC on Fri 16 Oct.
+        assert_eq!(rel("in 90 minutes in Tokyo").unwrap(), "10:30 PM JST");
+        assert_eq!(rel("3 hours from now in UTC").unwrap(), "3:00 PM UTC");
+        assert_eq!(rel("in 3 days in UTC").unwrap(), "12:00 PM UTC, Mon 19 Oct");
+        assert_eq!(rel("in 1 hour 30 min in London").unwrap(), "2:30 PM BST");
+        assert_eq!(rel("3pm UTC + 45 min").unwrap(), "3:45 PM UTC");
+        assert_eq!(rel("11pm UTC + 2 hours").unwrap(), "1:00 AM UTC (next day)");
+        assert_eq!(
+            rel("9:30am PST + 2 hours in London").unwrap(),
+            "7:30 PM BST"
+        );
+        assert_eq!(rel("Meeting 3pm UTC - 15 min").unwrap(), "2:45 PM UTC");
+        // In local time, plain clock math has no zone name.
+        assert!(rel("3pm + 45 min").unwrap().starts_with("3:45 PM"));
+        assert!(rel("in 3 hours").unwrap().ends_with('M'));
+        // Not a time: left to the math engine.
+        assert_eq!(rel("3 + 45 min"), None);
+        assert_eq!(rel("$5 + 3 hours"), None);
+        assert_eq!(rel("in 3 m"), None);
     }
 
     #[test]

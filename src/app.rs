@@ -70,6 +70,52 @@ enum SheetAction {
     New,
     Delete(usize),
     Move(usize, isize),
+    /// Copy a sheet as text with its answers lined up.
+    Copy(usize),
+}
+
+/// Ctrl+P: find a sheet by name (or by something written in it).
+#[derive(Default)]
+struct Switcher {
+    query: String,
+    selected: usize,
+}
+
+/// Sheets matching the switcher's query, best first: title starts with it, title
+/// contains it, title has its letters in order, then sheets that mention it.
+fn find_sheets(titles: &[String], texts: &[&str], query: &str) -> Vec<usize> {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return (0..titles.len()).collect();
+    }
+    let in_order = |hay: &str| {
+        let mut chars = hay.chars();
+        q.chars()
+            .filter(|c| !c.is_whitespace())
+            .all(|c| chars.any(|h| h == c))
+    };
+    let mut ranked: Vec<(u8, usize)> = titles
+        .iter()
+        .zip(texts)
+        .enumerate()
+        .filter_map(|(i, (title, text))| {
+            let title = title.to_lowercase();
+            let rank = if title.starts_with(&q) {
+                0
+            } else if title.contains(&q) {
+                1
+            } else if in_order(&title) {
+                2
+            } else if text.to_lowercase().contains(&q) {
+                3
+            } else {
+                return None;
+            };
+            Some((rank, i))
+        })
+        .collect();
+    ranked.sort();
+    ranked.into_iter().map(|(_, i)| i).collect()
 }
 
 pub struct OmacusApp {
@@ -84,6 +130,10 @@ pub struct OmacusApp {
     system_dark: bool,
     dirty_since: Option<Instant>,
     copied: Option<(usize, Instant)>,
+    /// A short confirmation at the bottom of the window ("Sheet copied…").
+    toast: Option<(String, Instant)>,
+    switcher: Option<Switcher>,
+    ctx: egui::Context,
     evaluated_at: Instant,
     popup: Option<Popup>,
     /// Cursor to apply to the editor after it is next shown.
@@ -129,6 +179,8 @@ impl OmacusApp {
             system_dark,
             dirty_since: None,
             copied: None,
+            toast: None,
+            ctx: cc.egui_ctx.clone(),
             evaluated_at: Instant::now(),
             popup: None,
             pending_cursor: None,
@@ -150,9 +202,15 @@ impl OmacusApp {
             },
             // With OMACUS_SCREENSHOT, "update" opens the update window instead of help.
             update_open: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "update"),
+            switcher: std::env::var("OMACUS_SCREENSHOT_HELP")
+                .is_ok_and(|t| t == "switcher")
+                .then(|| Switcher {
+                    query: "k".into(),
+                    selected: 0,
+                }),
             help: std::env::var("OMACUS_SCREENSHOT_HELP")
                 .ok()
-                .filter(|t| t != "update")
+                .filter(|t| t != "update" && t != "switcher")
                 .map(|t| help::Tab::from_name(&t)),
             screenshot: std::env::var_os("OMACUS_SCREENSHOT").map(|p| (p.into(), 0)),
         };
@@ -188,6 +246,14 @@ impl OmacusApp {
                 self.store.select(i);
                 self.store.move_active(step);
             }
+            SheetAction::Copy(i) => {
+                let text = &self.store.sheets[i].text;
+                let results = self.engine.eval_document(text);
+                let ctx = self.ctx.clone();
+                ctx.copy_text(engine::with_answers(text, &results));
+                self.toast = Some(("Sheet copied with answers".into(), Instant::now()));
+                return;
+            }
         }
         self.sheet_switched();
     }
@@ -199,6 +265,13 @@ impl OmacusApp {
             self.theme = Theme::load(system_dark);
             apply_visuals(ctx, &self.theme);
         }
+        // Both are no-ops unless their 12-hour / daily schedule is due.
+        let repaint = ctx.clone();
+        self.rates
+            .refresh_if_stale(move || repaint.request_repaint());
+        let repaint = ctx.clone();
+        self.updates.check_if_due(move || repaint.request_repaint());
+
         let v = self.rates.version();
         // Re-evaluate when fresh rates land, and every minute so `now` stays current.
         if v != self.rates_seen || self.evaluated_at.elapsed() > Duration::from_secs(60) {
@@ -229,6 +302,19 @@ impl OmacusApp {
         });
         if toggle_help {
             self.toggle_help();
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::P)) {
+            self.switcher = match self.switcher {
+                Some(_) => None,
+                None => Some(Switcher::default()),
+            };
+            self.help = None;
+            self.popup = None;
+            self.focus_editor = self.switcher.is_none();
+        }
+        if self.switcher.is_some() {
+            self.switcher_keys(ctx);
+            return;
         }
         if self.update_open {
             if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
@@ -277,6 +363,9 @@ impl OmacusApp {
 
         let mut action = None;
         let (quit, copy_last, sidebar) = ctx.input_mut(|i| {
+            if i.consume_key(cmd_shift, Key::S) {
+                action = Some(SheetAction::Copy(self.store.active));
+            }
             if i.consume_key(cmd, Key::N) {
                 action = Some(SheetAction::New);
             }
@@ -428,6 +517,172 @@ impl OmacusApp {
             }
             None => {}
         }
+    }
+
+    /// Arrows, Enter and Esc for the switcher, before its text box sees them.
+    fn switcher_keys(&mut self, ctx: &egui::Context) {
+        let (up, down, enter, esc) = ctx.input_mut(|i| {
+            (
+                i.consume_key(Modifiers::NONE, Key::ArrowUp),
+                i.consume_key(Modifiers::NONE, Key::ArrowDown),
+                i.consume_key(Modifiers::NONE, Key::Enter),
+                i.consume_key(Modifiers::NONE, Key::Escape),
+            )
+        });
+        let matches = self.switcher_matches();
+        let Some(sw) = &mut self.switcher else { return };
+        let n = matches.len().max(1);
+        if up {
+            sw.selected = (sw.selected + n - 1) % n;
+        }
+        if down {
+            sw.selected = (sw.selected + 1) % n;
+        }
+        if esc {
+            self.switcher = None;
+            self.focus_editor = true;
+        } else if enter && let Some(&i) = matches.get(sw.selected) {
+            self.switcher = None;
+            self.focus_editor = true;
+            self.apply(SheetAction::Select(i));
+        }
+    }
+
+    fn switcher_matches(&self) -> Vec<usize> {
+        let Some(sw) = &self.switcher else {
+            return Vec::new();
+        };
+        let titles: Vec<String> = self.store.sheets.iter().map(|s| s.title()).collect();
+        let texts: Vec<&str> = self.store.sheets.iter().map(|s| s.text.as_str()).collect();
+        find_sheets(&titles, &texts, &sw.query)
+    }
+
+    /// The Ctrl+P box: a search field and the matching sheets.
+    fn show_switcher(&mut self, ctx: &egui::Context) {
+        if self.switcher.is_none() {
+            return;
+        }
+        let theme = self.theme.clone();
+        let matches = self.switcher_matches();
+        let titles: Vec<String> = self.store.sheets.iter().map(|s| s.title()).collect();
+        let mut picked = None;
+        let mut close = false;
+
+        let frame = Frame::NONE
+            .fill(theme.sidebar)
+            .stroke(egui::Stroke::new(1.0, theme.selection))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(Margin::same(8));
+        let width = (ctx.content_rect().width() - 80.0).clamp(280.0, 460.0);
+        let modal = egui::Modal::new(egui::Id::unique("omacus-switcher"))
+            .frame(frame)
+            .backdrop_color(Color32::from_black_alpha(110))
+            .area(
+                egui::Modal::default_area(egui::Id::unique("omacus-switcher-area"))
+                    .anchor(Align2::CENTER_TOP, vec2(0.0, 80.0)),
+            )
+            .show(ctx, |ui| {
+                ui.set_width(width);
+                let sw = self.switcher.as_mut().unwrap();
+                let before = sw.query.clone();
+                let field = ui.add(
+                    TextEdit::singleline(&mut sw.query)
+                        .hint_text("Go to sheet…")
+                        .font(FontId::proportional(15.0))
+                        .frame(egui::Frame::NONE.inner_margin(Margin::symmetric(8, 6)))
+                        .desired_width(f32::INFINITY),
+                );
+                field.request_focus();
+                if sw.query != before {
+                    sw.selected = 0;
+                }
+                let selected = sw.selected;
+                ui.add_space(4.0);
+                if matches.is_empty() {
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("  No sheet matches").color(theme.comment));
+                    ui.add_space(4.0);
+                }
+                for (row, &i) in matches.iter().take(9).enumerate() {
+                    let (rect, resp) =
+                        ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
+                    if row == selected {
+                        ui.painter()
+                            .rect_filled(rect, CornerRadius::same(6), theme.selection);
+                    } else if resp.hovered() {
+                        ui.painter()
+                            .rect_filled(rect, CornerRadius::same(6), theme.hover);
+                    }
+                    let color = if row == selected {
+                        theme.foreground
+                    } else {
+                        theme.dim
+                    };
+                    ui.painter().text(
+                        rect.left_center() + vec2(10.0, 0.0),
+                        Align2::LEFT_CENTER,
+                        &titles[i],
+                        FontId::proportional(14.0),
+                        color,
+                    );
+                    if i == self.store.active {
+                        ui.painter().text(
+                            rect.right_center() - vec2(10.0, 0.0),
+                            Align2::RIGHT_CENTER,
+                            "current",
+                            FontId::proportional(12.0),
+                            theme.comment,
+                        );
+                    }
+                    if resp.clicked() {
+                        picked = Some(i);
+                    }
+                }
+            });
+        if modal.should_close() {
+            close = true;
+        }
+        if let Some(i) = picked {
+            self.switcher = None;
+            self.focus_editor = true;
+            self.apply(SheetAction::Select(i));
+        } else if close {
+            self.switcher = None;
+            self.focus_editor = true;
+        }
+    }
+
+    /// A short confirmation, fading out after a moment.
+    fn show_toast(&mut self, ctx: &egui::Context) {
+        const SHOW_FOR: Duration = Duration::from_millis(1600);
+        let Some((text, at)) = &self.toast else {
+            return;
+        };
+        let age = at.elapsed();
+        if age > SHOW_FOR {
+            self.toast = None;
+            return;
+        }
+        let fade = 1.0 - (age.as_secs_f32() / SHOW_FOR.as_secs_f32()).powi(4);
+        let theme = &self.theme;
+        egui::Area::new(egui::Id::unique("omacus-toast"))
+            .anchor(Align2::CENTER_BOTTOM, vec2(0.0, -24.0))
+            .order(Order::Foreground)
+            .interactable(false)
+            .show(ctx, |ui| {
+                Frame::NONE
+                    .fill(theme.selection.gamma_multiply(fade))
+                    .corner_radius(CornerRadius::same(8))
+                    .inner_margin(Margin::symmetric(14, 8))
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(text.as_str())
+                                .size(13.0)
+                                .color(theme.foreground.gamma_multiply(fade)),
+                        );
+                    });
+            });
+        ctx.request_repaint();
     }
 
     /// The update window: what's new, and installing it.
@@ -699,6 +954,9 @@ impl OmacusApp {
                         if i + 1 < count && ui.button("Move down").clicked() {
                             action = Some(SheetAction::Move(i, 1));
                         }
+                        if ui.button("Copy with answers").clicked() {
+                            action = Some(SheetAction::Copy(i));
+                        }
                         ui.separator();
                         if ui.button("Delete sheet").clicked() {
                             action = Some(SheetAction::Delete(i));
@@ -967,6 +1225,8 @@ impl eframe::App for OmacusApp {
         self.popup(&ctx);
         self.show_help(&ctx);
         self.show_update(&ctx);
+        self.show_switcher(&ctx);
+        self.show_toast(&ctx);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -1071,4 +1331,32 @@ pub fn run() -> eframe::Result {
         options,
         Box::new(|cc| Ok(Box::new(OmacusApp::new(cc)))),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_sheets;
+
+    #[test]
+    fn finds_sheets_by_name_then_contents() {
+        let titles = [
+            "Kyoto in autumn",
+            "Invoice — October",
+            "Kitchen",
+            "Monthly budget",
+        ]
+        .map(String::from);
+        let texts = [
+            "# Kyoto\nRyokan",
+            "# Invoice\nrate",
+            "# Kitchen\n2 cups",
+            "# Budget\nRent",
+        ];
+        assert_eq!(find_sheets(&titles, &texts, "ki"), vec![2, 0]);
+        assert_eq!(find_sheets(&titles, &texts, "oct"), vec![1]);
+        assert_eq!(find_sheets(&titles, &texts, "mb"), vec![3]);
+        assert_eq!(find_sheets(&titles, &texts, "ryokan"), vec![0]);
+        assert_eq!(find_sheets(&titles, &texts, ""), vec![0, 1, 2, 3]);
+        assert!(find_sheets(&titles, &texts, "zzz").is_empty());
+    }
 }

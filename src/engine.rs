@@ -293,6 +293,37 @@ impl Engine {
     }
 }
 
+/// The sheet as plain text with each answer lined up after its line, the way the
+/// app shows it, for pasting into a message or a document.
+pub fn with_answers(text: &str, results: &[LineResult]) -> String {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let answered = |i: usize| results.get(i).is_some_and(|r| !r.display.is_empty());
+    let width = lines
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| answered(*i))
+        .map(|(_, l)| l.trim_end().chars().count())
+        .max()
+        .unwrap_or(0)
+        .min(56)
+        + 4;
+    let mut out: Vec<String> = lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            let line = line.trim_end();
+            match results.get(i).filter(|_| answered(i)) {
+                Some(r) => format!("{line:<width$}{}", r.display),
+                None => line.to_string(),
+            }
+        })
+        .collect();
+    while out.last().is_some_and(String::is_empty) {
+        out.pop();
+    }
+    out.join("\n")
+}
+
 /// Names assigned anywhere in the sheet (`rent = $1200`), for highlighting.
 pub fn defined_variables(text: &str) -> std::collections::HashSet<String> {
     text.lines()
@@ -676,6 +707,17 @@ mod tests {
         // A word in front of a unit changes it; dropping it would give a wrong answer.
         assert_eq!(one("1 royal gallon in liters"), "");
         assert_eq!(one("Movie tickets 2 * $14"), "$28");
+    }
+
+    #[test]
+    fn copies_a_sheet_with_answers() {
+        let engine = Engine::new(Rates::fixed(&[("USD", 1.0)]));
+        let text = "# Lunch\nPizza $24\nTip: 18% of prev\n\n";
+        let copied = with_answers(text, &engine.eval_document(text));
+        assert_eq!(
+            copied,
+            "# Lunch\nPizza $24           $24\nTip: 18% of prev    $4.32"
+        );
     }
 
     #[test]
