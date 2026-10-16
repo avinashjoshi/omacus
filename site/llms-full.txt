@@ -268,6 +268,7 @@ omacus '6pm PST in Tokyo'
 printf 'rent = $1450\nrent * 12\n' | omacus -  # a whole sheet from stdin, one result per line
 omacus - < ~/notes/budget.txt
 omacus  # no arguments: open the window
+omacus --version  # which version you have
 ```
 
 A single expression exits with status 1 when there's no answer, which makes it easy to use in scripts. On Windows, `omacus.exe "..."` works the same from a terminal.
