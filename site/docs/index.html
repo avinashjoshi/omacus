@@ -3,21 +3,129 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Docs — Omacus</title>
-  <meta name="description" content="How to install and use Omacus, the notepad calculator: syntax, sheets, shortcuts, themes, the command line, Omarchy setup and how it works.">
+  <title>Omacus docs: syntax, units, currencies, time zones and CLI</title>
+  <meta name="description" content="How to install and use Omacus, the free notepad calculator: syntax, percentages, units, currencies, time zones, dates, sheets, shortcuts, themes, the command line and Omarchy setup.">
+  <meta name="author" content="Avinash Joshi">
   <link rel="canonical" href="https://omacus.com/docs/">
   <meta name="theme-color" content="#090909">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Omacus">
+  <meta property="og:url" content="https://omacus.com/docs/">
   <meta property="og:title" content="Omacus docs">
   <meta property="og:description" content="Syntax, sheets, shortcuts, themes, CLI and how Omacus works.">
   <meta property="og:image" content="https://omacus.com/img/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
   <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Omacus docs">
+  <meta name="twitter:description" content="Syntax, sheets, shortcuts, themes, CLI and how Omacus works.">
+  <meta name="twitter:image" content="https://omacus.com/img/og.png">
+  <link rel="manifest" href="/site.webmanifest">
   <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
   <link rel="icon" href="/img/favicon-32.png" sizes="32x32">
   <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/inter-tight-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/instrument-serif-italic-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/css/site.css">
+  <script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://omacus.com/docs/#article",
+   "headline": "Omacus documentation",
+   "description": "How to install and use Omacus, the free notepad calculator.",
+   "url": "https://omacus.com/docs/",
+   "inLanguage": "en",
+   "dateModified": "{{lastmod}}",
+   "author": {
+    "@type": "Person",
+    "@id": "https://omacus.com/#author",
+    "name": "Avinash Joshi",
+    "url": "https://github.com/avinashjoshi"
+   },
+   "publisher": {
+    "@type": "Person",
+    "@id": "https://omacus.com/#author",
+    "name": "Avinash Joshi",
+    "url": "https://github.com/avinashjoshi"
+   },
+   "about": {
+    "@type": "SoftwareApplication",
+    "@id": "https://omacus.com/#app",
+    "name": "Omacus"
+   },
+   "image": "https://omacus.com/img/og.png"
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Omacus",
+     "item": "https://omacus.com/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Docs",
+     "item": "https://omacus.com/docs/"
+    }
+   ]
+  },
+  {
+   "@type": "FAQPage",
+   "@id": "https://omacus.com/docs/#faq",
+   "mainEntity": [
+    {
+     "@type": "Question",
+     "name": "A line shows no result. Why?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Omacus only shows answers it's sure about. Usually the line mixes things that can't be combined (dollars plus kilometres) or uses a word as a unit by accident. Try the expression on its own, and if you think it should work, open an issue with the exact line."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Does it need the internet?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Only to refresh exchange rates. Everything else is local, and cached rates keep currency math working offline."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "macOS says it can't verify the app.",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "That's because Omacus isn't notarized by Apple yet. Install with the one-line installer to avoid the prompt, or allow it once under System Settings → Privacy & Security → Open Anyway."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Windows SmartScreen warns about an unknown publisher.",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Choose More info → Run anyway. The warning appears because the executable isn't code-signed yet."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Is my data sent anywhere?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "No. Sheets stay on your disk. The only network request is for exchange rates, which sends nothing about you or your sheets."
+     }
+    }
+   ]
+  }
+ ]
+}
+  </script>
 </head>
 <body>
 
@@ -347,7 +455,7 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
 
     <h2 id="files">Where files live</h2>
     <table class="files">
-      <thead><tr><th></th><th>Linux</th><th>macOS</th><th>Windows</th></tr></thead>
+      <thead><tr><th><span class="sr-only">What</span></th><th>Linux</th><th>macOS</th><th>Windows</th></tr></thead>
       <tbody>
         <tr><td class="what">Sheets</td><td data-os="Linux"><code>~/.local/share/omacus/sheets</code></td><td data-os="macOS"><code>~/Library/Application Support/omacus/sheets</code></td><td data-os="Windows"><code>%APPDATA%\omacus\sheets</code></td></tr>
         <tr><td class="what">Deleted sheets</td><td data-os="Linux"><code>…/omacus/trash</code></td><td data-os="macOS"><code>…/omacus/trash</code></td><td data-os="Windows"><code>…\omacus\trash</code></td></tr>

@@ -1,0 +1,13 @@
+{
+  "name": "Omacus",
+  "short_name": "Omacus",
+  "description": "A free notepad calculator for Linux, macOS and Windows.",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#090909",
+  "theme_color": "#090909",
+  "icons": [
+    { "src": "/img/icon.svg", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "/img/apple-touch-icon.png", "type": "image/png", "sizes": "180x180" }
+  ]
+}

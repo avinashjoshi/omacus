@@ -3,26 +3,191 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Omacus — math, the way you write it</title>
-  <meta name="description" content="Omacus is a free, open-source notepad calculator for Omarchy, Linux, macOS and Windows. Type prices, units, currencies and time zones in plain words; answers appear as you type.">
+  <title>Omacus: free notepad calculator for Linux, macOS and Windows</title>
+  <meta name="description" content="Free, open-source notepad calculator for Linux, macOS and Windows. Write math in plain words: units, currencies, time zones and percentages, answered as you type.">
+  <meta name="author" content="Avinash Joshi">
   <link rel="canonical" href="https://omacus.com/">
   <meta name="theme-color" content="#090909">
 
   <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Omacus">
+  <meta property="og:locale" content="en_US">
   <meta property="og:url" content="https://omacus.com/">
-  <meta property="og:title" content="Omacus — math, the way you write it">
-  <meta property="og:description" content="A notepad calculator for Omarchy, Linux, macOS and Windows. Units, currencies, time zones and plain words.">
+  <meta property="og:title" content="Omacus: math, the way you write it">
+  <meta property="og:description" content="A free notepad calculator for Omarchy, Linux, macOS and Windows. Units, currencies, time zones and plain words, answered as you type.">
   <meta property="og:image" content="https://omacus.com/img/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
   <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Omacus: math, the way you write it">
+  <meta name="twitter:description" content="A free notepad calculator for Omarchy, Linux, macOS and Windows.">
+  <meta name="twitter:image" content="https://omacus.com/img/og.png">
+  <link rel="manifest" href="/site.webmanifest">
 
   <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
   <link rel="icon" href="/img/favicon-32.png" sizes="32x32">
   <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/inter-tight-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/instrument-serif-italic-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/css/site.css">
+  <script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "WebSite",
+   "@id": "https://omacus.com/#website",
+   "url": "https://omacus.com/",
+   "name": "Omacus",
+   "description": "Omacus is a free, open-source notepad calculator for Linux, macOS and Windows. Write math in plain words, one line at a time, and each answer appears beside its line as you type: units, currencies, time zones, percentages, variables and running totals.",
+   "inLanguage": "en",
+   "publisher": {
+    "@id": "https://omacus.com/#author"
+   }
+  },
+  {
+   "@type": "Person",
+   "@id": "https://omacus.com/#author",
+   "name": "Avinash Joshi",
+   "url": "https://github.com/avinashjoshi"
+  },
+  {
+   "@type": "SoftwareApplication",
+   "@id": "https://omacus.com/#app",
+   "name": "Omacus",
+   "url": "https://omacus.com/",
+   "description": "Omacus is a free, open-source notepad calculator for Linux, macOS and Windows. Write math in plain words, one line at a time, and each answer appears beside its line as you type: units, currencies, time zones, percentages, variables and running totals.",
+   "applicationCategory": "UtilitiesApplication",
+   "applicationSubCategory": "Calculator",
+   "operatingSystem": "Linux, macOS, Windows",
+   "softwareVersion": "{{version}}",
+   "datePublished": "2026-10-15",
+   "dateModified": "{{lastmod}}",
+   "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+   },
+   "isAccessibleForFree": true,
+   "license": "https://opensource.org/licenses/MIT",
+   "author": {
+    "@id": "https://omacus.com/#author"
+   },
+   "downloadUrl": "https://github.com/avinashjoshi/omacus/releases/latest",
+   "installUrl": "https://omacus.com/#download",
+   "releaseNotes": "https://github.com/avinashjoshi/omacus/releases",
+   "image": "https://omacus.com/img/icon.svg",
+   "screenshot": [
+    "https://omacus.com/img/screens/matte-black.webp",
+    "https://omacus.com/img/screens/tokyo-night.webp",
+    "https://omacus.com/img/screens/help-syntax.webp"
+   ],
+   "featureList": [
+    "Plain-language math, one line at a time",
+    "Unit conversion (length, time, temperature, data, cooking, area and more)",
+    "160+ currencies with cached live exchange rates",
+    "Time zone conversion with daylight saving",
+    "Percentages: of, on, off, as a percent of",
+    "Variables, totals, averages and previous-line references",
+    "Multiple sheets saved automatically as plain text",
+    "Autocomplete for variables, units and time zones",
+    "Follows the Omarchy theme, or system light and dark mode",
+    "Command-line interface"
+   ],
+   "sameAs": [
+    "https://github.com/avinashjoshi/omacus"
+   ]
+  },
+  {
+   "@type": "SoftwareSourceCode",
+   "@id": "https://omacus.com/#source",
+   "name": "Omacus source code",
+   "codeRepository": "https://github.com/avinashjoshi/omacus",
+   "programmingLanguage": "Rust",
+   "license": "https://opensource.org/licenses/MIT",
+   "targetProduct": {
+    "@id": "https://omacus.com/#app"
+   },
+   "author": {
+    "@id": "https://omacus.com/#author"
+   }
+  },
+  {
+   "@type": "FAQPage",
+   "@id": "https://omacus.com/#faq",
+   "mainEntity": [
+    {
+     "@type": "Question",
+     "name": "What is Omacus?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Omacus is a free, open-source notepad calculator for Linux, macOS and Windows. You write calculations in plain words, one per line, and each answer appears beside its line as you type. It understands units, currencies, time zones, percentages, variables and running totals, and it was made first for Omarchy."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Is Omacus free?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Yes. Omacus is free and open source under the MIT license, with no account, no ads and no tracking."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Which systems does it run on?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Omarchy and any 64-bit x86 Linux (as a .deb, .rpm, tarball or one-line installer), macOS on Apple Silicon and Intel, and 64-bit Windows."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "How do I convert time zones?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Type the time and both zones, like 3pm PST in IST. Omacus answers 3:30 AM IST (next day). It knows abbreviations, cities and countries, and adjusts for daylight saving."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Does it work offline?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Yes. Everything is calculated on your computer. The internet is only used to refresh exchange rates, and the last rates are cached so currency math keeps working offline."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "How is it different from a regular calculator?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "A regular calculator shows one number at a time. Omacus keeps a whole page: every line keeps its answer, you can add notes beside the math, name values and reuse them, and changing a line updates everything below it. Sheets are saved as you type."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Can I use it from the terminal?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Yes. omacus '$100 in INR' prints the answer, and omacus - evaluates a whole sheet from standard input, one result per line."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Where are my sheets stored?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "As plain text files on your own disk, so you can search, sync or back them up like any other notes. Nothing is uploaded."
+     }
+    }
+   ]
+  }
+ ]
+}
+  </script>
 </head>
 <body>
 
@@ -161,7 +326,7 @@
         <p>On Omarchy, Omacus wears your theme and switches the moment you do. Elsewhere it follows your system's light or dark mode, or any colors you give it.</p>
       </div>
       <div class="theme-stage reveal" data-theme-stage>
-        <img class="on" src="/img/screens/matte-black.webp" width="1470" height="900" alt="Omacus in the Matte Black theme" data-theme="matte-black">
+        <img class="on" src="/img/screens/matte-black.webp" width="1470" height="900" alt="Omacus in the Matte Black theme" data-theme="matte-black" loading="lazy">
         <img src="/img/screens/tokyo-night.webp" width="1470" height="900" alt="Omacus in the Tokyo Night theme" data-theme="tokyo-night" loading="lazy">
         <img src="/img/screens/catppuccin.webp" width="1470" height="900" alt="Omacus in the Catppuccin theme" data-theme="catppuccin" loading="lazy">
         <img src="/img/screens/gruvbox.webp" width="1470" height="900" alt="Omacus in the Gruvbox theme" data-theme="gruvbox" loading="lazy">
@@ -224,6 +389,51 @@
 <span class="o">$1,450</span>
 <span class="o">$17,400</span></pre>
       </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="kicker">// questions</span>
+        <h2>Good <em class="serif">questions</em>.</h2>
+      </div>
+      <div class="faq reveal">
+        <div>
+          <h3>What is Omacus?</h3>
+          <p>Omacus is a free, open-source notepad calculator for Linux, macOS and Windows. You write calculations in plain words, one per line, and each answer appears beside its line as you type. It understands units, currencies, time zones, percentages, variables and running totals, and it was made first for Omarchy.</p>
+        </div>
+        <div>
+          <h3>Is Omacus free?</h3>
+          <p>Yes. Omacus is free and open source under the MIT license, with no account, no ads and no tracking.</p>
+        </div>
+        <div>
+          <h3>Which systems does it run on?</h3>
+          <p>Omarchy and any 64-bit x86 Linux (as a .deb, .rpm, tarball or one-line installer), macOS on Apple Silicon and Intel, and 64-bit Windows.</p>
+        </div>
+        <div>
+          <h3>How do I convert time zones?</h3>
+          <p>Type the time and both zones, like <code>3pm PST in IST</code>. Omacus answers <code>3:30 AM IST (next day)</code>. It knows abbreviations, cities and countries, and adjusts for daylight saving.</p>
+        </div>
+        <div>
+          <h3>Does it work offline?</h3>
+          <p>Yes. Everything is calculated on your computer. The internet is only used to refresh exchange rates, and the last rates are cached so currency math keeps working offline.</p>
+        </div>
+        <div>
+          <h3>How is it different from a regular calculator?</h3>
+          <p>A regular calculator shows one number at a time. Omacus keeps a whole page: every line keeps its answer, you can add notes beside the math, name values and reuse them, and changing a line updates everything below it. Sheets are saved as you type.</p>
+        </div>
+        <div>
+          <h3>Can I use it from the terminal?</h3>
+          <p>Yes. <code>omacus '$100 in INR'</code> prints the answer, and <code>omacus -</code> evaluates a whole sheet from standard input, one result per line.</p>
+        </div>
+        <div>
+          <h3>Where are my sheets stored?</h3>
+          <p>As plain text files on your own disk, so you can search, sync or back them up like any other notes. Nothing is uploaded.</p>
+        </div>
+      </div>
+      <p class="faq-more reveal">More in the <a href="/docs/">docs</a>, or <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">ask on GitHub</a>.</p>
     </div>
   </section>
 

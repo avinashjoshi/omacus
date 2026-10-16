@@ -1,0 +1,31 @@
+# Omacus
+
+> Omacus is a free, open-source (MIT) notepad calculator for Linux, macOS and Windows, made first for Omarchy. You write calculations in plain words, one per line, and each answer appears beside its line as you type. It understands units, 160+ currencies with cached live exchange rates, time zones with daylight saving, percentages, dates, number bases, variables and running totals. Sheets are saved automatically as plain text files on your own disk.
+
+Key facts:
+
+- Install on Linux or macOS: `curl -fsSL omacus.com/install | bash`. Windows: a portable `omacus.exe` from https://omacus.com/windows.
+- Packages: .deb (Ubuntu, Debian), .rpm (Fedora, openSUSE), .tar.gz (any x86_64 Linux), universal .dmg (Apple Silicon and Intel), .zip (64-bit Windows).
+- Examples: `3pm PST in IST` gives `3:30 AM IST (next day)`; `15% off $1,299` gives `$1,104.15`; `3.5 km in miles` gives `2.17 miles`; `rate = $85/hour` then `rate * 30 hours` gives `$2,550`.
+- Works offline; the network is only used to refresh exchange rates. No account, no telemetry.
+- Command line: `omacus '$100 in INR'` prints one answer; `omacus -` evaluates a sheet from standard input.
+- On Omarchy it follows the active theme live, and the installer offers a Hyprland keybind (default Super+Ctrl+Alt+=) and a floating-window rule.
+- Written in Rust with egui; the math engine is fend. Author: Avinash Joshi.
+
+## Docs
+
+- [Full documentation as Markdown](https://omacus.com/llms-full.txt): every syntax rule, shortcut and setting
+- [Install](https://omacus.com/docs/#install): one-line installer, packages, macOS and Windows notes
+- [Percentages](https://omacus.com/docs/#percentages), [Units](https://omacus.com/docs/#units), [Currencies](https://omacus.com/docs/#currency), [Time zones](https://omacus.com/docs/#timezones), [Dates](https://omacus.com/docs/#dates)
+- [Variables](https://omacus.com/docs/#variables) and [Totals](https://omacus.com/docs/#totals)
+- [Keyboard shortcuts](https://omacus.com/docs/#shortcuts)
+- [Command line](https://omacus.com/docs/#cli)
+- [Omarchy and Hyprland](https://omacus.com/docs/#omarchy)
+- [FAQ](https://omacus.com/docs/#faq)
+- [How it works](https://omacus.com/docs/#how-it-works)
+
+## Project
+
+- [Source code on GitHub](https://github.com/avinashjoshi/omacus)
+- [Releases and release notes](https://github.com/avinashjoshi/omacus/releases)
+- [Report a bug or request a feature](https://github.com/avinashjoshi/omacus/issues/new/choose)

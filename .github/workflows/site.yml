@@ -5,7 +5,7 @@ name: Site
 on:
   push:
     branches: [main]
-    paths: ["site/**", "install.sh", ".github/workflows/site.yml"]
+    paths: ["site/**", "install.sh", "Cargo.toml", ".github/workflows/site.yml"]
   workflow_dispatch:
 
 permissions:
@@ -25,6 +25,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # for the site's last-modified date
       - name: Assemble
         run: |
           mkdir _site
@@ -40,9 +42,29 @@ jobs:
             find _site -name '*.html' -exec sed -i "s#\"/$asset\"#\"/$asset?v=$hash\"#g" {} +
           done
           grep -rho '/[a-z]*/[a-z-]*\.\(css\|js\)?v=[0-9a-f]*' _site | sort | uniq -c
+      - name: Fill in version and dates
+        # Structured data and the sitemap carry the current release and the date the
+        # site last changed, so search engines and AI assistants see fresh facts.
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          lastmod=$(git log -1 --format=%cs -- site Cargo.toml)
+          grep -rl --include='*.html' --include='*.xml' -e '{{version}}' -e '{{lastmod}}' _site |
+            xargs sed -i -e "s/{{version}}/$version/g" -e "s/{{lastmod}}/$lastmod/g"
+          sed -i "s/>v[0-9][0-9.]*</>v$version</" _site/index.html
+          echo "version $version, last modified $lastmod"
+          ! grep -rq -e '{{version}}' -e '{{lastmod}}' _site
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
       - id: deployment
         uses: actions/deploy-pages@v5
+      - name: Tell search engines
+        # IndexNow notifies Bing, Yandex and others (Bing also feeds ChatGPT and Copilot
+        # search) that the pages changed. The key file is site/<key>.txt.
+        continue-on-error: true
+        run: |
+          key=$(basename site/[0-9a-f]*.txt .txt)
+          curl -fsS -X POST https://api.indexnow.org/indexnow -H 'Content-Type: application/json' \
+            -d "{\"host\":\"omacus.com\",\"key\":\"$key\",\"keyLocation\":\"https://omacus.com/$key.txt\",\"urlList\":[\"https://omacus.com/\",\"https://omacus.com/docs/\",\"https://omacus.com/llms.txt\",\"https://omacus.com/llms-full.txt\"]}" \
+            -w 'IndexNow: HTTP %{http_code}\n'
