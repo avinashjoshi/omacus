@@ -114,8 +114,8 @@ const SYNTAX: &[(&str, &[&str])] = &[
         &[
             "$30 in EUR",
             "€50 + £20 in USD",
-            "₹5,000 in USD",
-            "$100 in INR",
+            "£250 in USD",
+            "$100 in JPY",
         ],
     ),
     (
@@ -141,10 +141,10 @@ const SYNTAX: &[(&str, &[&str])] = &[
     (
         "Time zones",
         &[
-            "3pm PST in IST",
-            "time in Tokyo",
+            "6pm PST in Tokyo",
+            "time in Sydney",
             "10:30 London to New York",
-            "now in Bangalore",
+            "now in Berlin",
         ],
     ),
     (
@@ -185,7 +185,7 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "One sheet per thing",
-        "Make a sheet per trip, budget or project with Ctrl+N. The first line is the title, so start with `# Goa trip`.",
+        "Make a sheet per trip, budget or project with Ctrl+N. The first line is the title, so start with `# Kyoto trip`.",
     ),
     (
         "Nothing to save",
@@ -201,11 +201,11 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "Time zones",
-        "Abbreviations follow daylight saving: `PST` in summer means Pacific time. Cities work too: `9am Bangalore in Berlin`.",
+        "Abbreviations follow daylight saving: `PST` in summer means Pacific time. Cities work too: `9am Chicago in Berlin`.",
     ),
     (
         "From the terminal",
-        "`omacus '$100 in INR'` prints one answer. `cat sheet.txt | omacus -` evaluates a whole sheet.",
+        "`omacus '$100 in EUR'` prints one answer. `cat sheet.txt | omacus -` evaluates a whole sheet.",
     ),
     (
         "Theme",
@@ -451,6 +451,7 @@ mod tests {
             ("EUR", 0.9),
             ("INR", 83.0),
             ("GBP", 0.78),
+            ("JPY", 150.0),
         ]));
         for (group, lines) in SYNTAX {
             let results = engine.eval_document(&lines.join("\n"));

@@ -12,7 +12,7 @@ total                             $1,899.86
 
 rate = $85/hour                 $85 / hour
 rate * 6 hours * 4                   $2,040
-prev in INR                  194,004.29 INR
+prev in EUR                   1,818.97 EUR
 ```
 
 ## What it understands
@@ -22,11 +22,11 @@ prev in INR                  194,004.29 INR
 | Arithmetic | `2^10`, `sqrt(16)`, `10 mod 3`, `5 x 3`, `10 times 3`, `1.5k` |
 | Percentages | `20% of 340`, `5% on 200`, `15% off $1,299`, `$120 as % of $480`, `5% of what is 6` |
 | Units | `3.5 km in miles`, `2 hours + 45 min in minutes`, `72 fahrenheit in celsius`, `10 GB / 4` |
-| Currency | `$30 in EUR`, `€50 + £20 in USD`, `₹500 in USD` (live rates, cached 12h) |
+| Currency | `$30 in EUR`, `€50 + £20 in USD`, `£250 in USD` (live rates, cached 12h) |
 | Variables | `rent = $1200`, then `rent * 12` |
 | Sheet words | `prev`, `sum`/`total`, `avg`/`average` (over the lines since the last blank line or header) |
 | Dates | `today`, `now`, `tomorrow + 2 weeks`, `now - 90 minutes` |
-| Time zones | `3pm PST in IST`, `time in Tokyo`, `now in London`, `10:30 London to New York`, `noon UTC in Bangalore` |
+| Time zones | `6pm PST in Tokyo`, `time in Sydney`, `now in London`, `10:30 London to New York`, `3pm PST in IST` |
 | Bases | `255 in hex`, `0xff in decimal`, `255 in binary` |
 | Notes | `# Header`, `// comment`, `"quoted text"`, `Label: 40`, stray prose is ignored |
 
@@ -65,7 +65,7 @@ Suggestions for variables, units, keywords and time zones appear as you type.
 CLI:
 
 ```sh
-omacus '$100 in INR'
+omacus '$100 in EUR'
 printf 'a = 5\na * 3\n' | omacus -
 ```
 
@@ -120,7 +120,7 @@ Applications; the app isn't notarized yet, so the first time, open it once, then
 3. Optional: right-click `omacus.exe` → **Pin to Start**. A pinned shortcut's **Properties** let
    you set a shortcut key.
 
-It works from a terminal too: `omacus.exe "$100 in INR"`.
+It works from a terminal too: `omacus.exe "$100 in EUR"`.
 
 ### Ubuntu / Debian
 
