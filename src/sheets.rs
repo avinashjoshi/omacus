@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -142,10 +143,24 @@ impl Store {
         }
     }
 
+    /// An id no sheet in memory or on disk has, so a new sheet never overwrites another.
+    fn unused_id(&self) -> String {
+        loop {
+            let id = new_id();
+            let on_disk = self
+                .dir
+                .as_ref()
+                .is_some_and(|d| d.join(format!("{id}.txt")).exists());
+            if !on_disk && !self.sheets.iter().any(|s| s.id == id) {
+                return id;
+            }
+        }
+    }
+
     /// New sheets go to the top of the list, like a notes app.
     pub fn new_sheet(&mut self, text: &str) {
         let sheet = Sheet {
-            id: new_id(),
+            id: self.unused_id(),
             text: text.to_string(),
             cursor: text.chars().count(),
             dirty: true,
@@ -250,11 +265,15 @@ fn migrate_single_sheet(root: &Path, dir: &Path) {
     }
 }
 
+/// Time plus a per-process counter. Time alone isn't unique: macOS's clock has
+/// microsecond resolution, so two sheets made back to back got the same id.
 fn new_id() -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
-    format!("{nanos:x}")
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{nanos:x}-{n:x}")
 }
 
 #[cfg(test)]
@@ -312,6 +331,19 @@ mod tests {
             ["C", "A"]
         );
         assert_eq!(std::fs::read_dir(root.join("trash")).unwrap().count(), 1);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn sheets_made_back_to_back_never_collide() {
+        let root = temp_root("burst");
+        let mut store = Store::load_in(Some(root.clone()), "# 0");
+        for i in 1..200 {
+            store.new_sheet(&format!("# {i}"));
+        }
+        store.save();
+        let again = Store::load_in(Some(root.clone()), "");
+        assert_eq!(again.sheets.len(), 200);
         let _ = std::fs::remove_dir_all(root);
     }
 

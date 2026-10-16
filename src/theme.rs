@@ -92,7 +92,13 @@ impl Theme {
     pub fn load(system_dark: bool) -> Self {
         read_colors()
             .and_then(|s| Self::parse(&s))
-            .unwrap_or_else(|| if system_dark { Self::dark() } else { Self::light() })
+            .unwrap_or_else(|| {
+                if system_dark {
+                    Self::dark()
+                } else {
+                    Self::light()
+                }
+            })
     }
 
     /// Where a custom theme can be placed.

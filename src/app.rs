@@ -372,7 +372,10 @@ impl OmacusApp {
                     egui::Button::new(egui::RichText::new("+").size(16.0).color(theme.dim))
                         .frame(false),
                 );
-                if plus.on_hover_text(format!("New sheet ({})", help::keys("Ctrl+N"))).clicked() {
+                if plus
+                    .on_hover_text(format!("New sheet ({})", help::keys("Ctrl+N")))
+                    .clicked()
+                {
                     action = Some(SheetAction::New);
                 }
             });
@@ -757,7 +760,11 @@ fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
     fonts.font_data.insert("mono".into(), Arc::new(data));
     for family in [FontFamily::Monospace, FontFamily::Proportional] {
-        fonts.families.entry(family).or_default().insert(0, "mono".into());
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .insert(0, "mono".into());
     }
     ctx.set_fonts(fonts);
 }

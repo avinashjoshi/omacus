@@ -206,7 +206,9 @@ const TIPS: &[(&str, &str)] = &[
 /// Shortcut names as the platform writes them: `Ctrl+Shift+C` is `⌘⇧C` on macOS.
 pub fn keys(s: &str) -> String {
     if cfg!(target_os = "macos") {
-        s.replace("Ctrl+", "⌘").replace("Shift+", "⇧").replace("Alt+", "⌥")
+        s.replace("Ctrl+", "⌘")
+            .replace("Shift+", "⇧")
+            .replace("Alt+", "⌥")
     } else {
         s.to_string()
     }
@@ -329,7 +331,8 @@ fn keyboard(ui: &mut egui::Ui, theme: &Theme) {
         heading(ui, theme, section);
         for (key, what) in *shortcuts {
             // The global hotkey is a Hyprland keybind.
-            if key.starts_with("Super") && std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_none() {
+            if key.starts_with("Super") && std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_none()
+            {
                 continue;
             }
             let key = keys(key);
@@ -388,9 +391,13 @@ fn tips(ui: &mut egui::Ui, theme: &Theme) {
         ui.label(RichText::new(*title).size(15.0).color(theme.accent));
         let mut job = egui::text::LayoutJob::default();
         // `code` spans are highlighted.
-        let data = dirs::data_dir().map_or_else(String::new, |d| d.join("omacus").display().to_string());
-        let theme_path = Theme::user_theme_path().map_or_else(String::new, |p| p.display().to_string());
-        let body = keys(body).replace("{data}", &data).replace("{theme}", &theme_path);
+        let data =
+            dirs::data_dir().map_or_else(String::new, |d| d.join("omacus").display().to_string());
+        let theme_path =
+            Theme::user_theme_path().map_or_else(String::new, |p| p.display().to_string());
+        let body = keys(body)
+            .replace("{data}", &data)
+            .replace("{theme}", &theme_path);
         for (i, part) in body.split('`').enumerate() {
             let (color, family) = if i % 2 == 1 {
                 (theme.keyword, egui::FontFamily::Monospace)
