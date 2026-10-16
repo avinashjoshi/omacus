@@ -61,7 +61,11 @@ body {
   font: 16px/1.6 var(--sans);
   font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+html {
+  overflow-x: clip;
 }
 
 img {
@@ -256,7 +260,7 @@ pre {
   position: absolute;
   left: 50%;
   top: 340px;
-  width: 1100px;
+  width: min(1100px, 100vw);
   height: 640px;
   transform: translateX(-50%);
   z-index: -1;
@@ -1297,6 +1301,38 @@ kbd {
   color: var(--text);
 }
 
+/* Code with notes beside it: one grid row per line, notes in their own column. */
+.prose .annot {
+  display: grid;
+  grid-template-columns: max-content auto;
+  column-gap: 3ch;
+  margin: 0 0 20px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  background: #0d0d0d;
+  border: 1px solid var(--line);
+  overflow-x: auto;
+  font: 14px/1.7 var(--mono);
+  color: var(--text);
+}
+
+.prose .annot code {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+  white-space: pre;
+}
+
+.prose .annot code.full {
+  grid-column: 1 / -1;
+}
+
+.prose .annot .c {
+  color: var(--faint);
+  white-space: pre;
+}
+
 .prose pre .c {
   color: var(--faint);
 }
@@ -1660,12 +1696,89 @@ kbd {
   }
 
   .prose :not(pre) > code {
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
   }
 
   .prose pre {
     font-size: 13px;
     padding: 14px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* Notes drop under their line. */
+  .prose .annot {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 12px 14px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .prose .annot code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    padding-top: 8px;
+  }
+
+  .prose .annot code:first-child {
+    padding-top: 0;
+  }
+
+  .prose .annot .c {
+    white-space: normal;
+    font-size: 12.5px;
+  }
+
+  /* Where files live: one card per row, platforms labelled. */
+  .prose table.files,
+  .prose table.files tbody,
+  .prose table.files tr,
+  .prose table.files td {
+    display: block;
+  }
+
+  .prose table.files thead {
+    display: none;
+  }
+
+  .prose table.files tr {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .prose table.files td {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 10px;
+    align-items: baseline;
+    padding: 3px 0;
+    border: 0;
+  }
+
+  .prose table.files td.what {
+    display: block;
+    padding-bottom: 6px;
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .prose table.files td[data-os]::before {
+    content: attr(data-os);
+    font: 500 11px/1 var(--mono);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  .prose table.files td code {
+    overflow-wrap: anywhere;
+  }
+
+  /* Two-column tables (shortcuts, source map): give the second column more room. */
+  .prose table:not(.ex):not(.files) td:first-child {
+    width: 46%;
   }
 
   /* Example tables become stacked rows: what you type, then the answer under it. */
@@ -1702,11 +1815,6 @@ kbd {
     margin-left: auto;
     font-size: 13.5px;
     white-space: normal;
-  }
-
-  .prose table:not(.ex) {
-    display: block;
-    overflow-x: auto;
   }
 
   .flow {

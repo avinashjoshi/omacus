@@ -225,9 +225,11 @@ total</pre>
 
     <h2 id="dates">Dates</h2>
     <p><code>today</code>, <code>now</code>, <code>tomorrow</code> and <code>yesterday</code>, plus or minus minutes, hours, days, weeks, months or years.</p>
-<pre>today                        <span class="c">Friday, 16 October 2026</span>
-tomorrow + 2 weeks           <span class="c">Saturday, 31 October 2026</span>
-now - 90 minutes             <span class="c">Fri, 16 Oct 2026, 7:09 AM</span></pre>
+<div class="annot">
+<code>today</code><span class="c">Friday, 16 October 2026</span>
+<code>tomorrow + 2 weeks</code><span class="c">Saturday, 31 October 2026</span>
+<code>now - 90 minutes</code><span class="c">Fri, 16 Oct 2026, 7:09 AM</span>
+</div>
 
     <h2 id="bases">Number bases</h2>
   <!-- ex:bases -->
@@ -299,26 +301,30 @@ now - 90 minutes             <span class="c">Fri, 16 Oct 2026, 7:09 AM</span></p
       <li>Otherwise a built-in light or dark theme that follows your system setting, also live.</li>
     </ol>
     <p>A <code>theme.toml</code> uses the same keys as an Omarchy theme's <code>colors.toml</code>. Every key is optional:</p>
-<pre>mode = "dark"                <span class="c"># or "light"</span>
-background = "#121212"       <span class="c"># sheet background</span>
-dark_background = "#0d0d0d"  <span class="c"># sidebar and popups</span>
-foreground = "#bebebe"       <span class="c"># text</span>
-bright_foreground = "#eaeaea"<span class="c"> # numbers</span>
-light_foreground = "#8a8a8d" <span class="c"># labels and operators</span>
-dark_foreground = "#555555"  <span class="c"># comments</span>
-accent = "#e68e0d"           <span class="c"># results, headers, cursor</span>
-cyan = "#bebebe"             <span class="c"># keywords like in, of, total</span>
-magenta = "#d35f5f"          <span class="c"># variables</span>
-selection = "#2a2a2a"        <span class="c"># selection and the active sheet</span>
-lighter_background = "#1e1e1e" <span class="c"># hover</span></pre>
+<div class="annot">
+<code>mode = "dark"</code><span class="c"># or "light"</span>
+<code>background = "#121212"</code><span class="c"># sheet background</span>
+<code>dark_background = "#0d0d0d"</code><span class="c"># sidebar and popups</span>
+<code>foreground = "#bebebe"</code><span class="c"># text</span>
+<code>bright_foreground = "#eaeaea"</code><span class="c"># numbers</span>
+<code>light_foreground = "#8a8a8d"</code><span class="c"># labels and operators</span>
+<code>dark_foreground = "#555555"</code><span class="c"># comments</span>
+<code>accent = "#e68e0d"</code><span class="c"># results, headers, cursor</span>
+<code>cyan = "#bebebe"</code><span class="c"># keywords like in, of, total</span>
+<code>magenta = "#d35f5f"</code><span class="c"># variables</span>
+<code>selection = "#2a2a2a"</code><span class="c"># selection and the active sheet</span>
+<code>lighter_background = "#1e1e1e"</code><span class="c"># hover</span>
+</div>
 
     <h2 id="cli">Command line</h2>
     <p>The <code>omacus</code> command uses the same engine as the app.</p>
-<pre>omacus '$100 in INR'                   <span class="c"># one expression → prints the answer</span>
-omacus '3pm PST in IST'
-printf 'rent = $1450\nrent * 12\n' | omacus -   <span class="c"># a whole sheet from stdin, one result per line</span>
-omacus - &lt; ~/notes/budget.txt
-omacus                                 <span class="c"># no arguments: open the window</span></pre>
+<div class="annot">
+<code>omacus '$100 in INR'</code><span class="c"># one expression → prints the answer</span>
+<code class="full">omacus '3pm PST in IST'</code>
+<code>printf 'rent = $1450\nrent * 12\n' | omacus -</code><span class="c"># a whole sheet from stdin, one result per line</span>
+<code class="full">omacus - &lt; ~/notes/budget.txt</code>
+<code>omacus</code><span class="c"># no arguments: open the window</span>
+</div>
     <p>A single expression exits with status 1 when there's no answer, which makes it easy to use in scripts. On Windows, <code>omacus.exe "..."</code> works the same from a terminal.</p>
 
     <h2 id="omarchy">Omarchy &amp; Hyprland</h2>
@@ -329,23 +335,25 @@ omacus                                 <span class="c"># no arguments: open the 
       <li><strong>Also use the Calculator key?</strong> For keyboards that have one; it replaces Omarchy's default calculator on that key.</li>
     </ol>
     <p>Your config files are backed up first (<code>*.bak.&lt;timestamp&gt;</code>), nothing is added twice, and the change is rolled back if Hyprland reports an error. For unattended installs, pass the answer:</p>
-<pre>curl -fsSL omacus.com/install | bash -s -- --hyprland              <span class="c"># default key</span>
-curl -fsSL omacus.com/install | bash -s -- --key "SUPER ALT + N"   <span class="c"># your key</span>
-curl -fsSL omacus.com/install | bash -s -- --no-hyprland           <span class="c"># leave Hyprland alone</span></pre>
+<div class="annot">
+<code>curl -fsSL omacus.com/install | bash -s -- --hyprland</code><span class="c"># default key</span>
+<code>curl -fsSL omacus.com/install | bash -s -- --key "SUPER ALT + N"</code><span class="c"># your key</span>
+<code>curl -fsSL omacus.com/install | bash -s -- --no-hyprland</code><span class="c"># leave Hyprland alone</span>
+</div>
     <p>To set it up by hand, add to <code>~/.config/hypr/bindings.lua</code> and <code>~/.config/hypr/looknfeel.lua</code>:</p>
 <pre>o.bind("SUPER + CTRL + ALT + EQUAL", "Omacus calculator", { launch = "omacus", focus = "^omacus$" })
 o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
     <p>The keybind launches Omacus, or focuses it if it's already open. <kbd>Esc</kbd> closes it again.</p>
 
     <h2 id="files">Where files live</h2>
-    <table>
+    <table class="files">
       <thead><tr><th></th><th>Linux</th><th>macOS</th><th>Windows</th></tr></thead>
       <tbody>
-        <tr><td>Sheets</td><td><code>~/.local/share/omacus/sheets</code></td><td><code>~/Library/Application Support/omacus/sheets</code></td><td><code>%APPDATA%\omacus\sheets</code></td></tr>
-        <tr><td>Deleted sheets</td><td><code>…/omacus/trash</code></td><td><code>…/omacus/trash</code></td><td><code>…\omacus\trash</code></td></tr>
-        <tr><td>Order, cursors, sidebar</td><td colspan="3"><code>state.json</code> next to the <code>sheets</code> folder</td></tr>
-        <tr><td>Custom theme</td><td><code>~/.config/omacus/theme.toml</code></td><td><code>~/Library/Application Support/omacus/theme.toml</code></td><td><code>%APPDATA%\omacus\theme.toml</code></td></tr>
-        <tr><td>Exchange-rate cache</td><td><code>~/.cache/omacus</code></td><td><code>~/Library/Caches/omacus</code></td><td><code>%LOCALAPPDATA%\omacus</code></td></tr>
+        <tr><td class="what">Sheets</td><td data-os="Linux"><code>~/.local/share/omacus/sheets</code></td><td data-os="macOS"><code>~/Library/Application Support/omacus/sheets</code></td><td data-os="Windows"><code>%APPDATA%\omacus\sheets</code></td></tr>
+        <tr><td class="what">Deleted sheets</td><td data-os="Linux"><code>…/omacus/trash</code></td><td data-os="macOS"><code>…/omacus/trash</code></td><td data-os="Windows"><code>…\omacus\trash</code></td></tr>
+        <tr><td class="what">Order, cursors, sidebar</td><td colspan="3" data-os="All"><span><code>state.json</code> next to the <code>sheets</code> folder</span></td></tr>
+        <tr><td class="what">Custom theme</td><td data-os="Linux"><code>~/.config/omacus/theme.toml</code></td><td data-os="macOS"><code>~/Library/Application Support/omacus/theme.toml</code></td><td data-os="Windows"><code>%APPDATA%\omacus\theme.toml</code></td></tr>
+        <tr><td class="what">Exchange-rate cache</td><td data-os="Linux"><code>~/.cache/omacus</code></td><td data-os="macOS"><code>~/Library/Caches/omacus</code></td><td data-os="Windows"><code>%LOCALAPPDATA%\omacus</code></td></tr>
       </tbody>
     </table>
 
@@ -389,10 +397,12 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
     <h2 id="contributing">Contributing</h2>
     <p>Bug reports and ideas are very welcome: <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">open an issue</a>, and for a wrong answer, paste the exact line you typed and what you expected. Pull requests too.</p>
     <p>To build from source you need <a href="https://rustup.rs">Rust</a>:</p>
-<pre>git clone https://github.com/avinashjoshi/omacus && cd omacus
-cargo run --release           <span class="c"># open the window</span>
-cargo test                    <span class="c"># the engine, sheets, time zones, help examples</span>
-./install.sh                  <span class="c"># Linux: build and install for your user</span></pre>
+<div class="annot">
+<code class="full">git clone https://github.com/avinashjoshi/omacus && cd omacus</code>
+<code>cargo run --release</code><span class="c"># open the window</span>
+<code>cargo test</code><span class="c"># the engine, sheets, time zones, help examples</span>
+<code>./install.sh</code><span class="c"># Linux: build and install for your user</span>
+</div>
     <p>Releases are automatic: bumping <code>version</code> in <code>Cargo.toml</code> on <code>main</code> runs the tests on Linux, macOS and Windows, builds every package, and publishes a GitHub release with notes. Omacus is <a href="https://github.com/avinashjoshi/omacus/blob/main/LICENSE">MIT licensed</a>.</p>
   </article>
 </div>
