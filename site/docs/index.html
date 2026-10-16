@@ -118,7 +118,7 @@
      "name": "Is my data sent anywhere?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "No. Sheets stay on your disk. The only network request is for exchange rates, which sends nothing about you or your sheets."
+      "text": "No. Sheets stay on your disk. Omacus makes two kinds of request: one for exchange rates, and a daily check of the latest version number on GitHub. Neither sends anything about you or your sheets, and the version check can be turned off with check_for_updates = false in settings.toml."
      }
     }
    ]
@@ -200,6 +200,10 @@
     <p><a href="/windows">Download the .zip</a>, unzip it anywhere (for example <code>%LOCALAPPDATA%\Programs\Omacus</code>) and run <code>omacus.exe</code>. It's a single portable file. If SmartScreen warns about an unknown publisher, choose <strong>More info → Run anyway</strong>. Right-click it to <strong>Pin to Start</strong>; a shortcut's Properties let you set a global shortcut key.</p>
 
     <!-- ===================================================== First sheet -->
+    <h3 id="updating">Updating</h3>
+    <p>When a new version is out, a quiet <strong>available</strong> line appears at the bottom of the sidebar (and next to the version in the help window). Click it to see what's new and choose <strong>Update now</strong>; Omacus installs the new version and offers to restart. Your sheets, keybind and settings stay as they are. From a terminal, <code>omacus update</code> does the same.</p>
+    <p>If you installed the .deb or .rpm, or on Windows, the update button opens the download page instead, so you update the same way you installed. Omacus checks GitHub for the latest version number at most once a day; to turn that off, put <code>check_for_updates = false</code> in <code>settings.toml</code> (see <a href="#files">Where files live</a>).</p>
+
     <h2 id="first-sheet">Your first sheet</h2>
     <p>Open Omacus and start typing. Each line is calculated on its own, and the result appears at the right edge of that line. Lines that aren't math (headers, comments, prose) simply have no result.</p>
 <pre># Weekend
@@ -447,6 +451,7 @@ total</pre>
 <code class="full">omacus - &lt; ~/notes/budget.txt</code>
 <code>omacus</code><span class="c"># no arguments: open the window</span>
 <code>omacus --version</code><span class="c"># which version you have</span>
+<code>omacus update</code><span class="c"># install the latest version</span>
 </div>
     <p>A single expression exits with status 1 when there's no answer, which makes it easy to use in scripts. On Windows, <code>omacus.exe "..."</code> works the same from a terminal.</p>
 
@@ -478,12 +483,15 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
         <tr><td class="what">Deleted sheets</td><td data-os="Linux"><code>…/omacus/trash</code></td><td data-os="macOS"><code>…/omacus/trash</code></td><td data-os="Windows"><code>…\omacus\trash</code></td></tr>
         <tr><td class="what">Order, cursors, sidebar</td><td colspan="3" data-os="All"><span><code>state.json</code> next to the <code>sheets</code> folder</span></td></tr>
         <tr><td class="what">Custom theme</td><td data-os="Linux"><code>~/.config/omacus/theme.toml</code></td><td data-os="macOS"><code>~/Library/Application Support/omacus/theme.toml</code></td><td data-os="Windows"><code>%APPDATA%\omacus\theme.toml</code></td></tr>
+        <tr><td class="what">Settings</td><td colspan="3" data-os="All"><span><code>settings.toml</code> next to <code>theme.toml</code></span></td></tr>
         <tr><td class="what">Exchange-rate cache</td><td data-os="Linux"><code>~/.cache/omacus</code></td><td data-os="macOS"><code>~/Library/Caches/omacus</code></td><td data-os="Windows"><code>%LOCALAPPDATA%\omacus</code></td></tr>
       </tbody>
     </table>
 
     <!-- ===================================================== More -->
     <h2 id="faq">FAQ</h2>
+    <h3>How do I update Omacus?</h3>
+    <p>Click the <strong>available</strong> notice in the sidebar when it appears, or run <code>omacus update</code>. See <a href="#updating">Updating</a>.</p>
     <h3>A line shows no result. Why?</h3>
     <p>Omacus only shows answers it's sure about. Usually the line mixes things that can't be combined (dollars plus kilometres) or uses a word as a unit by accident. Try the expression on its own, and if you think it should work, <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">open an issue</a> with the exact line.</p>
     <h3>Does it need the internet?</h3>
@@ -493,7 +501,7 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
     <h3>Windows SmartScreen warns about an unknown publisher.</h3>
     <p>Choose <strong>More info → Run anyway</strong>. The warning appears because the executable isn't code-signed yet.</p>
     <h3>Is my data sent anywhere?</h3>
-    <p>No. Sheets stay on your disk. The only network request is for exchange rates, which sends nothing about you or your sheets.</p>
+    <p>No. Sheets stay on your disk. Omacus makes two kinds of request: one for exchange rates, and a daily check of the latest version number on GitHub. Neither sends anything about you or your sheets, and the version check can be turned off with <code>check_for_updates = false</code> in <code>settings.toml</code> (see <a href="#files">Where files live</a>).</p>
 
     <h2 id="how-it-works">How it works</h2>
     <p>Omacus is a single Rust program: one native window and one engine, shared by the app and the command line. Every keystroke re-evaluates the sheet from top to bottom. For each line:</p>

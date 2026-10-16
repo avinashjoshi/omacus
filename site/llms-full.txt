@@ -38,6 +38,12 @@ Or in Terminal: `xattr -dr com.apple.quarantine /Applications/Omacus.app`. You o
 
 [Download the .zip](https://omacus.com/windows), unzip it anywhere (for example `%LOCALAPPDATA%\Programs\Omacus`) and run `omacus.exe`. It's a single portable file. If SmartScreen warns about an unknown publisher, choose **More info → Run anyway**. Right-click it to **Pin to Start**; a shortcut's Properties let you set a global shortcut key.
 
+### Updating
+
+When a new version is out, a quiet **available** line appears at the bottom of the sidebar (and next to the version in the help window). Click it to see what's new and choose **Update now**; Omacus installs the new version and offers to restart. Your sheets, keybind and settings stay as they are. From a terminal, `omacus update` does the same.
+
+If you installed the .deb or .rpm, or on Windows, the update button opens the download page instead, so you update the same way you installed. Omacus checks GitHub for the latest version number at most once a day; to turn that off, put `check_for_updates = false` in `settings.toml` (see [Where files live](https://omacus.com/docs/#files)).
+
 ## Your first sheet
 
 Open Omacus and start typing. Each line is calculated on its own, and the result appears at the right edge of that line. Lines that aren't math (headers, comments, prose) simply have no result.
@@ -269,6 +275,7 @@ printf 'rent = $1450\nrent * 12\n' | omacus -  # a whole sheet from stdin, one r
 omacus - < ~/notes/budget.txt
 omacus  # no arguments: open the window
 omacus --version  # which version you have
+omacus update  # install the latest version
 ```
 
 A single expression exits with status 1 when there's no answer, which makes it easy to use in scripts. On Windows, `omacus.exe "..."` works the same from a terminal.
@@ -309,9 +316,14 @@ More examples in the guide: [The calculator that fits Omarchy](https://omacus.co
 | Deleted sheets | `…/omacus/trash` | `…/omacus/trash` | `…\omacus\trash` |
 | Order, cursors, sidebar | `state.json` next to the `sheets` folder |
 | Custom theme | `~/.config/omacus/theme.toml` | `~/Library/Application Support/omacus/theme.toml` | `%APPDATA%\omacus\theme.toml` |
+| Settings | `settings.toml` next to `theme.toml` |
 | Exchange-rate cache | `~/.cache/omacus` | `~/Library/Caches/omacus` | `%LOCALAPPDATA%\omacus` |
 
 ## FAQ
+
+### How do I update Omacus?
+
+Click the **available** notice in the sidebar when it appears, or run `omacus update`. See [Updating](https://omacus.com/docs/#updating).
 
 ### A line shows no result. Why?
 
@@ -331,7 +343,7 @@ Choose **More info → Run anyway**. The warning appears because the executable 
 
 ### Is my data sent anywhere?
 
-No. Sheets stay on your disk. The only network request is for exchange rates, which sends nothing about you or your sheets.
+No. Sheets stay on your disk. Omacus makes two kinds of request: one for exchange rates, and a daily check of the latest version number on GitHub. Neither sends anything about you or your sheets, and the version check can be turned off with `check_for_updates = false` in `settings.toml` (see [Where files live](https://omacus.com/docs/#files)).
 
 ## How it works
 
