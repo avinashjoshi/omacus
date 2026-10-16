@@ -34,7 +34,7 @@ adds the notepad conventions on top.
 
 ## Using it
 
-- On Omarchy, `SUPER + ALT + =` opens Omacus (or focuses it), floating and centered.
+- On Omarchy, `SUPER + CTRL + ALT + =` opens Omacus (or focuses it), floating and centered.
 - `Esc` or `Ctrl+Q` closes it. Nothing is ever lost: like Sublime Text, every sheet is saved as you
   type and reopens exactly where you left it, cursor included.
 - Click a result to copy it; `Ctrl+Shift+C` copies the last result.
@@ -76,16 +76,27 @@ for each platform.
 
 ### Omarchy
 
-One line installs the app, its launcher entry and icon, and adds `SUPER + ALT + =` plus a
-floating-window rule to your Hyprland config (your files are backed up first, and nothing is
-added twice):
+One line installs the app with its launcher entry and icon:
 
 ```sh
-curl -fsSL https://github.com/avinashjoshi/omacus/releases/latest/download/install.sh | bash -s -- --hyprland
+curl -fsSL https://github.com/avinashjoshi/omacus/releases/latest/download/install.sh | bash
 ```
 
-Leave off `-s -- --hyprland` to skip the Hyprland changes. Colors follow your Omarchy theme and
-switch with it.
+It then offers to add a keybind and a floating-window rule to your Hyprland config. The suggested
+key is `SUPER + CTRL + ALT + =`; pick any other and it's checked against your existing bindings
+first, so nothing of Omarchy's gets overridden. If your keyboard has a Calculator key, it can
+open Omacus too. Your config files are backed up, nothing is added twice, and changes are rolled
+back if Hyprland reports an error.
+
+For unattended installs, pass the answer instead:
+
+```sh
+curl -fsSL …/install.sh | bash -s -- --hyprland                 # default key
+curl -fsSL …/install.sh | bash -s -- --key "SUPER + ALT + N"    # your key
+curl -fsSL …/install.sh | bash -s -- --no-hyprland              # leave Hyprland alone
+```
+
+Colors follow your Omarchy theme and switch with it.
 
 ### macOS
 

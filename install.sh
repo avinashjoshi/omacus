@@ -2,28 +2,40 @@
 # Install Omacus for the current user on Linux. No root needed.
 #
 #   curl -fsSL https://github.com/avinashjoshi/omacus/releases/latest/download/install.sh | bash
-#   curl -fsSL …/install.sh | bash -s -- --hyprland     # Omarchy: also add SUPER+ALT+= and a float rule
+#   ./install.sh                 from an unpacked release, or from a source checkout (builds it)
 #
-#   ./install.sh [--hyprland]    from an unpacked release, or from a source checkout (builds it)
+# On Omarchy/Hyprland it asks whether to add a keybind (default SUPER CTRL ALT + =, checked
+# against your existing bindings) and a floating-window rule. Without a terminal, use:
+#   --hyprland            add them with the default key
+#   --key "SUPER ALT + N" add them with this key
+#   --no-hyprland         don't touch the Hyprland config
 set -euo pipefail
 
 REPO="avinashjoshi/omacus"
 BIN_DIR="$HOME/.local/bin"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}"
 
-hyprland=false
-for arg in "$@"; do
-  case "$arg" in
-    --hyprland) hyprland=true ;;
+hyprland=auto # auto: ask when there's a terminal; yes/no from flags
+key=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --hyprland) hyprland=yes ;;
+    --no-hyprland) hyprland=no ;;
+    --key)
+      key="${2:?--key needs a value, e.g. --key \"SUPER ALT + C\"}"
+      hyprland=yes
+      shift
+      ;;
     -h | --help)
-      sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,12p' "${BASH_SOURCE[0]:-$0}" 2>/dev/null | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
-      echo "Unknown option: $arg" >&2
+      echo "Unknown option: $1" >&2
       exit 1
       ;;
   esac
+  shift
 done
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" && pwd)"
@@ -65,45 +77,135 @@ case ":$PATH:" in
   *) echo "Note: $BIN_DIR is not on your PATH. Add it to run 'omacus' from a terminal." ;;
 esac
 
-# Omarchy / Hyprland: a launch-or-focus keybind and a floating window rule.
-setup_hyprland() {
-  local hypr="$HOME/.config/hypr" stamp
-  stamp="$(date +%s)"
-  if [[ -f "$hypr/bindings.lua" && -f "$hypr/looknfeel.lua" ]]; then
-    if grep -q 'omacus' "$hypr/bindings.lua" "$hypr/looknfeel.lua"; then
-      echo "Hyprland: Omacus is already configured, leaving your config alone."
-      return
-    fi
-    cp "$hypr/bindings.lua" "$hypr/bindings.lua.bak.$stamp"
-    cp "$hypr/looknfeel.lua" "$hypr/looknfeel.lua.bak.$stamp"
-    cat >>"$hypr/bindings.lua" <<'LUA'
+# --- Omarchy / Hyprland ---------------------------------------------------------------
 
--- Omacus notepad calculator: launch or focus. Esc closes it; sheets are saved as you type.
-o.bind("SUPER + ALT + EQUAL", "Omacus calculator", { launch = "omacus", focus = "^omacus$" })
-LUA
-    cat >>"$hypr/looknfeel.lua" <<'LUA'
+DEFAULT_KEY="SUPER CTRL ALT + EQUAL"
+HYPR="$HOME/.config/hypr"
 
--- Omacus floats over whatever you're doing.
-o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })
-LUA
-    hyprctl reload >/dev/null 2>&1 || true
-    local errors
-    errors="$(hyprctl configerrors 2>/dev/null || true)"
-    if [[ -n "${errors//[[:space:]]/}" ]]; then
-      echo "Hyprland reported config errors; restoring your backups:" >&2
-      echo "$errors" >&2
-      mv "$hypr/bindings.lua.bak.$stamp" "$hypr/bindings.lua"
-      mv "$hypr/looknfeel.lua.bak.$stamp" "$hypr/looknfeel.lua"
-      hyprctl reload >/dev/null 2>&1 || true
-      return 1
-    fi
-    echo "Hyprland: SUPER + ALT + = opens Omacus (backups saved as *.bak.$stamp)."
-  else
-    echo "Hyprland: no Lua config found (older Omarchy?). Add a keybind to launch 'omacus'"
-    echo "and a float rule for the window class 'omacus' to your Hyprland config."
-  fi
+has_tty() { { : </dev/tty; } 2>/dev/null; }
+
+# ask "Question" "default" -> reply (reads the terminal, so it works under curl | bash)
+ask() {
+  local reply
+  read -r -p "$1" reply </dev/tty || reply=""
+  echo "${reply:-$2}"
 }
 
-if $hyprland; then
-  setup_hyprland
-fi
+# "super+alt c" -> "SUPER ALT + C" (how `omarchy menu keybindings` prints it)
+normalize_key() {
+  local tok mods="" key="" m out=""
+  for tok in ${1//+/ }; do
+    case "${tok^^}" in
+      SUPER | SHIFT | CTRL | ALT) mods+=" ${tok^^}" ;;
+      CONTROL) mods+=" CTRL" ;;
+      *) key="$tok" ;;
+    esac
+  done
+  [[ -n "$key" ]] || return 1
+  case "$key" in
+    "=") key=EQUAL ;; "-") key=MINUS ;; ";") key=SEMICOLON ;; "'") key=APOSTROPHE ;;
+    ".") key=PERIOD ;; ",") key=COMMA ;; "/") key=SLASH ;;
+  esac
+  [[ ${#key} -eq 1 || "$key" =~ ^[a-z]+$ ]] && key="${key^^}"
+  for m in SUPER SHIFT CTRL ALT; do [[ "$mods " == *" $m "* ]] && out+="$m "; done
+  echo "${out:+${out% } + }$key"
+}
+
+# "SUPER ALT + C" -> "SUPER + ALT + C" (the form hl.bind takes)
+lua_key() { echo "${1// + / }" | sed 's/ / + /g'; }
+
+# What a key does today, or nothing if it's free.
+bound_to() {
+  command -v omarchy >/dev/null || return 0
+  omarchy menu keybindings --print 2>/dev/null |
+    awk -v k="$1" 'toupper(substr($0, 1, length(k))) == toupper(k) && substr($0, length(k) + 1) ~ /^ +→/ {
+      sub(/^[^→]*→ */, ""); print; exit }' || true # awk exits early; ignore the broken pipe
+}
+
+setup_hyprland() {
+  [[ "$hyprland" == no ]] && return
+  if [[ ! -f "$HYPR/bindings.lua" || ! -f "$HYPR/looknfeel.lua" ]]; then
+    [[ "$hyprland" == yes ]] && echo "Hyprland: no Lua config in $HYPR (older Omarchy?). Bind a key to launch 'omacus' and float the window class 'omacus'."
+    return
+  fi
+  if grep -q 'launch = "omacus"' "$HYPR/bindings.lua"; then
+    echo "Hyprland: Omacus already has a keybind in bindings.lua, leaving your config alone."
+    return
+  fi
+
+  local interactive=false
+  if [[ "$hyprland" == auto ]]; then
+    if ! has_tty; then
+      echo "Hyprland: re-run with --hyprland (or --key \"SUPER ALT + N\") to add a keybind and float rule."
+      return
+    fi
+    interactive=true
+    echo
+    case "$(ask "Add a Hyprland keybind and floating window for Omacus? [Y/n] " y)" in
+      [nN]*) return ;;
+    esac
+  fi
+
+  local chosen="${key:-$DEFAULT_KEY}" taken
+  if $interactive && [[ -z "$key" ]]; then
+    chosen="$(ask "Keybind [$DEFAULT_KEY]: " "$DEFAULT_KEY")"
+  fi
+  while true; do
+    if ! chosen="$(normalize_key "$chosen")"; then
+      taken="not a valid key"
+    else
+      taken="$(bound_to "$chosen")"
+    fi
+    [[ -z "$taken" || "$taken" == "Omacus calculator" ]] && break
+    if ! $interactive; then
+      echo "Hyprland: $chosen is already bound to \"$taken\". Pick another with --key \"...\"; no keybind added." >&2
+      chosen=""
+      break
+    fi
+    chosen="$(ask "$chosen is taken (\"$taken\"). Another key, or blank to skip: " "")"
+    [[ -z "$chosen" ]] && break
+  done
+
+  # The dedicated calculator key, if the keyboard has one.
+  local calc_key=false calc_now
+  calc_now="$(bound_to "XF86Calculator")"
+  if $interactive; then
+    local prompt="Also open Omacus with the Calculator key"
+    [[ -n "$calc_now" ]] && prompt+=" (it now opens \"$calc_now\")"
+    case "$(ask "$prompt? [y/N] " n)" in [yY]*) calc_key=true ;; esac
+  fi
+
+  local stamp
+  stamp="$(date +%s)"
+  cp "$HYPR/bindings.lua" "$HYPR/bindings.lua.bak.$stamp"
+  cp "$HYPR/looknfeel.lua" "$HYPR/looknfeel.lua.bak.$stamp"
+  {
+    echo
+    echo "-- Omacus notepad calculator: launch or focus. Esc closes it; sheets are saved as you type."
+    [[ -n "$chosen" ]] && echo "o.bind(\"$(lua_key "$chosen")\", \"Omacus calculator\", { launch = \"omacus\", focus = \"^omacus\$\" })"
+    if $calc_key; then
+      [[ -n "$calc_now" ]] && echo "hl.unbind(\"XF86Calculator\") -- was: $calc_now"
+      echo "o.bind(\"XF86Calculator\", \"Omacus calculator\", { launch = \"omacus\", focus = \"^omacus\$\" })"
+    fi
+  } >>"$HYPR/bindings.lua"
+  if ! grep -q '"^omacus\$"' "$HYPR/looknfeel.lua"; then
+    printf '\n-- Omacus floats over whatever you'"'"'re doing.\no.window("^omacus$", { float = true, size = { 980, 600 }, center = true })\n' >>"$HYPR/looknfeel.lua"
+  fi
+
+  hyprctl reload >/dev/null 2>&1 || true
+  local errors
+  errors="$(hyprctl configerrors 2>/dev/null || true)"
+  if [[ -n "${errors//[[:space:]]/}" ]]; then
+    echo "Hyprland reported config errors; restoring your backups:" >&2
+    echo "$errors" >&2
+    mv "$HYPR/bindings.lua.bak.$stamp" "$HYPR/bindings.lua"
+    mv "$HYPR/looknfeel.lua.bak.$stamp" "$HYPR/looknfeel.lua"
+    hyprctl reload >/dev/null 2>&1 || true
+    return 1
+  fi
+  [[ -n "$chosen" ]] && echo "Hyprland: $chosen opens Omacus."
+  $calc_key && echo "Hyprland: the Calculator key opens Omacus."
+  echo "Hyprland: Omacus floats, centered. Backups saved as *.bak.$stamp"
+}
+
+setup_hyprland

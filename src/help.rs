@@ -62,7 +62,7 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("F1  /  Ctrl+/", "This help"),
             ("Esc  /  Ctrl+W  /  Ctrl+Q", "Close (everything is saved)"),
-            ("Super+Alt+=", "Open Omacus from anywhere"),
+            ("Super+Ctrl+Alt+=", "Open Omacus from anywhere (Omarchy)"),
         ],
     ),
 ];

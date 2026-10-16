@@ -54,10 +54,10 @@ cat <<EOF
 | **Fedora / openSUSE** | [omacus-linux-x86_64.rpm]($dl/omacus-linux-x86_64.rpm) |
 | **Omarchy / Arch / any Linux** | [omacus-linux-x86_64.tar.gz]($dl/omacus-linux-x86_64.tar.gz) or the installer below |
 
-**Omarchy** (installs the app, adds \`SUPER + ALT + =\` and a floating window rule):
+**Omarchy** (installs the app, then offers a keybind, \`SUPER + CTRL + ALT + =\` by default, and a floating window rule):
 
 \`\`\`sh
-curl -fsSL $dl/install.sh | bash -s -- --hyprland
+curl -fsSL $dl/install.sh | bash
 \`\`\`
 
 **Any other Linux** (installs to \`~/.local/bin\` with a launcher entry):
