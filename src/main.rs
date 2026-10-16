@@ -20,6 +20,7 @@ USAGE:
     omacus                 open the calculator window
     omacus <expression>    evaluate one expression and print the result
     cat sheet | omacus -   evaluate a sheet from stdin, one result per line
+    omacus --version       print the version
 ";
 
 fn main() {
@@ -29,6 +30,14 @@ fn main() {
     }
     match args.first().map(String::as_str) {
         Some("-h" | "--help") => print!("{HELP}"),
+        Some("-V" | "--version") => println!("omacus {}", env!("CARGO_PKG_VERSION")),
+        Some("help" | "version") if args.len() == 1 => {
+            if args[0] == "help" {
+                print!("{HELP}");
+            } else {
+                println!("omacus {}", env!("CARGO_PKG_VERSION"));
+            }
+        }
         Some("-") => run_stdin(),
         Some(_) => run_expr(&args.join(" ")),
         None => {

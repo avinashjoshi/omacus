@@ -266,6 +266,21 @@ pub fn show(ctx: &egui::Context, tab: &mut Tab, theme: &Theme, engine: &Engine) 
                         .size(13.0)
                         .color(theme.comment),
                 );
+                // The version opens its release notes.
+                let version = concat!("v", env!("CARGO_PKG_VERSION"));
+                let link = egui::Button::new(RichText::new(version).size(13.0).color(theme.dim))
+                    .frame(false);
+                let link = ui
+                    .add(link)
+                    .on_hover_text(format!("What's new in {version}"));
+                if link.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if link.clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(format!(
+                        "https://github.com/avinashjoshi/omacus/releases/tag/{version}"
+                    )));
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let close = egui::Button::new(RichText::new("✕").color(theme.dim)).frame(false);
                     if ui.add(close).on_hover_text("Close (Esc)").clicked() {

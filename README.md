@@ -67,6 +67,7 @@ CLI:
 ```sh
 omacus '$100 in EUR'
 printf 'a = 5\na * 3\n' | omacus -
+omacus --version
 ```
 
 ## Install

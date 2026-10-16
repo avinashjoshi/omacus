@@ -69,6 +69,8 @@ re!(TIMES_X, r"(\d)\s*[x×]\s*(\d)");
 re!(SYMBOL_NUM, r"([€¥₹₩₽₺])\s*(\d[\d,]*(?:\.\d+)?)");
 re!(MONEY_PREFIX, r"[$£]\s*\d[\d,]*(?:\.\d+)?");
 re!(PREV, r"(?i)\bprev\b");
+// fend answers "version" with its own version number; in a sheet it's prose.
+re!(VERSION_WORD, r"(?i)\bversion\b");
 re!(UNKNOWN_IDENT, r"unknown identifier '([^']+)'");
 re!(
     BASE_CONV,
@@ -326,6 +328,7 @@ pub fn rewrite(line: &str, prev: Option<&str>) -> String {
         None => line.to_string(),
     };
     s = QUOTED.replace_all(&s, " ").into_owned();
+    s = VERSION_WORD.replace_all(&s, " ").into_owned();
 
     // "Groceries: $40" -> "$40"
     if let Some(c) = LABEL.captures(&s) {
@@ -673,6 +676,12 @@ mod tests {
         // A word in front of a unit changes it; dropping it would give a wrong answer.
         assert_eq!(one("1 royal gallon in liters"), "");
         assert_eq!(one("Movie tickets 2 * $14"), "$28");
+    }
+
+    #[test]
+    fn version_is_prose() {
+        assert_eq!(one("version"), "");
+        assert_eq!(one("Pro version $40"), "$40");
     }
 
     #[test]
