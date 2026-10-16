@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Omacus
+GenericName=Notepad Calculator
+Comment=Calculate with units, currencies and plain words
+Exec=omacus
+Icon=omacus
+Terminal=false
+Categories=Utility;Calculator;
+Keywords=calculator;math;currency;units;numi;
+StartupWMClass=omacus

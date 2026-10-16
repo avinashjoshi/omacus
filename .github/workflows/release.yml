@@ -1,0 +1,94 @@
+name: Release
+
+# Push a tag like v0.2.0 to build every platform and publish a GitHub release.
+# Run it by hand (Actions tab) to just build the artifacts.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04 # older glibc, so the binary runs on more distros
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libwayland-dev libx11-dev
+      - run: cargo build --release --locked
+      - name: Package .tar.gz
+        run: |
+          mkdir -p dist/omacus
+          cp target/release/omacus assets/omacus.desktop assets/icon-256.png assets/icon.svg install.sh README.md dist/omacus/
+          tar -C dist -czf omacus-linux-x86_64.tar.gz omacus
+      - name: Package .deb
+        run: |
+          cargo install cargo-deb --locked
+          cargo deb --no-build --output omacus-linux-x86_64.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: omacus-linux-x86_64.*
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: Package .zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item target/release/omacus.exe, README.md dist/
+          Compress-Archive -Path dist/* -DestinationPath omacus-windows-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: omacus-windows-x86_64.zip
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Build universal binary
+        run: |
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+          lipo -create -output omacus-universal \
+            target/aarch64-apple-darwin/release/omacus \
+            target/x86_64-apple-darwin/release/omacus
+      - name: Bundle Omacus.app and .dmg
+        run: |
+          cargo install cargo-bundle --locked
+          cargo bundle --release
+          APP=target/release/bundle/osx/Omacus.app
+          cp omacus-universal "$APP/Contents/MacOS/omacus"
+          codesign --force --deep --sign - "$APP"   # ad-hoc; not notarized
+          mkdir dmg && cp -R "$APP" dmg/ && ln -s /Applications dmg/Applications
+          hdiutil create -volname Omacus -srcfolder dmg -ov -format UDZO omacus-macos-universal.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: omacus-macos-universal.dmg
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: omacus-*
+          generate_release_notes: true
