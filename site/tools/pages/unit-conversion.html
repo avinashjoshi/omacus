@@ -56,7 +56,12 @@ related: /use-cases/, /guides/time-zones/, /docs/
 8 fl oz in ml
 1 gallon in liters
 -->
-    <p>Cups, gallons and fluid ounces are US measures.</p>
+    <p>Cups, gallons and fluid ounces are US measures. For British ones, say imperial (or UK):</p>
+<!-- ex
+1 imperial pint in ml
+40 liters in imperial gallons
+1 uk gallon in gallons
+-->
 
     <h2 id="speed">Speed</h2>
 <!-- ex
@@ -104,7 +109,7 @@ related: /use-cases/, /guides/time-zones/, /docs/
     <h3>How many units does Omacus know?</h3>
     <p>Hundreds, from everyday ones like miles, cups and pounds to scientific ones like joules, pascals and light years. The unit math comes from fend, an open-source calculator engine.</p>
     <h3>Are cups and gallons US or imperial?</h3>
-    <p>US. Imperial gallons and pints aren't supported yet, and Omacus shows no answer rather than guessing.</p>
+    <p>US by default. Add imperial or UK for the British measures: <code>2 imperial pints in ml</code>, <code>40 liters in imperial gallons</code>. Gallons, quarts, pints and fluid ounces all have imperial versions.</p>
     <h3>Can I convert between units of different kinds?</h3>
     <p>Only when there's a real relationship, like distance divided by time. Converting cups of flour to grams needs a density, so Omacus doesn't guess.</p>
     <h3>Does it work offline?</h3>

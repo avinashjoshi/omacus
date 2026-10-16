@@ -60,6 +60,15 @@ noon UTC in Asia/Kathmandu
 midnight UTC in PST
 -->
 
+    <h2 id="dates">On a specific date</h2>
+    <p>Planning ahead? Add a date. Clocks change on different days around the world (the US and Europe switch a week apart in spring and autumn), so a meeting next month can land at a different hour than one today. Write the date the way you would: <code>on Dec 1</code>, <code>1 December 2026</code>, <code>2026-12-01</code>, <code>tomorrow</code>, <code>Friday</code> or <code>next Monday</code>. The answer shows the date it falls on there.</p>
+<!-- ex
+3pm PST on Dec 1 in London
+9am PST tomorrow in Tokyo
+next Monday 10am ET in Berlin
+Launch 2026-11-02 10am ET in Paris
+-->
+
     <h2 id="formats">Ways to write the time</h2>
     <p>12-hour or 24-hour, with or without minutes, upper or lower case: <code>3pm</code>, <code>3:30 PM</code>, <code>9:30 am</code>, <code>15:30</code>, <code>noon</code> and <code>midnight</code>. Use <code>in</code> or <code>to</code> between the places.</p>
 <!-- ex
@@ -92,6 +101,6 @@ Payroll cutoff 5pm ET in London
     <h3>Which time zone abbreviations does it know?</h3>
     <p>The common ones for North America, Europe, Asia and Australia, such as PST, EST, CST, MST, GMT, BST, CET, EET, IST, JST, KST, SGT, HKT, AEST and NZST, plus their daylight versions. Any city or IANA zone name works too.</p>
     <h3>Can I convert a time on a specific date?</h3>
-    <p>Times are converted for today, which is what you need for scheduling this week. For date math, see <a href="/docs/#dates">Dates</a> in the docs.</p>
+    <p>Yes. Add the date anywhere before <code>in</code>: <code>3pm PST on Dec 1 in London</code>, <code>9am PST tomorrow in Tokyo</code> or <code>next Monday 10am ET in Berlin</code>. Daylight saving is applied for that date, and the answer shows the date there.</p>
     <h3>IST could mean India or Israel. Which one is it?</h3>
     <p>India Standard Time. For Israel, write a city instead: <code>3pm PST in Jerusalem</code>.</p>
