@@ -46,7 +46,8 @@ install_macos() {
   local tmp mnt dest
   tmp="$(mktemp -d)"
   mnt="$tmp/mnt"
-  trap 'hdiutil detach -quiet "$mnt" 2>/dev/null || true; rm -rf "$tmp"' EXIT
+  # Expand the paths now: these locals are gone by the time the EXIT trap runs.
+  trap "hdiutil detach -quiet '$mnt' 2>/dev/null || true; rm -rf '$tmp'" EXIT
   echo "Downloading the latest Omacus for macOS…"
   curl -fsSL "https://github.com/$REPO/releases/latest/download/omacus-macos-universal.dmg" -o "$tmp/omacus.dmg"
   hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mnt" "$tmp/omacus.dmg"
