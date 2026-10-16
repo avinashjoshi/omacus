@@ -181,6 +181,15 @@ tomorrow + 2 weeks  # Saturday, 31 October 2026
 now - 90 minutes  # Fri, 16 Oct 2026, 7:09 AM
 ```
 
+For a time of day, add or take away minutes and hours from a clock time, or count from now. Add `in` and a place to see it there.
+
+```
+3pm + 45 min  # 3:45 PM
+9:30am PST + 2 hours in London  # 7:30 PM BST
+in 90 minutes  # the time 90 minutes from now
+in 3 hours in Tokyo  # that time in Tokyo
+```
+
 ## Number bases
 
 | You type | Omacus shows |
@@ -222,6 +231,7 @@ On macOS, use `⌘` where this says `Ctrl`, and `⌥` for `Alt`.
 | Keys | Action |
 |---|---|
 | `Ctrl N` | New sheet |
+| `Ctrl P` | Go to a sheet by name (or by something written in it) |
 | `Ctrl Tab` / `Ctrl Shift Tab` | Next / previous sheet (also `Ctrl PgDn` / `Ctrl PgUp`) |
 | `Ctrl 1` … `Ctrl 9` | Jump to a sheet |
 | `Alt ↑` / `Alt ↓` | Move the sheet up / down |
@@ -229,6 +239,7 @@ On macOS, use `⌘` where this says `Ctrl`, and `⌥` for `Alt`.
 | `Ctrl B` | Show / hide the sidebar |
 | Click a result | Copy it |
 | `Ctrl Shift C` | Copy the last result |
+| `Ctrl Shift S` | Copy the whole sheet with its answers lined up (also in a sheet's right-click menu) |
 | `Ctrl Z` / `Ctrl Shift Z` | Undo / redo (each sheet has its own history) |
 | `Ctrl +` / `Ctrl −` / `Ctrl 0` | Zoom in / out / reset |
 | `F1` or `Ctrl /` | Help: shortcuts, live syntax examples, tips |
