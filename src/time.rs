@@ -1,11 +1,14 @@
 //! Dates and time zones. fend-core ships without a clock, so these are handled here:
 //! `today`, `tomorrow + 2 weeks`, `now - 90 minutes`, `3pm PST in IST`,
-//! `time in Tokyo`, `10:30 London to New York`.
+//! `time in Tokyo`, `10:30 London to New York`, `3pm PST on Dec 1 in London`.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use chrono::{DateTime, Duration, Local, Months, NaiveDate, NaiveTime, TimeZone, Timelike, Utc};
+use chrono::{
+    DateTime, Datelike, Duration, Local, Months, NaiveDate, NaiveTime, TimeZone, Timelike, Utc,
+    Weekday,
+};
 use chrono_tz::Tz;
 use regex::Regex;
 
@@ -24,6 +27,18 @@ re!(
     r"(?i)^(?:what\s+)?(?:time|now)\s+(?:in|at)\s+(.+?)\??$"
 );
 re!(CONVERT, r"(?i)^(.+?)\s+(?:in|to|as)\s+(.+)$");
+// A date on a time to convert: "on Dec 1", "1 December 2026", "2026-12-01",
+// "tomorrow", "Friday", "next Monday".
+re!(
+    DATE_PART,
+    r"(?ix)\b(?:on\s+)?(?:
+        (today|tomorrow|yesterday)
+      | (next\s+)?(monday|mon|tuesday|tues|tue|wednesday|wed|thursday|thurs|thu|friday|fri|saturday|sat|sunday|sun)
+      | (jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?
+      | (\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?(?:,?\s+(\d{4}))?
+      | (\d{4})-(\d{2})-(\d{2})
+    )\b"
+);
 re!(
     CLOCK,
     r"(?i)^(?:(noon|midnight|now)|(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?)\s*(.*)$"
@@ -139,7 +154,11 @@ impl Zone {
                 let t = utc.with_timezone(&tz);
                 (
                     t.date_naive(),
-                    format!("{} {}", clock(t.time()), label(tz, &t.format("%Z").to_string())),
+                    format!(
+                        "{} {}",
+                        clock(t.time()),
+                        label(tz, &t.format("%Z").to_string())
+                    ),
                 )
             }
         }
@@ -205,8 +224,9 @@ fn eval_zone(line: &str, now: DateTime<Utc>) -> Option<String> {
 
     let c = CONVERT.captures(line)?;
     let target = zone(&c[2])?;
+    let (lhs, date) = take_date(c[1].trim());
     // Allow a label first: "Sunset 6:12pm IST in Sydney".
-    let lhs = c[1].trim();
+    let lhs = lhs.as_str();
     let t = std::iter::successors(Some(lhs), |s| {
         s.split_once(char::is_whitespace)
             .map(|(_, rest)| rest.trim_start())
@@ -244,16 +264,142 @@ fn eval_zone(line: &str, now: DateTime<Utc>) -> Option<String> {
                 NaiveTime::from_hms_opt(hour, minute, 0)?
             }
         };
-        source.to_utc(source.at(now).0, time)?
+        let today = source.at(now).0;
+        let day = match date {
+            Some(d) => d.resolve(today)?,
+            None => today,
+        };
+        source.to_utc(day, time)?
     };
 
     let (from_date, _) = source.at(instant);
     let (to_date, shown) = target.at(instant);
+    if date.is_some() {
+        // A date was asked for, so say which date it is there.
+        return Some(format!("{shown}, {}", to_date.format("%a %-d %b")));
+    }
     Some(match (to_date - from_date).num_days() {
         1 => format!("{shown} (next day)"),
         -1 => format!("{shown} (prev day)"),
         _ => shown,
     })
+}
+
+/// A date written on a time, resolved against "today" in the source zone.
+#[derive(Clone, Copy)]
+enum DateSpec {
+    Offset(i64),
+    Weekday {
+        day: Weekday,
+        next: bool,
+    },
+    MonthDay {
+        month: u32,
+        day: u32,
+        year: Option<i32>,
+    },
+}
+
+impl DateSpec {
+    fn resolve(self, today: NaiveDate) -> Option<NaiveDate> {
+        match self {
+            DateSpec::Offset(n) => Some(today + Duration::days(n)),
+            DateSpec::Weekday { day, next } => {
+                let ahead = (7 + day.num_days_from_monday() as i64
+                    - today.weekday().num_days_from_monday() as i64)
+                    % 7;
+                // "next Friday" on a Friday is a week away; "Friday" is today.
+                let ahead = if next && ahead == 0 { 7 } else { ahead };
+                Some(today + Duration::days(ahead))
+            }
+            DateSpec::MonthDay {
+                month,
+                day,
+                year: Some(y),
+            } => NaiveDate::from_ymd_opt(y, month, day),
+            DateSpec::MonthDay {
+                month,
+                day,
+                year: None,
+            } => {
+                // Without a year, the next one: "Jan 5" in October is next January.
+                // Dates up to two months back stay this year ("what time was it?").
+                let this = NaiveDate::from_ymd_opt(today.year(), month, day)?;
+                if this < today - Duration::days(60) {
+                    NaiveDate::from_ymd_opt(today.year() + 1, month, day)
+                } else {
+                    Some(this)
+                }
+            }
+        }
+    }
+}
+
+/// Split a date phrase off the time part: "3pm PST on Dec 1" -> ("3pm PST", Dec 1).
+fn take_date(lhs: &str) -> (String, Option<DateSpec>) {
+    let Some(c) = DATE_PART.captures(lhs) else {
+        return (lhs.to_string(), None);
+    };
+    let month = |m: &str| -> Option<u32> {
+        let m = m.to_ascii_lowercase();
+        [
+            "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+        ]
+        .iter()
+        .position(|n| m.starts_with(n))
+        .map(|i| i as u32 + 1)
+    };
+    let num = |i: usize| c.get(i).and_then(|m| m.as_str().parse::<u32>().ok());
+    let spec = || -> Option<DateSpec> {
+        Some(if let Some(w) = c.get(1) {
+            DateSpec::Offset(match w.as_str().to_ascii_lowercase().as_str() {
+                "tomorrow" => 1,
+                "yesterday" => -1,
+                _ => 0,
+            })
+        } else if let Some(w) = c.get(3) {
+            let day = match &w.as_str().to_ascii_lowercase()[..3] {
+                "mon" => Weekday::Mon,
+                "tue" => Weekday::Tue,
+                "wed" => Weekday::Wed,
+                "thu" => Weekday::Thu,
+                "fri" => Weekday::Fri,
+                "sat" => Weekday::Sat,
+                _ => Weekday::Sun,
+            };
+            DateSpec::Weekday {
+                day,
+                next: c.get(2).is_some(),
+            }
+        } else if let Some(m) = c.get(4) {
+            DateSpec::MonthDay {
+                month: month(m.as_str())?,
+                day: num(5)?,
+                year: num(6).map(|y| y as i32),
+            }
+        } else if let Some(m) = c.get(8) {
+            DateSpec::MonthDay {
+                month: month(m.as_str())?,
+                day: num(7)?,
+                year: num(9).map(|y| y as i32),
+            }
+        } else {
+            DateSpec::MonthDay {
+                month: num(11)?,
+                day: num(12)?,
+                year: num(10).map(|y| y as i32),
+            }
+        })
+    };
+    let Some(spec) = spec() else {
+        return (lhs.to_string(), None);
+    };
+    let whole = c.get(0).unwrap();
+    let rest = format!("{} {}", &lhs[..whole.start()], &lhs[whole.end()..]);
+    (
+        rest.split_whitespace().collect::<Vec<_>>().join(" "),
+        Some(spec),
+    )
 }
 
 fn clock(t: NaiveTime) -> String {
@@ -327,6 +473,49 @@ mod tests {
         assert_eq!(conv("9am IST in EST").unwrap(), "11:30 PM EDT (prev day)");
         assert_eq!(conv("7am Singapore in Dubai").unwrap(), "3:00 AM GST");
         assert_eq!(conv("noon UTC in Asia/Kabul").unwrap(), "4:30 PM UTC+0430");
+    }
+
+    #[test]
+    fn converts_on_a_date() {
+        // 16 Oct 2026 is a Friday. On 1 Dec, California and London are on standard time.
+        assert_eq!(
+            conv("3pm PST on Dec 1 in London").unwrap(),
+            "11:00 PM GMT, Tue 1 Dec"
+        );
+        assert_eq!(
+            conv("Dec 1 3pm PST in London").unwrap(),
+            "11:00 PM GMT, Tue 1 Dec"
+        );
+        assert_eq!(
+            conv("9am PST tomorrow in Tokyo").unwrap(),
+            "1:00 AM JST, Sun 18 Oct"
+        );
+        assert_eq!(
+            conv("on Friday 9am EST in London").unwrap(),
+            "2:00 PM BST, Fri 16 Oct"
+        );
+        assert_eq!(
+            conv("next Friday 9am EST in London").unwrap(),
+            "2:00 PM BST, Fri 23 Oct"
+        );
+        assert_eq!(
+            conv("Launch 2026-11-02 10am ET in Berlin").unwrap(),
+            "4:00 PM CET, Mon 2 Nov"
+        );
+        assert_eq!(
+            conv("Jan 5 9am PST in Tokyo").unwrap(),
+            "2:00 AM JST, Wed 6 Jan"
+        );
+        assert_eq!(
+            conv("1 December 2026 noon UTC in NYC").unwrap(),
+            "7:00 AM EST, Tue 1 Dec"
+        );
+        // Words that only start like a day name are labels.
+        assert_eq!(conv("Wedding 4pm CET in New York").unwrap(), "10:00 AM EDT");
+        assert_eq!(
+            conv("Sunday brunch 11am PST in London").unwrap(),
+            "7:00 PM BST, Sun 18 Oct"
+        );
     }
 
     #[test]
