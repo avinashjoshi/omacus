@@ -56,7 +56,10 @@ re!(AS_PCT, r"(?i)^(.+?)\s+as\s+(?:a\s+)?%\s+(?:of\s+)?(.+)$");
 re!(IS_WHAT_PCT, r"(?i)^(.+?)\s+is\s+what\s+%\s+of\s+(.+)$");
 re!(IS_PCT_OF_WHAT, r"(?i)^(.+?)\s+is\s+(.+?)\s*%\s+of\s+what$");
 // "$100 - 20%", "$50 + 8% tax": a percentage of the amount, not of 1.
-re!(PLUS_MINUS_PCT, r"(?i)^([^%]+?)\s*([+-])\s*(\d[\d,]*(?:\.\d+)?)\s*%(?:\s+[a-z][a-z ]*)?$");
+re!(
+    PLUS_MINUS_PCT,
+    r"(?i)^([^%]+?)\s*([+-])\s*(\d[\d,]*(?:\.\d+)?)\s*%(?:\s+[a-z][a-z ]*)?$"
+);
 // fend reads `60 km / 2 hours` as `(60 km / 2) hours`; keep the divisor together.
 re!(
     DIVISOR,
@@ -92,6 +95,45 @@ const UNIT_ALIASES: &[(&str, &str)] = &[
     (r"(?i)\bsq\.?\s*(?:m|meters?|metres?)\b", "m^2"),
     (r"(?i)\bus\s+gallons?\b", "gallon"),
 ];
+
+/// Imperial measures fend doesn't have, as their metric size and display name.
+const IMPERIAL: &[(&str, &str, &str)] = &[
+    ("gallon", "4.54609 liters", "imperial gallons"),
+    ("quart", "1.1365225 liters", "imperial quarts"),
+    ("pint", "568.26125 ml", "imperial pints"),
+    ("floz", "28.4130625 ml", "imperial fl oz"),
+];
+
+re!(
+    IMPERIAL_UNIT,
+    r"(?i)\b(?:imperial|uk|british)\s+(gallons?|quarts?|pints?|fluid\s+ounces?|fl\.?\s*oz)\b"
+);
+re!(
+    IMPERIAL_TARGET,
+    r"(?i)^(.*\S)\s+(?:in|to|as)\s+(?:imperial|uk|british)\s+(gallons?|quarts?|pints?|fluid\s+ounces?|fl\.?\s*oz)\s*$"
+);
+// "CHF 300": a currency code written before the amount.
+re!(CODE_FIRST, r"\b([A-Z]{3})\s+(\d[\d,]*(?:\.\d+)?)\b");
+
+fn imperial(word: &str) -> &'static (&'static str, &'static str, &'static str) {
+    let w = word.to_ascii_lowercase();
+    IMPERIAL
+        .iter()
+        .find(|(key, ..)| w.starts_with(&key[..3]) || (*key == "floz" && w.starts_with('f')))
+        .unwrap_or(&IMPERIAL[0])
+}
+
+/// "40 liters in imperial gallons": fend has no imperial units, so divide by the
+/// unit's size and name the answer ourselves.
+fn imperial_target(line: &str) -> Option<(String, &'static str)> {
+    let line = match LABEL.captures(line) {
+        Some(c) => c.get(2).unwrap().as_str(),
+        None => line,
+    };
+    let c = IMPERIAL_TARGET.captures(line)?;
+    let (_, size, name) = imperial(&c[2]);
+    Some((format!("({}) / ({size})", &c[1]), name))
+}
 
 static UNIT_ALIAS_RES: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
     UNIT_ALIASES
@@ -169,10 +211,13 @@ impl Engine {
                     None => aggregate(trimmed, &block),
                 };
                 let is_total = total.is_some();
+                let target = imperial_target(trimmed);
+                let source = target.as_ref().map_or(trimmed, |(expr, _)| expr.as_str());
                 let result = match total {
                     Some(expr) => eval_into(&mut ctx, &var, &expr),
                     None => {
-                        let expr = self.drop_name_collisions(&rewrite(trimmed, prev.as_deref()));
+                        let expr = self.currency_first(&rewrite(source, prev.as_deref()));
+                        let expr = self.drop_name_collisions(&expr);
                         if expr.trim().is_empty() {
                             return LineResult::new(Kind::Comment);
                         }
@@ -192,6 +237,10 @@ impl Engine {
                         } else {
                             pretty(&raw)
                         };
+                        let display = match target {
+                            Some((_, name)) => format!("{display} {name}"),
+                            None => display,
+                        };
                         LineResult {
                             kind: Kind::Value,
                             display,
@@ -201,6 +250,19 @@ impl Engine {
                 }
             })
             .collect()
+    }
+
+    /// "CHF 300" -> "300 CHF", for codes fend has a rate for.
+    fn currency_first(&self, expr: &str) -> String {
+        CODE_FIRST
+            .replace_all(expr, |c: &regex::Captures| {
+                if self.rates.knows(&c[1]) {
+                    format!("{} {}", &c[2], &c[1])
+                } else {
+                    c[0].to_string()
+                }
+            })
+            .into_owned()
     }
 
     /// "Lunch with Bob $40": fend reads "Bob" as the Bolivian boliviano. Title-case
@@ -289,6 +351,9 @@ pub fn rewrite(line: &str, prev: Option<&str>) -> String {
     }
 
     s = TIMES_X.replace_all(&s, "$1 * $2").into_owned();
+    s = IMPERIAL_UNIT
+        .replace_all(&s, |c: &regex::Captures| format!("({})", imperial(&c[1]).1))
+        .into_owned();
     for (re, unit) in UNIT_ALIAS_RES.iter() {
         s = re.replace_all(&s, *unit).into_owned();
     }
@@ -317,7 +382,12 @@ pub fn rewrite(line: &str, prev: Option<&str>) -> String {
     } else if let Some(c) = AS_PCT.captures(&rhs) {
         format!("(({}) / ({})) to %", &c[1], &c[2])
     } else if let Some(c) = PLUS_MINUS_PCT.captures(&rhs) {
-        format!("({}) * (1 {} ({}) / 100)", &c[1], &c[2], c[3].replace(',', ""))
+        format!(
+            "({}) * (1 {} ({}) / 100)",
+            &c[1],
+            &c[2],
+            c[3].replace(',', "")
+        )
     } else {
         rhs
     };
@@ -413,7 +483,10 @@ fn qualifies_unit(expr: &str, word: &Regex) -> bool {
     else {
         return false;
     };
-    if matches!(next.to_ascii_lowercase().as_str(), "in" | "to" | "as" | "of" | "on" | "per" | "and" | "with" | "for" | "at") {
+    if matches!(
+        next.to_ascii_lowercase().as_str(),
+        "in" | "to" | "as" | "of" | "on" | "per" | "and" | "with" | "for" | "at"
+    ) {
         return false;
     }
     let mut ctx = fend_core::Context::new();
@@ -539,6 +612,7 @@ mod tests {
             ("INR", 83.0),
             ("GBP", 0.78),
             ("BOB", 6.9),
+            ("CHF", 0.9),
         ]))
         .eval_document(doc)
         .into_iter()
@@ -596,9 +670,28 @@ mod tests {
 
     #[test]
     fn qualified_units_are_not_guessed() {
-        // fend has no imperial gallon; answering with a US gallon would be wrong.
-        assert_eq!(one("1 imperial gallon in liters"), "");
+        // A word in front of a unit changes it; dropping it would give a wrong answer.
+        assert_eq!(one("1 royal gallon in liters"), "");
         assert_eq!(one("Movie tickets 2 * $14"), "$28");
+    }
+
+    #[test]
+    fn imperial_measures() {
+        assert_eq!(one("1 imperial gallon in liters"), "4.55 liters");
+        assert_eq!(one("2 uk pints in ml"), "1,136.52 ml");
+        assert_eq!(one("20 liters in imperial gallons"), "4.4 imperial gallons");
+        assert_eq!(
+            one("Fuel: 40 liters in imperial gallons"),
+            "8.8 imperial gallons"
+        );
+        assert_eq!(one("1 imperial gallon in gallons"), "1.2 gallons");
+        assert_eq!(one("1 pint in uk pints"), "0.83 imperial pints");
+    }
+
+    #[test]
+    fn currency_code_before_amount() {
+        assert_eq!(one("CHF 300 in USD"), "$333.33");
+        assert_eq!(one("USD 30"), "$30");
     }
 
     #[test]

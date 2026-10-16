@@ -107,6 +107,7 @@ const SYNTAX: &[(&str, &[&str])] = &[
             "72 fahrenheit in celsius",
             "10 GB / 4",
             "60 mph in km/h",
+            "2 imperial pints in ml",
         ],
     ),
     (
@@ -142,6 +143,7 @@ const SYNTAX: &[(&str, &[&str])] = &[
         "Time zones",
         &[
             "6pm PST in Tokyo",
+            "3pm PST on Dec 1 in London",
             "time in Sydney",
             "10:30 London to New York",
             "now in Berlin",
