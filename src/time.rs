@@ -193,7 +193,13 @@ fn eval_zone(line: &str, now: DateTime<Utc>) -> Option<String> {
 
     let c = CONVERT.captures(line)?;
     let target = zone(&c[2])?;
-    let t = CLOCK.captures(c[1].trim())?;
+    // Allow a label first: "Sunset 6:12pm IST in Sydney".
+    let lhs = c[1].trim();
+    let t = std::iter::successors(Some(lhs), |s| {
+        s.split_once(char::is_whitespace)
+            .map(|(_, rest)| rest.trim_start())
+    })
+    .find_map(|s| CLOCK.captures(s))?;
     let rest = t.get(5).map_or("", |m| m.as_str()).trim();
     let source = if rest.is_empty() {
         Zone::Local
@@ -300,6 +306,11 @@ mod tests {
         assert!(conv("3pm PST in IST").unwrap().starts_with("3:30 AM IST"));
         assert!(conv("3pm PST in IST").unwrap().ends_with("(next day)"));
         assert_eq!(conv("10:30 London to New York").unwrap(), "5:30 AM EDT");
+        assert_eq!(
+            conv("Sunset 6:12pm IST in Sydney").unwrap(),
+            "11:42 PM AEDT"
+        );
+        assert_eq!(conv("Standup 9:30am PST in IST").unwrap(), "10:00 PM IST");
         assert_eq!(conv("noon UTC in tokyo").unwrap(), "9:00 PM JST");
         assert_eq!(conv("9am IST in EST").unwrap(), "11:30 PM EDT (prev day)");
     }

@@ -136,7 +136,11 @@ impl Engine {
                 }
 
                 let var = format!("_l{i}");
-                let total = aggregate(trimmed, &block);
+                // `sum`, or `subtotal = sum` to keep it in a variable.
+                let total = match ASSIGN.captures(trimmed) {
+                    Some(c) => aggregate(&c[2], &block).map(|e| format!("{} = {e}", &c[1])),
+                    None => aggregate(trimmed, &block),
+                };
                 let is_total = total.is_some();
                 let result = match total {
                     Some(expr) => eval_into(&mut ctx, &var, &expr),
@@ -309,6 +313,24 @@ fn eval_into(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Option<Stri
 /// Like `eval_into`, but drops stray words fend doesn't know
 /// ("Lunch with Bob $40" -> "$40"), so lines can read like notes.
 fn eval_forgiving(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Option<String> {
+    drop_unknown_words(ctx, var, expr).or_else(|| {
+        // Prose fend can't parse at all ("Food & drinks ₹2,000 * 4"): start the
+        // expression at the first number, currency or bracket instead.
+        if ASSIGN.is_match(expr) {
+            return None;
+        }
+        let tokens: Vec<&str> = expr.split_whitespace().collect();
+        let start = tokens
+            .iter()
+            .position(|t| t.starts_with(|c: char| c.is_ascii_digit() || "$£€¥₹(-.".contains(c)))?;
+        if start == 0 {
+            return None;
+        }
+        drop_unknown_words(ctx, var, &tokens[start..].join(" "))
+    })
+}
+
+fn drop_unknown_words(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Option<String> {
     let mut expr = expr.to_string();
     for _ in 0..12 {
         let full = match ASSIGN.captures(&expr) {
@@ -503,6 +525,21 @@ mod tests {
         assert_eq!(
             eval(doc),
             vec!["", "$1,200", "$40", "$1,240", "$2,480", "", "5", "5"]
+        );
+    }
+
+    #[test]
+    fn prose_with_symbols_and_named_totals() {
+        let doc = "Food & drinks ₹2,000 * 4\nTaxi ₹800\nsubtotal = sum\ngst = 18% of subtotal\nsubtotal + gst";
+        assert_eq!(
+            eval(doc),
+            vec![
+                "8,000 INR",
+                "800 INR",
+                "8,800 INR",
+                "1,584 INR",
+                "10,384 INR"
+            ]
         );
     }
 

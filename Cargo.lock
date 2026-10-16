@@ -1721,6 +1721,7 @@ dependencies = [
  "dirs",
  "eframe",
  "fend-core",
+ "image",
  "regex",
  "serde",
  "serde_json",

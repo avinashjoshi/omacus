@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Install Omacus for the current user on Linux. No root needed.
+# Install Omacus on Linux or macOS. No root needed.
 #
-#   curl -fsSL https://github.com/avinashjoshi/omacus/releases/latest/download/install.sh | bash
+#   curl -fsSL https://omacus.com/install | bash
 #   ./install.sh                 from an unpacked release, or from a source checkout (builds it)
 #
 # On Omarchy/Hyprland it asks whether to add a keybind (default SUPER CTRL ALT + =, checked
@@ -40,6 +40,35 @@ done
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" && pwd)"
 
+# macOS: install Omacus.app from the release .dmg. Files downloaded with curl aren't
+# quarantined, so Gatekeeper doesn't block the first launch.
+install_macos() {
+  local tmp mnt dest
+  tmp="$(mktemp -d)"
+  mnt="$tmp/mnt"
+  trap 'hdiutil detach -quiet "$mnt" 2>/dev/null || true; rm -rf "$tmp"' EXIT
+  echo "Downloading the latest Omacus for macOS…"
+  curl -fsSL "https://github.com/$REPO/releases/latest/download/omacus-macos-universal.dmg" -o "$tmp/omacus.dmg"
+  hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mnt" "$tmp/omacus.dmg"
+  dest=/Applications
+  if [[ ! -w "$dest" ]]; then
+    dest="$HOME/Applications"
+    mkdir -p "$dest"
+  fi
+  rm -rf "$dest/Omacus.app"
+  ditto "$mnt/Omacus.app" "$dest/Omacus.app"
+  xattr -dr com.apple.quarantine "$dest/Omacus.app" 2>/dev/null || true
+  mkdir -p "$BIN_DIR"
+  ln -sf "$dest/Omacus.app/Contents/MacOS/omacus" "$BIN_DIR/omacus"
+  echo "Installed Omacus to $dest/Omacus.app. Open it from Spotlight or Launchpad."
+  echo "The command line tool is linked at $BIN_DIR/omacus."
+}
+
+if [[ "$(uname -s)" == Darwin && ! -f "$here/Cargo.toml" ]]; then
+  install_macos
+  exit 0
+fi
+
 if [[ -f "$here/omacus" && -f "$here/omacus.desktop" ]]; then
   # Unpacked release tarball.
   src="$here"
@@ -48,6 +77,12 @@ elif [[ -f "$here/Cargo.toml" ]] && grep -q '^name = "omacus"' "$here/Cargo.toml
   # Source checkout.
   echo "Building Omacus from source…"
   (cd "$here" && cargo build --release)
+  if [[ "$(uname -s)" == Darwin ]]; then
+    mkdir -p "$BIN_DIR"
+    cp "$here/target/release/omacus" "$BIN_DIR/omacus"
+    echo "Installed omacus to $BIN_DIR (for the .app, use the release .dmg)."
+    exit 0
+  fi
   bin="$here/target/release/omacus" desktop="$here/assets/omacus.desktop"
   png="$here/assets/icon-256.png" svg="$here/assets/icon.svg"
 else

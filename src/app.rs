@@ -92,6 +92,9 @@ pub struct OmacusApp {
     focus_editor: bool,
     title: String,
     help: Option<help::Tab>,
+    /// Developer option for the website: `OMACUS_SCREENSHOT=out.png` saves the window's
+    /// own pixels (nothing behind it) and quits.
+    screenshot: Option<(std::path::PathBuf, u32)>,
 }
 
 impl OmacusApp {
@@ -125,7 +128,10 @@ impl OmacusApp {
             restored: HashSet::new(),
             focus_editor: true,
             title: String::new(),
-            help: None,
+            help: std::env::var("OMACUS_SCREENSHOT_HELP")
+                .ok()
+                .map(|t| help::Tab::from_name(&t)),
+            screenshot: std::env::var_os("OMACUS_SCREENSHOT").map(|p| (p.into(), 0)),
         };
         app.evaluate();
         app
@@ -328,6 +334,30 @@ impl OmacusApp {
         self.pending_cursor = Some(popup.start + word.chars().count());
         self.evaluate();
         self.touched();
+    }
+
+    fn take_screenshot(&mut self, ctx: &egui::Context) {
+        let Some((path, frames)) = &mut self.screenshot else {
+            return;
+        };
+        *frames += 1;
+        // Give fonts, layout and the window size a few frames to settle.
+        if *frames == 20 {
+            let path = path.clone();
+            let ctx2 = ctx.clone();
+            ctx.request_screenshot(move |image| {
+                let bytes: Vec<u8> = image.pixels.iter().flat_map(|c| c.to_array()).collect();
+                let [w, h] = image.size;
+                if let Err(e) =
+                    image::save_buffer(&path, &bytes, w as u32, h as u32, image::ColorType::Rgba8)
+                {
+                    eprintln!("omacus: screenshot failed: {e}");
+                }
+                ctx2.send_viewport_cmd(ViewportCommand::Close);
+                ctx2.request_repaint();
+            });
+        }
+        ctx.request_repaint();
     }
 
     fn toggle_help(&mut self) {
@@ -673,6 +703,7 @@ impl eframe::App for OmacusApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.handle_background_updates(&ctx);
+        self.take_screenshot(&ctx);
         self.handle_shortcuts(&ctx);
 
         if self.store.sidebar {

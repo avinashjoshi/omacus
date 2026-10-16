@@ -1,0 +1,36 @@
+name: Install test
+
+# Runs the one-line installer the way users do (piped, not from a checkout) against
+# the latest release, on Linux and macOS, and checks the installed app answers.
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+  schedule:
+    - cron: "0 6 * * 1" # weekly, to catch a broken release or download URL
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run the installer as curl | bash would
+        working-directory: ${{ runner.temp }}
+        run: bash -s -- --no-hyprland < "$GITHUB_WORKSPACE/install.sh"
+      - name: The installed app answers
+        run: |
+          out="$("$HOME/.local/bin/omacus" '2 hours + 30 min in minutes')"
+          echo "$out"
+          test "$out" = "150 minutes"
+      - name: macOS app bundle is in place and not quarantined
+        if: runner.os == 'macOS'
+        run: |
+          app=/Applications/Omacus.app
+          test -d "$app" || app="$HOME/Applications/Omacus.app"
+          test -x "$app/Contents/MacOS/omacus"
+          ! xattr -p com.apple.quarantine "$app" 2>/dev/null
+          codesign --verify --deep "$app"

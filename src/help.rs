@@ -13,6 +13,16 @@ pub enum Tab {
     Tips,
 }
 
+impl Tab {
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "syntax" => Tab::Syntax,
+            "tips" => Tab::Tips,
+            _ => Tab::Keyboard,
+        }
+    }
+}
+
 pub enum Action {
     Close,
     /// Open the syntax examples as a new sheet to play with.
@@ -316,6 +326,18 @@ fn tab_button(ui: &mut egui::Ui, theme: &Theme, label: &str, active: bool) -> bo
     resp.clicked()
 }
 
+/// A fixed-width table cell with its content left-aligned (`add_sized` centers it).
+fn left_cell(ui: &mut egui::Ui, size: egui::Vec2, label: egui::Label) {
+    ui.allocate_ui_with_layout(
+        size,
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.set_min_size(size);
+            ui.add(label);
+        },
+    );
+}
+
 fn heading(ui: &mut egui::Ui, theme: &Theme, text: &str) {
     ui.add_space(8.0);
     ui.label(
@@ -337,8 +359,9 @@ fn keyboard(ui: &mut egui::Ui, theme: &Theme) {
             }
             let key = keys(key);
             ui.horizontal(|ui| {
-                ui.add_sized(
-                    [250.0, 22.0],
+                left_cell(
+                    ui,
+                    vec2(250.0, 22.0),
                     egui::Label::new(RichText::new(key).monospace().color(theme.keyword))
                         .truncate(),
                 );
@@ -367,8 +390,9 @@ fn syntax(ui: &mut egui::Ui, theme: &Theme, engine: &Engine) -> bool {
         let results = engine.eval_document(&lines.join("\n"));
         for (line, result) in lines.iter().zip(results) {
             ui.horizontal(|ui| {
-                ui.add_sized(
-                    [width * 0.55, 20.0],
+                left_cell(
+                    ui,
+                    vec2(width * 0.55, 20.0),
                     egui::Label::new(RichText::new(*line).monospace().color(theme.foreground))
                         .truncate(),
                 );
