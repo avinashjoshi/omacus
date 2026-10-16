@@ -201,7 +201,7 @@
 
     <!-- ===================================================== First sheet -->
     <h3 id="updating">Updating</h3>
-    <p>When a new version is out, a quiet <strong>available</strong> line appears at the bottom of the sidebar (and next to the version in the help window). Click it to see what's new and choose <strong>Update now</strong>; Omacus installs the new version and offers to restart. Your sheets, keybind and settings stay as they are. From a terminal, <code>omacus update</code> does the same.</p>
+    <p>The version is at the bottom of the sidebar. When a new one is out, a small dot appears next to it; click it to see what's new and choose <strong>Update now</strong>, and Omacus installs the new version and offers to restart. You can also check any time from <strong>About</strong> in the help window (<kbd>F1</kbd>). Your sheets, keybind and settings stay as they are. From a terminal, <code>omacus update</code> does the same.</p>
     <p>If you installed the .deb or .rpm, or on Windows, the update button opens the download page instead, so you update the same way you installed. Omacus checks GitHub for the latest version number at most once a day; to turn that off, put <code>check_for_updates = false</code> in <code>settings.toml</code> (see <a href="#files">Where files live</a>).</p>
 
     <h2 id="first-sheet">Your first sheet</h2>
@@ -491,7 +491,7 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
     <!-- ===================================================== More -->
     <h2 id="faq">FAQ</h2>
     <h3>How do I update Omacus?</h3>
-    <p>Click the <strong>available</strong> notice in the sidebar when it appears, or run <code>omacus update</code>. See <a href="#updating">Updating</a>.</p>
+    <p>Click the version at the bottom of the sidebar when it shows a dot, use <strong>Check for updates</strong> in About (<kbd>F1</kbd>), or run <code>omacus update</code>. See <a href="#updating">Updating</a>.</p>
     <h3>A line shows no result. Why?</h3>
     <p>Omacus only shows answers it's sure about. Usually the line mixes things that can't be combined (dollars plus kilometres) or uses a word as a unit by accident. Try the expression on its own, and if you think it should work, <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">open an issue</a> with the exact line.</p>
     <h3>Does it need the internet?</h3>

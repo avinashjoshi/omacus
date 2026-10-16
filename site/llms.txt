@@ -8,7 +8,7 @@ Key facts:
 - Packages: .deb (Ubuntu, Debian), .rpm (Fedora, openSUSE), .tar.gz (any x86_64 Linux), universal .dmg (Apple Silicon and Intel), .zip (64-bit Windows).
 - Examples: `6pm PST in Tokyo` gives `10:00 AM JST (next day)`; `3pm PST on Dec 1 in London` gives `11:00 PM GMT, Tue 1 Dec`; `15% off $1,299` gives `$1,104.15`; `3.5 km in miles` gives `2.17 miles`; `rate = $85/hour` then `rate * 30 hours` gives `$2,550`.
 - Works offline; the network is only used to refresh exchange rates and, once a day, to check for a new version (which can be turned off). No account, no telemetry.
-- Updating: `omacus update`, or the "available" notice in the app's sidebar.
+- Updating: `omacus update`, the version at the bottom of the app's sidebar (a dot marks a new one), or Check for updates in About.
 - Command line: `omacus '$100 in INR'` prints one answer; `omacus -` evaluates a sheet from standard input.
 - On Omarchy it follows the active theme live, and the installer offers a Hyprland keybind (default Super+Ctrl+Alt+=) and a floating-window rule.
 - Written in Rust with egui; the math engine is fend. Author: Avinash Joshi.
