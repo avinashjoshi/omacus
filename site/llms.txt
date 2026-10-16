@@ -6,7 +6,7 @@ Key facts:
 
 - Install on Linux or macOS: `curl -fsSL omacus.com/install | bash`. Windows: a portable `omacus.exe` from https://omacus.com/windows.
 - Packages: .deb (Ubuntu, Debian), .rpm (Fedora, openSUSE), .tar.gz (any x86_64 Linux), universal .dmg (Apple Silicon and Intel), .zip (64-bit Windows).
-- Examples: `3pm PST in IST` gives `3:30 AM IST (next day)`; `15% off $1,299` gives `$1,104.15`; `3.5 km in miles` gives `2.17 miles`; `rate = $85/hour` then `rate * 30 hours` gives `$2,550`.
+- Examples: `6pm PST in Tokyo` gives `10:00 AM JST (next day)`; `15% off $1,299` gives `$1,104.15`; `3.5 km in miles` gives `2.17 miles`; `rate = $85/hour` then `rate * 30 hours` gives `$2,550`.
 - Works offline; the network is only used to refresh exchange rates. No account, no telemetry.
 - Command line: `omacus '$100 in INR'` prints one answer; `omacus -` evaluates a sheet from standard input.
 - On Omarchy it follows the active theme live, and the installer offers a Hyprland keybind (default Super+Ctrl+Alt+=) and a floating-window rule.

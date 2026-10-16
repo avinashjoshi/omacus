@@ -1,26 +1,26 @@
 <!--
 order: 1
 path: /guides/time-zones/
-title: Convert time zones in plain English: 3pm PST in IST · Omacus
-description: Type "3pm PST in IST" and get "3:30 AM IST (next day)". How Omacus converts times between abbreviations, cities and countries, with daylight saving handled.
+title: Convert time zones in plain English: 6pm PST in Tokyo · Omacus
+description: Type "6pm PST in Tokyo" and get "10:00 AM JST (next day)". How Omacus converts times between abbreviations, cities and countries, with daylight saving handled.
 kicker: guide
 h1: Convert time zones in plain English
-lede: Write the time and both places the way you'd say them, like <code>3pm PST in IST</code>, and Omacus answers on the same line: <code>3:30 AM IST (next day)</code>. No menus, no picking cities from a list.
+lede: Write the time and both places the way you'd say them, like <code>6pm PST in Tokyo</code>, and Omacus answers on the same line: <code>10:00 AM JST (next day)</code>. No menus, no picking cities from a list.
 card: Time zones
-blurb: 3pm PST in IST, with daylight saving and next-day answers handled.
+blurb: 6pm PST in Tokyo, with daylight saving and next-day answers handled.
 related: /use-cases/, /guides/percentages/, /docs/
 -->
     <p>Omacus is a free notepad calculator for Linux, macOS and Windows. Each line you type is calculated as you type it, so a page of meeting times reads like a note to yourself, with every answer lined up on the right.</p>
 
     <h2 id="examples">Quick examples</h2>
 <!-- ex
-3pm PST in IST
+6pm PST in Tokyo
 9am EST in London
-noon UTC in Tokyo
-6pm IST in San Francisco
-4pm Paris in Bangalore
 10:30 London to New York
+noon UTC in Sydney
+4pm Paris in San Francisco
 9am Germany in Japan
+3pm PST in IST
 11pm JST in UTC
 -->
     <p class="note-line">Answers were calculated on {{calculated_on}}. Omacus always uses the date you're typing on, so daylight saving is right for today.</p>
@@ -29,17 +29,17 @@ noon UTC in Tokyo
     <h3>Abbreviations</h3>
     <p><code>PST</code>, <code>EST</code>, <code>CST</code>, <code>MST</code>, <code>IST</code>, <code>UTC</code>, <code>GMT</code>, <code>BST</code>, <code>CET</code>, <code>EET</code>, <code>JST</code>, <code>KST</code>, <code>SGT</code>, <code>HKT</code>, <code>AEST</code>, <code>NZST</code> and more. The summer versions (<code>PDT</code>, <code>EDT</code>, <code>CEST</code>, <code>AEDT</code>) work too, and so do the short forms <code>PT</code>, <code>ET</code>, <code>CT</code> and <code>MT</code>.</p>
     <h3>Cities</h3>
-    <p>Every city in the IANA time-zone database, plus common names like Bangalore, Mumbai, Delhi, San Francisco, Seattle, NYC, Boston and Austin. Multi-word names just work.</p>
+    <p>Every city in the IANA time-zone database, plus common names like San Francisco, Seattle, NYC, Boston, Austin, Bangalore and Mumbai. Multi-word names just work.</p>
 <!-- ex
-2:15pm Mumbai in Chicago
-7am Singapore in Dubai
+2:15pm Chicago in Paris
 8pm Seattle in Sydney
+7am Singapore in Dubai
 -->
     <h3>Countries and zone names</h3>
-    <p>Countries with a single zone (India, Japan, Germany, France, the UK, the UAE) work by name. For anywhere else, the full IANA name is always understood.</p>
+    <p>Countries with a single zone (Japan, Germany, France, the UK, India, the UAE) work by name. For anywhere else, the full IANA name is always understood.</p>
 <!-- ex
-9am India in Japan
-10am America/New_York in Asia/Kolkata
+9am France in Japan
+10am America/New_York in Europe/Zurich
 noon UTC in Asia/Kathmandu
 -->
 
@@ -72,12 +72,12 @@ noon AEST to PST
     <p>Words before the time are treated as a label, so a list of meetings stays readable:</p>
 <!-- ex
 Standup 9:30am PST in Berlin
-Flight lands 6:40pm IST in London
-Payroll cutoff 5pm ET in IST
+Flight lands 6:40pm CET in New York
+Payroll cutoff 5pm ET in London
 -->
 
     <h2 id="now">The time right now</h2>
-    <p>Write <code>time in Tokyo</code> or <code>now in London</code> for the current time there. A time without a zone means your own: <code>3pm in IST</code> converts 3pm where you are.</p>
+    <p>Write <code>time in Tokyo</code> or <code>now in London</code> for the current time there. A time without a zone means your own: <code>3pm in London</code> converts 3pm where you are.</p>
 
     <h2 id="sheet">Planning a meeting across zones</h2>
     <p>Because every line keeps its answer, a sheet is a quick way to find a time that works for everyone. Try one time, read down the column, adjust:</p>
@@ -90,8 +90,8 @@ Payroll cutoff 5pm ET in IST
     <h3>Does it need the internet for time zones?</h3>
     <p>No. Time zones are calculated entirely on your computer; only currency rates are ever fetched.</p>
     <h3>Which time zone abbreviations does it know?</h3>
-    <p>The common ones for North America, Europe, India, East Asia and Australia, such as PST, EST, CST, MST, IST, GMT, BST, CET, EET, JST, KST, SGT, HKT, AEST and NZST, plus their daylight versions. Any city or IANA zone name works too.</p>
-    <h3>IST could mean India or Israel. Which one is it?</h3>
-    <p>India Standard Time. For Israel, write a city instead: <code>3pm PST in Jerusalem</code>.</p>
+    <p>The common ones for North America, Europe, Asia and Australia, such as PST, EST, CST, MST, GMT, BST, CET, EET, IST, JST, KST, SGT, HKT, AEST and NZST, plus their daylight versions. Any city or IANA zone name works too.</p>
     <h3>Can I convert a time on a specific date?</h3>
     <p>Times are converted for today, which is what you need for scheduling this week. For date math, see <a href="/docs/#dates">Dates</a> in the docs.</p>
+    <h3>IST could mean India or Israel. Which one is it?</h3>
+    <p>India Standard Time. For Israel, write a city instead: <code>3pm PST in Jerusalem</code>.</p>

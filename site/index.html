@@ -15,14 +15,14 @@
   <meta property="og:url" content="https://omacus.com/">
   <meta property="og:title" content="Omacus: math, the way you write it">
   <meta property="og:description" content="A free notepad calculator for Omarchy, Linux, macOS and Windows. Units, currencies, time zones and plain words, answered as you type.">
-  <meta property="og:image" content="https://omacus.com/img/og.png">
+  <meta property="og:image" content="https://omacus.com/img/og.png?v=2">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Omacus: math, the way you write it">
   <meta name="twitter:description" content="A free notepad calculator for Omarchy, Linux, macOS and Windows.">
-  <meta name="twitter:image" content="https://omacus.com/img/og.png">
+  <meta name="twitter:image" content="https://omacus.com/img/og.png?v=2">
   <link rel="manifest" href="/site.webmanifest">
 
   <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
@@ -148,7 +148,7 @@
      "name": "How do I convert time zones?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "Type the time and both zones, like 3pm PST in IST. Omacus answers 3:30 AM IST (next day). It knows abbreviations, cities and countries, and adjusts for daylight saving."
+      "text": "Type the time and both zones, like 6pm PST in Tokyo. Omacus answers 10:00 AM JST (next day). It knows abbreviations, cities and countries, and adjusts for daylight saving."
      }
     },
     {
@@ -172,7 +172,7 @@
      "name": "Can I use it from the terminal?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "Yes. omacus '$100 in INR' prints the answer, and omacus - evaluates a whole sheet from standard input, one result per line."
+      "text": "Yes. omacus '$100 in EUR' prints the answer, and omacus - evaluates a whole sheet from standard input, one result per line."
      }
     },
     {
@@ -272,12 +272,12 @@
         <article class="feature">
           <h3>Currencies</h3>
           <p>160+ currencies with live exchange rates, cached so it keeps working offline. Symbols or codes, your call.</p>
-          <div class="eg"><div><span>$30 in EUR</span><b>26.75 EUR</b></div><div><span>₹5,000 in USD</span><b>$52.58</b></div></div>
+          <div class="eg"><div><span>$30 in EUR</span><b>26.75 EUR</b></div><div><span>£250 in USD</span><b>$331.54</b></div></div>
         </article>
         <article class="feature">
           <h3>Time zones</h3>
           <p>Abbreviations, cities and countries, with daylight saving handled. Tells you when it lands on another day.</p>
-          <div class="eg"><div><span>3pm PST in IST</span><b>3:30 AM IST (next day)</b></div><div><span>noon UTC in Tokyo</span><b>9:00 PM JST</b></div></div>
+          <div class="eg"><div><span>6pm PST in Tokyo</span><b>10:00 AM JST (next day)</b></div><div><span>9am EST in London</span><b>2:00 PM BST</b></div></div>
         </article>
         <article class="feature">
           <h3>Percentages</h3>
@@ -382,10 +382,10 @@
       </div>
       <div class="terminal reveal" aria-label="Terminal examples">
         <div class="bar"><i></i><i></i><i></i></div>
-<pre><span class="p">$</span> omacus '$100 in INR'
-<span class="o">9,510.01 INR</span>
-<span class="p">$</span> omacus '3pm PST in IST'
-<span class="o">3:30 AM IST (next day)</span>
+<pre><span class="p">$</span> omacus '$100 in EUR'
+<span class="o">89.17 EUR</span>
+<span class="p">$</span> omacus '6pm PST in Tokyo'
+<span class="o">10:00 AM JST (next day)</span>
 <span class="p">$</span> printf 'rent = $1450\nrent * 12\n' | omacus -
 <span class="o">$1,450</span>
 <span class="o">$17,400</span></pre>
@@ -415,7 +415,7 @@
         </div>
         <div>
           <h3>How do I convert time zones?</h3>
-          <p>Type the time and both zones, like <code>3pm PST in IST</code>. Omacus answers <code>3:30 AM IST (next day)</code>. It knows abbreviations, cities and countries, and adjusts for daylight saving.</p>
+          <p>Type the time and both zones, like <code>6pm PST in Tokyo</code>. Omacus answers <code>10:00 AM JST (next day)</code>. It knows abbreviations, cities and countries, and adjusts for daylight saving.</p>
         </div>
         <div>
           <h3>Does it work offline?</h3>
@@ -427,7 +427,7 @@
         </div>
         <div>
           <h3>Can I use it from the terminal?</h3>
-          <p>Yes. <code>omacus '$100 in INR'</code> prints the answer, and <code>omacus -</code> evaluates a whole sheet from standard input, one result per line.</p>
+          <p>Yes. <code>omacus '$100 in EUR'</code> prints the answer, and <code>omacus -</code> evaluates a whole sheet from standard input, one result per line.</p>
         </div>
         <div>
           <h3>Where are my sheets stored?</h3>

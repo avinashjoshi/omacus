@@ -97,15 +97,15 @@ More examples in the guide: [Convert units by just writing them](https://omacus.
 
 ## Currencies
 
-160+ currencies by code (`USD`, `EUR`, `INR`…) or symbol (`$` `€` `£` `¥` `₹` `₩` `₽` `₺`). Rates are fetched from a free public source and cached, so currency math keeps working offline; they refresh every 12 hours while there's a connection.
+160+ currencies by code (`USD`, `EUR`, `JPY`…) or symbol (`$` `€` `£` `¥` `₹` `₩` `₽` `₺`). Rates are fetched from a free public source and cached, so currency math keeps working offline; they refresh every 12 hours while there's a connection.
 
 | You type | Omacus shows |
 |---|---|
 | `$30 in EUR` | 26.75 EUR |
 | `€50 + £20 in USD` | $82.60 |
-| `₹5,000 in USD` | $52.58 |
+| `£250 in USD` | $331.54 |
 | `¥10,000 in USD` | $63.26 |
-| `$100 in INR` | 9,510.01 INR |
+| `₹5,000 in USD` | $52.58 |
 
 Rates above are from when this page was built.
 
@@ -139,24 +139,25 @@ Keep a total in a variable to build on it:
 
 | You type | Omacus shows |
 |---|---|
-| `Food ₹2,000` | 2,000 INR |
-| `Taxi ₹800` | 800 INR |
-| `subtotal = sum` | 2,800 INR |
-| `gst = 18% of subtotal` | 504 INR |
-| `subtotal + gst` | 3,304 INR |
+| `Hotel €420` | 420 EUR |
+| `Dinner €96` | 96 EUR |
+| `subtotal = sum` | 516 EUR |
+| `vat = 20% of subtotal` | 103.20 EUR |
+| `subtotal + vat` | 619.20 EUR |
 
 ## Time zones
 
-Convert a time between zones by abbreviation (`PST`, `EST`, `IST`, `CET`, `JST`…), city (`London`, `Bangalore`, `San Francisco`) or country (`India`, `Japan`). Abbreviations follow daylight saving: `PST` in July means Pacific time, which is then PDT. When the answer falls on another day, it says so.
+Convert a time between zones by abbreviation (`PST`, `EST`, `CET`, `JST`, `IST`…), city (`London`, `Tokyo`, `San Francisco`) or country (`Japan`, `Germany`). Abbreviations follow daylight saving: `PST` in July means Pacific time, which is then PDT. When the answer falls on another day, it says so.
 
 | You type | Omacus shows |
 |---|---|
-| `3pm PST in IST` | 3:30 AM IST (next day) |
+| `6pm PST in Tokyo` | 10:00 AM JST (next day) |
 | `10:30 London to New York` | 5:30 AM EDT |
-| `noon UTC in Tokyo` | 9:00 PM JST |
+| `noon UTC in Sydney` | 11:00 PM AEDT |
 | `Standup 9:30am PST in Berlin` | 6:30 PM CEST |
+| `3pm PST in IST` | 3:30 AM IST (next day) |
 
-For the current time somewhere, write `time in Tokyo` or `now in London`. A time without a zone means your local time: `3pm in IST`.
+For the current time somewhere, write `time in Tokyo` or `now in London`. A time without a zone means your local time: `3pm in London`.
 
 More examples in the guide: [Convert time zones in plain English](https://omacus.com/guides/time-zones/).
 
@@ -258,8 +259,8 @@ lighter_background = "#1e1e1e"  # hover
 The `omacus` command uses the same engine as the app.
 
 ```
-omacus '$100 in INR'  # one expression → prints the answer
-omacus '3pm PST in IST'
+omacus '$100 in EUR'  # one expression → prints the answer
+omacus '6pm PST in Tokyo'
 printf 'rent = $1450\nrent * 12\n' | omacus -  # a whole sheet from stdin, one result per line
 omacus - < ~/notes/budget.txt
 omacus  # no arguments: open the window

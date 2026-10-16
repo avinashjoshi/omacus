@@ -175,7 +175,7 @@
       ra: ["rate", "radian", "rankine"],
       ea: ["each"],
       su: ["subtotal", "sum", "sunday"],
-      gs: ["gst"],
+      ta: ["tax", "tablespoon", "tan"],
       in: null,
     };
 

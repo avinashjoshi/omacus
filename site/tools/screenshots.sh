@@ -22,7 +22,7 @@ shoot() {
   root="$(mktemp -d)"
   mkdir -p "$root/data/omacus/sheets" "$root/cfg/omacus" "$root/cache/omacus"
   cp "$demo"/*.txt "$root/data/omacus/sheets/"
-  printf '{"order":["goa","invoice","standup","budget","kitchen"],"active":"%s","cursors":{},"sidebar":true}' \
+  printf '{"order":["kyoto","invoice","standup","budget","kitchen"],"active":"%s","cursors":{},"sidebar":true}' \
     "$active" >"$root/data/omacus/state.json"
   cp "$themes/$theme/colors.toml" "$root/cfg/omacus/theme.toml"
   cp ~/.cache/omacus/rates.json "$root/cache/omacus/" 2>/dev/null || true
@@ -34,13 +34,13 @@ shoot() {
   echo "$name.webp"
 }
 
-shoot matte-black matte-black goa
+shoot matte-black matte-black kyoto
 shoot tokyo-night tokyo-night invoice
 shoot catppuccin catppuccin budget
 shoot gruvbox gruvbox standup
 shoot everforest everforest kitchen
-shoot nord nord goa
+shoot nord nord kyoto
 shoot rose-pine rose-pine invoice
 shoot catppuccin-latte catppuccin-latte budget
-shoot help-syntax matte-black goa syntax
-shoot help-keyboard matte-black goa keyboard
+shoot help-syntax matte-black kyoto syntax
+shoot help-keyboard matte-black kyoto keyboard

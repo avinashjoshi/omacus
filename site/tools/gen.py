@@ -32,21 +32,21 @@ EXAMPLES = {
                     "5% of what is 6"],
     "units": ["3.5 km in miles", "2 hours + 45 min in minutes", "72 fahrenheit in celsius",
               "60 mph in km/h", "2 cups in ml", "10 GB / 4", "1 acre in m^2"],
-    "currency": ["$30 in EUR", "€50 + £20 in USD", "₹5,000 in USD", "¥10,000 in USD",
-                 "$100 in INR"],
+    "currency": ["$30 in EUR", "€50 + £20 in USD", "£250 in USD", "¥10,000 in USD",
+                 "₹5,000 in USD"],
     "variables": ["rent = $1,450", "rent * 12", "rate = $85/hour", "rate * 30 hours"],
     "totals": ["Coffee $4.50", "Lunch with Sam $18", "Taxi $12", "total", "average",
                "prev * 2"],
-    "named-totals": ["Food ₹2,000", "Taxi ₹800", "subtotal = sum", "gst = 18% of subtotal",
-                     "subtotal + gst"],
-    "timezones": ["3pm PST in IST", "10:30 London to New York", "noon UTC in Tokyo",
-                  "Standup 9:30am PST in Berlin"],
+    "named-totals": ["Hotel €420", "Dinner €96", "subtotal = sum", "vat = 20% of subtotal",
+                     "subtotal + vat"],
+    "timezones": ["6pm PST in Tokyo", "10:30 London to New York", "noon UTC in Sydney",
+                  "Standup 9:30am PST in Berlin", "3pm PST in IST"],
     "bases": ["255 in hex", "0xff in decimal", "10 in binary"],
     "notes": ["# A header", "// a comment line", "Rent: $1,450", "Lunch with Sam $18",
               '"quoted text" 40 + 2'],
 }
 
-DEMO_ORDER = ["goa", "invoice", "standup", "budget", "kitchen"]
+DEMO_ORDER = ["kyoto", "invoice", "standup", "budget", "kitchen"]
 
 
 def evaluate(lines):
@@ -318,7 +318,7 @@ def head(meta, faq):
          "@id": url + "#page", "headline": meta["h1"], "description": meta["description"], "url": url,
          "inLanguage": "en", "dateModified": "{{lastmod}}", "author": AUTHOR, "publisher": AUTHOR,
          "about": {"@type": "SoftwareApplication", "@id": "https://omacus.com/#app", "name": "Omacus"},
-         "image": "https://omacus.com/img/og.png"},
+         "image": "https://omacus.com/img/og.png?v=2"},
         {"@type": "BreadcrumbList", "itemListElement": [
             {"@type": "ListItem", "position": i + 1, "name": n, "item": u} for i, (n, u) in enumerate(crumbs)]},
     ]
@@ -341,14 +341,14 @@ def head(meta, faq):
   <meta property="og:url" content="{url}">
   <meta property="og:title" content="{e(meta["h1"])}">
   <meta property="og:description" content="{e(meta["description"])}">
-  <meta property="og:image" content="https://omacus.com/img/og.png">
+  <meta property="og:image" content="https://omacus.com/img/og.png?v=2">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="{e(meta["h1"])}">
   <meta name="twitter:description" content="{e(meta["description"])}">
-  <meta name="twitter:image" content="https://omacus.com/img/og.png">
+  <meta name="twitter:image" content="https://omacus.com/img/og.png?v=2">
   <link rel="manifest" href="/site.webmanifest">
   <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
   <link rel="icon" href="/img/favicon-32.png" sizes="32x32">

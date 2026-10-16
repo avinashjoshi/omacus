@@ -5,7 +5,7 @@ title: Currency converter that works offline: $30 in EUR · Omacus
 description: Convert and add up money in 160+ currencies by symbol or code, like "$30 in EUR" or "€50 + £20 in USD". Live exchange rates, cached so it keeps working offline.
 kicker: guide
 h1: Convert currencies as you type
-lede: Write an amount and where you want it, like <code>$30 in EUR</code> or <code>₹5,000 in USD</code>. Omacus fetches exchange rates for 160+ currencies, keeps them on your computer, and answers on the same line.
+lede: Write an amount and where you want it, like <code>$30 in EUR</code> or <code>£250 in USD</code>. Omacus fetches exchange rates for 160+ currencies, keeps them on your computer, and answers on the same line.
 card: Currency
 blurb: $30 in EUR, mixed currencies, symbols or codes, offline.
 related: /use-cases/, /guides/percentages/, /docs/
@@ -15,18 +15,18 @@ related: /use-cases/, /guides/percentages/, /docs/
     <h2 id="examples">Quick examples</h2>
 <!-- ex
 $30 in EUR
-₹5,000 in USD
+£250 in USD
 €50 + £20 in USD
-100 USD to GBP
-2,500 INR in EUR
 ¥10,000 in USD
+100 USD to GBP
 50 AUD in NZD
-10k INR in USD
+10k MXN in USD
+₹5,000 in USD
 -->
     <p class="note-line">Rates as of {{calculated_on}}. In the app you always get the latest rates.</p>
 
     <h2 id="writing">Symbols or codes</h2>
-    <p>Use the symbol you'd write by hand, <code>$</code> <code>£</code> <code>€</code> <code>¥</code> <code>₹</code> <code>₩</code> <code>₽</code> <code>₺</code>, or any three-letter currency code after the number: <code>$30</code> and <code>30 USD</code> are the same. Thousands separators like <code>₹1,50,000</code> or <code>$1,299</code> are fine, and <code>k</code> means thousands.</p>
+    <p>Use the symbol you'd write by hand, <code>$</code> <code>£</code> <code>€</code> <code>¥</code> <code>₹</code> <code>₩</code> <code>₽</code> <code>₺</code>, or any three-letter currency code after the number: <code>$30</code> and <code>30 USD</code> are the same. Thousands separators like <code>$1,299</code> or <code>₹1,50,000</code> are fine, and <code>k</code> means thousands.</p>
     <p>Convert with <code>in</code> or <code>to</code>. Results in dollars are shown as <code>$</code>; other currencies keep their code so it's always clear which one you're looking at.</p>
 
     <h2 id="mixing">Mixing currencies</h2>
@@ -45,19 +45,19 @@ $4.50 + $3.25 + $12
 20% of €80
 $2,000 - 15%
 $85/hour * 160 hours in EUR
-₹50,000 + 18% GST
+€50,000 + 20% VAT
 -->
 
     <h2 id="offline">Rates, and working offline</h2>
     <p>Omacus downloads exchange rates for 160+ currencies from a free public source when it starts, and saves them on your computer. They're refreshed every 12 hours while you're online. On a plane or without Wi-Fi, currency math keeps working with the last rates it saved. Nothing about you or your sheets is sent anywhere; the request only asks for the latest rates.</p>
 
     <h2 id="sheet">A trip, split four ways</h2>
-    <p>Prices in rupees, split per person, then shown in dollars and euros for friends back home:</p>
-<!-- sheet goa -->
+    <p>Flights in dollars, everything else in yen, split per person, then shown in euros and pounds for friends back home:</p>
+<!-- sheet kyoto -->
 
     <h2 id="questions">Questions</h2>
     <h3>How many currencies does Omacus support?</h3>
-    <p>More than 160, covering every currency with a published exchange rate from its rate source, from USD, EUR and INR to smaller ones like NPR and KES.</p>
+    <p>More than 160, covering every currency with a published exchange rate from its rate source, from USD, EUR and JPY to smaller ones like NPR and KES.</p>
     <h3>Where do the exchange rates come from?</h3>
     <p>From open.er-api.com, a free exchange rate service. They're cached on your computer and refreshed every 12 hours.</p>
     <h3>Does currency conversion work offline?</h3>

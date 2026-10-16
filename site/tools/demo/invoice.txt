@@ -1,10 +1,10 @@
 # Invoice — October
-rate = $85/hour
+rate = $150/hour
 
 Design review 6 hours * rate
 Build 32 hours * rate
 Client calls 4.5 hours * rate
 subtotal = sum
-gst = 18% of subtotal
-subtotal + gst
-prev in INR
+tax = 8.875% of subtotal
+subtotal + tax
+prev in EUR

@@ -13,14 +13,14 @@
   <meta property="og:url" content="https://omacus.com/guides/currency/">
   <meta property="og:title" content="Convert currencies as you type">
   <meta property="og:description" content="Convert and add up money in 160+ currencies by symbol or code, like &quot;$30 in EUR&quot; or &quot;€50 + £20 in USD&quot;. Live exchange rates, cached so it keeps working offline.">
-  <meta property="og:image" content="https://omacus.com/img/og.png">
+  <meta property="og:image" content="https://omacus.com/img/og.png?v=2">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Convert currencies as you type">
   <meta name="twitter:description" content="Convert and add up money in 160+ currencies by symbol or code, like &quot;$30 in EUR&quot; or &quot;€50 + £20 in USD&quot;. Live exchange rates, cached so it keeps working offline.">
-  <meta name="twitter:image" content="https://omacus.com/img/og.png">
+  <meta name="twitter:image" content="https://omacus.com/img/og.png?v=2">
   <link rel="manifest" href="/site.webmanifest">
   <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
   <link rel="icon" href="/img/favicon-32.png" sizes="32x32">
@@ -57,7 +57,7 @@
     "@id": "https://omacus.com/#app",
     "name": "Omacus"
    },
-   "image": "https://omacus.com/img/og.png"
+   "image": "https://omacus.com/img/og.png?v=2"
   },
   {
    "@type": "BreadcrumbList",
@@ -91,7 +91,7 @@
      "name": "How many currencies does Omacus support?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "More than 160, covering every currency with a published exchange rate from its rate source, from USD, EUR and INR to smaller ones like NPR and KES."
+      "text": "More than 160, covering every currency with a published exchange rate from its rate source, from USD, EUR and JPY to smaller ones like NPR and KES."
      }
     },
     {
@@ -162,7 +162,7 @@
   <article class="prose page-body">
     <span class="kicker">// guide</span>
     <h1>Convert currencies as you type</h1>
-    <p class="lead">Write an amount and where you want it, like <code>$30 in EUR</code> or <code>₹5,000 in USD</code>. Omacus fetches exchange rates for 160+ currencies, keeps them on your computer, and answers on the same line.</p>
+    <p class="lead">Write an amount and where you want it, like <code>$30 in EUR</code> or <code>£250 in USD</code>. Omacus fetches exchange rates for 160+ currencies, keeps them on your computer, and answers on the same line.</p>
 <p>Omacus is a free notepad calculator for Linux, macOS and Windows. Because money is just another unit to it, you can add, split and convert prices in the same line, and keep a whole trip's or invoice's worth of math on one page.</p>
 
     <h2 id="examples">Quick examples</h2>
@@ -170,19 +170,19 @@
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
     <tbody>
       <tr><td><code>$30 in EUR</code></td><td class="ans">26.75 EUR</td></tr>
-      <tr><td><code>₹5,000 in USD</code></td><td class="ans">$52.58</td></tr>
+      <tr><td><code>£250 in USD</code></td><td class="ans">$331.54</td></tr>
       <tr><td><code>€50 + £20 in USD</code></td><td class="ans">$82.60</td></tr>
-      <tr><td><code>100 USD to GBP</code></td><td class="ans">75.41 GBP</td></tr>
-      <tr><td><code>2,500 INR in EUR</code></td><td class="ans">23.44 EUR</td></tr>
       <tr><td><code>¥10,000 in USD</code></td><td class="ans">$63.26</td></tr>
+      <tr><td><code>100 USD to GBP</code></td><td class="ans">75.41 GBP</td></tr>
       <tr><td><code>50 AUD in NZD</code></td><td class="ans">61.57 NZD</td></tr>
-      <tr><td><code>10k INR in USD</code></td><td class="ans">$105.15</td></tr>
+      <tr><td><code>10k MXN in USD</code></td><td class="ans">$541.79</td></tr>
+      <tr><td><code>₹5,000 in USD</code></td><td class="ans">$52.58</td></tr>
     </tbody>
   </table>
     <p class="note-line">Rates as of 16 October 2026. In the app you always get the latest rates.</p>
 
     <h2 id="writing">Symbols or codes</h2>
-    <p>Use the symbol you'd write by hand, <code>$</code> <code>£</code> <code>€</code> <code>¥</code> <code>₹</code> <code>₩</code> <code>₽</code> <code>₺</code>, or any three-letter currency code after the number: <code>$30</code> and <code>30 USD</code> are the same. Thousands separators like <code>₹1,50,000</code> or <code>$1,299</code> are fine, and <code>k</code> means thousands.</p>
+    <p>Use the symbol you'd write by hand, <code>$</code> <code>£</code> <code>€</code> <code>¥</code> <code>₹</code> <code>₩</code> <code>₽</code> <code>₺</code>, or any three-letter currency code after the number: <code>$30</code> and <code>30 USD</code> are the same. Thousands separators like <code>$1,299</code> or <code>₹1,50,000</code> are fine, and <code>k</code> means thousands.</p>
     <p>Convert with <code>in</code> or <code>to</code>. Results in dollars are shown as <code>$</code>; other currencies keep their code so it's always clear which one you're looking at.</p>
 
     <h2 id="mixing">Mixing currencies</h2>
@@ -206,7 +206,7 @@
       <tr><td><code>20% of €80</code></td><td class="ans">16 EUR</td></tr>
       <tr><td><code>$2,000 - 15%</code></td><td class="ans">$1,700</td></tr>
       <tr><td><code>$85/hour * 160 hours in EUR</code></td><td class="ans">12,126.44 EUR</td></tr>
-      <tr><td><code>₹50,000 + 18% GST</code></td><td class="ans">59,000 INR</td></tr>
+      <tr><td><code>€50,000 + 20% VAT</code></td><td class="ans">60,000 EUR</td></tr>
     </tbody>
   </table>
 
@@ -214,31 +214,31 @@
     <p>Omacus downloads exchange rates for 160+ currencies from a free public source when it starts, and saves them on your computer. They're refreshed every 12 hours while you're online. On a plane or without Wi-Fi, currency math keeps working with the last rates it saved. Nothing about you or your sheets is sent anywhere; the request only asks for the latest rates.</p>
 
     <h2 id="sheet">A trip, split four ways</h2>
-    <p>Prices in rupees, split per person, then shown in dollars and euros for friends back home:</p>
+    <p>Flights in dollars, everything else in yen, split per person, then shown in euros and pounds for friends back home:</p>
 <figure class="sheet-card">
-  <figcaption><i></i><i></i><i></i><span>Goa trip</span></figcaption>
+  <figcaption><i></i><i></i><i></i><span>Kyoto in autumn</span></figcaption>
   <ol class="sheet-lines">
-    <li><span class="src"><span class="t-head"># Goa trip</span></span><span class="res"></span></li>
+    <li><span class="src"><span class="t-head"># Kyoto in autumn</span></span><span class="res"></span></li>
     <li><span class="src"><span class="t-com">// 4 friends, 5 nights</span></span><span class="res"></span></li>
     <li><span class="src"> </span><span class="res"></span></li>
-    <li><span class="src"><span class="t-label">Flights:</span> <span class="t-num">4</span> <span class="t-op">*</span> <span class="t-num">₹</span><span class="t-num">6,800</span></span><span class="res">27,200 INR</span></li>
-    <li><span class="src"><span class="t-label">Villa:</span> <span class="t-num">5</span> nights <span class="t-op">*</span> <span class="t-num">₹</span><span class="t-num">9,500</span></span><span class="res">47,500 INR</span></li>
-    <li><span class="src">Scooters <span class="t-num">4</span> <span class="t-op">*</span> <span class="t-num">₹</span><span class="t-num">450</span> <span class="t-op">*</span> <span class="t-num">5</span></span><span class="res">9,000 INR</span></li>
-    <li><span class="src">Food <span class="t-op">&amp;</span> drinks <span class="t-num">₹</span><span class="t-num">2,000</span> <span class="t-op">*</span> <span class="t-num">4</span> <span class="t-op">*</span> <span class="t-num">5</span></span><span class="res">40,000 INR</span></li>
-    <li><span class="src"><span class="t-kw">total</span></span><span class="res">123,700 INR</span></li>
-    <li><span class="src"><span class="t-var">each</span> <span class="t-op">=</span> <span class="t-kw">prev</span> <span class="t-op">/</span> <span class="t-num">4</span></span><span class="res">30,925 INR</span></li>
+    <li><span class="src"><span class="t-label">Flights:</span> <span class="t-num">4</span> <span class="t-op">*</span> <span class="t-num">$</span><span class="t-num">1,180</span></span><span class="res">$4,720</span></li>
+    <li><span class="src"><span class="t-label">Ryokan:</span> <span class="t-num">5</span> nights <span class="t-op">*</span> <span class="t-num">¥</span><span class="t-num">68,000</span></span><span class="res">340,000 JPY</span></li>
+    <li><span class="src">Rail passes <span class="t-num">4</span> <span class="t-op">*</span> <span class="t-num">¥</span><span class="t-num">50,000</span></span><span class="res">200,000 JPY</span></li>
+    <li><span class="src">Dinners <span class="t-num">¥</span><span class="t-num">14,000</span> <span class="t-op">*</span> <span class="t-num">4</span> <span class="t-op">*</span> <span class="t-num">5</span></span><span class="res">280,000 JPY</span></li>
+    <li><span class="src"><span class="t-kw">total</span></span><span class="res">$9,907.02</span></li>
+    <li><span class="src"><span class="t-var">each</span> <span class="t-op">=</span> <span class="t-kw">prev</span> <span class="t-op">/</span> <span class="t-num">4</span></span><span class="res">$2,476.75</span></li>
     <li><span class="src"> </span><span class="res"></span></li>
-    <li><span class="src"><span class="t-var">each</span> <span class="t-kw">in</span> USD</span><span class="res">$325.18</span></li>
-    <li><span class="src"><span class="t-var">each</span> <span class="t-kw">in</span> EUR</span><span class="res">289.95 EUR</span></li>
+    <li><span class="src"><span class="t-var">each</span> <span class="t-kw">in</span> EUR</span><span class="res">2,208.40 EUR</span></li>
+    <li><span class="src"><span class="t-var">each</span> <span class="t-kw">in</span> GBP</span><span class="res">1,867.60 GBP</span></li>
     <li><span class="src"> </span><span class="res"></span></li>
-    <li><span class="src"><span class="t-num">6</span><span class="t-op">:</span><span class="t-num">40pm</span> IST <span class="t-kw">in</span> London</span><span class="res">2:10 PM BST</span></li>
-    <li><span class="src">Sunset <span class="t-num">6</span><span class="t-op">:</span><span class="t-num">12pm</span> IST <span class="t-kw">in</span> Sydney</span><span class="res">11:42 PM AEDT</span></li>
+    <li><span class="src">Lands <span class="t-num">4</span><span class="t-op">:</span><span class="t-num">10pm</span> JST <span class="t-kw">in</span> San Francisco</span><span class="res">12:10 AM PDT</span></li>
+    <li><span class="src">Call home <span class="t-num">8pm</span> JST <span class="t-kw">in</span> New York</span><span class="res">7:00 AM EDT</span></li>
   </ol>
 </figure>
 
     <h2 id="questions">Questions</h2>
     <h3>How many currencies does Omacus support?</h3>
-    <p>More than 160, covering every currency with a published exchange rate from its rate source, from USD, EUR and INR to smaller ones like NPR and KES.</p>
+    <p>More than 160, covering every currency with a published exchange rate from its rate source, from USD, EUR and JPY to smaller ones like NPR and KES.</p>
     <h3>Where do the exchange rates come from?</h3>
     <p>From open.er-api.com, a free exchange rate service. They're cached on your computer and refreshed every 12 hours.</p>
     <h3>Does currency conversion work offline?</h3>

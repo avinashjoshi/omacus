@@ -13,14 +13,14 @@
   <meta property="og:url" content="https://omacus.com/use-cases/">
   <meta property="og:title" content="Sheets for the math in your week">
   <meta property="og:description" content="Real Omacus sheets with live answers: splitting a group trip, a freelance invoice with tax, a monthly budget, a doubled recipe, a meeting across time zones, a road trip and a laptop purchase.">
-  <meta property="og:image" content="https://omacus.com/img/og.png">
+  <meta property="og:image" content="https://omacus.com/img/og.png?v=2">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Sheets for the math in your week">
   <meta name="twitter:description" content="Real Omacus sheets with live answers: splitting a group trip, a freelance invoice with tax, a monthly budget, a doubled recipe, a meeting across time zones, a road trip and a laptop purchase.">
-  <meta name="twitter:image" content="https://omacus.com/img/og.png">
+  <meta name="twitter:image" content="https://omacus.com/img/og.png?v=2">
   <link rel="manifest" href="/site.webmanifest">
   <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
   <link rel="icon" href="/img/favicon-32.png" sizes="32x32">
@@ -57,7 +57,7 @@
     "@id": "https://omacus.com/#app",
     "name": "Omacus"
    },
-   "image": "https://omacus.com/img/og.png"
+   "image": "https://omacus.com/img/og.png?v=2"
   },
   {
    "@type": "BreadcrumbList",
@@ -145,44 +145,44 @@
 <p>Each sheet below is plain text you could type into Omacus as-is. Lines starting with <code>#</code> are headers, <code>//</code> starts a note, words before a colon are labels, and the answers on the right appear as you type. <code>total</code> adds up the block above it, and <code>prev</code> is the line before.</p>
 
     <h2 id="trip">Splitting a group trip</h2>
-    <p>Four friends, five nights in Goa. Costs go in rupees as they're booked, <code>total</code> adds them up, and the per-person share is converted for the friend who pays in dollars. The last lines check when the flight lands back home.</p>
+    <p>Four friends, five nights in Kyoto. Flights are in dollars and everything else in yen, as it's booked; <code>total</code> adds it all up in one currency, and each person's share is converted for the friends paying in euros and pounds. The last lines check the time back home.</p>
 <figure class="sheet-card">
-  <figcaption><i></i><i></i><i></i><span>Goa trip</span></figcaption>
+  <figcaption><i></i><i></i><i></i><span>Kyoto in autumn</span></figcaption>
   <ol class="sheet-lines">
-    <li><span class="src"><span class="t-head"># Goa trip</span></span><span class="res"></span></li>
+    <li><span class="src"><span class="t-head"># Kyoto in autumn</span></span><span class="res"></span></li>
     <li><span class="src"><span class="t-com">// 4 friends, 5 nights</span></span><span class="res"></span></li>
     <li><span class="src"> </span><span class="res"></span></li>
-    <li><span class="src"><span class="t-label">Flights:</span> <span class="t-num">4</span> <span class="t-op">*</span> <span class="t-num">₹</span><span class="t-num">6,800</span></span><span class="res">27,200 INR</span></li>
-    <li><span class="src"><span class="t-label">Villa:</span> <span class="t-num">5</span> nights <span class="t-op">*</span> <span class="t-num">₹</span><span class="t-num">9,500</span></span><span class="res">47,500 INR</span></li>
-    <li><span class="src">Scooters <span class="t-num">4</span> <span class="t-op">*</span> <span class="t-num">₹</span><span class="t-num">450</span> <span class="t-op">*</span> <span class="t-num">5</span></span><span class="res">9,000 INR</span></li>
-    <li><span class="src">Food <span class="t-op">&amp;</span> drinks <span class="t-num">₹</span><span class="t-num">2,000</span> <span class="t-op">*</span> <span class="t-num">4</span> <span class="t-op">*</span> <span class="t-num">5</span></span><span class="res">40,000 INR</span></li>
-    <li><span class="src"><span class="t-kw">total</span></span><span class="res">123,700 INR</span></li>
-    <li><span class="src"><span class="t-var">each</span> <span class="t-op">=</span> <span class="t-kw">prev</span> <span class="t-op">/</span> <span class="t-num">4</span></span><span class="res">30,925 INR</span></li>
+    <li><span class="src"><span class="t-label">Flights:</span> <span class="t-num">4</span> <span class="t-op">*</span> <span class="t-num">$</span><span class="t-num">1,180</span></span><span class="res">$4,720</span></li>
+    <li><span class="src"><span class="t-label">Ryokan:</span> <span class="t-num">5</span> nights <span class="t-op">*</span> <span class="t-num">¥</span><span class="t-num">68,000</span></span><span class="res">340,000 JPY</span></li>
+    <li><span class="src">Rail passes <span class="t-num">4</span> <span class="t-op">*</span> <span class="t-num">¥</span><span class="t-num">50,000</span></span><span class="res">200,000 JPY</span></li>
+    <li><span class="src">Dinners <span class="t-num">¥</span><span class="t-num">14,000</span> <span class="t-op">*</span> <span class="t-num">4</span> <span class="t-op">*</span> <span class="t-num">5</span></span><span class="res">280,000 JPY</span></li>
+    <li><span class="src"><span class="t-kw">total</span></span><span class="res">$9,907.02</span></li>
+    <li><span class="src"><span class="t-var">each</span> <span class="t-op">=</span> <span class="t-kw">prev</span> <span class="t-op">/</span> <span class="t-num">4</span></span><span class="res">$2,476.75</span></li>
     <li><span class="src"> </span><span class="res"></span></li>
-    <li><span class="src"><span class="t-var">each</span> <span class="t-kw">in</span> USD</span><span class="res">$325.18</span></li>
-    <li><span class="src"><span class="t-var">each</span> <span class="t-kw">in</span> EUR</span><span class="res">289.95 EUR</span></li>
+    <li><span class="src"><span class="t-var">each</span> <span class="t-kw">in</span> EUR</span><span class="res">2,208.40 EUR</span></li>
+    <li><span class="src"><span class="t-var">each</span> <span class="t-kw">in</span> GBP</span><span class="res">1,867.60 GBP</span></li>
     <li><span class="src"> </span><span class="res"></span></li>
-    <li><span class="src"><span class="t-num">6</span><span class="t-op">:</span><span class="t-num">40pm</span> IST <span class="t-kw">in</span> London</span><span class="res">2:10 PM BST</span></li>
-    <li><span class="src">Sunset <span class="t-num">6</span><span class="t-op">:</span><span class="t-num">12pm</span> IST <span class="t-kw">in</span> Sydney</span><span class="res">11:42 PM AEDT</span></li>
+    <li><span class="src">Lands <span class="t-num">4</span><span class="t-op">:</span><span class="t-num">10pm</span> JST <span class="t-kw">in</span> San Francisco</span><span class="res">12:10 AM PDT</span></li>
+    <li><span class="src">Call home <span class="t-num">8pm</span> JST <span class="t-kw">in</span> New York</span><span class="res">7:00 AM EDT</span></li>
   </ol>
 </figure>
     <p>Related: <a href="/guides/currency/">currency conversion</a>, <a href="/guides/time-zones/">time zones</a>.</p>
 
     <h2 id="invoice">A freelance invoice with tax</h2>
-    <p>Set the hourly rate once, list the work, and let <code>sum</code> and a named <code>gst</code> line do the rest. Change the rate and every line below updates.</p>
+    <p>Set the hourly rate once, list the work, and let <code>sum</code> and a named <code>tax</code> line do the rest. Change the rate and every line below updates.</p>
 <figure class="sheet-card">
   <figcaption><i></i><i></i><i></i><span>Invoice — October</span></figcaption>
   <ol class="sheet-lines">
     <li><span class="src"><span class="t-head"># Invoice — October</span></span><span class="res"></span></li>
-    <li><span class="src"><span class="t-var">rate</span> <span class="t-op">=</span> <span class="t-num">$</span><span class="t-num">85</span><span class="t-op">/</span>hour</span><span class="res">$85 / hour</span></li>
+    <li><span class="src"><span class="t-var">rate</span> <span class="t-op">=</span> <span class="t-num">$</span><span class="t-num">150</span><span class="t-op">/</span>hour</span><span class="res">$150 / hour</span></li>
     <li><span class="src"> </span><span class="res"></span></li>
-    <li><span class="src">Design review <span class="t-num">6</span> hours <span class="t-op">*</span> <span class="t-var">rate</span></span><span class="res">$510</span></li>
-    <li><span class="src">Build <span class="t-num">32</span> hours <span class="t-op">*</span> <span class="t-var">rate</span></span><span class="res">$2,720</span></li>
-    <li><span class="src">Client calls <span class="t-num">4.5</span> hours <span class="t-op">*</span> <span class="t-var">rate</span></span><span class="res">$382.50</span></li>
-    <li><span class="src"><span class="t-var">subtotal</span> <span class="t-op">=</span> <span class="t-kw">sum</span></span><span class="res">$3,612.50</span></li>
-    <li><span class="src"><span class="t-var">gst</span> <span class="t-op">=</span> <span class="t-num">18</span><span class="t-num">%</span> <span class="t-kw">of</span> <span class="t-var">subtotal</span></span><span class="res">$650.25</span></li>
-    <li><span class="src"><span class="t-var">subtotal</span> <span class="t-op">+</span> <span class="t-var">gst</span></span><span class="res">$4,262.75</span></li>
-    <li><span class="src"><span class="t-kw">prev</span> <span class="t-kw">in</span> INR</span><span class="res">405,388.12 INR</span></li>
+    <li><span class="src">Design review <span class="t-num">6</span> hours <span class="t-op">*</span> <span class="t-var">rate</span></span><span class="res">$900</span></li>
+    <li><span class="src">Build <span class="t-num">32</span> hours <span class="t-op">*</span> <span class="t-var">rate</span></span><span class="res">$4,800</span></li>
+    <li><span class="src">Client calls <span class="t-num">4.5</span> hours <span class="t-op">*</span> <span class="t-var">rate</span></span><span class="res">$675</span></li>
+    <li><span class="src"><span class="t-var">subtotal</span> <span class="t-op">=</span> <span class="t-kw">sum</span></span><span class="res">$6,375</span></li>
+    <li><span class="src"><span class="t-var">tax</span> <span class="t-op">=</span> <span class="t-num">8.875</span><span class="t-num">%</span> <span class="t-kw">of</span> <span class="t-var">subtotal</span></span><span class="res">$565.78</span></li>
+    <li><span class="src"><span class="t-var">subtotal</span> <span class="t-op">+</span> <span class="t-var">tax</span></span><span class="res">$6,940.78</span></li>
+    <li><span class="src"><span class="t-kw">prev</span> <span class="t-kw">in</span> EUR</span><span class="res">6,188.75 EUR</span></li>
   </ol>
 </figure>
     <p>Related: <a href="/guides/percentages/">percentages</a>.</p>
@@ -234,12 +234,12 @@
     <li><span class="src"><span class="t-com">// proposed: 9am in San Francisco</span></span><span class="res"></span></li>
     <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> New York</span><span class="res">12:00 PM EDT</span></li>
     <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> London</span><span class="res">5:00 PM BST</span></li>
-    <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> Bangalore</span><span class="res">9:30 PM IST</span></li>
+    <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> Berlin</span><span class="res">6:00 PM CEST</span></li>
     <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> Tokyo</span><span class="res">1:00 AM JST (next day)</span></li>
     <li><span class="src"> </span><span class="res"></span></li>
     <li><span class="src"><span class="t-com">// Tokyo would be up at 1am. Try the afternoon:</span></span><span class="res"></span></li>
     <li><span class="src"><span class="t-num">4pm</span> PST <span class="t-kw">in</span> Tokyo</span><span class="res">8:00 AM JST (next day)</span></li>
-    <li><span class="src"><span class="t-num">4pm</span> PST <span class="t-kw">in</span> Bangalore</span><span class="res">4:30 AM IST (next day)</span></li>
+    <li><span class="src"><span class="t-num">4pm</span> PST <span class="t-kw">in</span> Berlin</span><span class="res">1:00 AM CEST (next day)</span></li>
     <li><span class="src"><span class="t-num">4pm</span> PST <span class="t-kw">in</span> London</span><span class="res">12:00 AM BST (next day)</span></li>
   </ol>
 </figure>
@@ -297,7 +297,7 @@
   <section class="related" aria-labelledby="related">
     <h2 id="related">Keep reading</h2>
     <div class="guide-cards">
-      <a class="guide-card" href="/guides/time-zones/"><b>Time zones</b><span>3pm PST in IST, with daylight saving and next-day answers handled.</span></a>
+      <a class="guide-card" href="/guides/time-zones/"><b>Time zones</b><span>6pm PST in Tokyo, with daylight saving and next-day answers handled.</span></a>
       <a class="guide-card" href="/guides/currency/"><b>Currency</b><span>$30 in EUR, mixed currencies, symbols or codes, offline.</span></a>
       <a class="guide-card" href="/guides/percentages/"><b>Percentages</b><span>15% off, + 8% tax, X is what % of Y, and every other phrasing.</span></a>
       <a class="guide-card" href="/guides/unit-conversion/"><b>Unit conversion</b><span>km in miles, cups in ml, °F in °C, and math with units.</span></a>

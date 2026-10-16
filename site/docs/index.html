@@ -13,14 +13,14 @@
   <meta property="og:url" content="https://omacus.com/docs/">
   <meta property="og:title" content="Omacus docs">
   <meta property="og:description" content="Syntax, sheets, shortcuts, themes, CLI and how Omacus works.">
-  <meta property="og:image" content="https://omacus.com/img/og.png">
+  <meta property="og:image" content="https://omacus.com/img/og.png?v=2">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Omacus docs">
   <meta name="twitter:description" content="Syntax, sheets, shortcuts, themes, CLI and how Omacus works.">
-  <meta name="twitter:image" content="https://omacus.com/img/og.png">
+  <meta name="twitter:image" content="https://omacus.com/img/og.png?v=2">
   <link rel="manifest" href="/site.webmanifest">
   <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
   <link rel="icon" href="/img/favicon-32.png" sizes="32x32">
@@ -58,7 +58,7 @@
     "@id": "https://omacus.com/#app",
     "name": "Omacus"
    },
-   "image": "https://omacus.com/img/og.png"
+   "image": "https://omacus.com/img/og.png?v=2"
   },
   {
    "@type": "BreadcrumbList",
@@ -263,16 +263,16 @@ total</pre>
     <p class="guide-link">More examples in the guide: <a href="/guides/unit-conversion/">Convert units by just writing them</a>.</p>
 
     <h2 id="currency">Currencies</h2>
-    <p>160+ currencies by code (<code>USD</code>, <code>EUR</code>, <code>INR</code>…) or symbol (<code>$</code> <code>€</code> <code>£</code> <code>¥</code> <code>₹</code> <code>₩</code> <code>₽</code> <code>₺</code>). Rates are fetched from a free public source and cached, so currency math keeps working offline; they refresh every 12 hours while there's a connection.</p>
+    <p>160+ currencies by code (<code>USD</code>, <code>EUR</code>, <code>JPY</code>…) or symbol (<code>$</code> <code>€</code> <code>£</code> <code>¥</code> <code>₹</code> <code>₩</code> <code>₽</code> <code>₺</code>). Rates are fetched from a free public source and cached, so currency math keeps working offline; they refresh every 12 hours while there's a connection.</p>
   <!-- ex:currency -->
   <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
     <tbody>
       <tr><td><code>$30 in EUR</code></td><td class="ans">26.75 EUR</td></tr>
       <tr><td><code>€50 + £20 in USD</code></td><td class="ans">$82.60</td></tr>
-      <tr><td><code>₹5,000 in USD</code></td><td class="ans">$52.58</td></tr>
+      <tr><td><code>£250 in USD</code></td><td class="ans">$331.54</td></tr>
       <tr><td><code>¥10,000 in USD</code></td><td class="ans">$63.26</td></tr>
-      <tr><td><code>$100 in INR</code></td><td class="ans">9,510.01 INR</td></tr>
+      <tr><td><code>₹5,000 in USD</code></td><td class="ans">$52.58</td></tr>
     </tbody>
   </table>
   <!-- /ex -->
@@ -314,29 +314,30 @@ total</pre>
   <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
     <tbody>
-      <tr><td><code>Food ₹2,000</code></td><td class="ans">2,000 INR</td></tr>
-      <tr><td><code>Taxi ₹800</code></td><td class="ans">800 INR</td></tr>
-      <tr><td><code>subtotal = sum</code></td><td class="ans">2,800 INR</td></tr>
-      <tr><td><code>gst = 18% of subtotal</code></td><td class="ans">504 INR</td></tr>
-      <tr><td><code>subtotal + gst</code></td><td class="ans">3,304 INR</td></tr>
+      <tr><td><code>Hotel €420</code></td><td class="ans">420 EUR</td></tr>
+      <tr><td><code>Dinner €96</code></td><td class="ans">96 EUR</td></tr>
+      <tr><td><code>subtotal = sum</code></td><td class="ans">516 EUR</td></tr>
+      <tr><td><code>vat = 20% of subtotal</code></td><td class="ans">103.20 EUR</td></tr>
+      <tr><td><code>subtotal + vat</code></td><td class="ans">619.20 EUR</td></tr>
     </tbody>
   </table>
   <!-- /ex -->
 
     <h2 id="timezones">Time zones</h2>
-    <p>Convert a time between zones by abbreviation (<code>PST</code>, <code>EST</code>, <code>IST</code>, <code>CET</code>, <code>JST</code>…), city (<code>London</code>, <code>Bangalore</code>, <code>San Francisco</code>) or country (<code>India</code>, <code>Japan</code>). Abbreviations follow daylight saving: <code>PST</code> in July means Pacific time, which is then PDT. When the answer falls on another day, it says so.</p>
+    <p>Convert a time between zones by abbreviation (<code>PST</code>, <code>EST</code>, <code>CET</code>, <code>JST</code>, <code>IST</code>…), city (<code>London</code>, <code>Tokyo</code>, <code>San Francisco</code>) or country (<code>Japan</code>, <code>Germany</code>). Abbreviations follow daylight saving: <code>PST</code> in July means Pacific time, which is then PDT. When the answer falls on another day, it says so.</p>
   <!-- ex:timezones -->
   <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
     <tbody>
-      <tr><td><code>3pm PST in IST</code></td><td class="ans">3:30 AM IST (next day)</td></tr>
+      <tr><td><code>6pm PST in Tokyo</code></td><td class="ans">10:00 AM JST (next day)</td></tr>
       <tr><td><code>10:30 London to New York</code></td><td class="ans">5:30 AM EDT</td></tr>
-      <tr><td><code>noon UTC in Tokyo</code></td><td class="ans">9:00 PM JST</td></tr>
+      <tr><td><code>noon UTC in Sydney</code></td><td class="ans">11:00 PM AEDT</td></tr>
       <tr><td><code>Standup 9:30am PST in Berlin</code></td><td class="ans">6:30 PM CEST</td></tr>
+      <tr><td><code>3pm PST in IST</code></td><td class="ans">3:30 AM IST (next day)</td></tr>
     </tbody>
   </table>
   <!-- /ex -->
-    <p>For the current time somewhere, write <code>time in Tokyo</code> or <code>now in London</code>. A time without a zone means your local time: <code>3pm in IST</code>.</p>
+    <p>For the current time somewhere, write <code>time in Tokyo</code> or <code>now in London</code>. A time without a zone means your local time: <code>3pm in London</code>.</p>
 
     <p class="guide-link">More examples in the guide: <a href="/guides/time-zones/">Convert time zones in plain English</a>.</p>
 
@@ -436,8 +437,8 @@ total</pre>
     <h2 id="cli">Command line</h2>
     <p>The <code>omacus</code> command uses the same engine as the app.</p>
 <div class="annot">
-<code>omacus '$100 in INR'</code><span class="c"># one expression → prints the answer</span>
-<code class="full">omacus '3pm PST in IST'</code>
+<code>omacus '$100 in EUR'</code><span class="c"># one expression → prints the answer</span>
+<code class="full">omacus '6pm PST in Tokyo'</code>
 <code>printf 'rent = $1450\nrent * 12\n' | omacus -</code><span class="c"># a whole sheet from stdin, one result per line</span>
 <code class="full">omacus - &lt; ~/notes/budget.txt</code>
 <code>omacus</code><span class="c"># no arguments: open the window</span>

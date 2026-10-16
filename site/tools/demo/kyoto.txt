@@ -1,0 +1,15 @@
+# Kyoto in autumn
+// 4 friends, 5 nights
+
+Flights: 4 * $1,180
+Ryokan: 5 nights * ¥68,000
+Rail passes 4 * ¥50,000
+Dinners ¥14,000 * 4 * 5
+total
+each = prev / 4
+
+each in EUR
+each in GBP
+
+Lands 4:10pm JST in San Francisco
+Call home 8pm JST in New York
