@@ -95,6 +95,8 @@ pub struct OmacusApp {
     help: Option<help::Tab>,
     updates: Updates,
     update_open: bool,
+    /// The app icon, small (sidebar, help rail) and large (About).
+    logo: help::Logo,
     /// Developer option for the website: `OMACUS_SCREENSHOT=out.png` saves the window's
     /// own pixels (nothing behind it) and quits.
     screenshot: Option<(std::path::PathBuf, u32)>,
@@ -134,6 +136,18 @@ impl OmacusApp {
             focus_editor: true,
             title: String::new(),
             updates,
+            logo: help::Logo {
+                small: load_logo(
+                    &cc.egui_ctx,
+                    "small",
+                    include_bytes!("../assets/icon-64.png"),
+                ),
+                large: load_logo(
+                    &cc.egui_ctx,
+                    "large",
+                    include_bytes!("../assets/icon-256.png"),
+                ),
+            },
             // With OMACUS_SCREENSHOT, "update" opens the update window instead of help.
             update_open: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "update"),
             help: std::env::var("OMACUS_SCREENSHOT_HELP")
@@ -389,13 +403,13 @@ impl OmacusApp {
 
     fn show_help(&mut self, ctx: &egui::Context) {
         let Some(mut tab) = self.help else { return };
-        let available = self.updates.available();
         let action = help::show(
             ctx,
             &mut tab,
             &self.theme,
             &self.engine,
-            available.as_deref(),
+            &self.logo,
+            &self.updates,
         );
         self.help = Some(tab);
         match action {
@@ -537,6 +551,87 @@ impl OmacusApp {
         }
     }
 
+    /// One quiet row: the logo, name and version (opens About, or the update when
+    /// one is out, marked with a dot), and "?" for help.
+    fn sidebar_footer(&mut self, ui: &mut egui::Ui, theme: &Theme) {
+        let available = self.updates.available();
+        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
+        let help_rect = Rect::from_min_size(pos2(row.right() - 28.0, row.top()), vec2(28.0, 28.0));
+        let about_rect = Rect::from_min_max(row.min, pos2(help_rect.left() - 4.0, row.bottom()));
+        let about = ui.interact(about_rect, ui.scope_id().with("about"), Sense::click());
+        let help = ui.interact(help_rect, ui.scope_id().with("help"), Sense::click());
+
+        let painter = ui.painter();
+        for (rect, resp) in [(about_rect, &about), (help_rect, &help)] {
+            if resp.hovered() {
+                painter.rect_filled(rect, CornerRadius::same(6), theme.hover);
+            }
+        }
+        let logo =
+            Rect::from_center_size(pos2(row.left() + 14.0, row.center().y), vec2(18.0, 18.0));
+        painter.image(
+            self.logo.small.id(),
+            logo,
+            Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+            Color32::WHITE,
+        );
+        let name = painter.text(
+            pos2(logo.right() + 8.0, row.center().y),
+            Align2::LEFT_CENTER,
+            "omacus",
+            FontId::proportional(13.0),
+            theme.dim,
+        );
+        let version = painter.text(
+            pos2(name.right() + 6.0, row.center().y),
+            Align2::LEFT_CENTER,
+            format!("v{}", update::current()),
+            FontId::proportional(12.0),
+            if available.is_some() {
+                theme.accent
+            } else {
+                theme.comment
+            },
+        );
+        if available.is_some() {
+            painter.circle_filled(version.right_center() + vec2(7.0, 0.0), 3.0, theme.accent);
+        }
+        painter.text(
+            help_rect.center(),
+            Align2::CENTER_CENTER,
+            "?",
+            FontId::proportional(14.0),
+            if help.hovered() {
+                theme.foreground
+            } else {
+                theme.dim
+            },
+        );
+
+        if about.hovered() || help.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        let about_tip = match &available {
+            Some(v) => format!("Version {v} is available"),
+            None => "About Omacus".to_string(),
+        };
+        if about.on_hover_text(about_tip).clicked() {
+            if available.is_some() {
+                self.update_open = true;
+                self.help = None;
+            } else {
+                self.help = Some(help::Tab::About);
+                self.popup = None;
+            }
+        }
+        if help
+            .on_hover_text(format!("Help & shortcuts ({})", help::keys("F1")))
+            .clicked()
+        {
+            self.toggle_help();
+        }
+    }
+
     fn sidebar(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme.clone();
         let mut action = None;
@@ -564,11 +659,9 @@ impl OmacusApp {
 
         let titles: Vec<String> = self.store.sheets.iter().map(|s| s.title()).collect();
         let count = titles.len();
-        let available = self.updates.available();
-        let footer = if available.is_some() { 58.0 } else { 34.0 };
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
-            .max_height(ui.available_height() - footer)
+            .max_height(ui.available_height() - 38.0)
             .show(ui, |ui| {
                 for (i, title) in titles.into_iter().enumerate() {
                     let active = i == self.store.active;
@@ -613,31 +706,7 @@ impl OmacusApp {
             });
 
         ui.add_space(6.0);
-        if let Some(version) = available {
-            let offer = ui.add(
-                egui::Button::new(
-                    egui::RichText::new(format!("↑  v{version} available"))
-                        .size(12.0)
-                        .color(theme.accent),
-                )
-                .frame(false),
-            );
-            if offer.on_hover_text("See what's new and update").clicked() {
-                self.update_open = true;
-                self.help = None;
-            }
-        }
-        let help = ui.add(
-            egui::Button::new(
-                egui::RichText::new(format!("?  Help & shortcuts   {}", help::keys("F1")))
-                    .size(12.0)
-                    .color(theme.comment),
-            )
-            .frame(false),
-        );
-        if help.clicked() {
-            self.toggle_help();
-        }
+        self.sidebar_footer(ui, &theme);
 
         if let Some(a) = action {
             self.apply(a);
@@ -905,6 +974,20 @@ impl eframe::App for OmacusApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         self.theme.background.to_normalized_gamma_f32()
     }
+}
+
+fn load_logo(ctx: &egui::Context, name: &str, png: &[u8]) -> egui::TextureHandle {
+    let image = image::load_from_memory(png)
+        .expect("bundled icon is a valid PNG")
+        .to_rgba8();
+    let size = [image.width() as usize, image.height() as usize];
+    let pixels = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+    // Mipmaps keep it crisp at 16px.
+    let options = egui::TextureOptions {
+        mipmap_mode: Some(egui::TextureFilter::Linear),
+        ..egui::TextureOptions::LINEAR
+    };
+    ctx.load_texture(format!("omacus-logo-{name}"), pixels, options)
 }
 
 fn apply_visuals(ctx: &egui::Context, theme: &Theme) {

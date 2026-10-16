@@ -1,9 +1,11 @@
-//! The help overlay: keyboard shortcuts, syntax by example, and tips.
+//! The help overlay: keyboard shortcuts, syntax by example, tips, and About
+//! (version, updates and links).
 
 use eframe::egui::{self, Color32, CornerRadius, FontId, Frame, Margin, RichText, Sense, vec2};
 
 use crate::engine::Engine;
 use crate::theme::Theme;
+use crate::update::{self, Check, Updates};
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tab {
@@ -11,6 +13,7 @@ pub enum Tab {
     Keyboard,
     Syntax,
     Tips,
+    About,
 }
 
 impl Tab {
@@ -18,7 +21,17 @@ impl Tab {
         match name {
             "syntax" => Tab::Syntax,
             "tips" => Tab::Tips,
+            "about" => Tab::About,
             _ => Tab::Keyboard,
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            Tab::Keyboard => "Keyboard",
+            Tab::Syntax => "Syntax",
+            Tab::Tips => "Tips & tricks",
+            Tab::About => "About",
         }
     }
 }
@@ -241,101 +254,147 @@ pub fn examples_sheet() -> String {
     s
 }
 
-/// `update` is a newer version, if one is out; it's offered next to the version.
+/// The app icon at two sizes, so it's crisp both at 16px and in About.
+pub struct Logo {
+    pub small: egui::TextureHandle,
+    pub large: egui::TextureHandle,
+}
+
+const SITE: &str = "https://omacus.com";
+const REPO: &str = "https://github.com/avinashjoshi/omacus";
+
+/// The help window: a rail of sections on the left, the section on the right.
 pub fn show(
     ctx: &egui::Context,
     tab: &mut Tab,
     theme: &Theme,
     engine: &Engine,
-    update: Option<&str>,
+    logo: &Logo,
+    updates: &Updates,
 ) -> Option<Action> {
     let mut action = None;
     let screen = ctx.content_rect();
     let size = vec2(
-        (screen.width() - 80.0).clamp(320.0, 760.0),
-        (screen.height() - 60.0).max(200.0),
+        (screen.width() - 80.0).clamp(360.0, 860.0),
+        (screen.height() - 60.0).clamp(240.0, 640.0),
     );
+    let available = updates.available();
+    let rail_width = if size.x < 560.0 { 130.0 } else { 172.0 };
 
     let frame = Frame::NONE
         .fill(theme.sidebar)
         .stroke(egui::Stroke::new(1.0, theme.selection))
-        .corner_radius(CornerRadius::same(10))
-        .inner_margin(Margin::symmetric(24, 18));
+        .corner_radius(CornerRadius::same(12))
+        .inner_margin(Margin::same(0));
     let modal = egui::Modal::new(egui::Id::unique("omacus-help"))
         .frame(frame)
         .backdrop_color(Color32::from_black_alpha(150))
         .show(ctx, |ui| {
-            ui.set_width(size.x - 48.0);
-            ui.set_max_height(size.y - 36.0);
+            ui.set_width(size.x);
+            ui.set_height(size.y);
+            ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+            ui.horizontal_top(|ui| {
+                // The rail.
+                Frame::NONE
+                    .inner_margin(Margin {
+                        left: 14,
+                        right: 10,
+                        top: 18,
+                        bottom: 14,
+                    })
+                    .show(ui, |ui| {
+                        ui.set_width(rail_width - 24.0);
+                        ui.set_height(size.y - 32.0);
+                        ui.vertical(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.add_space(4.0);
+                                ui.add(egui::Image::new((logo.small.id(), vec2(22.0, 22.0))));
+                                ui.add_space(8.0);
+                                ui.label(RichText::new("Omacus").size(17.0).color(theme.accent));
+                            });
+                            ui.add_space(18.0);
+                            for t in [Tab::Keyboard, Tab::Syntax, Tab::Tips, Tab::About] {
+                                let dot = t == Tab::About && available.is_some();
+                                if rail_button(ui, theme, t.title(), *tab == t, dot) {
+                                    *tab = t;
+                                }
+                                ui.add_space(2.0);
+                            }
+                            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                                let version = egui::Button::new(
+                                    RichText::new(format!("v{}", update::current()))
+                                        .size(12.0)
+                                        .color(theme.comment),
+                                )
+                                .frame(false);
+                                if ui.add(version).on_hover_text("About Omacus").clicked() {
+                                    *tab = Tab::About;
+                                }
+                            });
+                        });
+                    });
 
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Omacus").size(20.0).color(theme.accent));
-                ui.label(
-                    RichText::new("notepad calculator")
-                        .size(13.0)
-                        .color(theme.comment),
-                );
-                // The version opens its release notes.
-                let version = concat!("v", env!("CARGO_PKG_VERSION"));
-                let link = egui::Button::new(RichText::new(version).size(13.0).color(theme.dim))
-                    .frame(false);
-                let link = ui
-                    .add(link)
-                    .on_hover_text(format!("What's new in {version}"));
-                if link.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                if link.clicked() {
-                    ui.ctx().open_url(egui::OpenUrl::new_tab(format!(
-                        "https://github.com/avinashjoshi/omacus/releases/tag/{version}"
-                    )));
-                }
-                if let Some(new) = update {
-                    let offer = egui::Button::new(
-                        RichText::new(format!("· v{new} available"))
-                            .size(13.0)
-                            .color(theme.accent),
-                    )
-                    .frame(false);
-                    if ui.add(offer).on_hover_text("Update Omacus").clicked() {
-                        action = Some(Action::OpenUpdate);
-                    }
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let close = egui::Button::new(RichText::new("✕").color(theme.dim)).frame(false);
-                    if ui.add(close).on_hover_text("Close (Esc)").clicked() {
-                        action = Some(Action::Close);
-                    }
-                });
+                // A hairline between the rail and the section.
+                let (line, _) = ui.allocate_exact_size(vec2(1.0, size.y), Sense::hover());
+                ui.painter()
+                    .rect_filled(line, CornerRadius::ZERO, theme.selection);
+
+                Frame::NONE
+                    .fill(theme.background)
+                    .corner_radius(CornerRadius {
+                        ne: 12,
+                        se: 12,
+                        ..Default::default()
+                    })
+                    .inner_margin(Margin {
+                        left: 28,
+                        right: 20,
+                        top: 18,
+                        bottom: 14,
+                    })
+                    .show(ui, |ui| {
+                        ui.set_width(size.x - rail_width - 1.0 - 48.0);
+                        ui.set_height(size.y - 32.0);
+                        ui.spacing_mut().item_spacing = vec2(8.0, 4.0);
+                        ui.vertical(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new(tab.title())
+                                        .size(19.0)
+                                        .color(theme.foreground),
+                                );
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        let close =
+                                            egui::Button::new(RichText::new("✕").color(theme.dim))
+                                                .frame(false);
+                                        if ui.add(close).on_hover_text("Close (Esc)").clicked() {
+                                            action = Some(Action::Close);
+                                        }
+                                    },
+                                );
+                            });
+                            ui.add_space(12.0);
+                            egui::ScrollArea::vertical()
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| match tab {
+                                    Tab::Keyboard => keyboard(ui, theme),
+                                    Tab::Syntax => {
+                                        if syntax(ui, theme, engine) {
+                                            action = Some(Action::OpenExamples);
+                                        }
+                                    }
+                                    Tab::Tips => tips(ui, theme),
+                                    Tab::About => {
+                                        if about(ui, theme, logo, updates, available.as_deref()) {
+                                            action = Some(Action::OpenUpdate);
+                                        }
+                                    }
+                                });
+                        });
+                    });
             });
-            ui.add_space(10.0);
-
-            ui.horizontal(|ui| {
-                for (t, label) in [
-                    (Tab::Keyboard, "Keyboard"),
-                    (Tab::Syntax, "Syntax"),
-                    (Tab::Tips, "Tips & tricks"),
-                ] {
-                    if tab_button(ui, theme, label, *tab == t) {
-                        *tab = t;
-                    }
-                }
-            });
-            ui.add_space(8.0);
-            ui.separator();
-            ui.add_space(6.0);
-
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, true])
-                .show(ui, |ui| match tab {
-                    Tab::Keyboard => keyboard(ui, theme),
-                    Tab::Syntax => {
-                        if syntax(ui, theme, engine) {
-                            action = Some(Action::OpenExamples);
-                        }
-                    }
-                    Tab::Tips => tips(ui, theme),
-                });
         });
 
     if modal.should_close() {
@@ -344,26 +403,157 @@ pub fn show(
     action
 }
 
-fn tab_button(ui: &mut egui::Ui, theme: &Theme, label: &str, active: bool) -> bool {
-    let font = FontId::proportional(14.0);
-    let galley = ui
-        .painter()
-        .layout_no_wrap(label.to_string(), font, theme.foreground);
-    let (rect, resp) = ui.allocate_exact_size(galley.size() + vec2(20.0, 12.0), Sense::click());
+fn rail_button(ui: &mut egui::Ui, theme: &Theme, label: &str, active: bool, dot: bool) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+    let painter = ui.painter();
     if active {
-        ui.painter()
-            .rect_filled(rect, CornerRadius::same(6), theme.selection);
+        painter.rect_filled(rect, CornerRadius::same(6), theme.selection);
     } else if resp.hovered() {
-        ui.painter()
-            .rect_filled(rect, CornerRadius::same(6), theme.hover);
+        painter.rect_filled(rect, CornerRadius::same(6), theme.hover);
     }
-    let color = if active { theme.accent } else { theme.dim };
-    ui.painter()
-        .galley(rect.min + vec2(10.0, 6.0), galley, color);
+    let color = if active { theme.foreground } else { theme.dim };
+    let text = painter.text(
+        rect.left_center() + vec2(10.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        label,
+        FontId::proportional(14.0),
+        color,
+    );
+    if dot {
+        painter.circle_filled(text.right_center() + vec2(9.0, 0.0), 3.0, theme.accent);
+    }
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
     resp.clicked()
 }
 
-/// A fixed-width table cell with its content left-aligned (`add_sized` centers it).
+/// The About section. Returns true when the user wants to install an update.
+fn about(
+    ui: &mut egui::Ui,
+    theme: &Theme,
+    logo: &Logo,
+    updates: &Updates,
+    available: Option<&str>,
+) -> bool {
+    let mut install = false;
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        ui.add(egui::Image::new((logo.large.id(), vec2(56.0, 56.0))));
+        ui.add_space(14.0);
+        ui.vertical(|ui| {
+            ui.add_space(4.0);
+            ui.label(RichText::new("Omacus").size(22.0).color(theme.accent));
+            ui.label(
+                RichText::new("Math, the way you write it.")
+                    .size(13.5)
+                    .color(theme.dim),
+            );
+        });
+    });
+    ui.add_space(22.0);
+
+    // Version and updates.
+    ui.label(
+        RichText::new(format!("Version {}", update::current()))
+            .size(14.0)
+            .color(theme.foreground),
+    );
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing = vec2(10.0, 0.0);
+        if let Some(new) = available {
+            ui.label(
+                RichText::new(format!("Version {new} is available."))
+                    .size(13.5)
+                    .color(theme.accent),
+            );
+            install = primary_button(ui, theme, "Update now").clicked();
+            if quiet_button(ui, theme, "What's new").clicked() {
+                ui.ctx()
+                    .open_url(egui::OpenUrl::new_tab(update::notes_url(new)));
+            }
+            return;
+        }
+        match updates.checked() {
+            Check::Checking => {
+                ui.spinner();
+                ui.label(RichText::new("Checking…").size(13.5).color(theme.dim));
+            }
+            Check::Done => {
+                ui.label(
+                    RichText::new("✓  You're up to date.")
+                        .size(13.5)
+                        .color(theme.dim),
+                );
+            }
+            Check::Failed => {
+                ui.label(
+                    RichText::new("Couldn't reach GitHub.")
+                        .size(13.5)
+                        .color(theme.dim),
+                );
+                if quiet_button(ui, theme, "Try again").clicked() {
+                    let ctx = ui.ctx().clone();
+                    updates.check_now(move || ctx.request_repaint());
+                }
+            }
+            Check::Idle => {
+                if quiet_button(ui, theme, "Check for updates").clicked() {
+                    let ctx = ui.ctx().clone();
+                    updates.check_now(move || ctx.request_repaint());
+                }
+            }
+        }
+    });
+    ui.add_space(26.0);
+
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = vec2(18.0, 6.0);
+        for (label, url) in [
+            ("Website", SITE.to_string()),
+            ("Docs", format!("{SITE}/docs/")),
+            ("Releases", update::RELEASES_URL.to_string()),
+            ("Report an issue", format!("{REPO}/issues/new/choose")),
+            ("Source code", REPO.to_string()),
+        ] {
+            let link =
+                egui::Button::new(RichText::new(label).size(13.5).color(theme.accent)).frame(false);
+            let resp = ui.add(link);
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if resp.clicked() {
+                ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+            }
+        }
+    });
+    ui.add_space(26.0);
+    ui.label(
+        RichText::new("Free and open source under the MIT license. Math by fend.")
+            .size(12.5)
+            .color(theme.comment),
+    );
+    install
+}
+
+fn primary_button(ui: &mut egui::Ui, theme: &Theme, label: &str) -> egui::Response {
+    ui.add(
+        egui::Button::new(RichText::new(label).size(13.5).color(theme.background))
+            .fill(theme.accent)
+            .corner_radius(CornerRadius::same(6))
+            .min_size(vec2(0.0, 30.0)),
+    )
+}
+
+fn quiet_button(ui: &mut egui::Ui, theme: &Theme, label: &str) -> egui::Response {
+    ui.add(
+        egui::Button::new(RichText::new(label).size(13.5).color(theme.foreground))
+            .corner_radius(CornerRadius::same(6))
+            .min_size(vec2(0.0, 30.0)),
+    )
+}
+
 fn left_cell(ui: &mut egui::Ui, size: egui::Vec2, label: egui::Label) {
     ui.allocate_ui_with_layout(
         size,

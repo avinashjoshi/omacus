@@ -40,6 +40,15 @@ struct Release {
     tag_name: String,
 }
 
+/// A check started from About, so its result can be shown there.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Check {
+    Idle,
+    Checking,
+    Done,
+    Failed,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum State {
     Idle,
@@ -61,6 +70,7 @@ pub enum Method {
 pub struct Updates {
     latest: Arc<Mutex<Option<String>>>,
     state: Arc<Mutex<State>>,
+    check: Arc<Mutex<Check>>,
 }
 
 impl Updates {
@@ -70,6 +80,7 @@ impl Updates {
         let updates = Self {
             latest: Arc::new(Mutex::new(cache.latest)),
             state: Arc::new(Mutex::new(State::Idle)),
+            check: Arc::new(Mutex::new(Check::Idle)),
         };
         let stale = now_secs().saturating_sub(cache.checked_at) > CHECK_EVERY.as_secs();
         if enabled() && stale {
@@ -85,9 +96,10 @@ impl Updates {
         updates
     }
 
-    /// A newer version than this one, if there is one.
+    /// A newer version than this one, if there is one. With checking turned off,
+    /// only a check the user asked for counts.
     pub fn available(&self) -> Option<String> {
-        if !enabled() {
+        if !enabled() && self.checked() != Check::Done {
             return None;
         }
         self.latest
@@ -95,6 +107,27 @@ impl Updates {
             .unwrap()
             .clone()
             .filter(|v| is_newer(v, current()))
+    }
+
+    pub fn checked(&self) -> Check {
+        *self.check.lock().unwrap()
+    }
+
+    /// Ask GitHub now (the About pane's button), whatever the daily schedule says.
+    pub fn check_now(&self, on_done: impl Fn() + Send + 'static) {
+        *self.check.lock().unwrap() = Check::Checking;
+        let (latest, check) = (self.latest.clone(), self.check.clone());
+        std::thread::spawn(move || {
+            *check.lock().unwrap() = match fetch_latest() {
+                Ok(version) => {
+                    write_cache(&version);
+                    *latest.lock().unwrap() = Some(version);
+                    Check::Done
+                }
+                Err(_) => Check::Failed,
+            };
+            on_done();
+        });
     }
 
     pub fn state(&self) -> State {
