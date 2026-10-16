@@ -145,3 +145,7 @@ jobs:
           name: Omacus v${{ needs.check.outputs.version }}
           body_path: notes.md
           files: dist/*
+
+  install-test:
+    needs: publish
+    uses: ./.github/workflows/install-test.yml

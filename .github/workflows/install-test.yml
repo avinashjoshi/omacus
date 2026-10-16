@@ -2,10 +2,12 @@ name: Install test
 
 # Runs the one-line installer the way users do (piped, not from a checkout) against
 # the latest release, on Linux and macOS, and checks the installed app answers.
+# Then updates the release before it with `omacus update`, on every platform.
 on:
   workflow_dispatch:
-  release:
-    types: [published]
+  # The release workflow calls this once a release is published. (A release made
+  # with GITHUB_TOKEN doesn't trigger a `release` event.)
+  workflow_call:
   schedule:
     - cron: "0 6 * * 1" # weekly, to catch a broken release or download URL
 
@@ -34,3 +36,78 @@ jobs:
           test -x "$app/Contents/MacOS/omacus"
           ! xattr -p com.apple.quarantine "$app" 2>/dev/null
           codesign --verify --deep "$app"
+
+  # Install the release before the latest, run `omacus update`, and check it ends
+  # up on the latest: the same path as the app's Update now button.
+  update:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Find the latest and previous releases
+        id: v
+        run: |
+          tags="$(gh release list -R "$GITHUB_REPOSITORY" --limit 2 --json tagName -q '.[].tagName')"
+          latest="$(sed -n 1p <<<"$tags")" previous="$(sed -n 2p <<<"$tags")"
+          echo "latest=${latest#v}" >> "$GITHUB_OUTPUT"
+          echo "previous=${previous#v}" >> "$GITHUB_OUTPUT"
+          echo "dl=https://github.com/$GITHUB_REPOSITORY/releases/download/$previous" >> "$GITHUB_OUTPUT"
+          # `omacus update` arrived in 0.1.3, and replacing the .exe on Windows in 0.1.4.
+          first=0.1.3; [[ "$RUNNER_OS" == Windows ]] && first=0.1.4
+          older="$(printf '%s\n%s\n' "${previous#v}" "$first" | sort -V | head -1)"
+          if [[ "$older" == "$first" ]]; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
+          echo "Updating $previous to $latest"
+
+      - name: Install the previous release (Linux)
+        if: steps.v.outputs.run == 'true' && runner.os == 'Linux'
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -fsSL "${{ steps.v.outputs.dl }}/omacus-linux-x86_64.tar.gz" | tar xz
+          omacus/install.sh --no-hyprland
+          echo "$HOME/.local/bin/omacus" > "$RUNNER_TEMP/omacus-path"
+
+      - name: Install the previous release (macOS)
+        if: steps.v.outputs.run == 'true' && runner.os == 'macOS'
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -fsSLo omacus.dmg "${{ steps.v.outputs.dl }}/omacus-macos-universal.dmg"
+          hdiutil attach -quiet -nobrowse -readonly -mountpoint mnt omacus.dmg
+          # From 0.1.4, an update replaces the app where it is, so test that with
+          # ~/Applications; before, updates always went to /Applications.
+          dir=/Applications
+          if [[ "$(printf '%s\n0.1.4\n' "${{ steps.v.outputs.previous }}" | sort -V | head -1)" == 0.1.4 ]]; then
+            dir="$HOME/Applications"
+          fi
+          mkdir -p "$dir"
+          ditto mnt/Omacus.app "$dir/Omacus.app"
+          hdiutil detach -quiet mnt
+          echo "$dir/Omacus.app/Contents/MacOS/omacus" > "$RUNNER_TEMP/omacus-path"
+
+      - name: Install the previous release (Windows)
+        if: steps.v.outputs.run == 'true' && runner.os == 'Windows'
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -fsSLo omacus.zip "${{ steps.v.outputs.dl }}/omacus-windows-x86_64.zip"
+          mkdir -p omacus && unzip -q omacus.zip -d omacus
+          echo "$RUNNER_TEMP/omacus/omacus.exe" > "$RUNNER_TEMP/omacus-path"
+
+      - name: omacus update
+        if: steps.v.outputs.run == 'true'
+        run: |
+          omacus="$(cat "$RUNNER_TEMP/omacus-path")"
+          "$omacus" --version | cat
+          "$omacus" update | cat
+
+      - name: It's now the latest release, in the same place
+        if: steps.v.outputs.run == 'true'
+        run: |
+          got="$("$(cat "$RUNNER_TEMP/omacus-path")" --version | cat)"
+          echo "$got"
+          test "$got" = "omacus ${{ steps.v.outputs.latest }}"

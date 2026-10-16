@@ -51,7 +51,14 @@ install_macos() {
   curl -fsSL "https://github.com/$REPO/releases/latest/download/omacus-macos-universal.dmg" -o "$tmp/omacus.dmg"
   hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mnt" "$tmp/omacus.dmg"
   dest=/Applications
-  if [[ ! -w "$dest" ]]; then
+  if [[ -n "${OMACUS_APP_DIR:-}" ]]; then
+    # An update from inside the app: replace it where it is.
+    dest="$OMACUS_APP_DIR"
+    if [[ ! -w "$dest" ]]; then
+      echo "No permission to update Omacus in $dest. Download the new version from https://omacus.com/mac" >&2
+      exit 1
+    fi
+  elif [[ ! -w "$dest" ]]; then
     dest="$HOME/Applications"
     mkdir -p "$dest"
   fi

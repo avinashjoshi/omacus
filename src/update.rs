@@ -5,18 +5,23 @@
 //! Nothing about the user or their sheets is sent. Turn it off with
 //! `check_for_updates = false` in `settings.toml` in the config folder.
 //!
-//! Installing reuses the one-line installer, so an update is exactly a fresh
-//! install of the latest release: same files, same places, sheets untouched.
+//! On Linux and macOS, installing reuses the one-line installer, so an update is
+//! exactly a fresh install of the latest release: same files, same places, sheets
+//! untouched. On Windows, where Omacus is a single portable .exe, the new one is
+//! swapped in next to the running one (Windows allows renaming a running .exe).
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
 const LATEST_URL: &str = "https://api.github.com/repos/avinashjoshi/omacus/releases/latest";
 const INSTALLER_URL: &str = "https://omacus.com/install";
+const WINDOWS_ZIP_URL: &str =
+    "https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64.zip";
 pub const RELEASES_URL: &str = "https://github.com/avinashjoshi/omacus/releases";
 const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -60,10 +65,35 @@ pub enum State {
 /// How this copy can be updated.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Method {
-    /// Installed by the one-line installer (or a tarball or .dmg): it can update itself.
+    /// Installed by the one-line installer (or a tarball or .dmg): run it again.
     Installer,
-    /// Installed some other way (a .deb or .rpm, or Windows): download it again.
+    /// The portable Windows .exe: swap in the new one.
+    Replace,
+    /// Installed by a package manager (.deb or .rpm): download the new package.
     Download,
+}
+
+/// Where this executable was started from. Captured at launch, because after a
+/// Windows update the running file has been renamed to `.old`.
+static EXE: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+fn exe() -> Option<PathBuf> {
+    EXE.get_or_init(|| std::env::current_exe().ok()).clone()
+}
+
+/// Call first thing in main: remembers the executable's path and, on Windows,
+/// removes the copy an update left behind.
+pub fn init() {
+    if let Some(exe) = exe() {
+        let _ = std::fs::remove_file(sibling(&exe, "old"));
+    }
+}
+
+/// `omacus.exe` -> `omacus.exe.old`.
+fn sibling(exe: &Path, ext: &str) -> PathBuf {
+    let mut name = exe.as_os_str().to_owned();
+    name.push(format!(".{ext}"));
+    PathBuf::from(name)
 }
 
 #[derive(Clone)]
@@ -139,7 +169,11 @@ impl Updates {
         *self.state.lock().unwrap() = State::Installing;
         let state = self.state.clone();
         std::thread::spawn(move || {
-            *state.lock().unwrap() = match run_installer(false) {
+            let result = match method() {
+                Method::Replace => replace_exe(),
+                _ => run_installer(false),
+            };
+            *state.lock().unwrap() = match result {
                 Ok(()) => State::Installed,
                 Err(e) => State::Failed(e),
             };
@@ -150,9 +184,9 @@ impl Updates {
 
 pub fn method() -> Method {
     if cfg!(windows) {
-        return Method::Download;
+        return Method::Replace;
     }
-    let Ok(exe) = std::env::current_exe() else {
+    let Some(exe) = exe() else {
         return Method::Download;
     };
     // The installer puts Omacus in the home folder (~/.local/bin) on Linux, and an
@@ -167,7 +201,7 @@ pub fn method() -> Method {
 
 /// Start the freshly installed copy. The running one closes itself after.
 pub fn relaunch() -> std::io::Result<()> {
-    let exe = std::env::current_exe()?;
+    let exe = exe().ok_or_else(|| std::io::Error::other("unknown executable path"))?;
     if let Some(bundle) = app_bundle(&exe) {
         Command::new("open").arg("-n").arg(bundle).spawn()?;
         return Ok(());
@@ -206,7 +240,11 @@ pub fn cli() -> i32 {
         return 0;
     }
     println!("Updating Omacus {} → {latest}…", current());
-    match run_installer(true) {
+    let result = match method() {
+        Method::Replace => replace_exe(),
+        _ => run_installer(true),
+    };
+    match result {
         Ok(()) => {
             println!("Updated. If Omacus is open, restart it to use {latest}.");
             0
@@ -229,6 +267,11 @@ fn run_installer(show: bool) -> Result<(), String> {
         // The installer treats a folder with Cargo.toml as a source checkout.
         .current_dir(std::env::temp_dir())
         .stdin(Stdio::null());
+    // On macOS, replace the app where it is, not wherever the installer would
+    // put a new one.
+    if let Some(dir) = exe().as_deref().and_then(app_bundle).and_then(Path::parent) {
+        cmd.env("OMACUS_APP_DIR", dir);
+    }
     if show {
         let status = cmd.status().map_err(|e| e.to_string())?;
         return status
@@ -248,6 +291,63 @@ fn run_installer(show: bool) -> Result<(), String> {
         .unwrap_or("the installer failed")
         .trim()
         .to_string())
+}
+
+/// Windows: download the latest .exe and swap it in for this one.
+fn replace_exe() -> Result<(), String> {
+    let exe = exe().ok_or("couldn't find the running executable")?;
+    let mut zip = Vec::new();
+    ureq::get(WINDOWS_ZIP_URL)
+        .header("User-Agent", concat!("omacus/", env!("CARGO_PKG_VERSION")))
+        .call()
+        .map_err(|e| format!("download failed: {e}"))?
+        .into_body()
+        .into_reader()
+        .read_to_end(&mut zip)
+        .map_err(|e| format!("download failed: {e}"))?;
+    let new = extract_exe(&zip)?;
+    swap_in(&exe, &new)
+}
+
+/// The `omacus.exe` inside a release zip.
+fn extract_exe(zip: &[u8]) -> Result<Vec<u8>, String> {
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip))
+        .map_err(|e| format!("the download isn't a valid zip: {e}"))?;
+    let mut file = archive
+        .by_name("omacus.exe")
+        .map_err(|_| "the download has no omacus.exe".to_string())?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    Ok(bytes)
+}
+
+/// Write the new executable next to `exe`, move the running one aside to `.old`,
+/// and move the new one into place. If the last step fails, put the old one back.
+fn swap_in(exe: &Path, new: &[u8]) -> Result<(), String> {
+    let (staged, old) = (sibling(exe, "new"), sibling(exe, "old"));
+    let denied = |e: std::io::Error| match e.kind() {
+        std::io::ErrorKind::PermissionDenied => format!(
+            "no permission to write to {}; download the new version instead",
+            exe.parent().unwrap_or(exe).display()
+        ),
+        _ => e.to_string(),
+    };
+    std::fs::write(&staged, new).map_err(denied)?;
+    let _ = std::fs::remove_file(&old);
+    if let Err(e) = std::fs::rename(exe, &old) {
+        let _ = std::fs::remove_file(&staged);
+        return Err(denied(e));
+    }
+    if let Err(e) = std::fs::rename(&staged, exe) {
+        let _ = std::fs::rename(&old, exe);
+        return Err(e.to_string());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(exe, std::fs::Permissions::from_mode(0o755));
+    }
+    Ok(())
 }
 
 fn app_bundle(exe: &Path) -> Option<&Path> {
@@ -331,5 +431,44 @@ mod tests {
         assert!(is_newer("0.2.0", "0.1.9"));
         assert!(!is_newer("0.1.2", "0.1.2"));
         assert!(!is_newer("0.1.1", "0.1.2"));
+    }
+
+    #[test]
+    fn swaps_in_a_new_executable() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("omacus-swap-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("omacus.exe");
+        std::fs::write(&exe, b"old build").unwrap();
+
+        // A release zip holds omacus.exe and the README.
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default();
+        zip.start_file("README.md", options).unwrap();
+        zip.write_all(b"readme").unwrap();
+        zip.start_file("omacus.exe", options).unwrap();
+        zip.write_all(b"new build").unwrap();
+        let zip = zip.finish().unwrap().into_inner();
+
+        swap_in(&exe, &extract_exe(&zip).unwrap()).unwrap();
+        assert_eq!(std::fs::read(&exe).unwrap(), b"new build");
+        assert_eq!(std::fs::read(sibling(&exe, "old")).unwrap(), b"old build");
+        assert!(!sibling(&exe, "new").exists());
+
+        // A second update replaces the leftover .old.
+        swap_in(&exe, b"newer build").unwrap();
+        assert_eq!(std::fs::read(&exe).unwrap(), b"newer build");
+        assert_eq!(std::fs::read(sibling(&exe, "old")).unwrap(), b"new build");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_zip_without_the_exe_is_an_error() {
+        let zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()))
+            .finish()
+            .unwrap()
+            .into_inner();
+        assert!(extract_exe(&zip).is_err());
+        assert!(extract_exe(b"not a zip").is_err());
     }
 }

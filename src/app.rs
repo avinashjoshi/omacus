@@ -451,7 +451,7 @@ impl OmacusApp {
                 format!("Updated. Restart Omacus to use {latest}; your sheets are saved.")
             }
             (State::Failed(e), _) => format!("The update didn't finish: {e}"),
-            (_, Method::Installer) => format!("You have {}.", update::current()),
+            (_, Method::Installer | Method::Replace) => format!("You have {}.", update::current()),
             (_, Method::Download) => format!(
                 "You have {}. Download the new version from the releases page.",
                 update::current()
@@ -505,7 +505,9 @@ impl OmacusApp {
                                 )));
                             }
                         }
-                        (_, Method::Installer) => install = primary(ui, "Update now").clicked(),
+                        (_, Method::Installer | Method::Replace) => {
+                            install = primary(ui, "Update now").clicked()
+                        }
                     }
                     if !busy {
                         let quiet = |label: &str| {
