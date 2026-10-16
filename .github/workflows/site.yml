@@ -31,6 +31,15 @@ jobs:
           cp -r site/. _site/
           rm -rf _site/tools
           cp install.sh _site/install
+      - name: Version assets
+        # Cloudflare in front of omacus.com caches CSS and JS for hours, so pages point
+        # at each file by its content hash and pick up a new version immediately.
+        run: |
+          for asset in css/site.css js/site.js js/demo-data.js; do
+            hash=$(sha256sum "_site/$asset" | cut -c1-10)
+            find _site -name '*.html' -exec sed -i "s#\"/$asset\"#\"/$asset?v=$hash\"#g" {} +
+          done
+          grep -rho '/[a-z]*/[a-z-]*\.\(css\|js\)?v=[0-9a-f]*' _site | sort | uniq -c
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:
