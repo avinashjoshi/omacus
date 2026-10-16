@@ -7,5 +7,5 @@ Exec=omacus
 Icon=omacus
 Terminal=false
 Categories=Utility;Calculator;
-Keywords=calculator;math;currency;units;numi;
+Keywords=calculator;math;currency;units;notepad;
 StartupWMClass=omacus

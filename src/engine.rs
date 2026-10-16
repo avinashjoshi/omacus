@@ -1,4 +1,4 @@
-//! The Numi-style layer on top of fend-core.
+//! The notepad layer on top of fend-core.
 //!
 //! fend already understands arithmetic, units, currencies and variables. This
 //! module adds the notepad conventions: headers, comments, labels, `prev`,
@@ -225,7 +225,7 @@ fn aggregate(line: &str, block: &[String]) -> Option<String> {
     })
 }
 
-/// Turn a Numi-flavoured line into something fend understands.
+/// Turn a notepad-style line into something fend understands.
 pub fn rewrite(line: &str, prev: Option<&str>) -> String {
     // Inline comments and quoted text are ignored.
     let mut s = match line.find("//") {
@@ -307,7 +307,7 @@ fn eval_into(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Option<Stri
 }
 
 /// Like `eval_into`, but drops stray words fend doesn't know
-/// ("Lunch with Bob $40" -> "$40"), the way Numi ignores prose.
+/// ("Lunch with Bob $40" -> "$40"), so lines can read like notes.
 fn eval_forgiving(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Option<String> {
     let mut expr = expr.to_string();
     for _ in 0..12 {
@@ -337,7 +337,7 @@ fn eval_forgiving(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Option
     None
 }
 
-/// Round long decimals and add thousands separators, Numi style.
+/// Round long decimals and add thousands separators for display.
 pub fn pretty(raw: &str) -> String {
     let s = raw.trim_start_matches("approx. ");
     if looks_like_date(s) {

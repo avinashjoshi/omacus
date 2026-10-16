@@ -2,8 +2,10 @@
 name = "omacus"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+authors = ["Avinash Joshi <avinash@hey.com>"]
 description = "A notepad calculator: units, currencies, time zones and plain words"
-keywords = ["calculator", "numi", "notepad", "units", "currency"]
+keywords = ["calculator", "notepad", "units", "currency", "omarchy"]
 categories = ["mathematics", "gui"]
 repository = "https://github.com/avinashjoshi/omacus"
 homepage = "https://github.com/avinashjoshi/omacus"
@@ -52,8 +54,6 @@ short_description = "A notepad calculator"
 
 # `cargo generate-rpm` -> .rpm for Fedora/openSUSE
 [package.metadata.generate-rpm]
-# No license chosen yet (all rights reserved). Replace with `package.license` once picked.
-license = "Proprietary"
 assets = [
     { source = "target/release/omacus", dest = "/usr/bin/omacus", mode = "755" },
     { source = "assets/omacus.desktop", dest = "/usr/share/applications/omacus.desktop", mode = "644" },

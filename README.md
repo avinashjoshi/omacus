@@ -1,6 +1,6 @@
 # Omacus
 
-*OM-a-kus, like abacus.* A notepad calculator for Omarchy / Arch Linux, in the spirit of [Numi](https://numi.app).
+*OM-a-kus, like abacus.* A notepad calculator for Omarchy, Linux, macOS and Windows.
 Type on the left, results appear on the right.
 
 ```
@@ -30,7 +30,7 @@ prev in INR                  194,004.29 INR
 | Notes | `# Header`, `// comment`, `"quoted text"`, `Label: 40`, stray prose is ignored |
 
 Math, units and currency come from [fend-core](https://github.com/printfn/fend); `src/engine.rs`
-adds the Numi conventions on top.
+adds the notepad conventions on top.
 
 ## Using it
 
@@ -163,3 +163,8 @@ Linux, Windows and macOS, builds every package, then tags `v<version>` and publi
 release with notes written from the commits since the last release
 ([`release-notes.sh`](.github/scripts/release-notes.sh)). Commit body lines starting with `- `
 show up as sub-points in the notes.
+
+## License
+
+[MIT](LICENSE) © 2026 Avinash Joshi. The bundled JetBrains Mono font is under the
+[SIL Open Font License](assets/fonts/OFL.txt).
