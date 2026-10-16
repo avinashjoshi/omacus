@@ -369,7 +369,27 @@ fn enabled() -> bool {
         .unwrap_or(true)
 }
 
+/// The latest version, from GitHub's API. The API allows 60 requests an hour per
+/// IP address, which a shared office network can use up; then fall back to the
+/// "latest release" page, which redirects to the newest tag.
 fn fetch_latest() -> Result<String, Box<dyn std::error::Error>> {
+    from_api().or_else(|_| from_latest_page())
+}
+
+fn from_latest_page() -> Result<String, Box<dyn std::error::Error>> {
+    use ureq::ResponseExt;
+    let response = ureq::get(format!("{RELEASES_URL}/latest"))
+        .header("User-Agent", concat!("omacus/", env!("CARGO_PKG_VERSION")))
+        .call()?;
+    let path = response.get_uri().path();
+    let tag = path
+        .rsplit_once("/tag/")
+        .map(|(_, tag)| tag)
+        .ok_or_else(|| format!("unexpected release page: {path}"))?;
+    Ok(tag.trim_start_matches('v').to_string())
+}
+
+fn from_api() -> Result<String, Box<dyn std::error::Error>> {
     let body = ureq::get(LATEST_URL)
         .header("User-Agent", concat!("omacus/", env!("CARGO_PKG_VERSION")))
         .header("Accept", "application/vnd.github+json")
@@ -423,6 +443,13 @@ fn now_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "network"]
+    fn reads_latest_from_the_release_page() {
+        let v = from_latest_page().unwrap();
+        assert!(v.split('.').count() == 3, "{v}");
+    }
 
     #[test]
     fn compares_versions() {

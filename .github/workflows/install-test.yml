@@ -103,7 +103,13 @@ jobs:
         run: |
           omacus="$(cat "$RUNNER_TEMP/omacus-path")"
           "$omacus" --version | cat
-          "$omacus" update | cat
+          # Shared CI IP addresses often hit GitHub's API rate limit; retry.
+          for attempt in 1 2 3; do
+            "$omacus" update | cat && exit 0
+            echo "Attempt $attempt failed; retrying in 45s"
+            sleep 45
+          done
+          exit 1
 
       - name: It's now the latest release, in the same place
         if: steps.v.outputs.run == 'true'
