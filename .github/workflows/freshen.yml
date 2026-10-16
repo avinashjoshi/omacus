@@ -1,0 +1,51 @@
+name: Freshen site
+
+# Once a month, recalculate every example on omacus.com with the real engine, so
+# exchange rates and daylight-saving answers stay current, and redeploy if
+# anything changed.
+on:
+  schedule:
+    - cron: "17 6 1 * *"
+  workflow_dispatch:
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      changed: ${{ steps.commit.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libwayland-dev libx11-dev
+      - run: cargo build --release --locked
+      - run: python3 site/tools/gen.py
+      - id: commit
+        name: Commit
+        run: |
+          if git diff --quiet; then
+            echo "Examples are current."
+            echo changed=false >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --stat
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qam "Refresh website examples"
+          git push
+          echo changed=true >> "$GITHUB_OUTPUT"
+
+  # A push made with GITHUB_TOKEN doesn't start other workflows, so deploy here.
+  deploy:
+    needs: regenerate
+    if: needs.regenerate.outputs.changed == 'true'
+    uses: ./.github/workflows/site.yml
+    with:
+      ref: main
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

@@ -7,6 +7,12 @@ on:
     branches: [main]
     paths: ["site/**", "install.sh", "Cargo.toml", ".github/workflows/site.yml"]
   workflow_dispatch:
+  # The monthly refresh (freshen.yml) deploys through this after committing.
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -26,6 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 0  # for the site's last-modified date
       - name: Assemble
         run: |
