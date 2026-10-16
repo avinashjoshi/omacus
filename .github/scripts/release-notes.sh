@@ -16,9 +16,9 @@ range="${previous:+$previous..}HEAD"
 echo "## What's new"
 echo
 # One bullet per commit subject, with any "- " bullets from the commit body nested
-# under it. Version bumps, chores and trailers are left out.
+# under it. Version bumps, chores, trailers and website-only commits are left out.
 notes="$(
-  git log --no-merges --pretty='format:%s%n%b%x1e' "$range" |
+  git log --no-merges --pretty='format:%s%n%b%x1e' "$range" -- . ':!site' ':!.github/workflows/site.yml' |
     awk -v RS='\x1e' '
       {
         n = split($0, lines, "\n"); subject = ""
