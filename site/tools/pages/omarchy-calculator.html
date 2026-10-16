@@ -1,0 +1,60 @@
+<!--
+order: 5
+path: /guides/omarchy-calculator/
+title: A calculator for Omarchy and Hyprland: keybind, floating window, themes · Omacus
+description: Omacus is a notepad calculator made for Omarchy. One command installs it, offers a Hyprland keybind and floating window, and it follows your Omarchy theme live.
+kicker: guide
+h1: The calculator that fits Omarchy
+lede: Omacus was made for Omarchy first. One command installs it, offers a keybind and a floating-window rule for Hyprland, and it wears your Omarchy theme, switching the moment you do.
+card: Omacus on Omarchy
+blurb: Install, keybind, floating window and live theme switching.
+related: /guides/time-zones/, /use-cases/, /docs/
+-->
+    <p>Omacus is a free, open-source notepad calculator. You write math in plain words, one line at a time, and the answers line up beside them as you type: units, currencies, time zones and percentages included. It also runs on other Linux distributions, macOS and Windows.</p>
+
+    <h2 id="install">Install</h2>
+<pre>curl -fsSL omacus.com/install | bash</pre>
+    <p>This installs Omacus for your user (no root needed) into <code>~/.local/bin</code>, with a launcher entry so it shows up in Omarchy's app menu. On Omarchy, the installer then asks two questions.</p>
+
+    <h2 id="keybind">A keybind, checked against yours</h2>
+    <p>The installer offers to bind <kbd>Super Ctrl Alt =</kbd> to open Omacus. Before adding anything, it reads your current bindings with Omarchy's own keybinding list. If the key you pick is taken, it tells you what it's used for and asks again, so it never overrides an Omarchy shortcut. On keyboards with a Calculator key, it can use that too.</p>
+    <p>The keybind launches Omacus or focuses it if it's already open, and <kbd>Esc</kbd> closes it again. Your sheets are saved as you type, so closing loses nothing.</p>
+
+    <h2 id="window">A floating window</h2>
+    <p>Calculators shouldn't take over a tiling layout. The installer adds a Hyprland window rule so Omacus opens floating, centered, at a comfortable 980 × 600.</p>
+    <p>Both changes go into <code>~/.config/hypr/bindings.lua</code> and <code>~/.config/hypr/looknfeel.lua</code>. Your files are backed up first, nothing is added twice, and if Hyprland reports an error, the change is rolled back. To set it up by hand instead, add:</p>
+<pre>o.bind("SUPER + CTRL + ALT + EQUAL", "Omacus calculator", { launch = "omacus", focus = "^omacus$" })
+o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
+    <p>For unattended installs, pass the answer: <code>bash -s -- --hyprland</code>, <code>--key "SUPER ALT + N"</code> or <code>--no-hyprland</code>.</p>
+
+    <h2 id="themes">Your theme, live</h2>
+    <p>Omacus reads the active Omarchy theme's colors and watches for changes, so <code>omarchy theme set</code> restyles it instantly: Tokyo Night, Catppuccin, Gruvbox, Everforest, Nord, Rosé Pine, Matte Black or your own.</p>
+    <figure class="shot-figure">
+      <img src="/img/screens/tokyo-night.webp" width="1470" height="900" alt="Omacus in the Tokyo Night Omarchy theme, showing an invoice sheet" loading="lazy">
+    </figure>
+
+    <h2 id="what">What you can type</h2>
+<!-- ex
+3pm PST in IST
+$30 in EUR
+15% off $1,299
+3.5 km in miles
+rate = $85/hour
+rate * 30 hours
+-->
+    <p>Headers, comments, labels and notes sit right beside the math. Everything it understands is in the <a href="/docs/">docs</a>, and <kbd>F1</kbd> in the app opens a guide where every example is calculated live.</p>
+
+    <h2 id="cli">From the terminal, too</h2>
+    <p>The same engine answers in the terminal, which is handy for Waybar modules and scripts:</p>
+<pre>omacus '3pm PST in IST'
+omacus - &lt; ~/notes/budget.txt</pre>
+
+    <h2 id="questions">Questions</h2>
+    <h3>Is there a calculator app for Omarchy?</h3>
+    <p>Omarchy ships with a basic calculator. Omacus is a notepad calculator made for Omarchy: it follows your theme, installs with a keybind and a floating window, and handles units, currencies and time zones in plain words.</p>
+    <h3>Will the installer change my Hyprland config?</h3>
+    <p>Only if you say yes. It backs up your files, never overrides an existing binding, and rolls back if Hyprland reports an error.</p>
+    <h3>How do I change the keybind later?</h3>
+    <p>Edit the <code>o.bind</code> line in <code>~/.config/hypr/bindings.lua</code>, or run the installer again and pick another key.</p>
+    <h3>Does it work on Arch without Omarchy?</h3>
+    <p>Yes. The same installer works on any Linux; outside Omarchy it skips the Hyprland questions and follows your system's light or dark mode.</p>

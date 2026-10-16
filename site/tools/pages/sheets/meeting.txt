@@ -1,0 +1,11 @@
+# Weekly sync, Tuesday
+// proposed: 9am in San Francisco
+9am PST in New York
+9am PST in London
+9am PST in Bangalore
+9am PST in Tokyo
+
+// Tokyo would be up at 1am. Try the afternoon:
+4pm PST in Tokyo
+4pm PST in Bangalore
+4pm PST in London

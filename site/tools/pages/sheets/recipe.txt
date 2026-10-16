@@ -1,0 +1,11 @@
+# Banana bread, doubled
+scale = 2
+
+Flour: 250 g * scale
+Sugar: 150 g * scale
+Butter: 115 g * scale
+Milk: 0.5 cups * scale in ml
+Bananas: 3 * scale
+
+Oven: 350 fahrenheit in celsius
+Bake: 55 min + 10 min

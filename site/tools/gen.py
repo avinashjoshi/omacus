@@ -7,9 +7,13 @@
   EXAMPLES[NAME] lines and their results.
 - index.html: the feature cards' example results.
 - js/demo-data.js: the demo sheets in tools/demo/, with results, for the animated hero.
+- guides/ and use-cases/: built from tools/pages/*.html (see build_pages), with every
+  example and sheet calculated live.
+- The header and footer of every page, from one copy below.
 - llms-full.txt: the docs as Markdown, for AI assistants and answer engines.
 """
 
+import datetime
 import html
 import json
 import re
@@ -163,9 +167,301 @@ def llms_full():
     (SITE / "llms-full.txt").write_text(header + body)
 
 
+# ---------------------------------------------------------------------------------------
+# Shared header and footer
+
+NAV = [("/#features", "Features"), ("/use-cases/", "Use cases"), ("/guides/", "Guides"),
+       ("/docs/", "Docs"), ("https://github.com/avinashjoshi/omacus", "GitHub")]
+FOOTER = [("/docs/", "Docs"), ("/guides/", "Guides"), ("/use-cases/", "Use cases"),
+          ("https://github.com/avinashjoshi/omacus/releases", "Releases"),
+          ("https://github.com/avinashjoshi/omacus/issues/new/choose", "Report an issue"),
+          ("https://github.com/avinashjoshi/omacus", "GitHub")]
+
+
+def header(path):
+    links = []
+    for href, label in NAV:
+        attrs = ' class="keep"' if label == "Docs" else ""
+        if href != "/#features" and path.startswith(href):
+            attrs += ' aria-current="page"'
+        links.append(f'      <a href="{href}"{attrs}>{label}</a>')
+    return ('<header class="site-header">\n  <div class="wrap">\n'
+            '    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="28" height="28">omacus</a>\n'
+            '    <nav class="nav" aria-label="Main">\n' + "\n".join(links) + "\n"
+            '      <a class="btn primary" href="/#download"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>\n'
+            "    </nav>\n  </div>\n</header>")
+
+
+def footer():
+    links = "\n".join(f'      <a href="{h}">{l}</a>' for h, l in FOOTER)
+    return ('<footer class="site-footer">\n  <div class="wrap">\n'
+            '    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="24" height="24">omacus</a>\n'
+            "    <span>MIT licensed · made for Omarchy, at home everywhere</span>\n"
+            f'    <nav aria-label="Footer">\n{links}\n    </nav>\n  </div>\n</footer>')
+
+
+def sync_chrome(file, path):
+    text = file.read_text()
+    text = re.sub(r'<header class="site-header">.*?</header>', lambda _: header(path), text, flags=re.S)
+    text = re.sub(r'<footer class="site-footer">.*?</footer>', lambda _: footer(), text, flags=re.S)
+    file.write_text(text)
+
+
+# ---------------------------------------------------------------------------------------
+# Guides and use cases
+#
+# A page source in tools/pages/ starts with a front-matter comment:
+#
+#   <!--
+#   path: /guides/time-zones/
+#   title: <title> for search results
+#   description: one or two sentences for search results
+#   kicker: guide
+#   h1: The heading on the page
+#   lede: The paragraph under it
+#   related: /guides/currency/, /use-cases/
+#   -->
+#
+# and its body can use:
+#
+#   <!-- ex
+#   3pm PST in IST
+#   noon UTC in Tokyo
+#   -->                      a table of lines and their answers (one sheet)
+#   <!-- sheet meeting -->   a sheet from tools/pages/sheets/ or tools/demo/, drawn like the app
+#
+# An <h2 id="questions"> section of <h3> + <p> pairs becomes the page's FAQ structured data.
+
+PAGES = SITE / "tools" / "pages"
+AUTHOR = {"@type": "Person", "@id": "https://omacus.com/#author", "name": "Avinash Joshi",
+          "url": "https://github.com/avinashjoshi"}
+# path -> (title, blurb) for "related" cards; pages add themselves as they're read.
+CARD_TEXT = {"/docs/": ("Docs", "Every rule, shortcut and setting on one page.")}
+
+
+def front_matter(text):
+    m = re.match(r"\s*<!--\n(.*?)\n-->\n", text, re.S)
+    meta = dict(line.split(": ", 1) for line in m[1].splitlines() if ": " in line)
+    return meta, text[m.end():]
+
+
+def ex_table(lines):
+    rows = "\n".join(
+        f'      <tr><td><code>{html.escape(line)}</code></td>'
+        f'<td class="ans">{html.escape(result) if result else "<span class=muted>—</span>"}</td></tr>'
+        for line, result in zip(lines, evaluate(lines)))
+    return ('<table class="ex">\n    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>\n'
+            f"    <tbody>\n{rows}\n    </tbody>\n  </table>")
+
+
+KEYWORDS = set("in to as of on off what is prev sum total avg average mean today now tomorrow "
+               "yesterday plus minus times mod".split())
+
+
+def highlight(line, variables):
+    """The app's syntax colors (src/highlight.rs), simplified, as HTML."""
+    if line.lstrip().startswith("#"):
+        return f'<span class="t-head">{html.escape(line)}</span>'
+    code, comment = (line.split("//", 1) + [None])[:2]
+    out = ""
+    label = re.match(r"^(\s*[A-Za-z][A-Za-z '\-_&/]*:)(?= )", code)
+    if label:
+        out += f'<span class="t-label">{html.escape(label[1])}</span>'
+        code = code[label.end():]
+    for m in re.finditer(r'("[^"]*"?)|(\d[\w.,]*)|([A-Za-z_]\w*)|([$£€¥₹₩₽₺%])|(\s+)|(.)', code):
+        tok = html.escape(m[0])
+        if m[1]:
+            out += f'<span class="t-com">{tok}</span>'
+        elif m[2] or m[4]:
+            out += f'<span class="t-num">{tok}</span>'
+        elif m[3]:
+            cls = "t-var" if m[3] in variables else "t-kw" if m[3].lower() in KEYWORDS else ""
+            out += f'<span class="{cls}">{tok}</span>' if cls else tok
+        elif m[5]:
+            out += tok
+        else:
+            out += f'<span class="t-op">{tok}</span>'
+    if comment is not None:
+        out += f'<span class="t-com">//{html.escape(comment)}</span>'
+    return out
+
+
+def sheet_html(name):
+    path = PAGES / "sheets" / f"{name}.txt"
+    if not path.exists():
+        path = SITE / "tools" / "demo" / f"{name}.txt"
+    lines = path.read_text().rstrip("\n").split("\n")
+    variables = {m[1] for l in lines if (m := re.match(r"^\s*([A-Za-z_]\w*)\s*=[^=]", l))}
+    rows = "\n".join(
+        f'    <li><span class="src">{highlight(line, variables) or " "}</span>'
+        f'<span class="res">{html.escape(result)}</span></li>'
+        for line, result in zip(lines, evaluate(lines)))
+    title = lines[0].lstrip("# ").strip()
+    return (f'<figure class="sheet-card">\n  <figcaption><i></i><i></i><i></i><span>{html.escape(title)}</span></figcaption>\n'
+            f'  <ol class="sheet-lines">\n{rows}\n  </ol>\n</figure>')
+
+
+def ld(obj):
+    return ('  <script type="application/ld+json">\n' + json.dumps(obj, ensure_ascii=False, indent=1)
+            + "\n  </script>\n")
+
+
+def head(meta, faq):
+    url = "https://omacus.com" + meta["path"]
+    crumbs = [("Omacus", "https://omacus.com/")]
+    if meta["path"].startswith("/guides/") and meta["path"] != "/guides/":
+        crumbs.append(("Guides", "https://omacus.com/guides/"))
+    crumbs.append((meta["h1"] if meta["path"] != "/guides/" else "Guides", url))
+    graph = [
+        {"@type": ("CollectionPage" if meta["path"] == "/guides/" else
+                   "TechArticle" if meta["path"].startswith("/guides/") else "WebPage"),
+         "@id": url + "#page", "headline": meta["h1"], "description": meta["description"], "url": url,
+         "inLanguage": "en", "dateModified": "{{lastmod}}", "author": AUTHOR, "publisher": AUTHOR,
+         "about": {"@type": "SoftwareApplication", "@id": "https://omacus.com/#app", "name": "Omacus"},
+         "image": "https://omacus.com/img/og.png"},
+        {"@type": "BreadcrumbList", "itemListElement": [
+            {"@type": "ListItem", "position": i + 1, "name": n, "item": u} for i, (n, u) in enumerate(crumbs)]},
+    ]
+    if faq:
+        graph.append({"@type": "FAQPage", "@id": url + "#questions", "mainEntity": [
+            {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": a}} for q, a in faq]})
+    e = html.escape
+    return f'''<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{e(meta["title"])}</title>
+  <meta name="description" content="{e(meta["description"])}">
+  <meta name="author" content="Avinash Joshi">
+  <link rel="canonical" href="{url}">
+  <meta name="theme-color" content="#090909">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Omacus">
+  <meta property="og:url" content="{url}">
+  <meta property="og:title" content="{e(meta["h1"])}">
+  <meta property="og:description" content="{e(meta["description"])}">
+  <meta property="og:image" content="https://omacus.com/img/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{e(meta["h1"])}">
+  <meta name="twitter:description" content="{e(meta["description"])}">
+  <meta name="twitter:image" content="https://omacus.com/img/og.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/img/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/inter-tight-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/site.css">
+{ld({"@context": "https://schema.org", "@graph": graph})}</head>
+<body>
+'''
+
+
+def related_cards(paths):
+    cards = []
+    for p in paths:
+        title, blurb = CARD_TEXT[p]
+        cards.append(f'      <a class="guide-card" href="{p}"><b>{html.escape(title)}</b>'
+                     f'<span>{html.escape(blurb)}</span></a>')
+    return "\n".join(cards)
+
+
+def build_pages():
+    sources = sorted(PAGES.glob("*.html"))
+    parsed = []
+    for src in sources:
+        meta, body = front_matter(src.read_text())
+        CARD_TEXT[meta["path"]] = (meta.get("card", meta["h1"]), meta.get("blurb", meta["description"]))
+        parsed.append((meta, body))
+    today = datetime.date.today().strftime("%-d %B %Y")
+    built = []
+    for meta, body in parsed:
+        body = re.sub(r"<!-- ex\n(.*?)\n-->", lambda m: ex_table(m[1].split("\n")), body, flags=re.S)
+        body = re.sub(r"<!-- sheet ([\w-]+) -->", lambda m: sheet_html(m[1]), body)
+        guides = sorted((m for m, _ in parsed if m["path"].startswith("/guides/") and m["path"] != "/guides/"),
+                        key=lambda m: int(m.get("order", 99)))
+        body = body.replace("{{guide_cards}}", related_cards([m["path"] for m in guides]))
+        body = body.replace("{{calculated_on}}", today)
+        faq = []
+        if 'id="questions"' in body:
+            qa = body[body.index('id="questions"'):]
+            faq = [(H(q), " ".join(H(a).split())) for q, a in re.findall(r"<h3>(.*?)</h3>\s*<p>(.*?)</p>", qa, re.S)]
+        related = [p.strip() for p in meta.get("related", "").split(",") if p.strip()]
+        crumb = '<a href="/">Omacus</a>'
+        if meta["path"].startswith("/guides/") and meta["path"] != "/guides/":
+            crumb += ' <span>/</span> <a href="/guides/">Guides</a>'
+        sections = re.findall(r'<h2 id="([\w-]+)">(.*?)</h2>', body)
+        toc = ""
+        if len(sections) >= 4:
+            toc = ('  <nav class="toc" aria-label="On this page">\n    <p>On this page</p>\n'
+                   + "\n".join(f'    <a href="#{i}">{t}</a>' for i, t in sections) + "\n  </nav>\n")
+        page = head(meta, faq) + header(meta["path"]) + f'''
+
+<main class="wrap page{" has-toc" if toc else ""}">
+  <nav class="crumbs" aria-label="Breadcrumb">{crumb}</nav>
+{toc}  <article class="prose page-body">
+    <span class="kicker">// {html.escape(meta.get("kicker", "guide"))}</span>
+    <h1>{meta["h1"]}</h1>
+    <p class="lead">{meta["lede"]}</p>
+{body.strip()}
+  </article>
+''' + (f'''
+  <section class="related" aria-labelledby="related">
+    <h2 id="related">Keep reading</h2>
+    <div class="guide-cards">
+{related_cards(related)}
+    </div>
+  </section>
+''' if related else "") + '''
+  <div class="cta">
+    <h2>Try it on your own <em class="serif">numbers</em>.</h2>
+    <p>Free for Linux, macOS and Windows. One command, and Omacus is a keystroke away.</p>
+    <div class="cmd"><span class="prompt">$</span><code>curl -fsSL omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
+    <div class="dl-row"><a class="btn" href="/#download"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>All downloads</a><a class="btn" href="/docs/"><svg aria-hidden="true"><use href="/img/sprite.svg#book"/></svg>Read the docs</a></div>
+  </div>
+</main>
+
+''' + footer() + '''
+
+<script src="/js/site.js"></script>
+</body>
+</html>
+'''
+        out = SITE / meta["path"].strip("/") / "index.html"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(page)
+        built.append(meta["path"])
+    return built
+
+
+def H(s):
+    return html.unescape(re.sub(r"<[^>]+>", "", s)).strip()
+
+
+def sitemap(paths):
+    entries = []
+    for p in ["/", "/docs/"] + paths:
+        extra = ""
+        if p == "/":
+            extra = "".join(f"\n    <image:image><image:loc>https://omacus.com/img/screens/{n}.webp</image:loc></image:image>"
+                            for n in ("matte-black", "tokyo-night", "help-syntax"))
+        entries.append(f"  <url>\n    <loc>https://omacus.com{p}</loc>\n    <lastmod>{{{{lastmod}}}}</lastmod>{extra}\n  </url>")
+    (SITE / "sitemap.xml").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"\n'
+        '        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n' + "\n".join(entries) + "\n</urlset>\n")
+
+
 if __name__ == "__main__":
     fill_docs()
     fill_home()
     demo_data()
     llms_full()
+    pages = build_pages()
+    for f, path in [(SITE / "index.html", "/"), (SITE / "docs" / "index.html", "/docs/")]:
+        sync_chrome(f, path)
+    sitemap(pages)
     print("examples and demo data updated")

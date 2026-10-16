@@ -24,6 +24,15 @@ Key facts:
 - [FAQ](https://omacus.com/docs/#faq)
 - [How it works](https://omacus.com/docs/#how-it-works)
 
+## Guides
+
+- [Convert time zones in plain English](https://omacus.com/guides/time-zones/): abbreviations, cities, daylight saving, next-day answers
+- [Convert currencies as you type](https://omacus.com/guides/currency/): symbols and codes, mixing currencies, offline rates
+- [Percentages, the way you'd say them](https://omacus.com/guides/percentages/): of, on, off, + 8% tax, X is what % of Y
+- [Convert units by just writing them](https://omacus.com/guides/unit-conversion/): length, weight, temperature, cooking, data, math with units
+- [The calculator that fits Omarchy](https://omacus.com/guides/omarchy-calculator/): install, Hyprland keybind, floating window, themes
+- [Use cases](https://omacus.com/use-cases/): seven complete sheets (group trip, invoice, budget, recipe, meeting, road trip, purchase)
+
 ## Project
 
 - [Source code on GitHub](https://github.com/avinashjoshi/omacus)

@@ -1,0 +1,13 @@
+# Road trip to the coast
+distance = 1,200 km
+mileage = 15 km/liter
+fuel = distance / mileage
+
+Fuel: fuel * $1.45/liter
+Tolls $38
+Snacks $25 * 3
+total
+each = prev / 4
+
+Driving: distance / 90 km/h
+distance in miles

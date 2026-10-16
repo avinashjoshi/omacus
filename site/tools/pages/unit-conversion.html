@@ -1,0 +1,111 @@
+<!--
+order: 4
+path: /guides/unit-conversion/
+title: Unit converter in plain English: km to miles, cups to ml · Omacus
+description: Convert length, weight, temperature, cooking measures, speed, data, area and energy by typing "3.5 km in miles" or "2 cups in ml". Combine units in one line, like "60 km / 2 hours".
+kicker: guide
+h1: Convert units by just writing them
+lede: Type <code>3.5 km in miles</code> or <code>2 cups in ml</code> and the answer appears on the same line. Omacus knows hundreds of units, and it does math with them, so <code>60 km / 2 hours</code> is a speed.
+card: Unit conversion
+blurb: km in miles, cups in ml, °F in °C, and math with units.
+related: /use-cases/, /guides/time-zones/, /docs/
+-->
+    <p>Omacus is a free notepad calculator for Linux, macOS and Windows. Each line is calculated as you type, and every line keeps its answer, so a recipe, a trip or a spec sheet stays readable.</p>
+
+    <h2 id="examples">Quick examples</h2>
+<!-- ex
+3.5 km in miles
+72 fahrenheit in celsius
+2 cups in ml
+1 lb in kg
+60 mph in km/h
+10 GB / 4
+1 acre in m^2
+2 hours + 45 min in minutes
+-->
+
+    <h2 id="length">Length and distance</h2>
+<!-- ex
+6 ft in cm
+5'11" in cm
+26.2 miles in km
+1 inch in mm
+1 nautical mile in km
+-->
+
+    <h2 id="weight">Weight</h2>
+<!-- ex
+500 g in oz
+2.5 lb in kg
+1 metric ton in kg
+-->
+
+    <h2 id="temperature">Temperature</h2>
+    <p>Write <code>fahrenheit</code> and <code>celsius</code> in full, or <code>F</code> and <code>C</code> for short.</p>
+<!-- ex
+350 F in C
+20 C in F
+98.6 fahrenheit in celsius
+-->
+
+    <h2 id="cooking">Cooking and volume</h2>
+<!-- ex
+3 tbsp in ml
+1 tbsp in tsp
+750 ml in cups
+8 fl oz in ml
+1 gallon in liters
+-->
+    <p>Cups, gallons and fluid ounces are US measures.</p>
+
+    <h2 id="speed">Speed</h2>
+<!-- ex
+100 km/h in m/s
+1 knot in km/h
+-->
+
+    <h2 id="time">Time</h2>
+<!-- ex
+90 minutes in hours
+30 days in weeks
+1 year in hours
+-->
+
+    <h2 id="data">Data and storage</h2>
+    <p>Both decimal units (<code>GB</code>, 1,000 MB) and binary ones (<code>GiB</code>, 1,024 MiB) are understood, which is handy when a disk looks smaller than the box said.</p>
+<!-- ex
+1 TB in GB
+1 GiB in MB
+5 MB/s * 10 min in GB
+-->
+
+    <h2 id="area">Area and energy</h2>
+<!-- ex
+120 sq ft in m^2
+10 square meters in sqft
+100 W * 8 hours in kWh
+1 kcal in kJ
+-->
+
+    <h2 id="math">Math with units</h2>
+    <p>Units travel through the math. Divide a distance by a time and you get a speed; divide a distance by fuel economy and you get liters. Add <code>in</code> at the end to choose the unit of the answer.</p>
+<!-- ex
+60 km / 2 hours
+1,200 km / 15 km/liter
+2 liters / 250 ml
+2 hours + 45 min in minutes
+-->
+
+    <h2 id="sheet">A recipe, doubled</h2>
+    <p>Name a value once and reuse it below. Change <code>scale</code> and every line updates:</p>
+<!-- sheet recipe -->
+
+    <h2 id="questions">Questions</h2>
+    <h3>How many units does Omacus know?</h3>
+    <p>Hundreds, from everyday ones like miles, cups and pounds to scientific ones like joules, pascals and light years. The unit math comes from fend, an open-source calculator engine.</p>
+    <h3>Are cups and gallons US or imperial?</h3>
+    <p>US. Imperial gallons and pints aren't supported yet, and Omacus shows no answer rather than guessing.</p>
+    <h3>Can I convert between units of different kinds?</h3>
+    <p>Only when there's a real relationship, like distance divided by time. Converting cups of flour to grams needs a density, so Omacus doesn't guess.</p>
+    <h3>Does it work offline?</h3>
+    <p>Yes. Unit conversion is calculated entirely on your computer.</p>

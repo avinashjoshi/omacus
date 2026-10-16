@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Unit converter in plain English: km to miles, cups to ml · Omacus</title>
+  <meta name="description" content="Convert length, weight, temperature, cooking measures, speed, data, area and energy by typing &quot;3.5 km in miles&quot; or &quot;2 cups in ml&quot;. Combine units in one line, like &quot;60 km / 2 hours&quot;.">
+  <meta name="author" content="Avinash Joshi">
+  <link rel="canonical" href="https://omacus.com/guides/unit-conversion/">
+  <meta name="theme-color" content="#090909">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Omacus">
+  <meta property="og:url" content="https://omacus.com/guides/unit-conversion/">
+  <meta property="og:title" content="Convert units by just writing them">
+  <meta property="og:description" content="Convert length, weight, temperature, cooking measures, speed, data, area and energy by typing &quot;3.5 km in miles&quot; or &quot;2 cups in ml&quot;. Combine units in one line, like &quot;60 km / 2 hours&quot;.">
+  <meta property="og:image" content="https://omacus.com/img/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Convert units by just writing them">
+  <meta name="twitter:description" content="Convert length, weight, temperature, cooking measures, speed, data, area and energy by typing &quot;3.5 km in miles&quot; or &quot;2 cups in ml&quot;. Combine units in one line, like &quot;60 km / 2 hours&quot;.">
+  <meta name="twitter:image" content="https://omacus.com/img/og.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/img/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/inter-tight-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/site.css">
+  <script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://omacus.com/guides/unit-conversion/#page",
+   "headline": "Convert units by just writing them",
+   "description": "Convert length, weight, temperature, cooking measures, speed, data, area and energy by typing \"3.5 km in miles\" or \"2 cups in ml\". Combine units in one line, like \"60 km / 2 hours\".",
+   "url": "https://omacus.com/guides/unit-conversion/",
+   "inLanguage": "en",
+   "dateModified": "{{lastmod}}",
+   "author": {
+    "@type": "Person",
+    "@id": "https://omacus.com/#author",
+    "name": "Avinash Joshi",
+    "url": "https://github.com/avinashjoshi"
+   },
+   "publisher": {
+    "@type": "Person",
+    "@id": "https://omacus.com/#author",
+    "name": "Avinash Joshi",
+    "url": "https://github.com/avinashjoshi"
+   },
+   "about": {
+    "@type": "SoftwareApplication",
+    "@id": "https://omacus.com/#app",
+    "name": "Omacus"
+   },
+   "image": "https://omacus.com/img/og.png"
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Omacus",
+     "item": "https://omacus.com/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Guides",
+     "item": "https://omacus.com/guides/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 3,
+     "name": "Convert units by just writing them",
+     "item": "https://omacus.com/guides/unit-conversion/"
+    }
+   ]
+  },
+  {
+   "@type": "FAQPage",
+   "@id": "https://omacus.com/guides/unit-conversion/#questions",
+   "mainEntity": [
+    {
+     "@type": "Question",
+     "name": "How many units does Omacus know?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Hundreds, from everyday ones like miles, cups and pounds to scientific ones like joules, pascals and light years. The unit math comes from fend, an open-source calculator engine."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Are cups and gallons US or imperial?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "US. Imperial gallons and pints aren't supported yet, and Omacus shows no answer rather than guessing."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Can I convert between units of different kinds?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Only when there's a real relationship, like distance divided by time. Converting cups of flour to grams needs a density, so Omacus doesn't guess."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Does it work offline?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Yes. Unit conversion is calculated entirely on your computer."
+     }
+    }
+   ]
+  }
+ ]
+}
+  </script>
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="28" height="28">omacus</a>
+    <nav class="nav" aria-label="Main">
+      <a href="/#features">Features</a>
+      <a href="/use-cases/">Use cases</a>
+      <a href="/guides/" aria-current="page">Guides</a>
+      <a href="/docs/" class="keep">Docs</a>
+      <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+      <a class="btn primary" href="/#download"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap page has-toc">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="/">Omacus</a> <span>/</span> <a href="/guides/">Guides</a></nav>
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <a href="#examples">Quick examples</a>
+    <a href="#length">Length and distance</a>
+    <a href="#weight">Weight</a>
+    <a href="#temperature">Temperature</a>
+    <a href="#cooking">Cooking and volume</a>
+    <a href="#speed">Speed</a>
+    <a href="#time">Time</a>
+    <a href="#data">Data and storage</a>
+    <a href="#area">Area and energy</a>
+    <a href="#math">Math with units</a>
+    <a href="#sheet">A recipe, doubled</a>
+    <a href="#questions">Questions</a>
+  </nav>
+  <article class="prose page-body">
+    <span class="kicker">// guide</span>
+    <h1>Convert units by just writing them</h1>
+    <p class="lead">Type <code>3.5 km in miles</code> or <code>2 cups in ml</code> and the answer appears on the same line. Omacus knows hundreds of units, and it does math with them, so <code>60 km / 2 hours</code> is a speed.</p>
+<p>Omacus is a free notepad calculator for Linux, macOS and Windows. Each line is calculated as you type, and every line keeps its answer, so a recipe, a trip or a spec sheet stays readable.</p>
+
+    <h2 id="examples">Quick examples</h2>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>3.5 km in miles</code></td><td class="ans">2.17 miles</td></tr>
+      <tr><td><code>72 fahrenheit in celsius</code></td><td class="ans">22.22 °C</td></tr>
+      <tr><td><code>2 cups in ml</code></td><td class="ans">473.18 ml</td></tr>
+      <tr><td><code>1 lb in kg</code></td><td class="ans">0.45 kg</td></tr>
+      <tr><td><code>60 mph in km/h</code></td><td class="ans">96.56 km / h</td></tr>
+      <tr><td><code>10 GB / 4</code></td><td class="ans">2.5 GB</td></tr>
+      <tr><td><code>1 acre in m^2</code></td><td class="ans">4,046.86 m^2</td></tr>
+      <tr><td><code>2 hours + 45 min in minutes</code></td><td class="ans">165 minutes</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="length">Length and distance</h2>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>6 ft in cm</code></td><td class="ans">182.88 cm</td></tr>
+      <tr><td><code>5&#x27;11&quot; in cm</code></td><td class="ans">180.34 cm</td></tr>
+      <tr><td><code>26.2 miles in km</code></td><td class="ans">42.16 km</td></tr>
+      <tr><td><code>1 inch in mm</code></td><td class="ans">25.4 mm</td></tr>
+      <tr><td><code>1 nautical mile in km</code></td><td class="ans">1.85 km</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="weight">Weight</h2>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>500 g in oz</code></td><td class="ans">17.64 oz</td></tr>
+      <tr><td><code>2.5 lb in kg</code></td><td class="ans">1.13 kg</td></tr>
+      <tr><td><code>1 metric ton in kg</code></td><td class="ans">1,000 kg</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="temperature">Temperature</h2>
+    <p>Write <code>fahrenheit</code> and <code>celsius</code> in full, or <code>F</code> and <code>C</code> for short.</p>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>350 F in C</code></td><td class="ans">176.67 °C</td></tr>
+      <tr><td><code>20 C in F</code></td><td class="ans">68 °F</td></tr>
+      <tr><td><code>98.6 fahrenheit in celsius</code></td><td class="ans">37 °C</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="cooking">Cooking and volume</h2>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>3 tbsp in ml</code></td><td class="ans">44.36 ml</td></tr>
+      <tr><td><code>1 tbsp in tsp</code></td><td class="ans">3 tsp</td></tr>
+      <tr><td><code>750 ml in cups</code></td><td class="ans">3.17 cups</td></tr>
+      <tr><td><code>8 fl oz in ml</code></td><td class="ans">236.59 ml</td></tr>
+      <tr><td><code>1 gallon in liters</code></td><td class="ans">3.79 liters</td></tr>
+    </tbody>
+  </table>
+    <p>Cups, gallons and fluid ounces are US measures.</p>
+
+    <h2 id="speed">Speed</h2>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>100 km/h in m/s</code></td><td class="ans">27.78 m / s</td></tr>
+      <tr><td><code>1 knot in km/h</code></td><td class="ans">1.85 km / h</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="time">Time</h2>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>90 minutes in hours</code></td><td class="ans">1.5 hours</td></tr>
+      <tr><td><code>30 days in weeks</code></td><td class="ans">4.29 weeks</td></tr>
+      <tr><td><code>1 year in hours</code></td><td class="ans">8,765.81 hours</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="data">Data and storage</h2>
+    <p>Both decimal units (<code>GB</code>, 1,000 MB) and binary ones (<code>GiB</code>, 1,024 MiB) are understood, which is handy when a disk looks smaller than the box said.</p>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>1 TB in GB</code></td><td class="ans">1,000 GB</td></tr>
+      <tr><td><code>1 GiB in MB</code></td><td class="ans">1,073.74 MB</td></tr>
+      <tr><td><code>5 MB/s * 10 min in GB</code></td><td class="ans">3 GB</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="area">Area and energy</h2>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>120 sq ft in m^2</code></td><td class="ans">11.15 m^2</td></tr>
+      <tr><td><code>10 square meters in sqft</code></td><td class="ans">107.64 ft^2</td></tr>
+      <tr><td><code>100 W * 8 hours in kWh</code></td><td class="ans">0.8 kWh</td></tr>
+      <tr><td><code>1 kcal in kJ</code></td><td class="ans">4.18 kJ</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="math">Math with units</h2>
+    <p>Units travel through the math. Divide a distance by a time and you get a speed; divide a distance by fuel economy and you get liters. Add <code>in</code> at the end to choose the unit of the answer.</p>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>60 km / 2 hours</code></td><td class="ans">30 km / hour</td></tr>
+      <tr><td><code>1,200 km / 15 km/liter</code></td><td class="ans">80 liters</td></tr>
+      <tr><td><code>2 liters / 250 ml</code></td><td class="ans">8</td></tr>
+      <tr><td><code>2 hours + 45 min in minutes</code></td><td class="ans">165 minutes</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="sheet">A recipe, doubled</h2>
+    <p>Name a value once and reuse it below. Change <code>scale</code> and every line updates:</p>
+<figure class="sheet-card">
+  <figcaption><i></i><i></i><i></i><span>Banana bread, doubled</span></figcaption>
+  <ol class="sheet-lines">
+    <li><span class="src"><span class="t-head"># Banana bread, doubled</span></span><span class="res"></span></li>
+    <li><span class="src"><span class="t-var">scale</span> <span class="t-op">=</span> <span class="t-num">2</span></span><span class="res">2</span></li>
+    <li><span class="src"> </span><span class="res"></span></li>
+    <li><span class="src"><span class="t-label">Flour:</span> <span class="t-num">250</span> g <span class="t-op">*</span> <span class="t-var">scale</span></span><span class="res">500 g</span></li>
+    <li><span class="src"><span class="t-label">Sugar:</span> <span class="t-num">150</span> g <span class="t-op">*</span> <span class="t-var">scale</span></span><span class="res">300 g</span></li>
+    <li><span class="src"><span class="t-label">Butter:</span> <span class="t-num">115</span> g <span class="t-op">*</span> <span class="t-var">scale</span></span><span class="res">230 g</span></li>
+    <li><span class="src"><span class="t-label">Milk:</span> <span class="t-num">0.5</span> cups <span class="t-op">*</span> <span class="t-var">scale</span> <span class="t-kw">in</span> ml</span><span class="res">236.59 ml</span></li>
+    <li><span class="src"><span class="t-label">Bananas:</span> <span class="t-num">3</span> <span class="t-op">*</span> <span class="t-var">scale</span></span><span class="res">6</span></li>
+    <li><span class="src"> </span><span class="res"></span></li>
+    <li><span class="src"><span class="t-label">Oven:</span> <span class="t-num">350</span> fahrenheit <span class="t-kw">in</span> celsius</span><span class="res">176.67 °C</span></li>
+    <li><span class="src"><span class="t-label">Bake:</span> <span class="t-num">55</span> min <span class="t-op">+</span> <span class="t-num">10</span> min</span><span class="res">65 mins</span></li>
+  </ol>
+</figure>
+
+    <h2 id="questions">Questions</h2>
+    <h3>How many units does Omacus know?</h3>
+    <p>Hundreds, from everyday ones like miles, cups and pounds to scientific ones like joules, pascals and light years. The unit math comes from fend, an open-source calculator engine.</p>
+    <h3>Are cups and gallons US or imperial?</h3>
+    <p>US. Imperial gallons and pints aren't supported yet, and Omacus shows no answer rather than guessing.</p>
+    <h3>Can I convert between units of different kinds?</h3>
+    <p>Only when there's a real relationship, like distance divided by time. Converting cups of flour to grams needs a density, so Omacus doesn't guess.</p>
+    <h3>Does it work offline?</h3>
+    <p>Yes. Unit conversion is calculated entirely on your computer.</p>
+  </article>
+
+  <section class="related" aria-labelledby="related">
+    <h2 id="related">Keep reading</h2>
+    <div class="guide-cards">
+      <a class="guide-card" href="/use-cases/"><b>Use cases</b><span>Seven real sheets: trips, invoices, budgets, recipes and more.</span></a>
+      <a class="guide-card" href="/guides/time-zones/"><b>Time zones</b><span>3pm PST in IST, with daylight saving and next-day answers handled.</span></a>
+      <a class="guide-card" href="/docs/"><b>Docs</b><span>Every rule, shortcut and setting on one page.</span></a>
+    </div>
+  </section>
+
+  <div class="cta">
+    <h2>Try it on your own <em class="serif">numbers</em>.</h2>
+    <p>Free for Linux, macOS and Windows. One command, and Omacus is a keystroke away.</p>
+    <div class="cmd"><span class="prompt">$</span><code>curl -fsSL omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
+    <div class="dl-row"><a class="btn" href="/#download"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>All downloads</a><a class="btn" href="/docs/"><svg aria-hidden="true"><use href="/img/sprite.svg#book"/></svg>Read the docs</a></div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="24" height="24">omacus</a>
+    <span>MIT licensed · made for Omarchy, at home everywhere</span>
+    <nav aria-label="Footer">
+      <a href="/docs/">Docs</a>
+      <a href="/guides/">Guides</a>
+      <a href="/use-cases/">Use cases</a>
+      <a href="https://github.com/avinashjoshi/omacus/releases">Releases</a>
+      <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">Report an issue</a>
+      <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="/js/site.js"></script>
+</body>
+</html>

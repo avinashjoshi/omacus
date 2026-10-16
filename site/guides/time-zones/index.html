@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Convert time zones in plain English: 3pm PST in IST · Omacus</title>
+  <meta name="description" content="Type &quot;3pm PST in IST&quot; and get &quot;3:30 AM IST (next day)&quot;. How Omacus converts times between abbreviations, cities and countries, with daylight saving handled.">
+  <meta name="author" content="Avinash Joshi">
+  <link rel="canonical" href="https://omacus.com/guides/time-zones/">
+  <meta name="theme-color" content="#090909">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Omacus">
+  <meta property="og:url" content="https://omacus.com/guides/time-zones/">
+  <meta property="og:title" content="Convert time zones in plain English">
+  <meta property="og:description" content="Type &quot;3pm PST in IST&quot; and get &quot;3:30 AM IST (next day)&quot;. How Omacus converts times between abbreviations, cities and countries, with daylight saving handled.">
+  <meta property="og:image" content="https://omacus.com/img/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Convert time zones in plain English">
+  <meta name="twitter:description" content="Type &quot;3pm PST in IST&quot; and get &quot;3:30 AM IST (next day)&quot;. How Omacus converts times between abbreviations, cities and countries, with daylight saving handled.">
+  <meta name="twitter:image" content="https://omacus.com/img/og.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/img/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/inter-tight-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/site.css">
+  <script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://omacus.com/guides/time-zones/#page",
+   "headline": "Convert time zones in plain English",
+   "description": "Type \"3pm PST in IST\" and get \"3:30 AM IST (next day)\". How Omacus converts times between abbreviations, cities and countries, with daylight saving handled.",
+   "url": "https://omacus.com/guides/time-zones/",
+   "inLanguage": "en",
+   "dateModified": "{{lastmod}}",
+   "author": {
+    "@type": "Person",
+    "@id": "https://omacus.com/#author",
+    "name": "Avinash Joshi",
+    "url": "https://github.com/avinashjoshi"
+   },
+   "publisher": {
+    "@type": "Person",
+    "@id": "https://omacus.com/#author",
+    "name": "Avinash Joshi",
+    "url": "https://github.com/avinashjoshi"
+   },
+   "about": {
+    "@type": "SoftwareApplication",
+    "@id": "https://omacus.com/#app",
+    "name": "Omacus"
+   },
+   "image": "https://omacus.com/img/og.png"
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Omacus",
+     "item": "https://omacus.com/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Guides",
+     "item": "https://omacus.com/guides/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 3,
+     "name": "Convert time zones in plain English",
+     "item": "https://omacus.com/guides/time-zones/"
+    }
+   ]
+  },
+  {
+   "@type": "FAQPage",
+   "@id": "https://omacus.com/guides/time-zones/#questions",
+   "mainEntity": [
+    {
+     "@type": "Question",
+     "name": "Does it handle daylight saving time?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Yes. Abbreviations like PST and EST are read as their region (Pacific, Eastern), and the conversion uses the rules in effect on the day you type, from the IANA time-zone database built into the app."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Does it need the internet for time zones?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "No. Time zones are calculated entirely on your computer; only currency rates are ever fetched."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Which time zone abbreviations does it know?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "The common ones for North America, Europe, India, East Asia and Australia, such as PST, EST, CST, MST, IST, GMT, BST, CET, EET, JST, KST, SGT, HKT, AEST and NZST, plus their daylight versions. Any city or IANA zone name works too."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "IST could mean India or Israel. Which one is it?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "India Standard Time. For Israel, write a city instead: 3pm PST in Jerusalem."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Can I convert a time on a specific date?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Times are converted for today, which is what you need for scheduling this week. For date math, see Dates in the docs."
+     }
+    }
+   ]
+  }
+ ]
+}
+  </script>
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="28" height="28">omacus</a>
+    <nav class="nav" aria-label="Main">
+      <a href="/#features">Features</a>
+      <a href="/use-cases/">Use cases</a>
+      <a href="/guides/" aria-current="page">Guides</a>
+      <a href="/docs/" class="keep">Docs</a>
+      <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+      <a class="btn primary" href="/#download"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap page has-toc">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="/">Omacus</a> <span>/</span> <a href="/guides/">Guides</a></nav>
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <a href="#examples">Quick examples</a>
+    <a href="#names">Three ways to name a place</a>
+    <a href="#daylight-saving">Daylight saving, handled</a>
+    <a href="#next-day">Next day, previous day</a>
+    <a href="#formats">Ways to write the time</a>
+    <a href="#labels">Label your lines</a>
+    <a href="#now">The time right now</a>
+    <a href="#sheet">Planning a meeting across zones</a>
+    <a href="#questions">Questions</a>
+  </nav>
+  <article class="prose page-body">
+    <span class="kicker">// guide</span>
+    <h1>Convert time zones in plain English</h1>
+    <p class="lead">Write the time and both places the way you'd say them, like <code>3pm PST in IST</code>, and Omacus answers on the same line: <code>3:30 AM IST (next day)</code>. No menus, no picking cities from a list.</p>
+<p>Omacus is a free notepad calculator for Linux, macOS and Windows. Each line you type is calculated as you type it, so a page of meeting times reads like a note to yourself, with every answer lined up on the right.</p>
+
+    <h2 id="examples">Quick examples</h2>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>3pm PST in IST</code></td><td class="ans">3:30 AM IST (next day)</td></tr>
+      <tr><td><code>9am EST in London</code></td><td class="ans">2:00 PM BST</td></tr>
+      <tr><td><code>noon UTC in Tokyo</code></td><td class="ans">9:00 PM JST</td></tr>
+      <tr><td><code>6pm IST in San Francisco</code></td><td class="ans">5:30 AM PDT</td></tr>
+      <tr><td><code>4pm Paris in Bangalore</code></td><td class="ans">7:30 PM IST</td></tr>
+      <tr><td><code>10:30 London to New York</code></td><td class="ans">5:30 AM EDT</td></tr>
+      <tr><td><code>9am Germany in Japan</code></td><td class="ans">4:00 PM JST</td></tr>
+      <tr><td><code>11pm JST in UTC</code></td><td class="ans">2:00 PM UTC</td></tr>
+    </tbody>
+  </table>
+    <p class="note-line">Answers were calculated on 16 October 2026. Omacus always uses the date you're typing on, so daylight saving is right for today.</p>
+
+    <h2 id="names">Three ways to name a place</h2>
+    <h3>Abbreviations</h3>
+    <p><code>PST</code>, <code>EST</code>, <code>CST</code>, <code>MST</code>, <code>IST</code>, <code>UTC</code>, <code>GMT</code>, <code>BST</code>, <code>CET</code>, <code>EET</code>, <code>JST</code>, <code>KST</code>, <code>SGT</code>, <code>HKT</code>, <code>AEST</code>, <code>NZST</code> and more. The summer versions (<code>PDT</code>, <code>EDT</code>, <code>CEST</code>, <code>AEDT</code>) work too, and so do the short forms <code>PT</code>, <code>ET</code>, <code>CT</code> and <code>MT</code>.</p>
+    <h3>Cities</h3>
+    <p>Every city in the IANA time-zone database, plus common names like Bangalore, Mumbai, Delhi, San Francisco, Seattle, NYC, Boston and Austin. Multi-word names just work.</p>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>2:15pm Mumbai in Chicago</code></td><td class="ans">3:45 AM CDT</td></tr>
+      <tr><td><code>7am Singapore in Dubai</code></td><td class="ans">3:00 AM GST</td></tr>
+      <tr><td><code>8pm Seattle in Sydney</code></td><td class="ans">2:00 PM AEDT (next day)</td></tr>
+    </tbody>
+  </table>
+    <h3>Countries and zone names</h3>
+    <p>Countries with a single zone (India, Japan, Germany, France, the UK, the UAE) work by name. For anywhere else, the full IANA name is always understood.</p>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>9am India in Japan</code></td><td class="ans">12:30 PM JST</td></tr>
+      <tr><td><code>10am America/New_York in Asia/Kolkata</code></td><td class="ans">7:30 PM IST</td></tr>
+      <tr><td><code>noon UTC in Asia/Kathmandu</code></td><td class="ans">5:45 PM NPT</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="daylight-saving">Daylight saving, handled</h2>
+    <p>People say "PST" all year, even in summer when California is really on PDT. Omacus reads an abbreviation as the place it belongs to, so <code>PST</code> means "Pacific time" and you get the right answer in any month. The result shows the abbreviation that's actually in effect:</p>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>9am PST in New York</code></td><td class="ans">12:00 PM EDT</td></tr>
+      <tr><td><code>9am EST in London</code></td><td class="ans">2:00 PM BST</td></tr>
+      <tr><td><code>5pm CET in EST</code></td><td class="ans">11:00 AM EDT</td></tr>
+    </tbody>
+  </table>
+    <p>That's also why <code>EST</code> above came back as <code>EDT</code>: on the day these answers were calculated, New York was on daylight time.</p>
+
+    <h2 id="next-day">Next day, previous day</h2>
+    <p>When the converted time falls on another date, Omacus says so, which is easy to miss when you do the math in your head.</p>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>9am PST in Tokyo</code></td><td class="ans">1:00 AM JST (next day)</td></tr>
+      <tr><td><code>9am IST in EST</code></td><td class="ans">11:30 PM EDT (prev day)</td></tr>
+      <tr><td><code>midnight UTC in PST</code></td><td class="ans">5:00 PM PDT (prev day)</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="formats">Ways to write the time</h2>
+    <p>12-hour or 24-hour, with or without minutes, upper or lower case: <code>3pm</code>, <code>3:30 PM</code>, <code>9:30 am</code>, <code>15:30</code>, <code>noon</code> and <code>midnight</code>. Use <code>in</code> or <code>to</code> between the places.</p>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>15:30 CET in IST</code></td><td class="ans">7:00 PM IST</td></tr>
+      <tr><td><code>9:30 am pst in ist</code></td><td class="ans">10:00 PM IST</td></tr>
+      <tr><td><code>noon AEST to PST</code></td><td class="ans">6:00 PM PDT (prev day)</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="labels">Label your lines</h2>
+    <p>Words before the time are treated as a label, so a list of meetings stays readable:</p>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>Standup 9:30am PST in Berlin</code></td><td class="ans">6:30 PM CEST</td></tr>
+      <tr><td><code>Flight lands 6:40pm IST in London</code></td><td class="ans">2:10 PM BST</td></tr>
+      <tr><td><code>Payroll cutoff 5pm ET in IST</code></td><td class="ans">2:30 AM IST (next day)</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="now">The time right now</h2>
+    <p>Write <code>time in Tokyo</code> or <code>now in London</code> for the current time there. A time without a zone means your own: <code>3pm in IST</code> converts 3pm where you are.</p>
+
+    <h2 id="sheet">Planning a meeting across zones</h2>
+    <p>Because every line keeps its answer, a sheet is a quick way to find a time that works for everyone. Try one time, read down the column, adjust:</p>
+<figure class="sheet-card">
+  <figcaption><i></i><i></i><i></i><span>Weekly sync, Tuesday</span></figcaption>
+  <ol class="sheet-lines">
+    <li><span class="src"><span class="t-head"># Weekly sync, Tuesday</span></span><span class="res"></span></li>
+    <li><span class="src"><span class="t-com">// proposed: 9am in San Francisco</span></span><span class="res"></span></li>
+    <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> New York</span><span class="res">12:00 PM EDT</span></li>
+    <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> London</span><span class="res">5:00 PM BST</span></li>
+    <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> Bangalore</span><span class="res">9:30 PM IST</span></li>
+    <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> Tokyo</span><span class="res">1:00 AM JST (next day)</span></li>
+    <li><span class="src"> </span><span class="res"></span></li>
+    <li><span class="src"><span class="t-com">// Tokyo would be up at 1am. Try the afternoon:</span></span><span class="res"></span></li>
+    <li><span class="src"><span class="t-num">4pm</span> PST <span class="t-kw">in</span> Tokyo</span><span class="res">8:00 AM JST (next day)</span></li>
+    <li><span class="src"><span class="t-num">4pm</span> PST <span class="t-kw">in</span> Bangalore</span><span class="res">4:30 AM IST (next day)</span></li>
+    <li><span class="src"><span class="t-num">4pm</span> PST <span class="t-kw">in</span> London</span><span class="res">12:00 AM BST (next day)</span></li>
+  </ol>
+</figure>
+    <p>See more sheets like this on the <a href="/use-cases/">use cases</a> page.</p>
+
+    <h2 id="questions">Questions</h2>
+    <h3>Does it handle daylight saving time?</h3>
+    <p>Yes. Abbreviations like PST and EST are read as their region (Pacific, Eastern), and the conversion uses the rules in effect on the day you type, from the IANA time-zone database built into the app.</p>
+    <h3>Does it need the internet for time zones?</h3>
+    <p>No. Time zones are calculated entirely on your computer; only currency rates are ever fetched.</p>
+    <h3>Which time zone abbreviations does it know?</h3>
+    <p>The common ones for North America, Europe, India, East Asia and Australia, such as PST, EST, CST, MST, IST, GMT, BST, CET, EET, JST, KST, SGT, HKT, AEST and NZST, plus their daylight versions. Any city or IANA zone name works too.</p>
+    <h3>IST could mean India or Israel. Which one is it?</h3>
+    <p>India Standard Time. For Israel, write a city instead: <code>3pm PST in Jerusalem</code>.</p>
+    <h3>Can I convert a time on a specific date?</h3>
+    <p>Times are converted for today, which is what you need for scheduling this week. For date math, see <a href="/docs/#dates">Dates</a> in the docs.</p>
+  </article>
+
+  <section class="related" aria-labelledby="related">
+    <h2 id="related">Keep reading</h2>
+    <div class="guide-cards">
+      <a class="guide-card" href="/use-cases/"><b>Use cases</b><span>Seven real sheets: trips, invoices, budgets, recipes and more.</span></a>
+      <a class="guide-card" href="/guides/percentages/"><b>Percentages</b><span>15% off, + 8% tax, X is what % of Y, and every other phrasing.</span></a>
+      <a class="guide-card" href="/docs/"><b>Docs</b><span>Every rule, shortcut and setting on one page.</span></a>
+    </div>
+  </section>
+
+  <div class="cta">
+    <h2>Try it on your own <em class="serif">numbers</em>.</h2>
+    <p>Free for Linux, macOS and Windows. One command, and Omacus is a keystroke away.</p>
+    <div class="cmd"><span class="prompt">$</span><code>curl -fsSL omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
+    <div class="dl-row"><a class="btn" href="/#download"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>All downloads</a><a class="btn" href="/docs/"><svg aria-hidden="true"><use href="/img/sprite.svg#book"/></svg>Read the docs</a></div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="24" height="24">omacus</a>
+    <span>MIT licensed · made for Omarchy, at home everywhere</span>
+    <nav aria-label="Footer">
+      <a href="/docs/">Docs</a>
+      <a href="/guides/">Guides</a>
+      <a href="/use-cases/">Use cases</a>
+      <a href="https://github.com/avinashjoshi/omacus/releases">Releases</a>
+      <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">Report an issue</a>
+      <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="/js/site.js"></script>
+</body>
+</html>

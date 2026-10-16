@@ -93,7 +93,7 @@
   }
 
   // Docs: highlight the section in view.
-  const docsNav = $(".docs-nav");
+  const docsNav = $(".docs-nav") || $(".toc");
   if (docsNav) {
     const links = new Map($$("a[href^='#']", docsNav).map((a) => [a.getAttribute("href").slice(1), a]));
     const spy = new IntersectionObserver(

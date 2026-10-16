@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A calculator for Omarchy and Hyprland: keybind, floating window, themes · Omacus</title>
+  <meta name="description" content="Omacus is a notepad calculator made for Omarchy. One command installs it, offers a Hyprland keybind and floating window, and it follows your Omarchy theme live.">
+  <meta name="author" content="Avinash Joshi">
+  <link rel="canonical" href="https://omacus.com/guides/omarchy-calculator/">
+  <meta name="theme-color" content="#090909">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Omacus">
+  <meta property="og:url" content="https://omacus.com/guides/omarchy-calculator/">
+  <meta property="og:title" content="The calculator that fits Omarchy">
+  <meta property="og:description" content="Omacus is a notepad calculator made for Omarchy. One command installs it, offers a Hyprland keybind and floating window, and it follows your Omarchy theme live.">
+  <meta property="og:image" content="https://omacus.com/img/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="The calculator that fits Omarchy">
+  <meta name="twitter:description" content="Omacus is a notepad calculator made for Omarchy. One command installs it, offers a Hyprland keybind and floating window, and it follows your Omarchy theme live.">
+  <meta name="twitter:image" content="https://omacus.com/img/og.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/img/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/inter-tight-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/site.css">
+  <script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://omacus.com/guides/omarchy-calculator/#page",
+   "headline": "The calculator that fits Omarchy",
+   "description": "Omacus is a notepad calculator made for Omarchy. One command installs it, offers a Hyprland keybind and floating window, and it follows your Omarchy theme live.",
+   "url": "https://omacus.com/guides/omarchy-calculator/",
+   "inLanguage": "en",
+   "dateModified": "{{lastmod}}",
+   "author": {
+    "@type": "Person",
+    "@id": "https://omacus.com/#author",
+    "name": "Avinash Joshi",
+    "url": "https://github.com/avinashjoshi"
+   },
+   "publisher": {
+    "@type": "Person",
+    "@id": "https://omacus.com/#author",
+    "name": "Avinash Joshi",
+    "url": "https://github.com/avinashjoshi"
+   },
+   "about": {
+    "@type": "SoftwareApplication",
+    "@id": "https://omacus.com/#app",
+    "name": "Omacus"
+   },
+   "image": "https://omacus.com/img/og.png"
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Omacus",
+     "item": "https://omacus.com/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Guides",
+     "item": "https://omacus.com/guides/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 3,
+     "name": "The calculator that fits Omarchy",
+     "item": "https://omacus.com/guides/omarchy-calculator/"
+    }
+   ]
+  },
+  {
+   "@type": "FAQPage",
+   "@id": "https://omacus.com/guides/omarchy-calculator/#questions",
+   "mainEntity": [
+    {
+     "@type": "Question",
+     "name": "Is there a calculator app for Omarchy?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Omarchy ships with a basic calculator. Omacus is a notepad calculator made for Omarchy: it follows your theme, installs with a keybind and a floating window, and handles units, currencies and time zones in plain words."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Will the installer change my Hyprland config?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Only if you say yes. It backs up your files, never overrides an existing binding, and rolls back if Hyprland reports an error."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "How do I change the keybind later?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Edit the o.bind line in ~/.config/hypr/bindings.lua, or run the installer again and pick another key."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Does it work on Arch without Omarchy?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Yes. The same installer works on any Linux; outside Omarchy it skips the Hyprland questions and follows your system's light or dark mode."
+     }
+    }
+   ]
+  }
+ ]
+}
+  </script>
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="28" height="28">omacus</a>
+    <nav class="nav" aria-label="Main">
+      <a href="/#features">Features</a>
+      <a href="/use-cases/">Use cases</a>
+      <a href="/guides/" aria-current="page">Guides</a>
+      <a href="/docs/" class="keep">Docs</a>
+      <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+      <a class="btn primary" href="/#download"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap page has-toc">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="/">Omacus</a> <span>/</span> <a href="/guides/">Guides</a></nav>
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <a href="#install">Install</a>
+    <a href="#keybind">A keybind, checked against yours</a>
+    <a href="#window">A floating window</a>
+    <a href="#themes">Your theme, live</a>
+    <a href="#what">What you can type</a>
+    <a href="#cli">From the terminal, too</a>
+    <a href="#questions">Questions</a>
+  </nav>
+  <article class="prose page-body">
+    <span class="kicker">// guide</span>
+    <h1>The calculator that fits Omarchy</h1>
+    <p class="lead">Omacus was made for Omarchy first. One command installs it, offers a keybind and a floating-window rule for Hyprland, and it wears your Omarchy theme, switching the moment you do.</p>
+<p>Omacus is a free, open-source notepad calculator. You write math in plain words, one line at a time, and the answers line up beside them as you type: units, currencies, time zones and percentages included. It also runs on other Linux distributions, macOS and Windows.</p>
+
+    <h2 id="install">Install</h2>
+<pre>curl -fsSL omacus.com/install | bash</pre>
+    <p>This installs Omacus for your user (no root needed) into <code>~/.local/bin</code>, with a launcher entry so it shows up in Omarchy's app menu. On Omarchy, the installer then asks two questions.</p>
+
+    <h2 id="keybind">A keybind, checked against yours</h2>
+    <p>The installer offers to bind <kbd>Super Ctrl Alt =</kbd> to open Omacus. Before adding anything, it reads your current bindings with Omarchy's own keybinding list. If the key you pick is taken, it tells you what it's used for and asks again, so it never overrides an Omarchy shortcut. On keyboards with a Calculator key, it can use that too.</p>
+    <p>The keybind launches Omacus or focuses it if it's already open, and <kbd>Esc</kbd> closes it again. Your sheets are saved as you type, so closing loses nothing.</p>
+
+    <h2 id="window">A floating window</h2>
+    <p>Calculators shouldn't take over a tiling layout. The installer adds a Hyprland window rule so Omacus opens floating, centered, at a comfortable 980 × 600.</p>
+    <p>Both changes go into <code>~/.config/hypr/bindings.lua</code> and <code>~/.config/hypr/looknfeel.lua</code>. Your files are backed up first, nothing is added twice, and if Hyprland reports an error, the change is rolled back. To set it up by hand instead, add:</p>
+<pre>o.bind("SUPER + CTRL + ALT + EQUAL", "Omacus calculator", { launch = "omacus", focus = "^omacus$" })
+o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
+    <p>For unattended installs, pass the answer: <code>bash -s -- --hyprland</code>, <code>--key "SUPER ALT + N"</code> or <code>--no-hyprland</code>.</p>
+
+    <h2 id="themes">Your theme, live</h2>
+    <p>Omacus reads the active Omarchy theme's colors and watches for changes, so <code>omarchy theme set</code> restyles it instantly: Tokyo Night, Catppuccin, Gruvbox, Everforest, Nord, Rosé Pine, Matte Black or your own.</p>
+    <figure class="shot-figure">
+      <img src="/img/screens/tokyo-night.webp" width="1470" height="900" alt="Omacus in the Tokyo Night Omarchy theme, showing an invoice sheet" loading="lazy">
+    </figure>
+
+    <h2 id="what">What you can type</h2>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>3pm PST in IST</code></td><td class="ans">3:30 AM IST (next day)</td></tr>
+      <tr><td><code>$30 in EUR</code></td><td class="ans">26.75 EUR</td></tr>
+      <tr><td><code>15% off $1,299</code></td><td class="ans">$1,104.15</td></tr>
+      <tr><td><code>3.5 km in miles</code></td><td class="ans">2.17 miles</td></tr>
+      <tr><td><code>rate = $85/hour</code></td><td class="ans">$85 / hour</td></tr>
+      <tr><td><code>rate * 30 hours</code></td><td class="ans">$2,550</td></tr>
+    </tbody>
+  </table>
+    <p>Headers, comments, labels and notes sit right beside the math. Everything it understands is in the <a href="/docs/">docs</a>, and <kbd>F1</kbd> in the app opens a guide where every example is calculated live.</p>
+
+    <h2 id="cli">From the terminal, too</h2>
+    <p>The same engine answers in the terminal, which is handy for Waybar modules and scripts:</p>
+<pre>omacus '3pm PST in IST'
+omacus - &lt; ~/notes/budget.txt</pre>
+
+    <h2 id="questions">Questions</h2>
+    <h3>Is there a calculator app for Omarchy?</h3>
+    <p>Omarchy ships with a basic calculator. Omacus is a notepad calculator made for Omarchy: it follows your theme, installs with a keybind and a floating window, and handles units, currencies and time zones in plain words.</p>
+    <h3>Will the installer change my Hyprland config?</h3>
+    <p>Only if you say yes. It backs up your files, never overrides an existing binding, and rolls back if Hyprland reports an error.</p>
+    <h3>How do I change the keybind later?</h3>
+    <p>Edit the <code>o.bind</code> line in <code>~/.config/hypr/bindings.lua</code>, or run the installer again and pick another key.</p>
+    <h3>Does it work on Arch without Omarchy?</h3>
+    <p>Yes. The same installer works on any Linux; outside Omarchy it skips the Hyprland questions and follows your system's light or dark mode.</p>
+  </article>
+
+  <section class="related" aria-labelledby="related">
+    <h2 id="related">Keep reading</h2>
+    <div class="guide-cards">
+      <a class="guide-card" href="/guides/time-zones/"><b>Time zones</b><span>3pm PST in IST, with daylight saving and next-day answers handled.</span></a>
+      <a class="guide-card" href="/use-cases/"><b>Use cases</b><span>Seven real sheets: trips, invoices, budgets, recipes and more.</span></a>
+      <a class="guide-card" href="/docs/"><b>Docs</b><span>Every rule, shortcut and setting on one page.</span></a>
+    </div>
+  </section>
+
+  <div class="cta">
+    <h2>Try it on your own <em class="serif">numbers</em>.</h2>
+    <p>Free for Linux, macOS and Windows. One command, and Omacus is a keystroke away.</p>
+    <div class="cmd"><span class="prompt">$</span><code>curl -fsSL omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
+    <div class="dl-row"><a class="btn" href="/#download"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>All downloads</a><a class="btn" href="/docs/"><svg aria-hidden="true"><use href="/img/sprite.svg#book"/></svg>Read the docs</a></div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="24" height="24">omacus</a>
+    <span>MIT licensed · made for Omarchy, at home everywhere</span>
+    <nav aria-label="Footer">
+      <a href="/docs/">Docs</a>
+      <a href="/guides/">Guides</a>
+      <a href="/use-cases/">Use cases</a>
+      <a href="https://github.com/avinashjoshi/omacus/releases">Releases</a>
+      <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">Report an issue</a>
+      <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="/js/site.js"></script>
+</body>
+</html>

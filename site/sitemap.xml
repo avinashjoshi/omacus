@@ -12,4 +12,32 @@
     <loc>https://omacus.com/docs/</loc>
     <lastmod>{{lastmod}}</lastmod>
   </url>
+  <url>
+    <loc>https://omacus.com/guides/currency/</loc>
+    <lastmod>{{lastmod}}</lastmod>
+  </url>
+  <url>
+    <loc>https://omacus.com/guides/</loc>
+    <lastmod>{{lastmod}}</lastmod>
+  </url>
+  <url>
+    <loc>https://omacus.com/guides/omarchy-calculator/</loc>
+    <lastmod>{{lastmod}}</lastmod>
+  </url>
+  <url>
+    <loc>https://omacus.com/guides/percentages/</loc>
+    <lastmod>{{lastmod}}</lastmod>
+  </url>
+  <url>
+    <loc>https://omacus.com/guides/time-zones/</loc>
+    <lastmod>{{lastmod}}</lastmod>
+  </url>
+  <url>
+    <loc>https://omacus.com/guides/unit-conversion/</loc>
+    <lastmod>{{lastmod}}</lastmod>
+  </url>
+  <url>
+    <loc>https://omacus.com/use-cases/</loc>
+    <lastmod>{{lastmod}}</lastmod>
+  </url>
 </urlset>

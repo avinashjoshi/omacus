@@ -1,0 +1,9 @@
+# New laptop
+price = $1,299
+deal = 15% off price
+with_tax = deal + 8.875%
+monthly = with_tax / 12
+
+// same model, from the UK store
+uk = £1,049 in USD
+uk - with_tax

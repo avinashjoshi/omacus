@@ -77,6 +77,8 @@ Functions include `sqrt`, `abs`, `round`, `floor`, `ceil`, `sin`, `cos`, `tan`, 
 | `$120 as % of $480` | 25% |
 | `5% of what is 6` | 120 |
 
+More examples in the guide: [Percentages, the way you'd say them](https://omacus.com/guides/percentages/).
+
 ## Units
 
 Hundreds of units for length, area, volume, mass, time, speed, temperature, data, energy and more. Convert with `in`, `to` or `as`; mixing compatible units just works.
@@ -91,6 +93,8 @@ Hundreds of units for length, area, volume, mass, time, speed, temperature, data
 | `10 GB / 4` | 2.5 GB |
 | `1 acre in m^2` | 4,046.86 m^2 |
 
+More examples in the guide: [Convert units by just writing them](https://omacus.com/guides/unit-conversion/).
+
 ## Currencies
 
 160+ currencies by code (`USD`, `EUR`, `INR`…) or symbol (`$` `€` `£` `¥` `₹` `₩` `₽` `₺`). Rates are fetched from a free public source and cached, so currency math keeps working offline; they refresh every 12 hours while there's a connection.
@@ -104,6 +108,8 @@ Hundreds of units for length, area, volume, mass, time, speed, temperature, data
 | `$100 in INR` | 9,510.01 INR |
 
 Rates above are from when this page was built.
+
+More examples in the guide: [Convert currencies as you type](https://omacus.com/guides/currency/).
 
 ## Variables
 
@@ -151,6 +157,8 @@ Convert a time between zones by abbreviation (`PST`, `EST`, `IST`, `CET`, `JST`�
 | `Standup 9:30am PST in Berlin` | 6:30 PM CEST |
 
 For the current time somewhere, write `time in Tokyo` or `now in London`. A time without a zone means your local time: `3pm in IST`.
+
+More examples in the guide: [Convert time zones in plain English](https://omacus.com/guides/time-zones/).
 
 ## Dates
 
@@ -284,6 +292,8 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })
 ```
 
 The keybind launches Omacus, or focuses it if it's already open. `Esc` closes it again.
+
+More examples in the guide: [The calculator that fits Omarchy](https://omacus.com/guides/omarchy-calculator/).
 
 ## Where files live
 
