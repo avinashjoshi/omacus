@@ -101,7 +101,12 @@
         for (const e of entries) {
           if (!e.isIntersecting) continue;
           for (const a of links.values()) a.classList.remove("on");
-          links.get(e.target.id)?.classList.add("on");
+          const on = links.get(e.target.id);
+          on?.classList.add("on");
+          // On phones the nav is one swipeable row; keep the current section's chip in view.
+          if (on && docsNav.scrollWidth > docsNav.clientWidth) {
+            docsNav.scrollTo({ left: on.offsetLeft - 16, behavior: reduceMotion ? "auto" : "smooth" });
+          }
         }
       },
       { rootMargin: "-20% 0px -70% 0px" },

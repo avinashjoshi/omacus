@@ -691,7 +691,7 @@ section {
 
 .features {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px;
   background: var(--line);
   border: 1px solid var(--line);
@@ -757,13 +757,13 @@ section {
 
 @media (max-width: 960px) {
   .features {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 620px) {
   .features {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -834,7 +834,7 @@ section {
 @media (max-width: 900px) {
   .split,
   .split.flip {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 36px;
   }
 
@@ -1007,7 +1007,7 @@ kbd {
 
 .downloads {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
 }
 
@@ -1081,7 +1081,7 @@ kbd {
 
 @media (max-width: 860px) {
   .downloads {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -1402,7 +1402,7 @@ kbd {
 
 @media (max-width: 900px) {
   .docs {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 0;
   }
 
@@ -1464,8 +1464,11 @@ kbd {
     display: none;
   }
 
-  .cmd code {
+  .cmd code,
+  .dl .cmd code {
     font-size: 12.5px;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .copy {
@@ -1477,5 +1480,236 @@ kbd {
   .copy svg {
     width: 15px;
     height: 15px;
+  }
+}
+
+/* ---------- Phones ---------- */
+
+@media (max-width: 620px) {
+  section {
+    padding-top: 88px;
+  }
+
+  .hero h1 {
+    letter-spacing: -0.035em;
+  }
+
+  .window {
+    height: 400px;
+    --fs: 12px;
+  }
+
+  .win-lines li {
+    gap: 14px;
+  }
+
+  /* Examples wrap their answer onto its own line instead of running off the card. */
+  .feature {
+    padding: 24px 20px 22px;
+  }
+
+  .feature .eg {
+    font-size: 13px;
+  }
+
+  .feature .eg div {
+    flex-wrap: wrap;
+    gap: 2px 12px;
+  }
+
+  .feature .eg b {
+    margin-left: auto;
+  }
+
+  /* Screenshots: crop to the part worth reading (sheet without the sidebar, or the
+     help window) so the text is about 30% larger. Offsets are in source pixels. */
+  .shot {
+    aspect-ratio: 1155 / 540;
+  }
+
+  .shot img {
+    width: calc(100% * 1470 / 1155);
+    max-width: none;
+    margin-left: calc(-100% * 315 / 1155);
+  }
+
+  .shot.help {
+    aspect-ratio: 1140 / 810;
+  }
+
+  .shot.help img {
+    width: calc(100% * 1470 / 1140);
+    margin: calc(-100% * 45 / 1140) 0 0 calc(-100% * 165 / 1140);
+  }
+
+  .theme-stage {
+    aspect-ratio: 1155 / 540;
+  }
+
+  .theme-stage img {
+    inset: 0 auto auto calc(-100% * 315 / 1155);
+    width: calc(100% * 1470 / 1155);
+    max-width: none;
+    height: auto;
+  }
+
+  .theme-picker {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-inline: calc(-1 * var(--gutter));
+    padding: 2px var(--gutter);
+    scroll-padding-inline: var(--gutter);
+  }
+
+  .theme-picker::-webkit-scrollbar {
+    display: none;
+  }
+
+  .theme-picker button {
+    flex: none;
+  }
+
+  .terminal pre {
+    padding: 16px;
+    font-size: 12.5px;
+  }
+
+  .dl {
+    padding: 22px 18px;
+  }
+
+  .dl h3 small {
+    display: block;
+    margin: 4px 0 0;
+  }
+
+  .cta {
+    margin-top: 100px;
+    padding: 56px 18px;
+  }
+
+  .site-footer .wrap {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .site-footer nav {
+    margin-left: 0;
+    gap: 14px 20px;
+  }
+
+  /* Docs: a sticky row of section chips you swipe through. */
+  .docs {
+    padding-top: 0;
+  }
+
+  .docs-nav {
+    position: sticky;
+    top: 64px;
+    z-index: 40;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin: 0 calc(-1 * var(--gutter)) 24px;
+    padding: 10px var(--gutter);
+    background: rgba(9, 9, 9, 0.88);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    font-size: 14px;
+  }
+
+  .docs-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .docs-nav p {
+    display: none;
+  }
+
+  .docs-nav a {
+    flex: none;
+    white-space: nowrap;
+    padding: 6px 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+  }
+
+  .docs-nav a.on {
+    border-color: rgba(240, 161, 42, 0.35);
+  }
+
+  .prose {
+    font-size: 16px;
+  }
+
+  .prose h1 {
+    margin-top: 12px;
+  }
+
+  .prose h2 {
+    margin-top: 56px;
+    font-size: 27px;
+    scroll-margin-top: 130px;
+  }
+
+  .prose h3 {
+    scroll-margin-top: 130px;
+  }
+
+  .prose :not(pre) > code {
+    overflow-wrap: anywhere;
+  }
+
+  .prose pre {
+    font-size: 13px;
+    padding: 14px;
+  }
+
+  /* Example tables become stacked rows: what you type, then the answer under it. */
+  .prose table.ex thead {
+    display: none;
+  }
+
+  .prose table.ex,
+  .prose table.ex tbody,
+  .prose table.ex tr,
+  .prose table.ex td {
+    display: block;
+  }
+
+  .prose table.ex tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 16px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .prose table.ex td {
+    padding: 0;
+    border: 0;
+  }
+
+  .prose table.ex td code {
+    font-size: 13.5px;
+  }
+
+  .prose table.ex td.ans {
+    margin-left: auto;
+    font-size: 13.5px;
+    white-space: normal;
+  }
+
+  .prose table:not(.ex) {
+    display: block;
+    overflow-x: auto;
+  }
+
+  .flow {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
