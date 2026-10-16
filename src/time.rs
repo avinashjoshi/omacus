@@ -139,7 +139,7 @@ impl Zone {
                 let t = utc.with_timezone(&tz);
                 (
                     t.date_naive(),
-                    format!("{} {}", clock(t.time()), t.format("%Z")),
+                    format!("{} {}", clock(t.time()), label(tz, &t.format("%Z").to_string())),
                 )
             }
         }
@@ -175,6 +175,18 @@ fn zone(name: &str) -> Option<Zone> {
         Some(z) => z.parse().ok().map(Zone::Tz),
         None => ZONES.get(&lower).copied().map(Zone::Tz),
     }
+}
+
+/// The zone's abbreviation. Some zones only have a numeric one ("+04" for Dubai);
+/// use the common name from ABBREVIATIONS for those when there is one.
+fn label(tz: Tz, abbr: &str) -> String {
+    if !abbr.starts_with(['+', '-']) {
+        return abbr.to_string();
+    }
+    ABBREVIATIONS
+        .iter()
+        .find(|(_, z)| *z == tz.name())
+        .map_or_else(|| format!("UTC{abbr}"), |(a, _)| (*a).to_string())
 }
 
 pub fn eval(line: &str) -> Option<String> {
@@ -313,6 +325,8 @@ mod tests {
         assert_eq!(conv("Standup 9:30am PST in IST").unwrap(), "10:00 PM IST");
         assert_eq!(conv("noon UTC in tokyo").unwrap(), "9:00 PM JST");
         assert_eq!(conv("9am IST in EST").unwrap(), "11:30 PM EDT (prev day)");
+        assert_eq!(conv("7am Singapore in Dubai").unwrap(), "3:00 AM GST");
+        assert_eq!(conv("noon UTC in Asia/Kabul").unwrap(), "4:30 PM UTC+0430");
     }
 
     #[test]

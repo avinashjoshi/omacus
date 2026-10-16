@@ -53,6 +53,15 @@ re!(PCT_ON, r"(?i)^(.+?)\s*%\s+on\s+(.+)$");
 re!(PCT_OFF, r"(?i)^(.+?)\s*%\s+off\s+(.+)$");
 re!(PCT_OF_WHAT, r"(?i)^(.+?)\s*%\s+of\s+what\s+is\s+(.+)$");
 re!(AS_PCT, r"(?i)^(.+?)\s+as\s+(?:a\s+)?%\s+(?:of\s+)?(.+)$");
+re!(IS_WHAT_PCT, r"(?i)^(.+?)\s+is\s+what\s+%\s+of\s+(.+)$");
+re!(IS_PCT_OF_WHAT, r"(?i)^(.+?)\s+is\s+(.+?)\s*%\s+of\s+what$");
+// "$100 - 20%", "$50 + 8% tax": a percentage of the amount, not of 1.
+re!(PLUS_MINUS_PCT, r"(?i)^([^%]+?)\s*([+-])\s*(\d[\d,]*(?:\.\d+)?)\s*%(?:\s+[a-z][a-z ]*)?$");
+// fend reads `60 km / 2 hours` as `(60 km / 2) hours`; keep the divisor together.
+re!(
+    DIVISOR,
+    r"/\s*(\(?\d[\d,]*(?:\.\d+)?\)?\s*[A-Za-z][A-Za-z_]*(?:\^\d+)?(?:/[A-Za-z][A-Za-z_]*(?:\^\d+)?)*)"
+);
 re!(TIMES_X, r"(\d)\s*[x×]\s*(\d)");
 re!(SYMBOL_NUM, r"([€¥₹₩₽₺])\s*(\d[\d,]*(?:\.\d+)?)");
 re!(MONEY_PREFIX, r"[$£]\s*\d[\d,]*(?:\.\d+)?");
@@ -72,6 +81,24 @@ const WORD_OPS: &[(&str, &str)] = &[
     (r"(?i)\bplus\b", "+"),
     (r"(?i)\bminus\b", "-"),
 ];
+
+/// Units written as two words, mapped to the names fend knows.
+const UNIT_ALIASES: &[(&str, &str)] = &[
+    (r"(?i)\bnautical\s+miles?\b", "nautical_mile"),
+    (r"(?i)\b(?:fluid\s+ounces?|fl\.?\s*oz)\b", "floz"),
+    (r"(?i)\bshort\s+tons?\b", "short_ton"),
+    (r"(?i)\bmetric\s+(?:tons?|tonnes?)\b", "tonne"),
+    (r"(?i)\bsq\.?\s*(?:ft|feet|foot)\b", "ft^2"),
+    (r"(?i)\bsq\.?\s*(?:m|meters?|metres?)\b", "m^2"),
+    (r"(?i)\bus\s+gallons?\b", "gallon"),
+];
+
+static UNIT_ALIAS_RES: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
+    UNIT_ALIASES
+        .iter()
+        .map(|(p, r)| (Regex::new(p).unwrap(), *r))
+        .collect()
+});
 
 static WORD_OP_RES: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
     WORD_OPS
@@ -262,6 +289,10 @@ pub fn rewrite(line: &str, prev: Option<&str>) -> String {
     }
 
     s = TIMES_X.replace_all(&s, "$1 * $2").into_owned();
+    for (re, unit) in UNIT_ALIAS_RES.iter() {
+        s = re.replace_all(&s, *unit).into_owned();
+    }
+    s = DIVISOR.replace_all(&s, "/ ($1)").into_owned();
 
     // Keep the variable name out of the percentage rewrites.
     let (lhs, mut rhs) = match ASSIGN.captures(&s) {
@@ -273,7 +304,11 @@ pub fn rewrite(line: &str, prev: Option<&str>) -> String {
         rhs = re.replace_all(&rhs, *op).into_owned();
     }
 
-    rhs = if let Some(c) = PCT_OF_WHAT.captures(&rhs) {
+    rhs = if let Some(c) = IS_WHAT_PCT.captures(&rhs) {
+        format!("(({}) / ({})) to %", &c[1], &c[2])
+    } else if let Some(c) = IS_PCT_OF_WHAT.captures(&rhs) {
+        format!("({}) / (({}) / 100)", &c[1], &c[2])
+    } else if let Some(c) = PCT_OF_WHAT.captures(&rhs) {
         format!("({}) / (({}) / 100)", &c[2], &c[1])
     } else if let Some(c) = PCT_ON.captures(&rhs) {
         format!("({}) * (1 + ({}) / 100)", &c[2], &c[1])
@@ -281,6 +316,8 @@ pub fn rewrite(line: &str, prev: Option<&str>) -> String {
         format!("({}) * (1 - ({}) / 100)", &c[2], &c[1])
     } else if let Some(c) = AS_PCT.captures(&rhs) {
         format!("(({}) / ({})) to %", &c[1], &c[2])
+    } else if let Some(c) = PLUS_MINUS_PCT.captures(&rhs) {
+        format!("({}) * (1 {} ({}) / 100)", &c[1], &c[2], c[3].replace(',', ""))
     } else {
         rhs
     };
@@ -348,6 +385,9 @@ fn drop_unknown_words(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Op
                 }
                 let word = UNKNOWN_IDENT.captures(&e)?.get(1)?.as_str().to_string();
                 let re = Regex::new(&format!(r"\b{}\b", regex::escape(&word))).ok()?;
+                if qualifies_unit(&expr, &re) {
+                    return None;
+                }
                 let next = re.replace(&expr, " ").into_owned();
                 if next == expr || !next.chars().any(|c| c.is_ascii_alphanumeric()) {
                     return None;
@@ -359,6 +399,28 @@ fn drop_unknown_words(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Op
     None
 }
 
+/// Whether the unknown word is directly followed by a unit, like "imperial" in
+/// "imperial gallon". Dropping it would quietly change the answer, so the line
+/// gets no result instead.
+fn qualifies_unit(expr: &str, word: &Regex) -> bool {
+    let Some(m) = word.find(expr) else {
+        return false;
+    };
+    let Some(next) = expr[m.end()..]
+        .split_whitespace()
+        .next()
+        .filter(|w| w.chars().all(|c| c.is_ascii_alphabetic()))
+    else {
+        return false;
+    };
+    if matches!(next.to_ascii_lowercase().as_str(), "in" | "to" | "as" | "of" | "on" | "per" | "and" | "with" | "for" | "at") {
+        return false;
+    }
+    let mut ctx = fend_core::Context::new();
+    fend_core::evaluate(&format!("1 {next}"), &mut ctx)
+        .is_ok_and(|r| !r.get_main_result().trim().is_empty())
+}
+
 /// Round long decimals and add thousands separators for display.
 pub fn pretty(raw: &str) -> String {
     let s = raw.trim_start_matches("approx. ");
@@ -366,8 +428,9 @@ pub fn pretty(raw: &str) -> String {
         return s.to_string();
     }
     let is_money = s.starts_with(['$', '£', '€', '¥', '₹'])
-        || s.split_whitespace()
-            .any(|t| t.len() == 3 && t.chars().all(|c| c.is_ascii_uppercase()));
+        || s.split_whitespace().any(|t| {
+            t.ends_with('$') || (t.len() == 3 && t.chars().all(|c| c.is_ascii_uppercase()))
+        });
 
     // "44.86 USD" reads better as "$44.86".
     let dollars;
@@ -504,6 +567,11 @@ mod tests {
         assert_eq!(one("6% off 40"), "37.6");
         assert_eq!(one("50 as a % of 200"), "25%");
         assert_eq!(one("5% of what is 6"), "120");
+        assert_eq!(one("6 is what % of 120"), "5%");
+        assert_eq!(one("40 is 20% of what"), "200");
+        assert_eq!(one("100 - 20%"), "80");
+        assert_eq!(one("$50 + 8% tax"), "$54");
+        assert_eq!(one("$1,000 + 7.5%"), "$1,075");
     }
 
     #[test]
@@ -517,6 +585,20 @@ mod tests {
         assert_eq!(one("2 hours + 30 mins in minutes"), "150 minutes");
         assert_eq!(one("$85/hour"), "$85 / hour");
         assert_eq!(one("72 fahrenheit in celsius"), "22.22 °C");
+        assert_eq!(one("60 km / 2 hours"), "30 km / hour");
+        assert_eq!(one("2 liters / 250 ml"), "8");
+        assert_eq!(one("1,200 km / 15 km/liter"), "80 liters");
+        assert_eq!(one("$1,450 / 4 weeks"), "$362.50 / week");
+        assert_eq!(one("1 nautical mile in km"), "1.85 km");
+        assert_eq!(one("8 fl oz in ml"), "236.59 ml");
+        assert_eq!(one("120 sq ft in m^2"), "11.15 m^2");
+    }
+
+    #[test]
+    fn qualified_units_are_not_guessed() {
+        // fend has no imperial gallon; answering with a US gallon would be wrong.
+        assert_eq!(one("1 imperial gallon in liters"), "");
+        assert_eq!(one("Movie tickets 2 * $14"), "$28");
     }
 
     #[test]
