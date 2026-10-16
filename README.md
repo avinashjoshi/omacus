@@ -34,7 +34,7 @@ adds the Numi conventions on top.
 
 ## Using it
 
-- `SUPER + ALT + =` opens Omacus (or focuses it), floating and centered.
+- On Omarchy, `SUPER + ALT + =` opens Omacus (or focuses it), floating and centered.
 - `Esc` or `Ctrl+Q` closes it. Nothing is ever lost: like Sublime Text, every sheet is saved as you
   type and reopens exactly where you left it, cursor included.
 - Click a result to copy it; `Ctrl+Shift+C` copies the last result.
@@ -70,24 +70,80 @@ printf 'a = 5\na * 3\n' | omacus -
 
 ## Install
 
-Omacus runs on Linux (Omarchy, Arch, Ubuntu, Fedora…), Windows and macOS.
+Omacus runs on **Omarchy**, any **Linux**, **macOS** and **Windows**. Every release on the
+[Releases page](https://github.com/avinashjoshi/omacus/releases/latest) has notes and downloads
+for each platform.
 
-**Downloads:** each tagged release on GitHub has
-`omacus-linux-x86_64.tar.gz`, `omacus-linux-x86_64.deb`, `omacus-windows-x86_64.zip` and
-`omacus-macos-universal.dmg` (Apple Silicon and Intel), built by `.github/workflows/release.yml`.
+### Omarchy
 
-- **Ubuntu / Debian:** `sudo apt install ./omacus-linux-x86_64.deb`
-- **Other Linux:** unpack the `.tar.gz` and run `./install.sh`, or build from source (below).
-- **Windows:** unzip and run `omacus.exe`. It also works as a CLI: `omacus.exe "$100 in INR"`.
-- **macOS:** open the `.dmg` and drag Omacus to Applications. The app isn't notarized yet, so the
-  first time, right-click it and choose **Open** (or run `xattr -dr com.apple.quarantine /Applications/Omacus.app`).
-
-**From source** (any platform, with [Rust](https://rustup.rs)):
+One line installs the app, its launcher entry and icon, and adds `SUPER + ALT + =` plus a
+floating-window rule to your Hyprland config (your files are backed up first, and nothing is
+added twice):
 
 ```sh
-cargo build --release          # binary in target/release/
-./install.sh                   # Linux: installs to ~/.local/bin with a launcher entry and icon
+curl -fsSL https://github.com/avinashjoshi/omacus/releases/latest/download/install.sh | bash -s -- --hyprland
 ```
+
+Leave off `-s -- --hyprland` to skip the Hyprland changes. Colors follow your Omarchy theme and
+switch with it.
+
+### macOS
+
+1. Download [`omacus-macos-universal.dmg`](https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-macos-universal.dmg)
+   (Apple Silicon and Intel).
+2. Open it and drag **Omacus** to **Applications**.
+3. The app isn't notarized yet, so the first time, right-click it and choose **Open**
+   (or run `xattr -dr com.apple.quarantine /Applications/Omacus.app`).
+
+For a global shortcut, add one in **System Settings → Keyboard → Keyboard Shortcuts**, or with
+Raycast or Alfred.
+
+### Windows
+
+1. Download [`omacus-windows-x86_64.zip`](https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64.zip)
+   and unzip it anywhere (for example `%LOCALAPPDATA%\Programs\Omacus`).
+2. Run `omacus.exe`. If SmartScreen warns about an unknown publisher, choose
+   **More info → Run anyway**.
+3. Optional: right-click `omacus.exe` → **Pin to Start**. A pinned shortcut's **Properties** let
+   you set a shortcut key.
+
+It works from a terminal too: `omacus.exe "$100 in INR"`.
+
+### Ubuntu / Debian
+
+```sh
+curl -fsSLO https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.deb
+sudo apt install ./omacus-linux-x86_64.deb
+```
+
+### Fedora / openSUSE
+
+```sh
+sudo dnf install https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.rpm
+```
+
+### Arch and any other Linux
+
+Install for your user, no root needed, into `~/.local/bin` with a launcher entry:
+
+```sh
+curl -fsSL https://github.com/avinashjoshi/omacus/releases/latest/download/install.sh | bash
+```
+
+Or download [`omacus-linux-x86_64.tar.gz`](https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.tar.gz),
+unpack it and run `./install.sh`. Prebuilt Linux binaries are x86_64; on ARM, build from source.
+
+### From source
+
+Any platform with [Rust](https://rustup.rs):
+
+```sh
+git clone https://github.com/avinashjoshi/omacus && cd omacus
+cargo build --release          # binary in target/release/
+./install.sh                   # Linux: builds and installs for your user
+```
+
+On other desktops, bind a global shortcut to `omacus` in your keyboard settings.
 
 ### Where things live
 
@@ -99,14 +155,11 @@ cargo build --release          # binary in target/release/
 Colors: your `theme.toml` if present (Omarchy `colors.toml` format), else the active Omarchy theme,
 else the system's light or dark mode. On macOS, shortcuts use ⌘ wherever this README says Ctrl.
 
-### Omarchy / Hyprland
+## Releasing
 
-`SUPER + ALT + =` is a keybind in `~/.config/hypr/bindings.lua`, and the float rule is in
-`~/.config/hypr/looknfeel.lua`:
-
-```lua
-o.bind("SUPER + ALT + EQUAL", "Omacus calculator", { launch = "omacus", focus = "^omacus$" })
-o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })
-```
-
-On other systems, bind a global shortcut to `omacus` in your desktop's keyboard settings.
+Bump `version` in `Cargo.toml` and push to `main`. The
+[Release workflow](.github/workflows/release.yml) notices the new version, runs the tests on
+Linux, Windows and macOS, builds every package, then tags `v<version>` and publishes a GitHub
+release with notes written from the commits since the last release
+([`release-notes.sh`](.github/scripts/release-notes.sh)). Commit body lines starting with `- `
+show up as sub-points in the notes.

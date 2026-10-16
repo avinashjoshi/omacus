@@ -1,20 +1,56 @@
 name: Release
 
-# Push a tag like v0.2.0 to build every platform and publish a GitHub release.
-# Run it by hand (Actions tab) to just build the artifacts.
+# Releasing = bumping `version` in Cargo.toml and pushing to main.
+#
+# On every push to main this checks whether that version already has a `v<version>` tag.
+# If not: run CI, build every platform, then tag and publish the GitHub release with
+# notes and assets. Everything lives in one workflow because a tag or release created by
+# GITHUB_TOKEN does not trigger other workflows.
+#
+# Run it by hand (Actions → Release → Run workflow) to build the artifacts without releasing.
+
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: version
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            echo "v$version is already released."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "v$version is new: releasing."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  ci:
+    needs: check
+    if: needs.check.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/ci.yml
+
   linux:
+    needs: ci
     runs-on: ubuntu-22.04 # older glibc, so the binary runs on more distros
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libwayland-dev libx11-dev
@@ -24,19 +60,23 @@ jobs:
           mkdir -p dist/omacus
           cp target/release/omacus assets/omacus.desktop assets/icon-256.png assets/icon.svg install.sh README.md dist/omacus/
           tar -C dist -czf omacus-linux-x86_64.tar.gz omacus
-      - name: Package .deb
+      - name: Package .deb and .rpm
         run: |
-          cargo install cargo-deb --locked
-          cargo deb --no-build --output omacus-linux-x86_64.deb
-      - uses: actions/upload-artifact@v4
+          cargo install cargo-deb cargo-generate-rpm --locked
+          cargo deb --no-build --no-strip --output omacus-linux-x86_64.deb
+          cargo generate-rpm --output omacus-linux-x86_64.rpm
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
-          path: omacus-linux-x86_64.*
+          path: |
+            omacus-linux-x86_64.*
+            install.sh
 
   windows:
+    needs: ci
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked
@@ -46,15 +86,16 @@ jobs:
           New-Item -ItemType Directory dist | Out-Null
           Copy-Item target/release/omacus.exe, README.md dist/
           Compress-Archive -Path dist/* -DestinationPath omacus-windows-x86_64.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: omacus-windows-x86_64.zip
 
   macos:
+    needs: ci
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
@@ -75,20 +116,32 @@ jobs:
           codesign --force --deep --sign - "$APP"   # ad-hoc; not notarized
           mkdir dmg && cp -R "$APP" dmg/ && ln -s /Applications dmg/Applications
           hdiutil create -volname Omacus -srcfolder dmg -ov -format UDZO omacus-macos-universal.dmg
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: omacus-macos-universal.dmg
 
-  release:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [linux, windows, macos]
+  publish:
+    needs: [check, linux, windows, macos]
+    if: needs.check.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
         with:
+          fetch-depth: 0 # tags and history for the release notes
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - name: Checksums and notes
+        run: |
+          (cd dist && sha256sum omacus-* install.sh > SHA256SUMS.txt)
+          .github/scripts/release-notes.sh "${{ needs.check.outputs.version }}" "${{ github.repository }}" > notes.md
+          cat notes.md
+      - uses: softprops/action-gh-release@v3
         with:
-          files: omacus-*
-          generate_release_notes: true
+          tag_name: v${{ needs.check.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Omacus v${{ needs.check.outputs.version }}
+          body_path: notes.md
+          files: dist/*

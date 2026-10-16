@@ -5,6 +5,8 @@ edition = "2024"
 description = "A notepad calculator: units, currencies, time zones and plain words"
 keywords = ["calculator", "numi", "notepad", "units", "currency"]
 categories = ["mathematics", "gui"]
+repository = "https://github.com/avinashjoshi/omacus"
+homepage = "https://github.com/avinashjoshi/omacus"
 
 [dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
@@ -29,6 +31,11 @@ codegen-units = 1
 # `cargo deb` -> .deb for Ubuntu/Debian
 [package.metadata.deb]
 section = "utils"
+maintainer = "Avinash Joshi <avinash@hey.com>"
+extended-description = """\
+Type on the left, results appear on the right. Understands units, currencies, \
+percentages, variables, totals, dates and time zones, with multiple sheets that \
+save as you type."""
 assets = [
     ["target/release/omacus", "usr/bin/", "755"],
     ["assets/omacus.desktop", "usr/share/applications/", "644"],
@@ -42,3 +49,13 @@ identifier = "dev.omacus.Omacus"
 icon = ["assets/icon-256.png", "assets/icon-512.png"]
 category = "public.app-category.productivity"
 short_description = "A notepad calculator"
+
+# `cargo generate-rpm` -> .rpm for Fedora/openSUSE
+[package.metadata.generate-rpm]
+# No license chosen yet (all rights reserved). Replace with `package.license` once picked.
+license = "Proprietary"
+assets = [
+    { source = "target/release/omacus", dest = "/usr/bin/omacus", mode = "755" },
+    { source = "assets/omacus.desktop", dest = "/usr/share/applications/omacus.desktop", mode = "644" },
+    { source = "assets/icon-256.png", dest = "/usr/share/icons/hicolor/256x256/apps/omacus.png", mode = "644" },
+]
