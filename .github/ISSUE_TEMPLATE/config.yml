@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://omacus.com/docs/
+    about: Syntax, shortcuts, themes and FAQ.

@@ -57,13 +57,13 @@ cat <<EOF
 **Omarchy** (installs the app, then offers a keybind, \`SUPER + CTRL + ALT + =\` by default, and a floating window rule):
 
 \`\`\`sh
-curl -fsSL $dl/install.sh | bash
+curl -fsSL https://omacus.com/install | bash
 \`\`\`
 
 **Any other Linux** (installs to \`~/.local/bin\` with a launcher entry):
 
 \`\`\`sh
-curl -fsSL $dl/install.sh | bash
+curl -fsSL https://omacus.com/install | bash
 \`\`\`
 
 **Ubuntu / Debian:** \`sudo apt install ./omacus-linux-x86_64.deb\`

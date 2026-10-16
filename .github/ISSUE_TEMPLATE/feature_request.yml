@@ -1,0 +1,19 @@
+name: Idea or feature request
+description: Something Omacus should understand or do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: example
+    attributes:
+      label: What would you like to type, and what should Omacus answer?
+      description: Concrete lines help most.
+      placeholder: |
+        BTC in INR       →  …
+        5ft 11in in cm   →  180.34 cm
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Anything else?
+      description: Why it matters to you, how other apps handle it, etc.

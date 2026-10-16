@@ -1,0 +1,10 @@
+# Invoice — October
+rate = $85/hour
+
+Design review 6 hours * rate
+Build 32 hours * rate
+Client calls 4.5 hours * rate
+subtotal = sum
+gst = 18% of subtotal
+subtotal + gst
+prev in INR

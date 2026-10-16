@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Docs — Omacus</title>
+  <meta name="description" content="How to install and use Omacus, the notepad calculator: syntax, sheets, shortcuts, themes, the command line, Omarchy setup and how it works.">
+  <link rel="canonical" href="https://omacus.com/docs/">
+  <meta name="theme-color" content="#090909">
+  <meta property="og:title" content="Omacus docs">
+  <meta property="og:description" content="Syntax, sheets, shortcuts, themes, CLI and how Omacus works.">
+  <meta property="og:image" content="https://omacus.com/img/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/img/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="/css/site.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="28" height="28">omacus</a>
+    <nav class="nav" aria-label="Main">
+      <a href="/#features">Features</a>
+      <a href="/#themes">Themes</a>
+      <a href="/docs/" class="keep" aria-current="page">Docs</a>
+      <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+      <a class="btn primary" href="/#download"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap docs">
+  <nav class="docs-nav" aria-label="Docs">
+    <p>Start</p>
+    <a href="#install">Install</a>
+    <a href="#first-sheet">Your first sheet</a>
+    <p>Writing</p>
+    <a href="#arithmetic">Arithmetic</a>
+    <a href="#percentages">Percentages</a>
+    <a href="#units">Units</a>
+    <a href="#currency">Currencies</a>
+    <a href="#variables">Variables</a>
+    <a href="#totals">Totals &amp; prev</a>
+    <a href="#timezones">Time zones</a>
+    <a href="#dates">Dates</a>
+    <a href="#bases">Number bases</a>
+    <a href="#notes">Notes &amp; prose</a>
+    <p>Using it</p>
+    <a href="#sheets">Sheets</a>
+    <a href="#shortcuts">Keyboard shortcuts</a>
+    <a href="#autocomplete">Autocomplete</a>
+    <a href="#themes">Themes</a>
+    <a href="#cli">Command line</a>
+    <a href="#omarchy">Omarchy &amp; Hyprland</a>
+    <a href="#files">Where files live</a>
+    <p>More</p>
+    <a href="#faq">FAQ</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#contributing">Contributing</a>
+  </nav>
+
+  <article class="prose">
+    <h1>Omacus docs</h1>
+    <p class="lead">Omacus is a notepad calculator. You type on the left, in words and numbers; the answer to each line appears on the right as you type. This page covers everything it understands and every way to use it.</p>
+
+    <!-- ===================================================== Install -->
+    <h2 id="install">Install</h2>
+    <p>Omacus runs on Omarchy and any Linux, macOS (Apple Silicon and Intel) and Windows. Every <a href="https://github.com/avinashjoshi/omacus/releases">release</a> has notes and downloads for each.</p>
+
+    <h3 id="linux">Omarchy, Arch and any Linux</h3>
+    <pre>curl -fsSL omacus.com/install | bash</pre>
+    <p>This installs Omacus for your user (no root) into <code>~/.local/bin</code>, with a launcher entry and icon. On Omarchy it then asks whether to add a keybind and a floating-window rule; see <a href="#omarchy">Omarchy &amp; Hyprland</a>.</p>
+    <p>Prefer a package? <a href="/deb">.deb</a> for Ubuntu and Debian (<code>sudo apt install ./omacus-linux-x86_64.deb</code>), <a href="/rpm">.rpm</a> for Fedora and openSUSE (<code>sudo dnf install ./omacus-linux-x86_64.rpm</code>), or the <a href="/linux">.tar.gz</a> with an <code>install.sh</code> inside. Prebuilt Linux binaries are x86_64; on ARM, <a href="#contributing">build from source</a>.</p>
+
+    <h3 id="mac">macOS</h3>
+    <pre>curl -fsSL omacus.com/install | bash</pre>
+    <p>Installs <code>Omacus.app</code> into <code>/Applications</code> (or <code>~/Applications</code>) and links the command-line tool at <code>~/.local/bin/omacus</code>. Apps installed this way open without a security prompt.</p>
+    <p>You can also <a href="/mac">download the .dmg</a> and drag Omacus to Applications. Omacus isn't notarized by Apple yet, so the first time macOS blocks it:</p>
+    <ol>
+      <li>Open Omacus once. macOS says it can't verify it; click <strong>Done</strong>.</li>
+      <li>Open <strong>System Settings → Privacy &amp; Security</strong>, scroll down, and click <strong>Open Anyway</strong> next to Omacus.</li>
+    </ol>
+    <p>Or in Terminal: <code>xattr -dr com.apple.quarantine /Applications/Omacus.app</code>. You only do this once.</p>
+
+    <h3 id="windows">Windows</h3>
+    <p><a href="/windows">Download the .zip</a>, unzip it anywhere (for example <code>%LOCALAPPDATA%\Programs\Omacus</code>) and run <code>omacus.exe</code>. It's a single portable file. If SmartScreen warns about an unknown publisher, choose <strong>More info → Run anyway</strong>. Right-click it to <strong>Pin to Start</strong>; a shortcut's Properties let you set a global shortcut key.</p>
+
+    <!-- ===================================================== First sheet -->
+    <h2 id="first-sheet">Your first sheet</h2>
+    <p>Open Omacus and start typing. Each line is calculated on its own, and the result appears at the right edge of that line. Lines that aren't math (headers, comments, prose) simply have no result.</p>
+<pre># Weekend
+Pizza $24 + $6 tip
+Movie tickets 2 * $14
+total</pre>
+    <p>Click any result to copy it. Everything is saved as you type, so just close the window when you're done; your sheet is there next time, with the cursor where you left it. Press <kbd>F1</kbd> any time for the built-in guide.</p>
+
+    <!-- ===================================================== Syntax -->
+    <h2 id="arithmetic">Arithmetic</h2>
+    <p>The usual operators, plus words for them. <code>x</code> between numbers multiplies, <code>k</code> and <code>M</code> are thousands and millions, <code>^</code> is a power.</p>
+  <!-- ex:arithmetic -->
+  <table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>2 + 2 * 3</code></td><td class="ans">8</td></tr>
+      <tr><td><code>(1 + 2) ^ 3</code></td><td class="ans">27</td></tr>
+      <tr><td><code>sqrt(144) + 10 mod 3</code></td><td class="ans">13</td></tr>
+      <tr><td><code>5 x 3</code></td><td class="ans">15</td></tr>
+      <tr><td><code>10 times 3 plus 2</code></td><td class="ans">32</td></tr>
+      <tr><td><code>1.5k * 4</code></td><td class="ans">6,000</td></tr>
+      <tr><td><code>1e6 / 3</code></td><td class="ans">333,333.33</td></tr>
+    </tbody>
+  </table>
+  <!-- /ex -->
+    <p>Functions include <code>sqrt</code>, <code>abs</code>, <code>round</code>, <code>floor</code>, <code>ceil</code>, <code>sin</code>, <code>cos</code>, <code>tan</code>, <code>log</code>, <code>ln</code> and <code>exp</code>; constants <code>pi</code> and <code>e</code>.</p>
+
+    <h2 id="percentages">Percentages</h2>
+  <!-- ex:percentages -->
+  <table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>20% of 340</code></td><td class="ans">68</td></tr>
+      <tr><td><code>5% on $200</code></td><td class="ans">$210</td></tr>
+      <tr><td><code>15% off $1,299</code></td><td class="ans">$1,104.15</td></tr>
+      <tr><td><code>$120 as % of $480</code></td><td class="ans">25%</td></tr>
+      <tr><td><code>5% of what is 6</code></td><td class="ans">120</td></tr>
+    </tbody>
+  </table>
+  <!-- /ex -->
+
+    <h2 id="units">Units</h2>
+    <p>Hundreds of units for length, area, volume, mass, time, speed, temperature, data, energy and more. Convert with <code>in</code>, <code>to</code> or <code>as</code>; mixing compatible units just works.</p>
+  <!-- ex:units -->
+  <table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>3.5 km in miles</code></td><td class="ans">2.17 miles</td></tr>
+      <tr><td><code>2 hours + 45 min in minutes</code></td><td class="ans">165 minutes</td></tr>
+      <tr><td><code>72 fahrenheit in celsius</code></td><td class="ans">22.22 °C</td></tr>
+      <tr><td><code>60 mph in km/h</code></td><td class="ans">96.56 km / h</td></tr>
+      <tr><td><code>2 cups in ml</code></td><td class="ans">473.18 ml</td></tr>
+      <tr><td><code>10 GB / 4</code></td><td class="ans">2.5 GB</td></tr>
+      <tr><td><code>1 acre in m^2</code></td><td class="ans">4,046.86 m^2</td></tr>
+    </tbody>
+  </table>
+  <!-- /ex -->
+
+    <h2 id="currency">Currencies</h2>
+    <p>160+ currencies by code (<code>USD</code>, <code>EUR</code>, <code>INR</code>…) or symbol (<code>$</code> <code>€</code> <code>£</code> <code>¥</code> <code>₹</code> <code>₩</code> <code>₽</code> <code>₺</code>). Rates are fetched from a free public source and cached, so currency math keeps working offline; they refresh every 12 hours while there's a connection.</p>
+  <!-- ex:currency -->
+  <table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>$30 in EUR</code></td><td class="ans">26.75 EUR</td></tr>
+      <tr><td><code>€50 + £20 in USD</code></td><td class="ans">$82.60</td></tr>
+      <tr><td><code>₹5,000 in USD</code></td><td class="ans">$52.58</td></tr>
+      <tr><td><code>¥10,000 in USD</code></td><td class="ans">$63.26</td></tr>
+      <tr><td><code>$100 in INR</code></td><td class="ans">9,510.01 INR</td></tr>
+    </tbody>
+  </table>
+  <!-- /ex -->
+    <p class="muted">Rates above are from when this page was built.</p>
+
+    <h2 id="variables">Variables</h2>
+    <p>Write <code>name = value</code> to remember something for the rest of the sheet. Variable names are letters, digits and underscores, and are highlighted once defined.</p>
+  <!-- ex:variables -->
+  <table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>rent = $1,450</code></td><td class="ans">$1,450</td></tr>
+      <tr><td><code>rent * 12</code></td><td class="ans">$17,400</td></tr>
+      <tr><td><code>rate = $85/hour</code></td><td class="ans">$85 / hour</td></tr>
+      <tr><td><code>rate * 30 hours</code></td><td class="ans">$2,550</td></tr>
+    </tbody>
+  </table>
+  <!-- /ex -->
+
+    <h2 id="totals">Totals &amp; prev</h2>
+    <p><code>total</code> (or <code>sum</code>) adds up the lines above it, back to the last blank line or header, so a blank line starts a new block. <code>average</code> (or <code>avg</code>, <code>mean</code>) works the same way. <code>prev</code> is the result of the line just above.</p>
+  <!-- ex:totals -->
+  <table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>Coffee $4.50</code></td><td class="ans">$4.50</td></tr>
+      <tr><td><code>Lunch with Sam $18</code></td><td class="ans">$18</td></tr>
+      <tr><td><code>Taxi $12</code></td><td class="ans">$12</td></tr>
+      <tr><td><code>total</code></td><td class="ans">$34.50</td></tr>
+      <tr><td><code>average</code></td><td class="ans">$11.50</td></tr>
+      <tr><td><code>prev * 2</code></td><td class="ans">$23</td></tr>
+    </tbody>
+  </table>
+  <!-- /ex -->
+    <p>Keep a total in a variable to build on it:</p>
+  <!-- ex:named-totals -->
+  <table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>Food ₹2,000</code></td><td class="ans">2,000 INR</td></tr>
+      <tr><td><code>Taxi ₹800</code></td><td class="ans">800 INR</td></tr>
+      <tr><td><code>subtotal = sum</code></td><td class="ans">2,800 INR</td></tr>
+      <tr><td><code>gst = 18% of subtotal</code></td><td class="ans">504 INR</td></tr>
+      <tr><td><code>subtotal + gst</code></td><td class="ans">3,304 INR</td></tr>
+    </tbody>
+  </table>
+  <!-- /ex -->
+
+    <h2 id="timezones">Time zones</h2>
+    <p>Convert a time between zones by abbreviation (<code>PST</code>, <code>EST</code>, <code>IST</code>, <code>CET</code>, <code>JST</code>…), city (<code>London</code>, <code>Bangalore</code>, <code>San Francisco</code>) or country (<code>India</code>, <code>Japan</code>). Abbreviations follow daylight saving: <code>PST</code> in July means Pacific time, which is then PDT. When the answer falls on another day, it says so.</p>
+  <!-- ex:timezones -->
+  <table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>3pm PST in IST</code></td><td class="ans">3:30 AM IST (next day)</td></tr>
+      <tr><td><code>10:30 London to New York</code></td><td class="ans">5:30 AM EDT</td></tr>
+      <tr><td><code>noon UTC in Tokyo</code></td><td class="ans">9:00 PM JST</td></tr>
+      <tr><td><code>Standup 9:30am PST in Berlin</code></td><td class="ans">6:30 PM CEST</td></tr>
+    </tbody>
+  </table>
+  <!-- /ex -->
+    <p>For the current time somewhere, write <code>time in Tokyo</code> or <code>now in London</code>. A time without a zone means your local time: <code>3pm in IST</code>.</p>
+
+    <h2 id="dates">Dates</h2>
+    <p><code>today</code>, <code>now</code>, <code>tomorrow</code> and <code>yesterday</code>, plus or minus minutes, hours, days, weeks, months or years.</p>
+<pre>today                        <span class="c">Friday, 16 October 2026</span>
+tomorrow + 2 weeks           <span class="c">Saturday, 31 October 2026</span>
+now - 90 minutes             <span class="c">Fri, 16 Oct 2026, 7:09 AM</span></pre>
+
+    <h2 id="bases">Number bases</h2>
+  <!-- ex:bases -->
+  <table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>255 in hex</code></td><td class="ans">ff</td></tr>
+      <tr><td><code>0xff in decimal</code></td><td class="ans">255</td></tr>
+      <tr><td><code>10 in binary</code></td><td class="ans">1010</td></tr>
+    </tbody>
+  </table>
+  <!-- /ex -->
+
+    <h2 id="notes">Notes &amp; prose</h2>
+    <p>A sheet is a notebook first. Lines starting with <code>#</code> are headers, <code>//</code> starts a comment (on its own line or after the math), and <code>"quoted text"</code> is ignored. A label before a colon is left out of the math, and words Omacus doesn't know are skipped.</p>
+  <!-- ex:notes -->
+  <table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code># A header</code></td><td class="ans"><span class=muted>—</span></td></tr>
+      <tr><td><code>// a comment line</code></td><td class="ans"><span class=muted>—</span></td></tr>
+      <tr><td><code>Rent: $1,450</code></td><td class="ans">$1,450</td></tr>
+      <tr><td><code>Lunch with Sam $18</code></td><td class="ans">$18</td></tr>
+      <tr><td><code>&quot;quoted text&quot; 40 + 2</code></td><td class="ans">42</td></tr>
+    </tbody>
+  </table>
+  <!-- /ex -->
+    <div class="callout"><b>Tip:</b> if a word you meant as prose happens to be a unit (like <code>at</code> or <code>a</code>), put it in a label (<code>Hotel at the beach: $120</code>) or in quotes.</div>
+
+    <!-- ===================================================== Using it -->
+    <h2 id="sheets">Sheets</h2>
+    <p>The sidebar lists your sheets; a sheet's title is its first line. Create as many as you like, one per trip, budget, invoice or project.</p>
+    <ul>
+      <li><strong>Always saved.</strong> Every change is written within half a second, and again when you close. There is no save command and nothing to lose.</li>
+      <li><strong>Picks up where you left off.</strong> Order, the open sheet, each sheet's cursor and whether the sidebar is shown all come back next time.</li>
+      <li><strong>Deleting is safe.</strong> Deleted sheets move to a <code>trash</code> folder next to your sheets; copy one back to restore it.</li>
+      <li><strong>Plain text.</strong> Each sheet is a <code>.txt</code> file, so you can search, sync or back them up with anything.</li>
+    </ul>
+    <p>Right-click a sheet in the sidebar for <em>New sheet</em>, <em>Move up</em>, <em>Move down</em> and <em>Delete sheet</em>.</p>
+
+    <h2 id="shortcuts">Keyboard shortcuts</h2>
+    <p>On macOS, use <kbd>⌘</kbd> where this says <kbd>Ctrl</kbd>, and <kbd>⌥</kbd> for <kbd>Alt</kbd>.</p>
+    <table>
+      <thead><tr><th>Keys</th><th>Action</th></tr></thead>
+      <tbody>
+        <tr><td><kbd>Ctrl N</kbd></td><td>New sheet</td></tr>
+        <tr><td><kbd>Ctrl Tab</kbd> / <kbd>Ctrl Shift Tab</kbd></td><td>Next / previous sheet (also <kbd>Ctrl PgDn</kbd> / <kbd>Ctrl PgUp</kbd>)</td></tr>
+        <tr><td><kbd>Ctrl 1</kbd> … <kbd>Ctrl 9</kbd></td><td>Jump to a sheet</td></tr>
+        <tr><td><kbd>Alt ↑</kbd> / <kbd>Alt ↓</kbd></td><td>Move the sheet up / down</td></tr>
+        <tr><td><kbd>Ctrl Delete</kbd></td><td>Delete the sheet (kept in trash)</td></tr>
+        <tr><td><kbd>Ctrl B</kbd></td><td>Show / hide the sidebar</td></tr>
+        <tr><td>Click a result</td><td>Copy it</td></tr>
+        <tr><td><kbd>Ctrl Shift C</kbd></td><td>Copy the last result</td></tr>
+        <tr><td><kbd>Ctrl Z</kbd> / <kbd>Ctrl Shift Z</kbd></td><td>Undo / redo (each sheet has its own history)</td></tr>
+        <tr><td><kbd>Ctrl +</kbd> / <kbd>Ctrl −</kbd> / <kbd>Ctrl 0</kbd></td><td>Zoom in / out / reset</td></tr>
+        <tr><td><kbd>F1</kbd> or <kbd>Ctrl /</kbd></td><td>Help: shortcuts, live syntax examples, tips</td></tr>
+        <tr><td><kbd>Esc</kbd>, <kbd>Ctrl W</kbd> or <kbd>Ctrl Q</kbd></td><td>Close (everything is saved)</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="autocomplete">Autocomplete</h2>
+    <p>After two letters, Omacus suggests your sheet's variables, then keywords, time zones and units. <kbd>Tab</kbd> accepts, <kbd>↑</kbd> <kbd>↓</kbd> choose, <kbd>Esc</kbd> dismisses. <kbd>Enter</kbd> always starts a new line and never accepts a suggestion, so <code>3 km in</code> followed by Enter can't turn into <code>inch</code>. Short connecting words like <code>in</code>, <code>to</code> and <code>of</code> never trigger suggestions.</p>
+
+    <h2 id="themes">Themes</h2>
+    <p>Omacus picks its colors in this order:</p>
+    <ol>
+      <li>Your own <code>theme.toml</code>, if you've made one (see <a href="#files">where files live</a>).</li>
+      <li>On Omarchy, the active Omarchy theme. It switches live when you run <code>omarchy theme set</code>.</li>
+      <li>Otherwise a built-in light or dark theme that follows your system setting, also live.</li>
+    </ol>
+    <p>A <code>theme.toml</code> uses the same keys as an Omarchy theme's <code>colors.toml</code>. Every key is optional:</p>
+<pre>mode = "dark"                <span class="c"># or "light"</span>
+background = "#121212"       <span class="c"># sheet background</span>
+dark_background = "#0d0d0d"  <span class="c"># sidebar and popups</span>
+foreground = "#bebebe"       <span class="c"># text</span>
+bright_foreground = "#eaeaea"<span class="c"> # numbers</span>
+light_foreground = "#8a8a8d" <span class="c"># labels and operators</span>
+dark_foreground = "#555555"  <span class="c"># comments</span>
+accent = "#e68e0d"           <span class="c"># results, headers, cursor</span>
+cyan = "#bebebe"             <span class="c"># keywords like in, of, total</span>
+magenta = "#d35f5f"          <span class="c"># variables</span>
+selection = "#2a2a2a"        <span class="c"># selection and the active sheet</span>
+lighter_background = "#1e1e1e" <span class="c"># hover</span></pre>
+
+    <h2 id="cli">Command line</h2>
+    <p>The <code>omacus</code> command uses the same engine as the app.</p>
+<pre>omacus '$100 in INR'                   <span class="c"># one expression → prints the answer</span>
+omacus '3pm PST in IST'
+printf 'rent = $1450\nrent * 12\n' | omacus -   <span class="c"># a whole sheet from stdin, one result per line</span>
+omacus - &lt; ~/notes/budget.txt
+omacus                                 <span class="c"># no arguments: open the window</span></pre>
+    <p>A single expression exits with status 1 when there's no answer, which makes it easy to use in scripts. On Windows, <code>omacus.exe "..."</code> works the same from a terminal.</p>
+
+    <h2 id="omarchy">Omarchy &amp; Hyprland</h2>
+    <p>When the installer runs on Omarchy, it asks:</p>
+    <ol>
+      <li><strong>Add a Hyprland keybind and floating window for Omacus?</strong></li>
+      <li><strong>Which key?</strong> The default is <kbd>Super Ctrl Alt =</kbd>. Whatever you choose is checked against your current bindings first. If it's taken, the installer tells you what it does and asks again, so it never overrides one of Omarchy's shortcuts.</li>
+      <li><strong>Also use the Calculator key?</strong> For keyboards that have one; it replaces Omarchy's default calculator on that key.</li>
+    </ol>
+    <p>Your config files are backed up first (<code>*.bak.&lt;timestamp&gt;</code>), nothing is added twice, and the change is rolled back if Hyprland reports an error. For unattended installs, pass the answer:</p>
+<pre>curl -fsSL omacus.com/install | bash -s -- --hyprland              <span class="c"># default key</span>
+curl -fsSL omacus.com/install | bash -s -- --key "SUPER ALT + N"   <span class="c"># your key</span>
+curl -fsSL omacus.com/install | bash -s -- --no-hyprland           <span class="c"># leave Hyprland alone</span></pre>
+    <p>To set it up by hand, add to <code>~/.config/hypr/bindings.lua</code> and <code>~/.config/hypr/looknfeel.lua</code>:</p>
+<pre>o.bind("SUPER + CTRL + ALT + EQUAL", "Omacus calculator", { launch = "omacus", focus = "^omacus$" })
+o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
+    <p>The keybind launches Omacus, or focuses it if it's already open. <kbd>Esc</kbd> closes it again.</p>
+
+    <h2 id="files">Where files live</h2>
+    <table>
+      <thead><tr><th></th><th>Linux</th><th>macOS</th><th>Windows</th></tr></thead>
+      <tbody>
+        <tr><td>Sheets</td><td><code>~/.local/share/omacus/sheets</code></td><td><code>~/Library/Application Support/omacus/sheets</code></td><td><code>%APPDATA%\omacus\sheets</code></td></tr>
+        <tr><td>Deleted sheets</td><td><code>…/omacus/trash</code></td><td><code>…/omacus/trash</code></td><td><code>…\omacus\trash</code></td></tr>
+        <tr><td>Order, cursors, sidebar</td><td colspan="3"><code>state.json</code> next to the <code>sheets</code> folder</td></tr>
+        <tr><td>Custom theme</td><td><code>~/.config/omacus/theme.toml</code></td><td><code>~/Library/Application Support/omacus/theme.toml</code></td><td><code>%APPDATA%\omacus\theme.toml</code></td></tr>
+        <tr><td>Exchange-rate cache</td><td><code>~/.cache/omacus</code></td><td><code>~/Library/Caches/omacus</code></td><td><code>%LOCALAPPDATA%\omacus</code></td></tr>
+      </tbody>
+    </table>
+
+    <!-- ===================================================== More -->
+    <h2 id="faq">FAQ</h2>
+    <h3>A line shows no result. Why?</h3>
+    <p>Omacus only shows answers it's sure about. Usually the line mixes things that can't be combined (dollars plus kilometres) or uses a word as a unit by accident. Try the expression on its own, and if you think it should work, <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">open an issue</a> with the exact line.</p>
+    <h3>Does it need the internet?</h3>
+    <p>Only to refresh exchange rates. Everything else is local, and cached rates keep currency math working offline.</p>
+    <h3>macOS says it can't verify the app.</h3>
+    <p>That's because Omacus isn't notarized by Apple yet. Install with the <a href="#mac">one-line installer</a> to avoid the prompt, or allow it once under <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>.</p>
+    <h3>Windows SmartScreen warns about an unknown publisher.</h3>
+    <p>Choose <strong>More info → Run anyway</strong>. The warning appears because the executable isn't code-signed yet.</p>
+    <h3>Is my data sent anywhere?</h3>
+    <p>No. Sheets stay on your disk. The only network request is for exchange rates, which sends nothing about you or your sheets.</p>
+
+    <h2 id="how-it-works">How it works</h2>
+    <p>Omacus is a single Rust program: one native window and one engine, shared by the app and the command line. Every keystroke re-evaluates the sheet from top to bottom. For each line:</p>
+    <div class="flow">
+      <div><b>Classify</b>Blank lines and headers start a new block; comments are skipped; <code>total</code>, <code>average</code> and dates are handled directly.</div>
+      <div><b>Rewrite</b>The notepad layer strips labels and quotes, turns <code>€20</code> into <code>20 EUR</code>, and rewrites <code>% on</code>, <code>% off</code> and <code>as % of</code> into plain arithmetic.</div>
+      <div><b>Evaluate</b><a href="https://github.com/printfn/fend">fend</a> does the math, with units and currencies, in a context shared by the whole sheet, so variables carry down. Unknown words are dropped and the line is retried.</div>
+      <div><b>Format</b>Results are rounded for reading, given thousands separators, and painted on the first row of their line.</div>
+    </div>
+    <p>Each result also lands in a hidden variable, which is how <code>prev</code>, <code>total</code> and named totals see the lines above them. Time zones use the IANA time-zone database, so daylight saving is always right.</p>
+    <p>The window is drawn with <a href="https://github.com/emilk/egui">egui</a>. The editor lays the text out first, and Omacus reads back where each line landed so results stay aligned even when long lines wrap.</p>
+    <table>
+      <thead><tr><th>Part</th><th>Where</th></tr></thead>
+      <tbody>
+        <tr><td>The notepad layer: labels, percentages, totals, prose</td><td><code>src/engine.rs</code></td></tr>
+        <tr><td>Dates and time zones</td><td><code>src/time.rs</code></td></tr>
+        <tr><td>Exchange rates and their cache</td><td><code>src/rates.rs</code></td></tr>
+        <tr><td>Sheets, saving and restoring</td><td><code>src/sheets.rs</code></td></tr>
+        <tr><td>The window, sidebar and results column</td><td><code>src/app.rs</code></td></tr>
+        <tr><td>Syntax colors and autocomplete</td><td><code>src/highlight.rs</code>, <code>src/complete.rs</code></td></tr>
+        <tr><td>Themes, live reloading</td><td><code>src/theme.rs</code></td></tr>
+        <tr><td>The built-in help</td><td><code>src/help.rs</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="contributing">Contributing</h2>
+    <p>Bug reports and ideas are very welcome: <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">open an issue</a>, and for a wrong answer, paste the exact line you typed and what you expected. Pull requests too.</p>
+    <p>To build from source you need <a href="https://rustup.rs">Rust</a>:</p>
+<pre>git clone https://github.com/avinashjoshi/omacus && cd omacus
+cargo run --release           <span class="c"># open the window</span>
+cargo test                    <span class="c"># the engine, sheets, time zones, help examples</span>
+./install.sh                  <span class="c"># Linux: build and install for your user</span></pre>
+    <p>Releases are automatic: bumping <code>version</code> in <code>Cargo.toml</code> on <code>main</code> runs the tests on Linux, macOS and Windows, builds every package, and publishes a GitHub release with notes. Omacus is <a href="https://github.com/avinashjoshi/omacus/blob/main/LICENSE">MIT licensed</a>.</p>
+  </article>
+</div>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="24" height="24">omacus</a>
+    <span>MIT licensed · made for Omarchy, at home everywhere</span>
+    <nav aria-label="Footer">
+      <a href="/">Home</a>
+      <a href="https://github.com/avinashjoshi/omacus/releases">Releases</a>
+      <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">Report an issue</a>
+      <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="/js/site.js"></script>
+</body>
+</html>

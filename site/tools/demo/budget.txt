@@ -1,0 +1,10 @@
+# Monthly budget
+income = $6,200
+
+Rent: $1,850
+Groceries $420 + $95
+Internet $60
+Gym $45
+total
+prev as % of income
+savings = 20% of income

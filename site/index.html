@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Omacus — math, the way you write it</title>
+  <meta name="description" content="Omacus is a free, open-source notepad calculator for Omarchy, Linux, macOS and Windows. Type prices, units, currencies and time zones in plain words; answers appear as you type.">
+  <link rel="canonical" href="https://omacus.com/">
+  <meta name="theme-color" content="#090909">
+
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://omacus.com/">
+  <meta property="og:title" content="Omacus — math, the way you write it">
+  <meta property="og:description" content="A notepad calculator for Omarchy, Linux, macOS and Windows. Units, currencies, time zones and plain words.">
+  <meta property="og:image" content="https://omacus.com/img/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/img/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="/css/site.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="28" height="28">omacus</a>
+    <nav class="nav" aria-label="Main">
+      <a href="#features">Features</a>
+      <a href="#themes">Themes</a>
+      <a href="/docs/" class="keep">Docs</a>
+      <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+      <a class="btn primary" href="#download"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <!-- Hero -->
+  <section class="hero" style="padding-top:72px">
+    <div class="wrap">
+      <span class="eyebrow"><span class="tag" data-version>v0.1.0</span>Free &amp; open source · Omarchy, Linux, macOS, Windows</span>
+      <h1>Math, the way you <em class="serif">write</em> it.</h1>
+      <p class="lede">Omacus is a notepad calculator. Jot down prices, units, currencies and time zones in plain words, and the answers line up beside them as you type.</p>
+
+      <div class="install" data-install>
+        <div class="os-tabs" role="tablist" aria-label="Your system">
+          <button role="tab" aria-selected="true" data-os="linux">Omarchy &amp; Linux</button>
+          <button role="tab" aria-selected="false" data-os="mac">macOS</button>
+          <button role="tab" aria-selected="false" data-os="windows">Windows</button>
+        </div>
+        <div class="os-panel" data-panel="linux">
+          <div class="cmd"><span class="prompt">$</span><code>curl -fsSL omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
+          <div class="install-alt"><span>On Omarchy it offers a keybind and a floating window</span><a href="#download">.deb, .rpm, .tar.gz</a></div>
+        </div>
+        <div class="os-panel" data-panel="mac" hidden>
+          <div class="cmd"><span class="prompt">$</span><code>curl -fsSL omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
+          <div class="install-alt"><span>Installs Omacus.app, no security prompt</span><a href="/mac">or download the .dmg</a></div>
+        </div>
+        <div class="os-panel" data-panel="windows" hidden>
+          <div class="dl-row">
+            <a class="btn primary" href="/windows"><svg aria-hidden="true"><use href="/img/sprite.svg#windows"/></svg>Download for Windows</a>
+            <a class="btn" href="/docs/#windows">Install notes</a>
+          </div>
+          <div class="install-alt"><span>Unzip and run omacus.exe · 64-bit</span></div>
+        </div>
+      </div>
+
+      <div class="stage" data-stage>
+        <div class="window" aria-label="Omacus, showing a sheet being typed with results appearing on the right" role="img">
+          <aside class="win-side" aria-hidden="true">
+            <div class="side-head"><span>SHEETS</span><span>+</span></div>
+            <div data-sheets></div>
+            <div class="side-foot">?  Help &amp; shortcuts   F1</div>
+          </aside>
+          <div class="win-main" aria-hidden="true">
+            <ul class="win-lines" data-lines></ul>
+            <div class="popup" data-popup></div>
+          </div>
+        </div>
+        <p class="stage-caption">A live replay with real answers from the Omacus engine.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="kicker">// what it understands</span>
+        <h2>Write it like you'd <em class="serif">say</em> it.</h2>
+        <p>No formula syntax to learn. Omacus reads the way you already write notes, and quietly ignores the words that aren't math.</p>
+      </div>
+
+      <div class="features reveal">
+        <article class="feature">
+          <h3>Units</h3>
+          <p>Distance, time, temperature, data, cooking, area and hundreds more, converted with <code>in</code> or <code>to</code>.</p>
+          <div class="eg"><div><span>3.5 km in miles</span><b>2.17 miles</b></div><div><span>2 cups in ml</span><b>473.18 ml</b></div></div>
+        </article>
+        <article class="feature">
+          <h3>Currencies</h3>
+          <p>160+ currencies with live exchange rates, cached so it keeps working offline. Symbols or codes, your call.</p>
+          <div class="eg"><div><span>$30 in EUR</span><b>26.75 EUR</b></div><div><span>₹5,000 in USD</span><b>$52.58</b></div></div>
+        </article>
+        <article class="feature">
+          <h3>Time zones</h3>
+          <p>Abbreviations, cities and countries, with daylight saving handled. Tells you when it lands on another day.</p>
+          <div class="eg"><div><span>3pm PST in IST</span><b>3:30 AM IST (next day)</b></div><div><span>noon UTC in Tokyo</span><b>9:00 PM JST</b></div></div>
+        </article>
+        <article class="feature">
+          <h3>Percentages</h3>
+          <p>The everyday phrasings: of, on, off, as a percent of, and what a number is a percentage of.</p>
+          <div class="eg"><div><span>15% off $1,299</span><b>$1,104.15</b></div><div><span>$120 as % of $480</span><b>25%</b></div></div>
+        </article>
+        <article class="feature">
+          <h3>Variables &amp; totals</h3>
+          <p>Name things once, reuse them below. <code>total</code>, <code>average</code> and <code>prev</code> work over each block.</p>
+          <div class="eg"><div><span>rate = $85/hour</span><b>$85 / hour</b></div><div><span>rate * 30 hours</span><b>$2,550</b></div></div>
+        </article>
+        <article class="feature">
+          <h3>Notes, not code</h3>
+          <p>Headers, comments, labels and plain prose sit right next to the math. Lines read like a notebook.</p>
+          <div class="eg"><div><span>Lunch with Sam $18</span><b>$18</b></div><div><span>Rent: $1,450</span><b>$1,450</b></div></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- Sheets -->
+  <section>
+    <div class="wrap split">
+      <div class="split-text reveal">
+        <span class="kicker">// sheets</span>
+        <h2>Nothing to save. <em class="serif">Ever.</em></h2>
+        <p>Keep a sheet per trip, budget or invoice. Like Sublime Text, every keystroke is saved, and closing the window loses nothing.</p>
+        <ul class="checks">
+          <li><b>Reopens exactly where you left off</b>, cursor included.</li>
+          <li><b>Plain text files</b> on disk, so you can search, sync or back them up.</li>
+          <li><b>Deleted sheets go to the trash</b>, not into the void.</li>
+          <li><b>Autocomplete</b> for your variables, units and time zones.</li>
+        </ul>
+      </div>
+      <div class="shot reveal">
+        <img src="/img/screens/tokyo-night.webp" width="1470" height="900" alt="Omacus showing an invoice sheet, with a sidebar of other sheets, in the Tokyo Night theme" loading="lazy">
+      </div>
+    </div>
+  </section>
+
+  <!-- Themes -->
+  <section id="themes">
+    <div class="wrap themes">
+      <div class="section-head center reveal">
+        <span class="kicker">// themes</span>
+        <h2>Looks like the rest of your <em class="serif">desktop</em>.</h2>
+        <p>On Omarchy, Omacus wears your theme and switches the moment you do. Elsewhere it follows your system's light or dark mode, or any colors you give it.</p>
+      </div>
+      <div class="theme-stage reveal" data-theme-stage>
+        <img class="on" src="/img/screens/matte-black.webp" width="1470" height="900" alt="Omacus in the Matte Black theme" data-theme="matte-black">
+        <img src="/img/screens/tokyo-night.webp" width="1470" height="900" alt="Omacus in the Tokyo Night theme" data-theme="tokyo-night" loading="lazy">
+        <img src="/img/screens/catppuccin.webp" width="1470" height="900" alt="Omacus in the Catppuccin theme" data-theme="catppuccin" loading="lazy">
+        <img src="/img/screens/gruvbox.webp" width="1470" height="900" alt="Omacus in the Gruvbox theme" data-theme="gruvbox" loading="lazy">
+        <img src="/img/screens/everforest.webp" width="1470" height="900" alt="Omacus in the Everforest theme" data-theme="everforest" loading="lazy">
+        <img src="/img/screens/nord.webp" width="1470" height="900" alt="Omacus in the Nord theme" data-theme="nord" loading="lazy">
+        <img src="/img/screens/rose-pine.webp" width="1470" height="900" alt="Omacus in the Rosé Pine theme" data-theme="rose-pine" loading="lazy">
+        <img src="/img/screens/catppuccin-latte.webp" width="1470" height="900" alt="Omacus in the Catppuccin Latte theme" data-theme="catppuccin-latte" loading="lazy">
+      </div>
+      <div class="theme-picker reveal" role="group" aria-label="Theme">
+        <button aria-pressed="true" data-pick="matte-black"><span class="swatch"><i style="background:#121212"></i><i style="background:#e68e0d"></i></span>Matte Black</button>
+        <button aria-pressed="false" data-pick="tokyo-night"><span class="swatch"><i style="background:#1a1b26"></i><i style="background:#7aa2f7"></i></span>Tokyo Night</button>
+        <button aria-pressed="false" data-pick="catppuccin"><span class="swatch"><i style="background:#1e1e2e"></i><i style="background:#89b4fa"></i></span>Catppuccin</button>
+        <button aria-pressed="false" data-pick="gruvbox"><span class="swatch"><i style="background:#282828"></i><i style="background:#7daea3"></i></span>Gruvbox</button>
+        <button aria-pressed="false" data-pick="everforest"><span class="swatch"><i style="background:#2d353b"></i><i style="background:#7fbbb3"></i></span>Everforest</button>
+        <button aria-pressed="false" data-pick="nord"><span class="swatch"><i style="background:#2e3440"></i><i style="background:#81a1c1"></i></span>Nord</button>
+        <button aria-pressed="false" data-pick="rose-pine"><span class="swatch"><i style="background:#faf4ed"></i><i style="background:#56949f"></i></span>Rosé Pine</button>
+        <button aria-pressed="false" data-pick="catppuccin-latte"><span class="swatch"><i style="background:#eff1f5"></i><i style="background:#1e66f5"></i></span>Catppuccin Latte</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Keyboard -->
+  <section>
+    <div class="wrap split flip">
+      <div class="shot reveal">
+        <img src="/img/screens/help-syntax.webp" width="1470" height="900" alt="The built-in help, showing syntax examples with live results" loading="lazy">
+      </div>
+      <div class="split-text reveal">
+        <span class="kicker">// keyboard first</span>
+        <h2>Hands stay on the <em class="serif">keys</em>.</h2>
+        <p>Everything has a shortcut, and <kbd>F1</kbd> opens a built-in guide where every example is calculated live.</p>
+        <div class="keys">
+          <div>New sheet <kbd>Ctrl N</kbd></div>
+          <div>Next sheet <kbd>Ctrl Tab</kbd></div>
+          <div>Jump to sheet <kbd>Ctrl 1–9</kbd></div>
+          <div>Copy last result <kbd>Ctrl Shift C</kbd></div>
+          <div>Accept suggestion <kbd>Tab</kbd></div>
+          <div>Hide sidebar <kbd>Ctrl B</kbd></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CLI -->
+  <section>
+    <div class="wrap split">
+      <div class="split-text reveal">
+        <span class="kicker">// command line</span>
+        <h2>Also lives in your <em class="serif">terminal</em>.</h2>
+        <p>The same engine answers one-off questions, or evaluates a whole sheet from a pipe. Handy in scripts, launchers and status bars.</p>
+        <p><a class="btn" href="/docs/#cli">CLI docs <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a></p>
+      </div>
+      <div class="terminal reveal" aria-label="Terminal examples">
+        <div class="bar"><i></i><i></i><i></i></div>
+<pre><span class="p">$</span> omacus '$100 in INR'
+<span class="o">9,510.01 INR</span>
+<span class="p">$</span> omacus '3pm PST in IST'
+<span class="o">3:30 AM IST (next day)</span>
+<span class="p">$</span> printf 'rent = $1450\nrent * 12\n' | omacus -
+<span class="o">$1,450</span>
+<span class="o">$17,400</span></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Download -->
+  <section id="download">
+    <div class="wrap">
+      <div class="section-head center reveal">
+        <span class="kicker">// download</span>
+        <h2>Get <em class="serif">Omacus</em>.</h2>
+        <p>Free and MIT licensed. Pick your platform; <span data-version-text>the latest release</span> is always one command away.</p>
+      </div>
+
+      <div class="downloads reveal">
+        <article class="dl">
+          <header><svg aria-hidden="true"><use href="/img/sprite.svg#archlinux"/></svg><h3>Omarchy <small>&amp; Arch</small></h3></header>
+          <p>Installs the app, then offers a keybind (<kbd>Super Ctrl Alt =</kbd> by default, checked against yours) and a floating window.</p>
+          <div class="cmd"><span class="prompt">$</span><code>curl -fsSL omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
+          <p class="note">Colors follow your Omarchy theme automatically.</p>
+        </article>
+
+        <article class="dl">
+          <header><svg aria-hidden="true"><use href="/img/sprite.svg#apple"/></svg><h3>macOS <small>Apple Silicon &amp; Intel</small></h3></header>
+          <p>The one-liner installs <code>Omacus.app</code> into Applications and opens without a security prompt.</p>
+          <div class="cmd"><span class="prompt">$</span><code>curl -fsSL omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
+          <div class="links"><a class="btn" href="/mac"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download .dmg</a></div>
+          <p class="note">From the .dmg, macOS asks once: open the app, then <b>System Settings → Privacy &amp; Security → Open Anyway</b>.</p>
+        </article>
+
+        <article class="dl">
+          <header><svg aria-hidden="true"><use href="/img/sprite.svg#windows"/></svg><h3>Windows <small>64-bit</small></h3></header>
+          <p>A single portable <code>omacus.exe</code>. Unzip it anywhere and run it; pin it to Start if you like.</p>
+          <div class="links"><a class="btn primary" href="/windows"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download .zip</a></div>
+          <p class="note">If SmartScreen warns about an unknown publisher, choose <b>More info → Run anyway</b>.</p>
+        </article>
+
+        <article class="dl">
+          <header><svg aria-hidden="true"><use href="/img/sprite.svg#linux"/></svg><h3>Other Linux <small>x86_64</small></h3></header>
+          <p>The same one-liner works on any distribution, or use a package:</p>
+          <div class="links">
+            <a class="btn" href="/deb"><svg aria-hidden="true"><use href="/img/sprite.svg#ubuntu"/></svg>.deb</a>
+            <a class="btn" href="/rpm"><svg aria-hidden="true"><use href="/img/sprite.svg#fedora"/></svg>.rpm</a>
+            <a class="btn" href="/linux"><svg aria-hidden="true"><use href="/img/sprite.svg#terminal"/></svg>.tar.gz</a>
+          </div>
+          <p class="note">Ubuntu: <code>sudo apt install ./omacus-linux-x86_64.deb</code> · Fedora: <code>sudo dnf install ./omacus-linux-x86_64.rpm</code></p>
+        </article>
+      </div>
+
+      <div class="cta reveal">
+        <h2>Your next calculation is <em class="serif">a sentence</em>.</h2>
+        <p>One command, and Omacus is a keystroke away.</p>
+        <div class="cmd"><span class="prompt">$</span><code>curl -fsSL omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
+        <div class="dl-row"><a class="btn" href="/docs/"><svg aria-hidden="true"><use href="/img/sprite.svg#book"/></svg>Read the docs</a><a class="btn" href="https://github.com/avinashjoshi/omacus"><svg aria-hidden="true"><use href="/img/sprite.svg#github"/></svg>Star on GitHub</a></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="24" height="24">omacus</a>
+    <span>MIT licensed · made for Omarchy, at home everywhere</span>
+    <nav aria-label="Footer">
+      <a href="/docs/">Docs</a>
+      <a href="https://github.com/avinashjoshi/omacus/releases">Releases</a>
+      <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">Report an issue</a>
+      <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="/js/demo-data.js"></script>
+<script src="/js/site.js"></script>
+</body>
+</html>

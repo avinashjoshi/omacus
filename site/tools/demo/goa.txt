@@ -1,0 +1,15 @@
+# Goa trip
+// 4 friends, 5 nights
+
+Flights: 4 * ₹6,800
+Villa: 5 nights * ₹9,500
+Scooters 4 * ₹450 * 5
+Food & drinks ₹2,000 * 4 * 5
+total
+each = prev / 4
+
+each in USD
+each in EUR
+
+6:40pm IST in London
+Sunset 6:12pm IST in Sydney

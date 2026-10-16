@@ -1,6 +1,7 @@
 # Omacus
 
 *OM-a-kus, like abacus.* A notepad calculator for Omarchy, Linux, macOS and Windows.
+**[omacus.com](https://omacus.com)** · [Docs](https://omacus.com/docs/) · [Download](https://omacus.com/#download)
 Type on the left, results appear on the right.
 
 ```
@@ -79,7 +80,7 @@ for each platform.
 One line installs the app with its launcher entry and icon:
 
 ```sh
-curl -fsSL https://github.com/avinashjoshi/omacus/releases/latest/download/install.sh | bash
+curl -fsSL https://omacus.com/install | bash
 ```
 
 It then offers to add a keybind and a floating-window rule to your Hyprland config. The suggested
@@ -91,23 +92,24 @@ back if Hyprland reports an error.
 For unattended installs, pass the answer instead:
 
 ```sh
-curl -fsSL …/install.sh | bash -s -- --hyprland                 # default key
-curl -fsSL …/install.sh | bash -s -- --key "SUPER + ALT + N"    # your key
-curl -fsSL …/install.sh | bash -s -- --no-hyprland              # leave Hyprland alone
+curl -fsSL omacus.com/install | bash -s -- --hyprland                 # default key
+curl -fsSL omacus.com/install | bash -s -- --key "SUPER + ALT + N"    # your key
+curl -fsSL omacus.com/install | bash -s -- --no-hyprland              # leave Hyprland alone
 ```
 
 Colors follow your Omarchy theme and switch with it.
 
 ### macOS
 
-1. Download [`omacus-macos-universal.dmg`](https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-macos-universal.dmg)
-   (Apple Silicon and Intel).
-2. Open it and drag **Omacus** to **Applications**.
-3. The app isn't notarized yet, so the first time, right-click it and choose **Open**
-   (or run `xattr -dr com.apple.quarantine /Applications/Omacus.app`).
+```sh
+curl -fsSL https://omacus.com/install | bash
+```
 
-For a global shortcut, add one in **System Settings → Keyboard → Keyboard Shortcuts**, or with
-Raycast or Alfred.
+Installs `Omacus.app` into Applications (Apple Silicon and Intel) and opens without a security
+prompt. Or download [`omacus-macos-universal.dmg`](https://omacus.com/mac) and drag Omacus to
+Applications; the app isn't notarized yet, so the first time, open it once, then go to
+**System Settings → Privacy & Security** and click **Open Anyway**
+(or run `xattr -dr com.apple.quarantine /Applications/Omacus.app`).
 
 ### Windows
 
@@ -138,7 +140,7 @@ sudo dnf install https://github.com/avinashjoshi/omacus/releases/latest/download
 Install for your user, no root needed, into `~/.local/bin` with a launcher entry:
 
 ```sh
-curl -fsSL https://github.com/avinashjoshi/omacus/releases/latest/download/install.sh | bash
+curl -fsSL https://omacus.com/install | bash
 ```
 
 Or download [`omacus-linux-x86_64.tar.gz`](https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.tar.gz),
@@ -165,6 +167,13 @@ On other desktops, bind a global shortcut to `omacus` in your keyboard settings.
 
 Colors: your `theme.toml` if present (Omarchy `colors.toml` format), else the active Omarchy theme,
 else the system's light or dark mode. On macOS, shortcuts use ⌘ wherever this README says Ctrl.
+
+## Feedback and issues
+
+Found a wrong answer, a crash, or something Omacus should understand?
+[Open an issue](https://github.com/avinashjoshi/omacus/issues/new/choose). For calculations,
+paste the exact line you typed and what you expected; that's usually all it takes to fix.
+Ideas and feature requests are welcome too, and so are pull requests.
 
 ## Releasing
 

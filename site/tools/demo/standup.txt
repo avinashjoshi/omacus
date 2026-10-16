@@ -1,0 +1,5 @@
+# Standup times
+9:30am PST in IST
+9:30am PST in London
+9:30am PST in Tokyo
+9:30am PST in Berlin
