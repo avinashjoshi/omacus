@@ -188,12 +188,12 @@ def header(path):
         links.append(f'      <a href="{href}"{attrs}>{label}</a>')
     return ('<header class="site-header">\n  <div class="wrap">\n'
             '    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="28" height="28">omacus</a>\n'
-            '    <nav class="nav" id="site-nav" aria-label="Main">\n' + "\n".join(links) + "\n"
+            '    <nav class="nav" aria-label="Main">\n      <div class="nav-links" id="site-nav">\n'
+            + "\n".join("  " + l for l in links) + "\n      </div>\n"
             '      <a class="btn primary" href="/download/"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>\n'
-            "    </nav>\n"
-            '    <button class="menu-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="Menu">'
-            '<svg aria-hidden="true"><use href="/img/sprite.svg#menu"/></svg></button>\n'
-            "  </div>\n</header>")
+            '      <button class="menu-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="Menu">'
+            "<span></span><span></span><span></span></button>\n"
+            "    </nav>\n  </div>\n</header>")
 
 
 def footer():
