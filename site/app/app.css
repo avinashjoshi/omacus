@@ -49,6 +49,36 @@
   color: var(--line-2);
 }
 
+/* "Private": a reminder that sheets never leave this browser; a tap explains. */
+.private-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--app-dim);
+  font: 500 12.5px var(--sans);
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.private-chip:hover {
+  color: var(--text);
+  border-color: var(--line-2);
+}
+
+.private-chip svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .bar-actions {
   display: flex;
   align-items: center;
@@ -257,21 +287,6 @@
   line-height: 1.5;
 }
 
-.ios-hint {
-  margin: 0 12px 10px;
-  padding: 10px 12px;
-  border: 1px solid rgba(240, 161, 42, 0.25);
-  border-radius: 9px;
-  background: var(--accent-glow);
-  color: var(--text-2);
-  font-size: 12.5px;
-  line-height: 1.5;
-}
-
-.ios-hint b {
-  color: var(--text);
-}
-
 /* ---------- Sheet ---------- */
 
 .sheet {
@@ -279,6 +294,57 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+/* First visit: it can be installed (and how, on iPhone). */
+.install-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px 10px 18px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(90deg, rgba(240, 161, 42, 0.1), transparent);
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1.45;
+  animation: banner-in 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.install-banner img {
+  flex: none;
+  border-radius: 8px;
+}
+
+.install-banner p {
+  flex: 1;
+  margin: 0;
+}
+
+.install-banner b {
+  color: var(--text);
+}
+
+.install-banner .icon-btn {
+  flex: none;
+  border: 0;
+}
+
+.ios-share {
+  width: 17px;
+  height: 17px;
+  margin: 0 1px -3px;
+  fill: none;
+  stroke: var(--accent-hi);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@keyframes banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
 }
 
 .shared-banner {
@@ -541,5 +607,19 @@
   .shared-banner {
     flex-wrap: wrap;
     gap: 8px;
+  }
+
+  .private-chip {
+    padding: 7px;
+  }
+
+  .private-chip span {
+    display: none;
+  }
+
+  .install-banner {
+    align-items: flex-start;
+    padding: 12px 8px 12px 16px;
+    font-size: 13.5px;
   }
 }

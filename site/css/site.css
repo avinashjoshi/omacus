@@ -1523,6 +1523,80 @@ kbd {
   height: 14px;
 }
 
+/* The quieter links on most feature cards: to a guide or a docs section. */
+.feature-link.quiet {
+  color: var(--muted);
+  font-size: 13.5px;
+  transition: color 0.2s;
+}
+
+.feature-link.quiet:hover,
+.feature:hover .feature-link.quiet {
+  color: var(--accent-hi);
+}
+
+.feature-link svg {
+  transition: transform 0.2s;
+}
+
+.feature-link:hover svg {
+  transform: translateX(3px);
+}
+
+.cta-row {
+  margin-top: 28px;
+}
+
+/* Privacy: three cards, one per place a sheet can live. */
+.privacy {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.privacy article {
+  padding: 26px 24px 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raise);
+}
+
+.privacy svg {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: var(--accent-hi);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.privacy h3 {
+  margin: 14px 0 8px;
+  font-size: 18px;
+}
+
+.privacy p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.privacy-note {
+  margin: 26px auto 0;
+  max-width: 640px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+@media (max-width: 900px) {
+  .privacy {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* "Or try it in your browser" under the hero's installer. */
 .try-web {
   margin: 18px 0 0;

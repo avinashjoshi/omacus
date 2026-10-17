@@ -63,13 +63,13 @@ adds the notepad conventions on top.
 | `Ctrl+B` | Toggle the sidebar |
 | `Ctrl+Shift+L` | Copy a share link to the sheet |
 
-Right-click a sheet in the sidebar for the same actions. A sheet's title is its first line.
+The ⋯ above a sheet (or on its row in the sidebar, or a right-click) has the same actions. A sheet's title is its first line.
 Sheets are plain text in `~/.local/share/omacus/sheets/`; order, cursors and the sidebar
 state are in `~/.local/share/omacus/state.json`.
 
 ### Sharing and the web app
 
-`Ctrl+Shift+L` (or *Share link* in a sheet's right-click menu) copies a link like
+**Share** above a sheet (or `Ctrl+Shift+L`) copies a link like
 `https://omacus.com/app#v1.…` that opens the sheet, live, in [Omacus in the browser](https://omacus.com/app).
 The sheet is compressed into the part after `#`, which browsers never send to a server, so it isn't
 uploaded anywhere; anyone with the link can read it.
