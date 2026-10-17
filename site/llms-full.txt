@@ -59,7 +59,7 @@ Click any result to copy it. Everything is saved as you type, so just close the 
 
 ## Arithmetic
 
-The usual operators, plus words for them. `x` between numbers multiplies, `k` and `M` are thousands and millions, `^` is a power.
+The usual operators, plus words for them. `x` between numbers multiplies, `k` and `M` are thousands and millions, `^` is a power. A comma followed by three digits groups thousands (`1,234`); followed by any other number of digits it's a decimal comma, so `1,5` is 1.5 and `€12,50` is €12.50.
 
 | You type | Omacus shows |
 |---|---|
@@ -75,7 +75,7 @@ Functions include `sqrt`, `abs`, `round`, `floor`, `ceil`, `sin`, `cos`, `tan`, 
 
 ## Percentages
 
-Say percentages the way you would out loud: of, on, off, as a percent of. A tip or a tax on top works with a word in between, and a bill splits `3 ways` or `between 4 people`.
+Say percentages the way you would out loud: of, on, off, as a percent of. A tip or a tax on top works with a word in between, and a bill splits `3 ways` or `between 4 people`. Percentages added or taken away apply one after another (`$100 - 10% - 10%` is $81), a percentage times a number is that share of it (`10% * 200` is 20), and a percentage kept in a variable works the same way: `tax = 8%`, then `$100 + tax`.
 
 | You type | Omacus shows |
 |---|---|
@@ -86,6 +86,7 @@ Say percentages the way you would out loud: of, on, off, as a percent of. A tip 
 | `5% of what is 6` | 120 |
 | `18% tip on $62` | $73.16 |
 | `$62 + 18% tip` | $73.16 |
+| `10% off 20% off $100` | $72 |
 | `$84 split 3 ways` | $28 |
 | `split $240 between 4 people` | $60 |
 
@@ -121,6 +122,7 @@ More examples in the guide: [Convert units by just writing them](https://omacus.
 | `£250 in USD` | $332.96 |
 | `¥10,000 in USD` | $63.29 |
 | `CHF 300 in USD` | $363.88 |
+| `C$100 in USD` | $70.68 |
 | `₹5,000 in USD` | $52.57 |
 
 Rates above are from when this page was built.
@@ -181,12 +183,14 @@ More examples in the guide: [Convert time zones in plain English](https://omacus
 
 ## Dates
 
-`today`, `now`, `tomorrow` and `yesterday`, plus or minus minutes, hours, days, weeks, months or years.
+`today`, `now`, `tomorrow`, `yesterday` or any date, plus or minus minutes, hours, days, weeks, months or years. Take one date from another for the days between them. A date without a year is this year's.
 
 ```
 today  # Friday, 16 October 2026
 tomorrow + 2 weeks  # Saturday, 31 October 2026
 now - 90 minutes  # Fri, 16 Oct 2026, 7:09 AM
+Jan 31 + 1 month  # Saturday, 28 February 2026
+Dec 25 - Dec 1  # 24 days
 ```
 
 For a time of day, add or take away minutes and hours from a clock time, or count from now. Add `in` and a place to see it there.

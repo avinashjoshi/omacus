@@ -120,6 +120,7 @@ const SYNTAX: &[(&str, &[&str])] = &[
             "$120 as % of $480",
             "5% of what is 6",
             "18% tip on $62",
+            "10% off 20% off $100",
             "$84 split 3 ways",
         ],
     ),
@@ -142,6 +143,8 @@ const SYNTAX: &[(&str, &[&str])] = &[
             "€50 + £20 in USD",
             "£250 in USD",
             "$100 in JPY",
+            "C$100 in USD",
+            "€12,50 * 2",
         ],
     ),
     (
@@ -185,6 +188,8 @@ const SYNTAX: &[(&str, &[&str])] = &[
             "days until Dec 25",
             "workdays in November",
             "days since Jan 1",
+            "Jan 31 + 1 month",
+            "Dec 25 - Dec 1",
         ],
     ),
     (
@@ -760,6 +765,7 @@ mod tests {
             ("INR", 83.0),
             ("GBP", 0.78),
             ("JPY", 150.0),
+            ("CAD", 1.36),
         ]));
         for (group, lines) in SYNTAX {
             let results = engine.eval_document(&lines.join("\n"));
