@@ -1,0 +1,16 @@
+[package]
+name = "omacus-web"
+version = "0.0.0"
+edition = "2024"
+description = "The Omacus engine for the browser (omacus.com/app)"
+license = "MIT"
+publish = false  # internal; the app's version is the one in ../Cargo.toml
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+omacus-engine = { path = "../engine" }
+# Pinned exactly: the generated JS glue must match the wasm-bindgen CLI version.
+wasm-bindgen = "=0.2.129"
+serde_json = "1.0.154"
