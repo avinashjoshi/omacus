@@ -39,6 +39,30 @@ pub struct LineResult {
     /// Why a line that looks like math has no answer ("Can't divide by zero"),
     /// shown quietly in place of one.
     pub note: Option<&'static str>,
+    /// Read from the clock ("today", "time in Tokyo"), so never reused as is.
+    pub clock: bool,
+}
+
+/// What the lines above leave for the next one: fend's variables, the block for
+/// `total`, `prev`, and the names defined so far.
+#[derive(Clone)]
+struct State {
+    ctx: fend_core::Context,
+    block: Vec<String>,
+    prev: Option<String>,
+    vars: HashSet<String>,
+    /// Variables holding a percentage ("tax = 8%"), for "$100 + tax".
+    percents: Vec<(String, Regex, String)>,
+}
+
+/// A sheet's last calculation, kept between edits by `Engine::eval_sheet`.
+#[derive(Default)]
+pub struct Sheet {
+    lines: Vec<String>,
+    results: Vec<LineResult>,
+    /// The state after each line.
+    after: Vec<State>,
+    rates_version: u64,
 }
 
 impl LineResult {
@@ -48,6 +72,7 @@ impl LineResult {
             display: String::new(),
             color: None,
             note: None,
+            clock: false,
         }
     }
 
@@ -57,6 +82,7 @@ impl LineResult {
             display,
             color: None,
             note: None,
+            clock: false,
         }
     }
 
@@ -69,11 +95,8 @@ impl LineResult {
 }
 
 /// How long one line may calculate before it's stopped (`100000!` or `10^10^7`
-/// would otherwise freeze the window), and the shorter turn each line gets once
-/// a sheet has already taken `SHEET_MS`.
+/// would otherwise run for minutes). The same for every line, wherever it sits.
 const LINE_MS: f64 = 150.0;
-const LATE_LINE_MS: f64 = 20.0;
-const SHEET_MS: f64 = 1000.0;
 /// Without a clock, a cap on fend's progress checks instead. Ordinary lines use a
 /// few thousand; `10000!` about 900,000.
 const MAX_CHECKS: u64 = 2_000_000;
@@ -173,6 +196,7 @@ pub fn is_header(line: &str) -> bool {
     line.starts_with('#') && !crate::extras::is_color(line)
 }
 
+#[derive(Clone)]
 pub struct Engine {
     /// Milliseconds from any fixed point, for the per-line time limit. Without
     /// one, lines are limited by how much work fend does instead.
@@ -383,134 +407,191 @@ impl Engine {
     /// Evaluate every line of a sheet. Lines share one context, so variables
     /// defined above are visible below.
     pub fn eval_document(&self, text: &str) -> Vec<LineResult> {
-        let mut ctx = self.context();
-        let mut block: Vec<String> = Vec::new();
-        let mut prev: Option<String> = None;
-        let started = self.clock.map(|now| now());
-        // Names defined so far, and those holding a percentage ("tax = 8%").
-        let mut vars: HashSet<String> = HashSet::new();
-        let mut percents: Vec<(String, Regex, String)> = Vec::new();
-
+        let mut st = self.fresh();
         text.split('\n')
             .enumerate()
-            .map(|(i, line)| {
-                let trimmed = line.trim();
-                if trimmed.is_empty() {
-                    block.clear();
-                    return LineResult::new(Kind::Empty);
+            .map(|(i, line)| self.eval_in(&mut st, i, line))
+            .collect()
+    }
+
+    /// Like `eval_document`, reusing `sheet`'s work from the last call: lines above
+    /// the first one that changed keep their answers, and calculation resumes from
+    /// the state just before it. Typing at the end of a long sheet redoes one line.
+    pub fn eval_sheet(&self, text: &str, sheet: &mut Sheet) -> Vec<LineResult> {
+        self.eval_sheet_until(text, sheet, || false)
+            .expect("never stopped")
+    }
+
+    /// `eval_sheet` that gives up (returning `None`) when `stop` says so, checked
+    /// between lines: newer text has arrived. The lines done so far are kept for
+    /// the next call.
+    pub fn eval_sheet_until(
+        &self,
+        text: &str,
+        sheet: &mut Sheet,
+        stop: impl Fn() -> bool,
+    ) -> Option<Vec<LineResult>> {
+        let lines: Vec<&str> = text.split('\n').collect();
+        let version = self.rates.version();
+        let same = if sheet.rates_version == version {
+            lines
+                .iter()
+                .zip(&sheet.lines)
+                .take_while(|(a, b)| **a == b.as_str())
+                .count()
+        } else {
+            0
+        };
+        sheet.lines.truncate(same);
+        sheet.results.truncate(same);
+        sheet.after.truncate(same);
+        sheet.rates_version = version;
+        // Answers from the clock ("today", "time in Tokyo") are fresh every time;
+        // they never change the state the lines below see.
+        for (line, result) in sheet.lines.iter().zip(sheet.results.iter_mut()) {
+            if result.clock
+                && let Some(now) = crate::time::eval(line.trim())
+            {
+                result.display = now;
+            }
+        }
+        let mut st = sheet.after.last().cloned().unwrap_or_else(|| self.fresh());
+        for (i, line) in lines.iter().enumerate().skip(same) {
+            if stop() {
+                return None;
+            }
+            let result = self.eval_in(&mut st, i, line);
+            sheet.lines.push((*line).to_string());
+            sheet.results.push(result);
+            sheet.after.push(st.clone());
+        }
+        Some(sheet.results.clone())
+    }
+
+    fn fresh(&self) -> State {
+        State {
+            ctx: self.context(),
+            block: Vec::new(),
+            prev: None,
+            vars: HashSet::new(),
+            percents: Vec::new(),
+        }
+    }
+
+    /// Line `i` of a sheet, given the state the lines above it left.
+    fn eval_in(&self, st: &mut State, i: usize, line: &str) -> LineResult {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            st.block.clear();
+            return LineResult::new(Kind::Empty);
+        }
+        if is_header(trimmed) {
+            st.block.clear();
+            return LineResult::new(Kind::Header);
+        }
+        if trimmed.starts_with("//") {
+            return LineResult::new(Kind::Comment);
+        }
+
+        if let Some(date) = crate::time::eval(trimmed) {
+            return LineResult {
+                clock: true,
+                ..LineResult::value(date)
+            };
+        }
+        if let Some(extra) = crate::extras::eval(trimmed) {
+            return LineResult {
+                color: extra.color,
+                ..LineResult::value(extra.display)
+            };
+        }
+
+        // A time of day the time module didn't understand isn't math
+        // ("Movie at 7pm" would be 7 picometres). Very long lines are
+        // skipped: fend's parser can take minutes on them.
+        if CLOCK_WORD.is_match(trimmed) || trimmed.len() > 2000 {
+            return LineResult::new(Kind::Error);
+        }
+        if st.prev.is_none() && PREV.is_match(trimmed) && !ASSIGN.is_match(trimmed) {
+            return LineResult::new(Kind::Error);
+        }
+
+        let budget = Budget::new(self.clock, LINE_MS);
+        let var = format!("_l{i}");
+        // `sum`, or `subtotal = sum` to keep it in a variable.
+        let total = match ASSIGN.captures(trimmed) {
+            Some(c) => aggregate(&c[2], &st.block).map(|e| format!("{} = {e}", &c[1])),
+            None => aggregate(trimmed, &st.block),
+        };
+        let is_total = total.is_some();
+        let target = imperial_target(trimmed);
+        let source = target.as_ref().map_or(trimmed, |(expr, _)| expr.as_str());
+        let result = match total {
+            Some(expr) => eval_into(&mut st.ctx, &budget, &var, &expr),
+            None => {
+                // "$100 + tax", where tax = 8%: the same as "$100 + 8%".
+                let mut source = source.to_string();
+                for (_, re, pct) in &st.percents {
+                    source = re.replace_all(&source, format!("${{1}}{pct}")).into_owned();
                 }
-                if is_header(trimmed) {
-                    block.clear();
-                    return LineResult::new(Kind::Header);
-                }
-                if trimmed.starts_with("//") {
+                let expr = self.currency_first(&rewrite(&source, st.prev.as_deref(), &st.vars));
+                let expr = self.drop_name_collisions(&expr);
+                if expr.trim().is_empty() {
                     return LineResult::new(Kind::Comment);
                 }
+                eval_forgiving(&mut st.ctx, &budget, &var, &expr)
+                    .or_else(|| self.with_currency(&mut st.ctx, &budget, &var, &expr))
+            }
+        };
 
-                if let Some(date) = crate::time::eval(trimmed) {
-                    return LineResult::value(date);
+        if result.is_some()
+            && let Some(c) = ASSIGN.captures(trimmed)
+        {
+            let name = c[1].to_string();
+            let value = c[2].trim();
+            // A redefinition replaces the old value, percentage or not.
+            st.percents.retain(|(n, ..)| *n != name);
+            if value.ends_with('%') && value[..value.len() - 1].trim().parse::<f64>().is_ok() {
+                let re = Regex::new(&format!(r"([+-]\s*)\b{}\b", regex::escape(&name)));
+                if let Ok(re) = re {
+                    st.percents.push((name.clone(), re, value.to_string()));
                 }
-                if let Some(extra) = crate::extras::eval(trimmed) {
-                    return LineResult {
-                        color: extra.color,
-                        ..LineResult::value(extra.display)
-                    };
-                }
+            }
+            st.vars.insert(name);
+        }
 
-                // A time of day the time module didn't understand isn't math
-                // ("Movie at 7pm" would be 7 picometres). Very long lines are
-                // skipped: fend's parser can take minutes on them.
-                if CLOCK_WORD.is_match(trimmed) || trimmed.len() > 2000 {
-                    return LineResult::new(Kind::Error);
-                }
-                if prev.is_none() && PREV.is_match(trimmed) && !ASSIGN.is_match(trimmed) {
-                    return LineResult::new(Kind::Error);
-                }
+        // Every digit of an approximate answer (see `precisely`), except for
+        // base conversions, which fend formats itself.
+        let result = result.map(|raw| {
+            if BASE_CONV.is_match(trimmed) {
+                raw
+            } else {
+                precisely(&mut st.ctx, &budget, &var, raw)
+            }
+        });
 
-                let late = match (self.clock, started) {
-                    (Some(now), Some(t0)) => now() - t0 > SHEET_MS,
-                    _ => false,
+        match result {
+            Some(raw) => {
+                // A total shouldn't count itself in the next total or average.
+                if !is_total {
+                    st.block.push(var.clone());
+                }
+                st.prev = Some(var);
+                let display = if BASE_CONV.is_match(trimmed) {
+                    raw.trim_start_matches("approx. ").to_string()
+                } else if let Some(time) = transfer_time(trimmed, &raw) {
+                    time
+                } else {
+                    pretty(&raw)
                 };
-                let budget = Budget::new(self.clock, if late { LATE_LINE_MS } else { LINE_MS });
-                let var = format!("_l{i}");
-                // `sum`, or `subtotal = sum` to keep it in a variable.
-                let total = match ASSIGN.captures(trimmed) {
-                    Some(c) => aggregate(&c[2], &block).map(|e| format!("{} = {e}", &c[1])),
-                    None => aggregate(trimmed, &block),
+                let display = match target {
+                    Some((_, name)) => format!("{display} {name}"),
+                    None => display,
                 };
-                let is_total = total.is_some();
-                let target = imperial_target(trimmed);
-                let source = target.as_ref().map_or(trimmed, |(expr, _)| expr.as_str());
-                let result = match total {
-                    Some(expr) => eval_into(&mut ctx, &budget, &var, &expr),
-                    None => {
-                        // "$100 + tax", where tax = 8%: the same as "$100 + 8%".
-                        let mut source = source.to_string();
-                        for (_, re, pct) in &percents {
-                            source = re.replace_all(&source, format!("${{1}}{pct}")).into_owned();
-                        }
-                        let expr = self.currency_first(&rewrite(&source, prev.as_deref(), &vars));
-                        let expr = self.drop_name_collisions(&expr);
-                        if expr.trim().is_empty() {
-                            return LineResult::new(Kind::Comment);
-                        }
-                        eval_forgiving(&mut ctx, &budget, &var, &expr)
-                            .or_else(|| self.with_currency(&mut ctx, &budget, &var, &expr))
-                    }
-                };
-
-                if result.is_some()
-                    && let Some(c) = ASSIGN.captures(trimmed)
-                {
-                    let name = c[1].to_string();
-                    let value = c[2].trim();
-                    // A redefinition replaces the old value, percentage or not.
-                    percents.retain(|(n, ..)| *n != name);
-                    if value.ends_with('%')
-                        && value[..value.len() - 1].trim().parse::<f64>().is_ok()
-                    {
-                        let re = Regex::new(&format!(r"([+-]\s*)\b{}\b", regex::escape(&name)));
-                        if let Ok(re) = re {
-                            percents.push((name.clone(), re, value.to_string()));
-                        }
-                    }
-                    vars.insert(name);
-                }
-
-                // Every digit of an approximate answer (see `precisely`), except for
-                // base conversions, which fend formats itself.
-                let result = result.map(|raw| {
-                    if BASE_CONV.is_match(trimmed) {
-                        raw
-                    } else {
-                        precisely(&mut ctx, &budget, &var, raw)
-                    }
-                });
-
-                match result {
-                    Some(raw) => {
-                        // A total shouldn't count itself in the next total or average.
-                        if !is_total {
-                            block.push(var.clone());
-                        }
-                        prev = Some(var);
-                        let display = if BASE_CONV.is_match(trimmed) {
-                            raw.trim_start_matches("approx. ").to_string()
-                        } else if let Some(time) = transfer_time(trimmed, &raw) {
-                            time
-                        } else {
-                            pretty(&raw)
-                        };
-                        let display = match target {
-                            Some((_, name)) => format!("{display} {name}"),
-                            None => display,
-                        };
-                        LineResult::value(display)
-                    }
-                    None => LineResult::error(budget.note()),
-                }
-            })
-            .collect()
+                LineResult::value(display)
+            }
+            None => LineResult::error(budget.note()),
+        }
     }
 
     /// "CHF 300" -> "300 CHF", for codes fend has a rate for.

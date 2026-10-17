@@ -11,6 +11,7 @@ use eframe::egui::{
     Margin, Modifiers, Order, Pos2, Rect, Sense, TextEdit, Vec2, ViewportCommand, pos2, vec2,
 };
 
+use crate::calc::Calculator;
 use crate::help;
 use crate::highlight;
 use crate::rates::Rates;
@@ -165,8 +166,13 @@ fn find_sheets(titles: &[String], texts: &[&str], query: &str) -> Vec<usize> {
 pub struct OmacusApp {
     store: Store,
     results: Vec<LineResult>,
+    /// The text `results` are the answers for (the sheet may be ahead of it).
+    results_text: String,
     vars: HashSet<String>,
+    /// For one-off answers (Copy with answers); the sheet itself is calculated by
+    /// `calc`, off this thread.
     engine: Engine,
+    calc: Calculator,
     rates: Rates,
     rates_seen: u64,
     theme: Theme,
@@ -219,8 +225,16 @@ impl OmacusApp {
         let mut app = Self {
             store: Store::load(WELCOME),
             results: Vec::new(),
+            results_text: String::new(),
             vars: HashSet::new(),
             engine: Engine::new(rates.table()).with_clock(engine::monotonic_ms),
+            calc: {
+                let repaint = cc.egui_ctx.clone();
+                Calculator::new(
+                    Engine::new(rates.table()).with_clock(engine::monotonic_ms),
+                    move || repaint.request_repaint(),
+                )
+            },
             rates_seen: rates.version(),
             rates,
             theme,
@@ -270,11 +284,33 @@ impl OmacusApp {
         app
     }
 
+    /// Ask for fresh answers; they arrive in `take_answers`.
     fn evaluate(&mut self) {
-        let text = &self.store.current().text;
-        self.results = self.engine.eval_document(text);
-        self.vars = engine::defined_variables(text);
+        let sheet = self.store.current();
+        self.calc.request(&sheet.id, &sheet.text);
+        self.vars = engine::defined_variables(&sheet.text);
         self.evaluated_at = Instant::now();
+    }
+
+    /// Sheet `i`'s answers: the ones on screen when they're up to date, so copying
+    /// never waits on a slow line; otherwise worked out now.
+    fn answers_for(&self, i: usize) -> Vec<LineResult> {
+        let text = &self.store.sheets[i].text;
+        if i == self.store.active && self.results_text == *text {
+            return self.results.clone();
+        }
+        self.engine.eval_document(text)
+    }
+
+    /// Answers from the calculator, for the sheet on screen. While the newest are
+    /// on their way, the last ones stay (a line typed a moment ago has none yet).
+    fn take_answers(&mut self) {
+        if let Some(done) = self.calc.take()
+            && done.sheet == self.store.current().id
+        {
+            self.results = done.results;
+            self.results_text = done.text;
+        }
     }
 
     fn touched(&mut self) {
@@ -284,6 +320,9 @@ impl OmacusApp {
     fn sheet_switched(&mut self) {
         self.popup = None;
         self.copied = None;
+        // Another sheet's answers mustn't show against this one's lines.
+        self.results.clear();
+        self.results_text.clear();
         self.focus_editor = true;
         self.evaluate();
         self.touched();
@@ -303,8 +342,8 @@ impl OmacusApp {
                 self.store.move_active(step);
             }
             SheetAction::Copy(i) => {
+                let results = self.answers_for(i);
                 let text = &self.store.sheets[i].text;
-                let results = self.engine.eval_document(text);
                 let ctx = self.ctx.clone();
                 ctx.copy_text(engine::with_answers(text, &results));
                 self.toast = Some(Toast::info("Sheet copied with answers"));
@@ -325,8 +364,8 @@ impl OmacusApp {
                 return;
             }
             SheetAction::CopyMarkdown(i) => {
+                let results = self.answers_for(i);
                 let text = &self.store.sheets[i].text;
-                let results = self.engine.eval_document(text);
                 let ctx = self.ctx.clone();
                 ctx.copy_text(engine::markdown_table(text, &results));
                 self.toast = Some(Toast::info("Sheet copied as a Markdown table"));
@@ -1503,6 +1542,7 @@ impl eframe::App for OmacusApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.handle_background_updates(&ctx);
+        self.take_answers();
         self.take_screenshot(&ctx);
         self.handle_shortcuts(&ctx);
 
