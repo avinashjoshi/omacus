@@ -182,15 +182,18 @@ FOOTER = [("/docs/", "Docs"), ("/guides/", "Guides"), ("/use-cases/", "Use cases
 def header(path):
     links = []
     for href, label in NAV:
-        attrs = ' class="keep"' if label == "Docs" else ""
+        attrs = ""
         if href != "/#features" and path.startswith(href):
             attrs += ' aria-current="page"'
         links.append(f'      <a href="{href}"{attrs}>{label}</a>')
     return ('<header class="site-header">\n  <div class="wrap">\n'
             '    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="28" height="28">omacus</a>\n'
-            '    <nav class="nav" aria-label="Main">\n' + "\n".join(links) + "\n"
+            '    <nav class="nav" id="site-nav" aria-label="Main">\n' + "\n".join(links) + "\n"
             '      <a class="btn primary" href="/download/"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>\n'
-            "    </nav>\n  </div>\n</header>")
+            "    </nav>\n"
+            '    <button class="menu-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="Menu">'
+            '<svg aria-hidden="true"><use href="/img/sprite.svg#menu"/></svg></button>\n'
+            "  </div>\n</header>")
 
 
 def footer():
@@ -446,7 +449,7 @@ def H(s):
 # ---------------------------------------------------------------------------------------
 # Downloads
 #
-# One copy of the platform cards, on the home page and on /download/. Short links like
+# The platform cards live on /download/; the home page links into them. Short links like
 # /mac lead to the right card; only a button you click downloads a file.
 
 DL = "https://github.com/avinashjoshi/omacus/releases/latest/download"
@@ -462,7 +465,7 @@ def btn(href, icon, label, cls="btn", attrs=""):
 
 
 def download_cards(indent):
-    cards = f'''<div class="downloads reveal">
+    cards = f'''<div class="downloads">
   <article class="dl" id="omarchy">
     <header><svg aria-hidden="true"><use href="/img/sprite.svg#archlinux"/></svg><h3>Omarchy <small>&amp; Arch</small></h3></header>
     <p>Installs the app, then offers a keybind (<kbd>Super Ctrl Alt =</kbd> by default, checked against yours) and a floating window.</p>
@@ -503,11 +506,7 @@ def download_cards(indent):
 
 
 def fill_downloads():
-    """The home page's cards, /download/, and the short links that point into it."""
-    path = SITE / "index.html"
-    text = re.sub(r'( *)<div class="downloads reveal">.*?\n\1</div>',
-                  lambda m: download_cards(m[1]).lstrip(" ").join([m[1], ""]), path.read_text(), count=1, flags=re.S)
-    path.write_text(text)
+    """/download/, and the short links that point into it."""
 
     meta = {"path": "/download/", "h1": "Download Omacus",
             "title": "Download Omacus: free notepad calculator for Linux, macOS and Windows",
