@@ -315,7 +315,7 @@ def sheet_html(name):
         f'<span class="res">{html.escape(result)}</span></li>'
         for line, result in zip(lines, evaluate(lines)))
     title = lines[0].lstrip("# ").strip()
-    open_link = (f'<a class="open-sheet" href="{share_link(chr(10).join(lines))}">'
+    open_link = (f'<a class="open-sheet" href="{share_link(chr(10).join(lines))}" target="_blank" rel="noopener">'
                  'Open in the web app <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a>')
     return (f'<figure class="sheet-card">\n  <figcaption><i></i><i></i><i></i><span>{html.escape(title)}</span>'
             f'{open_link}</figcaption>\n'

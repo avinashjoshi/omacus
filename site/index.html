@@ -259,7 +259,7 @@
         </div>
       </div>
 
-      <p class="try-web"><a href="/app">Or try it in your browser <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a></p>
+      <p class="try-web"><a href="/app" target="_blank" rel="noopener">Or try it in your browser <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a></p>
 
       <div class="stage" data-stage>
         <div class="window" aria-label="Omacus, showing a sheet being typed with results appearing on the right" role="img">
@@ -308,47 +308,75 @@
           <h3>Units</h3>
           <p>Distance, time, temperature, data, cooking, area and hundreds more, converted with <code>in</code> or <code>to</code>.</p>
           <div class="eg"><div><span>3.5 km in miles</span><b>2.17 miles</b></div><div><span>2 cups in ml</span><b>473.18 ml</b></div></div>
+          <a class="feature-link quiet" href="/guides/unit-conversion/">Unit conversion guide <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a>
         </article>
         <article class="feature">
           <h3>Currencies</h3>
           <p>160+ currencies with live exchange rates, cached so it keeps working offline. Symbols or codes, your call.</p>
           <div class="eg"><div><span>$30 in EUR</span><b>26.69 EUR</b></div><div><span>£250 in USD</span><b>$332.96</b></div></div>
+          <a class="feature-link quiet" href="/guides/currency/">Currency guide <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a>
         </article>
         <article class="feature">
           <h3>Time zones</h3>
           <p>Abbreviations, cities and countries, with daylight saving handled. Tells you when it lands on another day.</p>
           <div class="eg"><div><span>6pm PST in Tokyo</span><b>10:00 AM JST (next day)</b></div><div><span>9am EST in London</span><b>2:00 PM BST</b></div></div>
+          <a class="feature-link quiet" href="/guides/time-zones/">Time zone guide <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a>
         </article>
         <article class="feature">
           <h3>Percentages</h3>
           <p>The everyday phrasings: of, on, off, as a percent of, and what a number is a percentage of.</p>
           <div class="eg"><div><span>15% off $1,299</span><b>$1,104.15</b></div><div><span>$120 as % of $480</span><b>25%</b></div></div>
+          <a class="feature-link quiet" href="/guides/percentages/">Percentages guide <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a>
         </article>
         <article class="feature">
           <h3>Variables &amp; totals</h3>
           <p>Name things once, reuse them below. <code>total</code>, <code>average</code> and <code>prev</code> work over each block.</p>
           <div class="eg"><div><span>rate = $85/hour</span><b>$85 / hour</b></div><div><span>rate * 30 hours</span><b>$2,550</b></div></div>
+          <a class="feature-link quiet" href="/docs/#variables">Variables and totals <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a>
         </article>
         <article class="feature">
           <h3>Notes, not code</h3>
           <p>Headers, comments, labels and plain prose sit right next to the math. Lines read like a notebook.</p>
           <div class="eg"><div><span>Lunch with Sam $18</span><b>$18</b></div><div><span>Rent: $1,450</span><b>$1,450</b></div></div>
+          <a class="feature-link quiet" href="/docs/#notes">Notes and headers <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a>
         </article>
         <article class="feature">
           <h3>Days &amp; dates</h3>
           <p>Count to or from any date in days, weeks, months or workdays, or add time to <code>today</code>. Christmas and New Year's work by name.</p>
           <div class="eg"><div><span>days from Dec 20 to Jan 5</span><b>16 days</b></div><div><span>workdays in Nov 2026</span><b>21 workdays</b></div></div>
+          <a class="feature-link quiet" href="/docs/#dates">Counting days <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a>
         </article>
         <article class="feature">
           <h3>For developers</h3>
           <p>Download times, CSS units and colours, with a swatch beside each colour. Hex, binary and the command line too.</p>
           <div class="eg"><div><span>4 GB at 100 Mbps</span><b>5 min 20 s</b></div><div><span>#ff8800 in hsl</span><b>hsl(32, 100%, 50%)</b></div></div>
+          <a class="feature-link quiet" href="/docs/#design">Developer and design tools <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a>
         </article>
         <article class="feature">
           <h3>Share as a link</h3>
           <p>One link opens any sheet live in a browser, or straight in Omacus. The sheet travels inside the link; nothing is uploaded.</p>
-          <a class="feature-link" href="/app">Try it in your browser <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a>
+          <a class="feature-link quiet" href="/docs/#sharing">How sharing works <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a>
         </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- Web app -->
+  <section id="web-app">
+    <div class="wrap split flip">
+      <div class="shot web reveal">
+        <img src="/img/screens/web-app.webp" width="1470" height="900" alt="Omacus in a browser at omacus.com/app, with a trip sheet and its answers" loading="lazy">
+      </div>
+      <div class="split-text reveal">
+        <span class="kicker">// in your browser</span>
+        <h2>Nothing to install. <em class="serif">Anywhere.</em></h2>
+        <p>The same engine runs at <a href="/app" target="_blank" rel="noopener">omacus.com/app</a>, on any computer or phone. Every answer matches the desktop app, because it's the same code.</p>
+        <ul class="checks">
+          <li><b>Add it to your Home Screen</b> and it opens like an app, offline.</li>
+          <li><b>Share any sheet as a link</b>; it opens live, or straight in the desktop app.</li>
+          <li><b>Export and import</b> plain .txt sheets, the desktop app's own format.</li>
+        </ul>
+        <p class="cta-row"><a class="btn primary" href="/app" target="_blank" rel="noopener">Open the web app <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a></p>
       </div>
     </div>
   </section>
@@ -445,6 +473,35 @@
 <span class="o">$1,450</span>
 <span class="o">$17,400</span></pre>
       </div>
+    </div>
+  </section>
+
+  <!-- Privacy -->
+  <section id="privacy">
+    <div class="wrap">
+      <div class="section-head center reveal">
+        <span class="kicker">// private by design</span>
+        <h2>Your sheets stay <em class="serif">yours</em>.</h2>
+        <p>No account, no cloud, no tracking in the app. What you write never leaves your device unless you send it.</p>
+      </div>
+      <div class="privacy reveal">
+        <article>
+          <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          <h3>On your computer</h3>
+          <p>Sheets are plain text files in a folder on your disk. Search them, sync them, back them up; they're yours.</p>
+        </article>
+        <article>
+          <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></svg>
+          <h3>In your browser</h3>
+          <p>The web app saves sheets in that browser, on that device. Nothing is uploaded, and there's no server that could see them.</p>
+        </article>
+        <article>
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>
+          <h3>In a share link</h3>
+          <p>The sheet rides after the <code>#</code>, the part of a link browsers never send to a server. Only people you give it to can read it.</p>
+        </article>
+      </div>
+      <p class="privacy-note reveal">The only things Omacus fetches are exchange rates, and on the desktop, a check for new versions. Both are anonymous.</p>
     </div>
   </section>
 
