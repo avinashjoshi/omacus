@@ -1,9 +1,10 @@
 //! The Omacus engine for JavaScript: the same code as the desktop app, compiled to
 //! WebAssembly for omacus.com/app. Results go back as JSON strings.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 
-use omacus_engine::{Engine, Kind, Rates, complete};
+use omacus_engine::{Engine, Kind, Rates, Sheet, complete};
 use serde_json::json;
 use wasm_bindgen::prelude::*;
 
@@ -19,6 +20,9 @@ extern "C" {
 pub struct Calc {
     engine: Engine,
     rates: Rates,
+    /// Each sheet's last calculation, so an edit redoes only the lines from the
+    /// first one that changed.
+    sheets: RefCell<HashMap<String, Sheet>>,
 }
 
 impl Default for Calc {
@@ -35,7 +39,11 @@ impl Calc {
         let engine = Engine::new(rates.clone());
         #[cfg(target_arch = "wasm32")]
         let engine = engine.with_clock(now);
-        Self { engine, rates }
+        Self {
+            engine,
+            rates,
+            sheets: RefCell::default(),
+        }
     }
 
     /// Exchange rates as `{"EUR": 0.92, ...}` (units per 1 USD). Returns whether
@@ -54,20 +62,18 @@ impl Calc {
     /// Every line's answer: `[{"kind": "value", "display": "$28", "color": null,
     /// "note": null}, ...]`, where `note` says why a line has no answer.
     pub fn evaluate(&self, text: &str) -> String {
-        let results: Vec<_> = self
-            .engine
-            .eval_document(text)
-            .into_iter()
-            .map(|r| {
-                json!({
-                    "kind": kind(&r.kind),
-                    "display": r.display,
-                    "color": r.color.map(|[r, g, b]| format!("#{r:02x}{g:02x}{b:02x}")),
-                    "note": r.note,
-                })
-            })
-            .collect();
-        serde_json::to_string(&results).unwrap_or_default()
+        to_json(self.engine.eval_document(text))
+    }
+
+    /// `evaluate`, reusing the last calculation of the sheet `id`.
+    #[wasm_bindgen(js_name = evaluateSheet)]
+    pub fn evaluate_sheet(&self, id: &str, text: &str) -> String {
+        let mut sheets = self.sheets.borrow_mut();
+        if sheets.len() > 32 && !sheets.contains_key(id) {
+            sheets.clear();
+        }
+        let sheet = sheets.entry(id.to_string()).or_default();
+        to_json(self.engine.eval_sheet(text, sheet))
     }
 
     /// The sheet with each answer lined up after its line.
@@ -135,6 +141,22 @@ pub fn variables(sheet: &str) -> String {
         .into_iter()
         .collect();
     serde_json::to_string(&vars).unwrap_or_default()
+}
+
+/// Answers as JSON for app.js.
+fn to_json(results: Vec<omacus_engine::LineResult>) -> String {
+    let results: Vec<_> = results
+        .into_iter()
+        .map(|r| {
+            json!({
+                "kind": kind(&r.kind),
+                "display": r.display,
+                "color": r.color.map(|[r, g, b]| format!("#{r:02x}{g:02x}{b:02x}")),
+                "note": r.note,
+            })
+        })
+        .collect();
+    serde_json::to_string(&results).unwrap_or_default()
 }
 
 #[cfg(test)]
