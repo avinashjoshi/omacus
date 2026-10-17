@@ -1227,28 +1227,31 @@ impl OmacusApp {
     fn sheet(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme.clone();
         let font = FontId::monospace(FONT_SIZE);
-        let (row_height, results_width) = ui.ctx().fonts_mut(|f| {
-            let widest = self
+        // Each line's answer width, swatch included, for placing it after the text.
+        let (row_height, answers) = ui.ctx().fonts_mut(|f| {
+            let answers: Vec<Option<f32>> = self
                 .results
                 .iter()
                 .map(|r| {
-                    let swatch = if r.color.is_some() {
-                        swatch_room(&font)
-                    } else {
-                        0.0
-                    };
-                    f.layout_no_wrap(r.display.clone(), font.clone(), Color32::WHITE)
-                        .size()
-                        .x
-                        + swatch
+                    (r.kind == Kind::Value && !r.display.is_empty()).then(|| {
+                        let swatch = if r.color.is_some() {
+                            swatch_room(&font)
+                        } else {
+                            0.0
+                        };
+                        f.layout_no_wrap(r.display.clone(), font.clone(), Color32::WHITE)
+                            .size()
+                            .x
+                            + swatch
+                    })
                 })
-                .fold(0.0, f32::max);
-            (f.row_height(&font), widest)
+                .collect();
+            (f.row_height(&font), answers)
         });
 
-        let full = ui.available_width();
-        let results_width = results_width.clamp(80.0, full * 0.45);
-        let editor_width = (full - results_width - GAP - SCROLLBAR_ROOM).max(120.0);
+        // Lines use the full width. An answer sits at the end of its line's last row,
+        // or, when that row leaves no room, on a row of its own just below.
+        let editor_width = (ui.available_width() - SCROLLBAR_ROOM).max(120.0);
         let min_rows = (ui.available_height() / row_height).floor().max(1.0) as usize;
 
         let sheet_id = self.store.current().id.clone();
@@ -1256,7 +1259,8 @@ impl OmacusApp {
         let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
             let mut job = highlight::layout(buf.as_str(), vars, &theme, font.clone());
             job.wrap.max_width = wrap_width;
-            ui.ctx().fonts_mut(|f| f.layout_job(job))
+            let galley = ui.ctx().fonts_mut(|f| f.layout_job(job));
+            make_room_for_answers(galley, &answers, wrap_width, row_height)
         };
 
         // One editor per sheet, so each keeps its own cursor and undo history.
@@ -1326,20 +1330,24 @@ impl OmacusApp {
             _ => self.popup = None,
         }
 
-        // Paint each result on the first visual row of its line.
+        // Paint each answer at the end of its line, or on the row made for it below.
         let right = ui.max_rect().right() - SCROLLBAR_ROOM;
         let origin = output.galley_pos;
         let mut line = 0;
-        let mut at_line_start = true;
-        for row in &output.galley.rows {
-            if at_line_start {
-                let y = origin.y + row.pos.y;
+        let rows = &output.galley.rows;
+        for (i, row) in rows.iter().enumerate() {
+            let last_of_line = row.ends_with_newline || i + 1 == rows.len();
+            if !last_of_line {
+                continue;
+            }
+            if let Some(Some(width)) = answers.get(line) {
+                let mut y = origin.y + row.pos.y;
+                if answer_drops(row.rect().max.x, *width, editor_width) {
+                    y += row_height;
+                }
                 self.paint_result(ui, line, right, y, row_height, &font);
             }
-            at_line_start = row.ends_with_newline;
-            if row.ends_with_newline {
-                line += 1;
-            }
+            line += 1;
         }
     }
 
@@ -1673,6 +1681,48 @@ fn install_fonts(ctx: &egui::Context) {
 }
 
 /// Width a colour swatch and its gap take beside a result.
+/// Whether an answer `width` wide no longer fits after a row ending at `row_end`.
+fn answer_drops(row_end: f32, width: f32, wrap_width: f32) -> bool {
+    row_end + GAP + width > wrap_width
+}
+
+/// Push rows down to make a row for each answer that doesn't fit beside its line.
+fn make_room_for_answers(
+    galley: Arc<egui::Galley>,
+    answers: &[Option<f32>],
+    wrap_width: f32,
+    row_height: f32,
+) -> Arc<egui::Galley> {
+    let mut drops = Vec::new();
+    let mut line = 0;
+    for (i, row) in galley.rows.iter().enumerate() {
+        if row.ends_with_newline || i + 1 == galley.rows.len() {
+            if let Some(Some(width)) = answers.get(line)
+                && answer_drops(row.rect().max.x, *width, wrap_width)
+            {
+                drops.push(i);
+            }
+            line += 1;
+        }
+    }
+    if drops.is_empty() {
+        return galley;
+    }
+    let mut galley = Arc::unwrap_or_clone(galley);
+    let mut shift = 0.0;
+    let mut next = drops.iter().peekable();
+    for (i, row) in galley.rows.iter_mut().enumerate() {
+        row.pos.y += shift;
+        if next.peek() == Some(&&i) {
+            next.next();
+            shift += row_height;
+        }
+    }
+    galley.rect.max.y += shift;
+    galley.mesh_bounds.max.y += shift;
+    Arc::new(galley)
+}
+
 fn swatch_room(font: &FontId) -> f32 {
     font.size * 0.8 + 8.0
 }

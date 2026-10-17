@@ -42,6 +42,7 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
         </button>
         <div class="menu-list" role="menu" hidden data-menu>
+          <button role="menuitem" data-action="share" class="phone-only">Share link</button>
           <button role="menuitem" data-action="copy">Copy with answers</button>
           <button role="menuitem" data-action="markdown">Copy as Markdown table</button>
           <button role="menuitem" data-action="open-app">Open in the desktop app</button>
@@ -54,6 +55,7 @@
           <hr>
           <button role="menuitem" data-action="install" hidden data-install>Install as an app</button>
           <a role="menuitem" href="/download/">Get the desktop app</a>
+          <button role="menuitem" data-action="privacy" class="phone-only">Private: saved on this device</button>
           <a role="menuitem" href="/privacy/">Privacy</a>
         </div>
       </div>
@@ -83,9 +85,7 @@
         <button class="icon-btn small" type="button" aria-label="Dismiss" data-action="dismiss-install">×</button>
       </div>
       <div class="editor" data-editor>
-        <div class="layer" aria-hidden="true"><div class="rows" data-rows></div></div>
-        <textarea data-text spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="Sheet"></textarea>
-        <ul class="suggest" role="listbox" hidden data-suggest></ul>
+        <div class="cm-host" data-text></div>
       </div>
       <p class="loading" data-loading>Loading the engine…</p>
     </main>
