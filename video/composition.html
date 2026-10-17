@@ -91,6 +91,42 @@ body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: ant
 #switcher .row small { color: #5f5f5f; font-size: 16px; }
 #scrim { position: absolute; inset: 0; background: rgba(0,0,0,.45); }
 
+/* Share and ⋯ above the sheet, as in the app */
+#winbar { position: absolute; top: 10px; right: 26px; display: flex; align-items: center; gap: 10px; font: 500 17px var(--sans); color: #6a6a6a; z-index: 2; }
+#winbar .share { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 8px; }
+#winbar svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+#winbar .dots { display: inline-flex; gap: 4px; padding: 6px 8px; }
+#winbar .dots i, #pill::after { display: block; }
+#winbar .dots i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+#pill::after { content: "•••"; position: absolute; right: 14px; top: 50%; transform: translateY(-52%); color: #7a7a7a; font: 600 15px var(--sans); letter-spacing: 1px; }
+#toast { position: absolute; right: 26px; top: 62px; padding: 16px 26px; border-radius: 14px; background: #1b1b1b; border: 1px solid #333;
+  box-shadow: 0 30px 60px -20px #000; font: 600 22px var(--sans); color: var(--text); white-space: nowrap; z-index: 3; }
+#toast span { color: var(--muted); font-weight: 500; }
+
+/* The phone, with omacus.com/app */
+#phone { display: flex; align-items: flex-start; justify-content: flex-end; padding: 46px 240px 0 0; }
+#phone .device { position: relative; width: 450px; height: 850px; border-radius: 70px; padding: 18px; background: #050505;
+  border: 2px solid #2c2c2c; box-shadow: 0 0 0 8px #141414, 0 60px 140px -30px rgba(0,0,0,.95), 0 40px 120px -50px rgba(240,161,42,.35); overflow: hidden; }
+#phone .device::before { content: ""; position: absolute; inset: 18px; border-radius: 54px; background: var(--app-bg); }
+#phone .device > * { position: relative; }
+#phone .island { position: absolute; left: 50%; top: 32px; width: 130px; height: 36px; margin-left: -65px; border-radius: 20px; background: #000; z-index: 2; }
+#phone .status { display: flex; justify-content: space-between; padding: 22px 40px 0; height: 66px; font: 600 19px var(--sans); color: var(--text); }
+#phone .appbar { display: flex; align-items: center; gap: 12px; height: 70px; padding: 0 16px; background: var(--app-side); border-bottom: 1px solid #222; }
+#phone .burger { display: grid; gap: 4px; padding: 10px 9px; border: 1px solid #2a2a2a; border-radius: 10px; }
+#phone .burger i { display: block; width: 18px; height: 2px; border-radius: 1px; background: #b8b6b1; }
+#phone .title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 500 15px var(--mono); color: var(--app-dim); }
+#phone .lock { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid #2a2a2a; border-radius: 50%; }
+#phone svg { width: 17px; height: 17px; fill: none; stroke: var(--app-dim); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#phone .btn { padding: 9px 14px; border-radius: 10px; background: var(--accent); color: #1a1104; font: 600 16px var(--sans); }
+#phone .lines { list-style: none; margin: 0; padding: 18px 20px; font: 400 16.5px/30px var(--mono); }
+#phone .lines li { display: flex; justify-content: space-between; gap: 14px; min-height: 30px; }
+#phone .lines .src { color: var(--app-fg); white-space: pre-wrap; word-break: break-word; }
+#phone .lines .res { flex: none; color: var(--app-accent); white-space: pre; }
+#phone .lines .caret { width: 2px; height: 20px; vertical-align: -4px; }
+#phone .url { position: absolute; left: 34px; right: 34px; bottom: 34px; display: flex; align-items: center; justify-content: center; gap: 8px; height: 54px;
+  border-radius: 18px; background: rgba(40,40,40,.92); font: 500 18px var(--sans); color: var(--text); }
+#phone .url svg { width: 15px; height: 15px; stroke: var(--text-2); }
+
 /* Keycaps */
 #keys { display: flex; align-items: flex-end; justify-content: center; padding-bottom: 170px; gap: 18px; }
 .key { min-width: 96px; height: 84px; padding: 0 24px; display: grid; place-items: center; border-radius: 16px;
@@ -110,7 +146,7 @@ body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: ant
 
 /* Platforms and install */
 #platforms { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 56px; }
-#platforms .icons { display: flex; gap: 120px; }
+#platforms .icons { display: flex; gap: 100px; }
 #platforms .os { display: flex; flex-direction: column; align-items: center; gap: 24px; font: 600 36px var(--display); color: var(--text-2); }
 #platforms svg { width: 120px; height: 120px; color: var(--text); }
 #platforms .cmd { font: 500 38px var(--mono); padding: 26px 40px; border-radius: 18px; background: linear-gradient(180deg, #151515, #0f0f0f);
@@ -179,7 +215,9 @@ body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: ant
         <div class="foot"><img src="/assets/icon-64.png" alt=""><span>omacus</span><span class="v" id="ver"></span><span class="q">?</span></div>
       </aside>
       <div id="main">
+        <div id="winbar"><span class="share"><svg viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 12v7h14v-7"/></svg>Share</span><span class="dots"><i></i><i></i><i></i></span></div>
         <ul id="lines"></ul>
+        <div id="toast">Link copied. <span>Anyone with it can open this sheet.</span></div>
         <div id="scrim"></div>
         <div id="switcher"><div class="q"></div><div class="rows"></div></div>
       </div>
@@ -188,6 +226,15 @@ body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: ant
 </div>
 
 <div id="keys" class="layer"></div>
+<div id="phone" class="layer">
+  <div class="device">
+    <div class="island"></div>
+    <div class="status"><span>9:41</span><span class="sig"></span></div>
+    <div class="appbar"><span class="burger"><i></i><i></i><i></i></span><span class="title">/ Kyoto in autumn</span><span class="lock"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span><span class="btn">Share link</span></div>
+    <ul class="lines"></ul>
+    <div class="url"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>omacus.com/app</div>
+  </div>
+</div>
 <div id="themes" class="layer"></div>
 <div id="platforms" class="layer"></div>
 
@@ -195,7 +242,7 @@ body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: ant
   <div class="mark"><div class="logo-svg"></div><span class="word">omacus</span></div>
   <div class="tag">Math, the way you <span class="serif">write</span> it.</div>
   <div class="url">omacus.com</div>
-  <div class="sub">Free and open source · Linux · macOS · Windows</div>
+  <div class="sub">Free and open source · Linux · macOS · Windows · Web</div>
 </div>
 
 <div id="wipe" class="layer"><div class="bar"></div></div>
