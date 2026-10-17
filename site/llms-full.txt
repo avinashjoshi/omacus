@@ -172,7 +172,7 @@ Convert a time between zones by abbreviation (`PST`, `EST`, `CET`, `JST`, `IST`�
 | `noon UTC in Sydney` | 11:00 PM AEDT |
 | `Standup 9:30am PST in Berlin` | 6:30 PM CEST |
 | `3pm PST on Dec 1 in London` | 11:00 PM GMT, Tue 1 Dec |
-| `9am PST tomorrow in Tokyo` | 1:00 AM JST, Sun 18 Oct |
+| `9am PST tomorrow in Tokyo` | 1:00 AM JST, Mon 19 Oct |
 | `3pm PST in IST` | 3:30 AM IST (next day) |
 
 For the current time somewhere, write `time in Tokyo` or `now in London`. A time without a zone means your local time: `3pm in London`.
@@ -256,7 +256,31 @@ The sidebar lists your sheets; a sheet's title is its first line. Create as many
 - **Deleting is safe.** Deleted sheets move to a `trash` folder next to your sheets; copy one back to restore it.
 - **Plain text.** Each sheet is a `.txt` file, so you can search, sync or back them up with anything.
 
-Right-click a sheet in the sidebar for *New sheet*, *Move up*, *Move down* and *Delete sheet*.
+Right-click a sheet in the sidebar for *New sheet*, *Move up*, *Move down*, *Copy with answers*, *Copy as Markdown table*, *Share link* and *Delete sheet*.
+
+## Sharing & the web app
+
+Any sheet can travel as a link. `Ctrl Shift L`, or *Share link* in a sheet's right-click menu, copies one like `omacus.com/app#v1.U1bwyS…`. Whoever opens it sees the sheet in [Omacus in the browser](https://omacus.com/app), with every answer worked out live by the same engine as the desktop app.
+
+- **The sheet is the link.** It's compressed into the part after `#`, which browsers never send to a server, so Omacus never sees or stores it. Anyone who has the link can read the sheet, so share it the way you'd share a document.
+- **Answers are recalculated when it's opened.** Currencies use that day's rates, and `today` or `days until` count from the day it's opened.
+
+- **Length.** A typical sheet makes a link of a few hundred characters. Past about 2,000, some email and SMS apps can cut a link off; past 8,000, some chat apps can too. Omacus tells you the length when it copies one. For a very long sheet, `Ctrl Shift M` copies it as a Markdown table instead.
+
+### Opening a link in the app
+
+A shared sheet opens as a new sheet (or switches to it, if you already have it):
+
+- On the web page, choose **Open in Omacus**. The installer and the macOS app register `omacus://` links, and Windows registers them the first time Omacus runs.
+- Paste a link into any sheet: it opens the shared sheet instead of pasting the text.
+
+- From a terminal: `omacus open 'https://omacus.com/app#v1.…'`.
+
+### The web app
+
+[omacus.com/app](https://omacus.com/app) is Omacus in any modern browser, on a computer or a phone, with nothing to install. Sheets you make there are saved in that browser on that device, and are never uploaded. Export them from the ⋯ menu as a `.zip` of `.txt` files, the same format as the desktop app's sheets folder, and import them anywhere.
+
+Chrome, Edge and Android can install it as an app (⋯ → *Install as an app*), and it works offline once opened. On iPhone and iPad, choose Share → *Add to Home Screen*: Safari otherwise clears a site's data after seven days without a visit.
 
 ## Keyboard shortcuts
 
@@ -275,6 +299,7 @@ On macOS, use `⌘` where this says `Ctrl`, and `⌥` for `Alt`.
 | `Ctrl Shift C` | Copy the last result |
 | `Ctrl Shift S` | Copy the whole sheet with its answers lined up (also in a sheet's right-click menu) |
 | `Ctrl Shift M` | Copy the sheet as a Markdown table, for Slack, GitHub or a doc (also in the right-click menu) |
+| `Ctrl Shift L` | Copy a share link to the sheet (see [Sharing](https://omacus.com/docs/#sharing)) |
 | `Ctrl Z` / `Ctrl Shift Z` | Undo / redo (each sheet has its own history) |
 | `Ctrl +` / `Ctrl −` / `Ctrl 0` | Zoom in / out / reset |
 | `F1` or `Ctrl /` | Help: shortcuts, live syntax examples, tips |
@@ -322,6 +347,7 @@ omacus - < ~/notes/budget.txt
 omacus  # no arguments: open the window
 omacus --version  # which version you have
 omacus update  # install the latest version
+omacus open '<share link>'  # open a shared sheet in the window
 ```
 
 A single expression exits with status 1 when there's no answer, which makes it easy to use in scripts. On Windows, `omacus.exe "..."` works the same from a terminal.
@@ -386,6 +412,10 @@ That's because Omacus isn't notarized by Apple yet. Install with the [one-line i
 ### Windows SmartScreen warns about an unknown publisher.
 
 Choose **More info → Run anyway**. The warning appears because the executable isn't code-signed yet.
+
+### Who can see a sheet I share?
+
+Anyone you give the link to. The sheet is inside the link itself, after the `#`, which browsers don't send to servers, so it isn't uploaded or stored anywhere. Don't share a link to a sheet you'd want kept private.
 
 ### Is my data sent anywhere?
 

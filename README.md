@@ -1,7 +1,7 @@
 # Omacus
 
 *Oh-mah-kus.* A notepad calculator for Omarchy, Linux, macOS and Windows.
-**[omacus.com](https://omacus.com)** · [Docs](https://omacus.com/docs/) · [Download](https://omacus.com/#download)
+**[omacus.com](https://omacus.com)** · [Try it in your browser](https://omacus.com/app) · [Docs](https://omacus.com/docs/) · [Download](https://omacus.com/download/)
 
 [![Watch Omacus in one minute](assets/video-thumb.jpg)](https://omacus.com/#video)
 
@@ -61,10 +61,26 @@ adds the notepad conventions on top.
 | `Alt+↑` / `Alt+↓` | Move sheet up / down |
 | `Ctrl+Shift+Delete` | Delete sheet (Undo appears; moved to `trash/`, not destroyed) |
 | `Ctrl+B` | Toggle the sidebar |
+| `Ctrl+Shift+L` | Copy a share link to the sheet |
 
 Right-click a sheet in the sidebar for the same actions. A sheet's title is its first line.
 Sheets are plain text in `~/.local/share/omacus/sheets/`; order, cursors and the sidebar
 state are in `~/.local/share/omacus/state.json`.
+
+### Sharing and the web app
+
+`Ctrl+Shift+L` (or *Share link* in a sheet's right-click menu) copies a link like
+`https://omacus.com/app#v1.…` that opens the sheet, live, in [Omacus in the browser](https://omacus.com/app).
+The sheet is compressed into the part after `#`, which browsers never send to a server, so it isn't
+uploaded anywhere; anyone with the link can read it.
+
+Open a shared sheet in the app with **Open in Omacus** on the web page (`omacus://` links are
+registered by the installer, the macOS app, and Windows on first run), by pasting the link into any
+sheet, or with `omacus open '<link>'`. It opens as a new sheet, or switches to it if you have it.
+
+The web app runs the same engine (`engine/`, compiled to WebAssembly from `web/`). Its sheets are
+saved in that browser; export and import them as a `.zip` of `.txt` files. It installs as an app
+and works offline.
 
 ### Autocomplete
 
@@ -78,6 +94,7 @@ omacus '$100 in EUR'
 printf 'a = 5\na * 3\n' | omacus -
 omacus --version
 omacus update        # install the latest version
+omacus open '<link>' # open a shared sheet
 ```
 
 ## Install

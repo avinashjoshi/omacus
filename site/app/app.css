@@ -257,6 +257,21 @@
   line-height: 1.5;
 }
 
+.ios-hint {
+  margin: 0 12px 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(240, 161, 42, 0.25);
+  border-radius: 9px;
+  background: var(--accent-glow);
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.ios-hint b {
+  color: var(--text);
+}
+
 /* ---------- Sheet ---------- */
 
 .sheet {
@@ -281,8 +296,12 @@
   color: var(--text);
 }
 
-.shared-banner .btn {
+.shared-banner .btn:first-of-type {
   margin-left: auto;
+}
+
+.toast a {
+  color: var(--accent-hi);
 }
 
 .btn.small {

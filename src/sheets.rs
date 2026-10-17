@@ -179,6 +179,21 @@ impl Store {
         }
     }
 
+    /// Open a shared sheet: the copy already here if there is one, else a new sheet.
+    /// Returns whether it was new.
+    pub fn open(&mut self, text: &str) -> bool {
+        match self.sheets.iter().position(|s| s.text == text) {
+            Some(i) => {
+                self.select(i);
+                false
+            }
+            None => {
+                self.new_sheet(text);
+                true
+            }
+        }
+    }
+
     /// New sheets go to the top of the list, like a notes app.
     pub fn new_sheet(&mut self, text: &str) {
         let sheet = Sheet {

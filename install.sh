@@ -115,6 +115,10 @@ install_linux() {
   if command -v update-desktop-database >/dev/null; then
     update-desktop-database "$DATA_DIR/applications" 2>/dev/null || true
   fi
+  # omacus:// share links ("Open in Omacus" on omacus.com/app) open the app.
+  if command -v xdg-mime >/dev/null; then
+    xdg-mime default omacus.desktop x-scheme-handler/omacus 2>/dev/null || true
+  fi
   echo "Installed omacus to $BIN_DIR"
 
   case ":$PATH:" in

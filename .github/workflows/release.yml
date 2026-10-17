@@ -144,6 +144,9 @@ jobs:
             out="$(arch "-$name" "$bin" --version)"
             echo "$name: $out"
             [[ "$out" == "omacus $version" ]]
+            # omacus:// share links open the app.
+            scheme="$(plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw "$mnt/Omacus.app/Contents/Info.plist")"
+            [[ "$scheme" == omacus ]] || { echo "Info.plist has no omacus:// scheme"; exit 1; }
             hdiutil detach -quiet "$mnt"
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

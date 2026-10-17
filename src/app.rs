@@ -73,6 +73,8 @@ enum SheetAction {
     Copy(usize),
     /// Copy a sheet as a Markdown table.
     CopyMarkdown(usize),
+    /// Copy a link that opens the sheet in a browser (or in Omacus).
+    Share(usize),
 }
 
 /// A message at the bottom of the window.
@@ -308,6 +310,20 @@ impl OmacusApp {
                 self.toast = Some(Toast::info("Sheet copied with answers"));
                 return;
             }
+            SheetAction::Share(i) => {
+                let link = omacus_engine::share::link(&self.store.sheets[i].text);
+                let note = match link.len() {
+                    n if n > 8000 => " (long: some apps may cut it off)",
+                    n if n > 2000 => " (fine for chat; some email and SMS may cut it)",
+                    _ => "",
+                };
+                self.toast = Some(Toast::info(format!(
+                    "Share link copied, {} characters{note}",
+                    link.len()
+                )));
+                self.ctx.copy_text(link);
+                return;
+            }
             SheetAction::CopyMarkdown(i) => {
                 let text = &self.store.sheets[i].text;
                 let results = self.engine.eval_document(text);
@@ -333,6 +349,18 @@ impl OmacusApp {
             .refresh_if_stale(move || repaint.request_repaint());
         let repaint = ctx.clone();
         self.updates.check_if_due(move || repaint.request_repaint());
+
+        // Share links from the command line, macOS, or a paste.
+        for text in crate::links::take() {
+            let new = self.store.open(&text);
+            self.toast = Some(Toast::info(if new {
+                "Opened the shared sheet"
+            } else {
+                "You already have this sheet; switched to it"
+            }));
+            self.sheet_switched();
+            ctx.send_viewport_cmd(ViewportCommand::Focus);
+        }
 
         let v = self.rates.version();
         // Re-evaluate when fresh rates land, and every minute so `now` stays current.
@@ -432,6 +460,17 @@ impl OmacusApp {
             if i.consume_key(cmd_shift, Key::M) {
                 action = Some(SheetAction::CopyMarkdown(self.store.active));
             }
+            if i.consume_key(cmd_shift, Key::L) {
+                action = Some(SheetAction::Share(self.store.active));
+            }
+            // A pasted share link opens its sheet instead of landing as text.
+            i.events.retain(|e| match e {
+                egui::Event::Paste(text) if omacus_engine::share::is_link(text) => {
+                    crate::links::push(omacus_engine::share::decode(text).unwrap_or_default());
+                    false
+                }
+                _ => true,
+            });
             if i.consume_key(cmd, Key::N) {
                 action = Some(SheetAction::New);
             }
@@ -1089,6 +1128,9 @@ impl OmacusApp {
                         }
                         if ui.button("Copy as Markdown table").clicked() {
                             action = Some(SheetAction::CopyMarkdown(i));
+                        }
+                        if ui.button("Share link").clicked() {
+                            action = Some(SheetAction::Share(i));
                         }
                         ui.separator();
                         if ui.button("Delete sheet").clicked() {

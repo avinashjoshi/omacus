@@ -68,6 +68,7 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
             ("Ctrl+Shift+C", "Copy the last result"),
             ("Ctrl+Shift+S", "Copy the sheet with its answers"),
             ("Ctrl+Shift+M", "Copy the sheet as a Markdown table"),
+            ("Ctrl+Shift+L", "Copy a share link to the sheet"),
         ],
     ),
     (
@@ -251,6 +252,10 @@ const TIPS: &[(&str, &str)] = &[
     (
         "Copy fast",
         "Click any result to copy it, or `Ctrl+Shift+C` for the last one, then paste anywhere.",
+    ),
+    (
+        "Share a sheet",
+        "`Ctrl+Shift+L` copies a link that opens the sheet, live, in any browser at omacus.com/app. The sheet is inside the link; nothing is uploaded. Paste a share link into a sheet to open it here.",
     ),
     (
         "Time zones",

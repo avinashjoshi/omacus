@@ -9,7 +9,9 @@ Key facts:
 - Examples: `6pm PST in Tokyo` gives `10:00 AM JST (next day)`; `3pm PST on Dec 1 in London` gives `11:00 PM GMT, Tue 1 Dec`; `15% off $1,299` gives `$1,104.15`; `3.5 km in miles` gives `2.17 miles`; `rate = $85/hour` then `rate * 30 hours` gives `$2,550`.
 - Works offline; the network is only used to refresh exchange rates and, on launch and every few hours, to check for a new version (which can be turned off). No account, no telemetry.
 - Updating: `omacus update`, the version at the bottom of the app's sidebar (a dot marks a new one), or Check for updates in About.
-- Command line: `omacus '$100 in INR'` prints one answer; `omacus -` evaluates a sheet from standard input.
+- Command line: `omacus '$100 in INR'` prints one answer; `omacus -` evaluates a sheet from standard input; `omacus open <link>` opens a shared sheet.
+- Web app: https://omacus.com/app runs the same engine in any browser (WebAssembly), saves sheets in the browser, installs as an app and works offline.
+- Sharing: Ctrl+Shift+L copies a link (https://omacus.com/app#v1.…) that carries the sheet after the "#", so it is never uploaded; it opens live in the browser or, with "Open in Omacus", in the desktop app.
 - On Omarchy it follows the active theme live, and the installer offers a Hyprland keybind (default Super+Ctrl+Alt+=) and a floating-window rule.
 - Written in Rust with egui; the math engine is fend. Author: Avinash Joshi.
 
