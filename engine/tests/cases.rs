@@ -19,8 +19,9 @@ fn engine() -> Engine {
 
 #[test]
 fn cases() {
-    let text = include_str!("cases.txt");
-    let body = text.split_once("\n---\n").map_or(text, |(_, rest)| rest);
+    // Git on Windows may check the file out with CRLF line endings.
+    let text = include_str!("cases.txt").replace("\r\n", "\n");
+    let body = text.split_once("\n---\n").map_or(text.as_str(), |(_, rest)| rest);
     let engine = engine();
     let mut failures = Vec::new();
     for sheet in body.split("\n---\n") {
