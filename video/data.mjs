@@ -25,6 +25,8 @@ const invoice = (rate) => [
 const data = {
   hook: sheet(["6pm PST in Tokyo"]),
   kyoto: sheet(demo("kyoto")),
+  // The shared Kyoto sheet on a phone, with one more line typed there.
+  phone: sheet([...demo("kyoto"), "each in AUD"]),
   quick: sheet([
     "# Quick math",
     "6pm PST in Tokyo",
