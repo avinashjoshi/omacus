@@ -2,6 +2,7 @@
 window.OMACUS_DEMO = [
  {
   "title": "Kyoto in autumn",
+  "link": "v1.Rc5NasMwEAXg_ZziQbIqhshgF2PIJs0PpKWUpF10OThqLCKPjKS05EC5SE5W2YV0N7zvDbwJni8uOhgBn-O5E5rNUODLGy2HkKGEmGMbA9Hajked9AHTPMsrRbuLO7HU91aS2_WxypRKxsai5xB0GF9u11KNsDQi2ocU5MUQJBu8pOgiW9LctJij9_obaQr9BWnf6mN3vzeLN6IXThNR1LnqO2z37wPsWbD2LI0JjaMnthat6zSq_8qr_sGn86df",
   "lines": [
    {
     "text": "# Kyoto in autumn",
@@ -67,6 +68,7 @@ window.OMACUS_DEMO = [
  },
  {
   "title": "Invoice — October",
+  "link": "v1.U1bwzCvLz0xOVXjUMEXBP7kkPym1iKsosSRVwVZBxdDUQD8jv7SIi8sltTgzPU-hKLUsM7VcwUwBJFqsoKUAUsnlVJqZk6JgbIQq6pyTmZpXopCcmJNTrGCiZ4oqW1yaVJJfkpgDtKa4NJerJLECyLLQszA3VVXIT1OASSPUaSsA1XAVAF2gkJmn4BoaBAA",
   "lines": [
    {
     "text": "# Invoice — October",
@@ -112,6 +114,7 @@ window.OMACUS_DEMO = [
  },
  {
   "title": "Standup times",
+  "link": "v1.U1YILknMSyktUCjJzE0t5rK0MjZIzFUICA5RyMxT8EstV4jML8pGE_bJz0vJz0MTdEotyslEFwzJz67MBwA",
   "lines": [
    {
     "text": "# Standup times",
@@ -137,6 +140,7 @@ window.OMACUS_DEMO = [
  },
  {
   "title": "Monthly budget",
+  "link": "v1.TY3BCsIwEETv-xUDxpM9xGBEC56LBy_-QaxrDbQbSbaF_r0BL15n3rzZ4JZE3-OKx_wcWClKnybGBebYOGuJ7izawuybk7fU5dRzjlxgDs5iB3P2dBXlLKx1Uol1qp0nTRpG-mReEAq2SC_81FTCEmUo9cLZv_wL",
   "lines": [
    {
     "text": "# Monthly budget",
@@ -182,6 +186,7 @@ window.OMACUS_DEMO = [
  },
  {
   "title": "Kitchen",
+  "link": "v1.U1bwzixJzkjN4zJSSC4tKFbIzFPIzeEyNjVQSEvMKErNy0jNLAEJJqfmFGeWFnMZ6Zkq5CSBRLLTuYwVSpKKCyB6AA",
   "lines": [
    {
     "text": "# Kitchen",
