@@ -108,12 +108,12 @@ More examples in the guide: [Convert units by just writing them](https://omacus.
 
 | You type | Omacus shows |
 |---|---|
-| `$30 in EUR` | 26.75 EUR |
-| `€50 + £20 in USD` | $82.60 |
-| `£250 in USD` | $331.54 |
-| `¥10,000 in USD` | $63.26 |
-| `CHF 300 in USD` | $362.19 |
-| `₹5,000 in USD` | $52.58 |
+| `$30 in EUR` | 26.69 EUR |
+| `€50 + £20 in USD` | $82.85 |
+| `£250 in USD` | $332.96 |
+| `¥10,000 in USD` | $63.29 |
+| `CHF 300 in USD` | $363.88 |
+| `₹5,000 in USD` | $52.57 |
 
 Rates above are from when this page was built.
 

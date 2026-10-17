@@ -40,4 +40,8 @@
     <loc>https://omacus.com/use-cases/</loc>
     <lastmod>{{lastmod}}</lastmod>
   </url>
+  <url>
+    <loc>https://omacus.com/download/</loc>
+    <lastmod>{{lastmod}}</lastmod>
+  </url>
 </urlset>

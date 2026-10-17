@@ -218,7 +218,7 @@
       <a href="/guides/">Guides</a>
       <a href="/docs/" class="keep">Docs</a>
       <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
-      <a class="btn primary" href="/#download"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>
+      <a class="btn primary" href="/download/"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>
     </nav>
   </div>
 </header>
@@ -244,11 +244,11 @@
         </div>
         <div class="os-panel" data-panel="mac" hidden>
           <div class="cmd"><span class="prompt">$</span><code>curl -fsSL https://omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL https://omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
-          <div class="install-alt"><span>Installs Omacus.app, no security prompt</span><a href="/mac">or download the .dmg</a></div>
+          <div class="install-alt"><span>Installs Omacus.app, no security prompt</span><a href="/download/#mac">or download the .dmg</a></div>
         </div>
         <div class="os-panel" data-panel="windows" hidden>
           <div class="dl-row">
-            <a class="btn primary" href="/windows"><svg aria-hidden="true"><use href="/img/sprite.svg#windows"/></svg>Download for Windows</a>
+            <a class="btn primary" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64.zip"><svg aria-hidden="true"><use href="/img/sprite.svg#windows"/></svg>Download for Windows</a>
             <a class="btn" href="/docs/#windows">Install notes</a>
           </div>
           <div class="install-alt"><span>Unzip and run omacus.exe · 64-bit</span></div>
@@ -306,7 +306,7 @@
         <article class="feature">
           <h3>Currencies</h3>
           <p>160+ currencies with live exchange rates, cached so it keeps working offline. Symbols or codes, your call.</p>
-          <div class="eg"><div><span>$30 in EUR</span><b>26.75 EUR</b></div><div><span>£250 in USD</span><b>$331.54</b></div></div>
+          <div class="eg"><div><span>$30 in EUR</span><b>26.69 EUR</b></div><div><span>£250 in USD</span><b>$332.96</b></div></div>
         </article>
         <article class="feature">
           <h3>Time zones</h3>
@@ -482,35 +482,38 @@
       </div>
 
       <div class="downloads reveal">
-        <article class="dl">
+        <article class="dl" id="omarchy">
           <header><svg aria-hidden="true"><use href="/img/sprite.svg#archlinux"/></svg><h3>Omarchy <small>&amp; Arch</small></h3></header>
           <p>Installs the app, then offers a keybind (<kbd>Super Ctrl Alt =</kbd> by default, checked against yours) and a floating window.</p>
           <div class="cmd"><span class="prompt">$</span><code>curl -fsSL https://omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL https://omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
           <p class="note">Colors follow your Omarchy theme automatically.</p>
         </article>
 
-        <article class="dl">
+        <article class="dl" id="mac">
           <header><svg aria-hidden="true"><use href="/img/sprite.svg#apple"/></svg><h3>macOS <small>Apple Silicon &amp; Intel</small></h3></header>
-          <p>The one-liner installs <code>Omacus.app</code> into Applications and opens without a security prompt.</p>
+          <p>The one-liner picks the build for your Mac's chip, installs <code>Omacus.app</code> into Applications and opens without a security prompt.</p>
           <div class="cmd"><span class="prompt">$</span><code>curl -fsSL https://omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL https://omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
-          <div class="links"><a class="btn" href="/mac"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download .dmg</a></div>
-          <p class="note">From the .dmg, macOS asks once: open the app, then <b>System Settings → Privacy &amp; Security → Open Anyway</b>.</p>
+          <div class="links">
+            <a class="btn" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-macos-arm64.dmg" data-arch="arm64"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Apple Silicon .dmg</a>
+            <a class="btn" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-macos-x86_64.dmg" data-arch="x86_64"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Intel .dmg</a>
+          </div>
+          <p class="note">Not sure which? Apple menu → About This Mac shows the chip. From a .dmg, macOS asks once: open the app, then <b>System Settings → Privacy &amp; Security → Open Anyway</b>.</p>
         </article>
 
-        <article class="dl">
+        <article class="dl" id="windows">
           <header><svg aria-hidden="true"><use href="/img/sprite.svg#windows"/></svg><h3>Windows <small>64-bit</small></h3></header>
-          <p>A single portable <code>omacus.exe</code>. Unzip it anywhere and run it; pin it to Start if you like.</p>
-          <div class="links"><a class="btn primary" href="/windows"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download .zip</a></div>
+          <p>A single portable <code>omacus.exe</code>. Unzip it anywhere and run it; pin it to Start if you like. It updates itself.</p>
+          <div class="links"><a class="btn primary" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64.zip"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download .zip</a></div>
           <p class="note">If SmartScreen warns about an unknown publisher, choose <b>More info → Run anyway</b>.</p>
         </article>
 
-        <article class="dl">
+        <article class="dl" id="linux">
           <header><svg aria-hidden="true"><use href="/img/sprite.svg#linux"/></svg><h3>Other Linux <small>x86_64</small></h3></header>
           <p>The same one-liner works on any distribution, or use a package:</p>
           <div class="links">
-            <a class="btn" href="/deb"><svg aria-hidden="true"><use href="/img/sprite.svg#ubuntu"/></svg>.deb</a>
-            <a class="btn" href="/rpm"><svg aria-hidden="true"><use href="/img/sprite.svg#fedora"/></svg>.rpm</a>
-            <a class="btn" href="/linux"><svg aria-hidden="true"><use href="/img/sprite.svg#terminal"/></svg>.tar.gz</a>
+            <a class="btn" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.deb"><svg aria-hidden="true"><use href="/img/sprite.svg#ubuntu"/></svg>.deb</a>
+            <a class="btn" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.rpm"><svg aria-hidden="true"><use href="/img/sprite.svg#fedora"/></svg>.rpm</a>
+            <a class="btn" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.tar.gz"><svg aria-hidden="true"><use href="/img/sprite.svg#terminal"/></svg>.tar.gz</a>
           </div>
           <p class="note">Ubuntu: <code>sudo apt install ./omacus-linux-x86_64.deb</code> · Fedora: <code>sudo dnf install ./omacus-linux-x86_64.rpm</code></p>
         </article>

@@ -4,7 +4,7 @@
 
 Key facts:
 
-- Install on Linux or macOS: `curl -fsSL https://omacus.com/install | bash`. Windows: a portable `omacus.exe` from https://omacus.com/windows.
+- Install on Linux or macOS: `curl -fsSL https://omacus.com/install | bash`. Windows: a portable `omacus.exe` from https://omacus.com/download/. All downloads: https://omacus.com/download/
 - Packages: .deb (Ubuntu, Debian), .rpm (Fedora, openSUSE), .tar.gz (any x86_64 Linux), .dmg for Apple Silicon or Intel, .zip (64-bit Windows).
 - Examples: `6pm PST in Tokyo` gives `10:00 AM JST (next day)`; `3pm PST on Dec 1 in London` gives `11:00 PM GMT, Tue 1 Dec`; `15% off $1,299` gives `$1,104.15`; `3.5 km in miles` gives `2.17 miles`; `rate = $85/hour` then `rate * 30 hours` gives `$2,550`.
 - Works offline; the network is only used to refresh exchange rates and, on launch and every few hours, to check for a new version (which can be turned off). No account, no telemetry.

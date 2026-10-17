@@ -64,7 +64,7 @@ install_macos() {
     app="$HOME/Applications/Omacus.app"
   fi
   if [[ ! -w "$(dirname "$app")" ]]; then
-    echo "No permission to install Omacus in $(dirname "$app"). Download it from https://omacus.com/mac" >&2
+    echo "No permission to install Omacus in $(dirname "$app"). Download it from https://omacus.com/download/#mac" >&2
     exit 1
   fi
 

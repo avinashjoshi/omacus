@@ -138,7 +138,7 @@
       <a href="/guides/">Guides</a>
       <a href="/docs/" class="keep" aria-current="page">Docs</a>
       <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
-      <a class="btn primary" href="/#download"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>
+      <a class="btn primary" href="/download/"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>
     </nav>
   </div>
 </header>
@@ -184,12 +184,12 @@
     <h3 id="linux">Omarchy, Arch and any Linux</h3>
     <pre>curl -fsSL https://omacus.com/install | bash</pre>
     <p>This installs Omacus for your user (no root) into <code>~/.local/bin</code>, with a launcher entry and icon. On Omarchy it then asks whether to add a keybind and a floating-window rule; see <a href="#omarchy">Omarchy &amp; Hyprland</a>.</p>
-    <p>Prefer a package? <a href="/deb">.deb</a> for Ubuntu and Debian (<code>sudo apt install ./omacus-linux-x86_64.deb</code>), <a href="/rpm">.rpm</a> for Fedora and openSUSE (<code>sudo dnf install ./omacus-linux-x86_64.rpm</code>), or the <a href="/linux">.tar.gz</a> with an <code>install.sh</code> inside. Prebuilt Linux binaries are x86_64; on ARM, <a href="#contributing">build from source</a>.</p>
+    <p>Prefer a package? <a href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.deb">.deb</a> for Ubuntu and Debian (<code>sudo apt install ./omacus-linux-x86_64.deb</code>), <a href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.rpm">.rpm</a> for Fedora and openSUSE (<code>sudo dnf install ./omacus-linux-x86_64.rpm</code>), or the <a href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.tar.gz">.tar.gz</a> with an <code>install.sh</code> inside. Prebuilt Linux binaries are x86_64; on ARM, <a href="#contributing">build from source</a>.</p>
 
     <h3 id="mac">macOS</h3>
     <pre>curl -fsSL https://omacus.com/install | bash</pre>
     <p>Installs <code>Omacus.app</code> into <code>/Applications</code> (or <code>~/Applications</code>) and links the command-line tool at <code>~/.local/bin/omacus</code>. Apps installed this way open without a security prompt.</p>
-    <p>You can also <a href="/mac">download the .dmg</a> and drag Omacus to Applications. Omacus isn't notarized by Apple yet, so the first time macOS blocks it:</p>
+    <p>You can also <a href="/download/#mac">download the .dmg</a> for your Mac's chip and drag Omacus to Applications. Omacus isn't notarized by Apple yet, so the first time macOS blocks it:</p>
     <ol>
       <li>Open Omacus once. macOS says it can't verify it; click <strong>Done</strong>.</li>
       <li>Open <strong>System Settings → Privacy &amp; Security</strong>, scroll down, and click <strong>Open Anyway</strong> next to Omacus.</li>
@@ -197,7 +197,7 @@
     <p>Or in Terminal: <code>xattr -dr com.apple.quarantine /Applications/Omacus.app</code>. You only do this once.</p>
 
     <h3 id="windows">Windows</h3>
-    <p><a href="/windows">Download the .zip</a>, unzip it anywhere (for example <code>%LOCALAPPDATA%\Programs\Omacus</code>) and run <code>omacus.exe</code>. It's a single portable file. If SmartScreen warns about an unknown publisher, choose <strong>More info → Run anyway</strong>. Right-click it to <strong>Pin to Start</strong>; a shortcut's Properties let you set a global shortcut key.</p>
+    <p><a href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64.zip">Download the .zip</a>, unzip it anywhere (for example <code>%LOCALAPPDATA%\Programs\Omacus</code>) and run <code>omacus.exe</code>. It's a single portable file. If SmartScreen warns about an unknown publisher, choose <strong>More info → Run anyway</strong>. Right-click it to <strong>Pin to Start</strong>; a shortcut's Properties let you set a global shortcut key.</p>
 
     <!-- ===================================================== First sheet -->
     <h3 id="updating">Updating</h3>
@@ -273,12 +273,12 @@ total</pre>
   <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
     <tbody>
-      <tr><td><code>$30 in EUR</code></td><td class="ans">26.75 EUR</td></tr>
-      <tr><td><code>€50 + £20 in USD</code></td><td class="ans">$82.60</td></tr>
-      <tr><td><code>£250 in USD</code></td><td class="ans">$331.54</td></tr>
-      <tr><td><code>¥10,000 in USD</code></td><td class="ans">$63.26</td></tr>
-      <tr><td><code>CHF 300 in USD</code></td><td class="ans">$362.19</td></tr>
-      <tr><td><code>₹5,000 in USD</code></td><td class="ans">$52.58</td></tr>
+      <tr><td><code>$30 in EUR</code></td><td class="ans">26.69 EUR</td></tr>
+      <tr><td><code>€50 + £20 in USD</code></td><td class="ans">$82.85</td></tr>
+      <tr><td><code>£250 in USD</code></td><td class="ans">$332.96</td></tr>
+      <tr><td><code>¥10,000 in USD</code></td><td class="ans">$63.29</td></tr>
+      <tr><td><code>CHF 300 in USD</code></td><td class="ans">$363.88</td></tr>
+      <tr><td><code>₹5,000 in USD</code></td><td class="ans">$52.57</td></tr>
     </tbody>
   </table>
   <!-- /ex -->
