@@ -354,7 +354,7 @@ let frame = 0;
 function evaluate() {
   cancelAnimationFrame(frame);
   frame = requestAnimationFrame(() => {
-    results = calc ? JSON.parse(calc.evaluate(view.state.doc.toString())) : [];
+    results = calc ? JSON.parse(calc.evaluateSheet(state.active ?? "", view.state.doc.toString())) : [];
     view.dispatch({ effects: setResults.of(results) });
   });
 }
