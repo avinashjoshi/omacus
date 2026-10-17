@@ -259,21 +259,33 @@
         </div>
       </div>
 
-      <p class="try-web"><a href="/app" target="_blank" rel="noopener">Or try it in your browser <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a></p>
+      <div class="try-web">
+        <span class="or">or</span>
+        <a class="web-app-link" href="/app" target="_blank" rel="noopener">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg>
+          <span><b>Open the web app</b><small>Runs in your browser. Nothing to install.</small></span>
+          <svg class="arrow" aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg>
+        </a>
+      </div>
 
       <div class="stage" data-stage>
-        <div class="window" aria-label="Omacus, showing a sheet being typed with results appearing on the right" role="img">
+        <div class="modes" role="group" aria-label="Demo">
+          <button type="button" data-mode="watch" aria-pressed="true"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>Watch</button>
+          <button type="button" data-mode="try" aria-pressed="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13 7l4 4"/></svg>Try it yourself</button>
+        </div>
+        <div class="window" aria-label="Omacus, showing a sheet being typed with results appearing on the right">
           <aside class="win-side" aria-hidden="true">
             <div class="side-head"><span>SHEETS</span><span>+</span></div>
             <div data-sheets></div>
             <div class="side-foot">?  Help &amp; shortcuts   F1</div>
           </aside>
-          <div class="win-main" aria-hidden="true">
-            <ul class="win-lines" data-lines></ul>
-            <div class="popup" data-popup></div>
+          <div class="win-main">
+            <div class="win-bar" aria-hidden="true"><span class="win-share">Share</span><span class="win-dots">···</span></div>
+            <ul class="win-lines" data-lines aria-hidden="true"></ul>
+            <div class="popup" data-popup aria-hidden="true"></div>
           </div>
         </div>
-        <p class="stage-caption">A live replay with real answers from the Omacus engine.</p>
+        <p class="stage-caption" data-caption>A replay with real answers from the Omacus engine.</p>
       </div>
     </div>
   </section>
@@ -501,7 +513,7 @@
           <p>The sheet rides after the <code>#</code>, the part of a link browsers never send to a server. Only people you give it to can read it.</p>
         </article>
       </div>
-      <p class="privacy-note reveal">The only things Omacus fetches are exchange rates, and on the desktop, a check for new versions. Both are anonymous.</p>
+      <p class="privacy-note reveal">The only things Omacus fetches are exchange rates, and on the desktop, a check for new versions. Neither carries anything you've written. <a href="/privacy/">All of it, in plain words</a></p>
     </div>
   </section>
 
@@ -578,6 +590,7 @@
       <a href="/docs/">Docs</a>
       <a href="/guides/">Guides</a>
       <a href="/use-cases/">Use cases</a>
+      <a href="/privacy/">Privacy</a>
       <a href="https://github.com/avinashjoshi/omacus/releases">Releases</a>
       <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">Report an issue</a>
       <a href="https://github.com/avinashjoshi/omacus">GitHub</a>

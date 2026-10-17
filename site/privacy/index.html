@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy: what Omacus does with your data (nothing)</title>
+  <meta name="description" content="Omacus keeps your sheets on your device. No account, no analytics in the app; the only requests are exchange rates and a check for new versions. Here is all of it, in plain words.">
+  <meta name="author" content="Avinash Joshi">
+  <link rel="canonical" href="https://omacus.com/privacy/">
+  <meta name="theme-color" content="#090909">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Omacus">
+  <meta property="og:url" content="https://omacus.com/privacy/">
+  <meta property="og:title" content="Privacy">
+  <meta property="og:description" content="Omacus keeps your sheets on your device. No account, no analytics in the app; the only requests are exchange rates and a check for new versions. Here is all of it, in plain words.">
+  <meta property="og:image" content="https://omacus.com/img/og.png?v=2">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Privacy">
+  <meta name="twitter:description" content="Omacus keeps your sheets on your device. No account, no analytics in the app; the only requests are exchange rates and a check for new versions. Here is all of it, in plain words.">
+  <meta name="twitter:image" content="https://omacus.com/img/og.png?v=2">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/img/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/inter-tight-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/site.css">
+  <script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "WebPage",
+   "@id": "https://omacus.com/privacy/#page",
+   "headline": "Privacy",
+   "description": "Omacus keeps your sheets on your device. No account, no analytics in the app; the only requests are exchange rates and a check for new versions. Here is all of it, in plain words.",
+   "url": "https://omacus.com/privacy/",
+   "inLanguage": "en",
+   "dateModified": "{{lastmod}}",
+   "author": {
+    "@type": "Person",
+    "@id": "https://omacus.com/#author",
+    "name": "Avinash Joshi",
+    "url": "https://github.com/avinashjoshi"
+   },
+   "publisher": {
+    "@type": "Person",
+    "@id": "https://omacus.com/#author",
+    "name": "Avinash Joshi",
+    "url": "https://github.com/avinashjoshi"
+   },
+   "about": {
+    "@type": "SoftwareApplication",
+    "@id": "https://omacus.com/#app",
+    "name": "Omacus"
+   },
+   "image": "https://omacus.com/img/og.png?v=2"
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Omacus",
+     "item": "https://omacus.com/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Privacy",
+     "item": "https://omacus.com/privacy/"
+    }
+   ]
+  }
+ ]
+}
+  </script>
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="28" height="28">omacus</a>
+    <nav class="nav" aria-label="Main">
+      <div class="nav-links" id="site-nav">
+        <a href="/#features">Features</a>
+        <a href="/use-cases/">Use cases</a>
+        <a href="/guides/">Guides</a>
+        <a href="/docs/">Docs</a>
+        <a href="/app">Web app</a>
+        <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+      </div>
+      <a class="btn primary" href="/download/"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>
+      <button class="menu-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="Menu"><span></span><span></span><span></span></button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap page has-toc">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="/">Omacus</a></nav>
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <a href="#desktop">The desktop app</a>
+    <a href="#web-app">The web app</a>
+    <a href="#share-links">Share links</a>
+    <a href="#website">This website</a>
+    <a href="#terms">Terms</a>
+    <a href="#changes">Changes and questions</a>
+  </nav>
+  <article class="prose page-body">
+    <span class="kicker">// privacy</span>
+    <h1>Privacy</h1>
+    <p class="lead">Omacus has no account, no ads and no analytics, and your sheets never leave your device unless you share them. This page lists everything Omacus sends over the network, and why.</p>
+<h2 id="desktop">The desktop app</h2>
+    <ul>
+      <li><strong>Your sheets</strong> are plain text files in a folder on your computer (see <a href="/docs/#files">where files live</a>). They are never uploaded.</li>
+      <li><strong>Exchange rates.</strong> Omacus downloads the latest rates from <a href="https://www.exchangerate-api.com/docs/free">open.er-api.com</a> at most every 12 hours while you use it, and keeps them on disk so currency math works offline. The request carries nothing from your sheets.</li>
+      <li><strong>Checking for updates.</strong> Omacus asks GitHub for the latest version number when it starts (at most once an hour) and every 4 hours while it's open. Put <code>check_for_updates = false</code> in <code>settings.toml</code> to turn that off. A new version is downloaded, from GitHub, only when you choose <em>Update now</em> or run <code>omacus update</code>.</li>
+      <li><strong>Nothing else.</strong> No telemetry, no crash reports, no usage statistics.</li>
+    </ul>
+
+    <h2 id="web-app">The web app</h2>
+    <ul>
+      <li><strong>Your sheets</strong> are saved in your browser's storage, on that device. They are never sent to omacus.com or anywhere else. Clearing the site's data in your browser deletes them, so export a copy (⋯ menu) if they matter.</li>
+      <li><strong>Exchange rates</strong> come from the same source as the desktop app, kept in the browser for 12 hours.</li>
+      <li><strong>The app itself</strong> is downloaded from omacus.com and cached so it works offline.</li>
+    </ul>
+
+    <h2 id="share-links">Share links</h2>
+    <p>A share link carries the sheet inside it, compressed into the part after the <code>#</code>. Browsers never send that part to a server, so omacus.com doesn't receive your sheet when someone opens the link.</p>
+    <p>Anyone who has the link can read the sheet, so treat it like the sheet itself. Chat apps that show link previews may store the whole link on their servers.</p>
+
+    <h2 id="website">This website</h2>
+    <p>omacus.com is static pages, hosted on GitHub Pages behind Cloudflare. Like any host, they handle your IP address and a log of requests to serve the pages. Cloudflare counts visits without cookies. There are no cookies, ads or third-party trackers, and the fonts are served from omacus.com itself.</p>
+
+    <h2 id="terms">Terms</h2>
+    <p>Omacus is free and open source under the <a href="https://github.com/avinashjoshi/omacus/blob/main/LICENSE">MIT license</a>, which is the whole agreement: use it for anything, and it comes as is, without warranty. Double-check numbers that matter, such as taxes, invoices and medicine doses, and remember that exchange rates are a day's mid-market rate, not what your bank charges.</p>
+
+    <h2 id="changes">Changes and questions</h2>
+    <p>If what Omacus sends ever changes, this page changes first; its history is public in the <a href="https://github.com/avinashjoshi/omacus/commits/main/site/tools/pages/privacy.html">source repository</a>. Questions are welcome as a <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">GitHub issue</a>.</p>
+  </article>
+
+  <section class="related" aria-labelledby="related">
+    <h2 id="related">Keep reading</h2>
+    <div class="guide-cards">
+      <a class="guide-card" href="/docs/"><b>Docs</b><span>Every rule, shortcut and setting on one page.</span></a>
+      <a class="guide-card" href="/use-cases/"><b>Use cases</b><span>Seven real sheets: trips, invoices, budgets, recipes and more.</span></a>
+    </div>
+  </section>
+
+  <div class="cta">
+    <h2>Try it on your own <em class="serif">numbers</em>.</h2>
+    <p>Free for Linux, macOS and Windows. One command, and Omacus is a keystroke away.</p>
+    <div class="cmd"><span class="prompt">$</span><code>curl -fsSL https://omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL https://omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
+    <div class="dl-row"><a class="btn" href="/#download"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>All downloads</a><a class="btn" href="/docs/"><svg aria-hidden="true"><use href="/img/sprite.svg#book"/></svg>Read the docs</a></div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="24" height="24">omacus</a>
+    <span>MIT licensed · made for Omarchy, at home everywhere</span>
+    <nav aria-label="Footer">
+      <a href="/docs/">Docs</a>
+      <a href="/guides/">Guides</a>
+      <a href="/use-cases/">Use cases</a>
+      <a href="/privacy/">Privacy</a>
+      <a href="https://github.com/avinashjoshi/omacus/releases">Releases</a>
+      <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">Report an issue</a>
+      <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="/js/site.js"></script>
+</body>
+</html>

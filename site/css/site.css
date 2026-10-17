@@ -949,6 +949,120 @@ em.serif,
   color: var(--app-accent);
 }
 
+/* The desktop app's Share and ⋯ above the sheet. */
+.win-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  margin: -10px -6px 6px 0;
+  color: var(--app-comment);
+  font: 500 12px var(--sans);
+}
+
+.win-dots {
+  letter-spacing: 1px;
+}
+
+.modes svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.win-side .sheet {
+  cursor: pointer;
+}
+
+.win-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--app-bg);
+  animation: frame-in 0.5s ease both;
+}
+
+@keyframes frame-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.stage.live .win-bar {
+  display: none;
+}
+
+/* Watch / Try it yourself, above the window. */
+.modes {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  gap: 2px;
+  margin: 0 auto 18px;
+  padding: 4px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: rgba(16, 16, 16, 0.8);
+  backdrop-filter: blur(8px);
+}
+
+.modes button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: 500 14px var(--sans);
+  cursor: pointer;
+  transition: background 0.25s, color 0.25s, box-shadow 0.25s;
+}
+
+.modes button:hover {
+  color: var(--text);
+}
+
+.modes button[aria-pressed="true"] {
+  background: var(--panel-2);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--line-2);
+}
+
+.modes button[data-mode="try"][aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: 0 8px 24px -8px rgba(240, 161, 42, 0.6);
+}
+
+/* While the replay plays, Try it yourself glows now and then to be noticed. */
+.stage:not(.live) .modes button[data-mode="try"] {
+  color: var(--accent-hi);
+  animation: try-glow 3.2s ease-in-out 2s infinite;
+}
+
+@keyframes try-glow {
+  50% {
+    box-shadow: 0 0 0 1px rgba(240, 161, 42, 0.5), 0 0 22px -4px rgba(240, 161, 42, 0.55);
+  }
+}
+
+.modes svg {
+  width: 14px;
+  height: 14px;
+}
+
+.modes button[data-mode="watch"] svg {
+  fill: currentColor;
+  stroke: none;
+}
+
 .stage-caption {
   margin-top: 18px;
   color: var(--faint);
@@ -1597,27 +1711,92 @@ kbd {
   }
 }
 
-/* "Or try it in your browser" under the hero's installer. */
+/* "or Open the web app" under the hero's installer. */
 .try-web {
-  margin: 18px 0 0;
-  text-align: center;
-  font-size: 14.5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin: 26px 0 0;
 }
 
-.try-web a {
+.try-web .or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(340px, 80%);
+  color: var(--faint);
+  font: 500 12px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.try-web .or::before,
+.try-web .or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line-2);
+}
+
+.web-app-link {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: var(--accent-hi);
+  gap: 14px;
+  padding: 12px 18px 12px 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  background: var(--bg-raise);
+  color: var(--text);
+  text-align: left;
+  text-decoration: none;
+  transition: border-color 0.2s, background 0.2s, transform 0.2s;
 }
 
-.try-web svg {
+.web-app-link:hover {
+  border-color: rgba(240, 161, 42, 0.5);
+  background: var(--panel);
+  transform: translateY(-1px);
+}
+
+.web-app-link > svg:first-child {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 7px;
+  border-radius: 9px;
+  background: var(--accent-glow);
+  fill: none;
+  stroke: var(--accent-hi);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.web-app-link span {
+  display: grid;
+  gap: 1px;
+}
+
+.web-app-link b {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.web-app-link small {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.web-app-link .arrow {
   width: 15px;
   height: 15px;
+  margin-left: 6px;
+  color: var(--accent-hi);
   transition: transform 0.2s;
 }
 
-.try-web a:hover svg {
+.web-app-link:hover .arrow {
   transform: translateX(3px);
 }
 

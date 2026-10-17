@@ -560,6 +560,55 @@
   cursor: pointer;
 }
 
+/* ---------- Embedded in the homepage ---------- */
+
+.app-page.embed {
+  --bar: 0px;
+}
+
+.app-page.embed .bar,
+.app-page.embed .side {
+  display: none;
+}
+
+.app-page.embed .workspace {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.embed-open {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: rgba(13, 13, 13, 0.85);
+  backdrop-filter: blur(8px);
+  color: var(--text-2);
+  font: 500 13px var(--sans);
+  text-decoration: none;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.embed-open:hover {
+  color: var(--accent-hi);
+  border-color: rgba(240, 161, 42, 0.4);
+}
+
+.embed-open svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 /* ---------- Phones ---------- */
 
 @media (max-width: 760px) {

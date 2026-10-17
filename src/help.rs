@@ -549,12 +549,32 @@ fn about(
     });
     ui.add_space(26.0);
 
+    // What Omacus keeps and sends; the long version is omacus.com/privacy.
+    ui.label(
+        RichText::new("Private by design")
+            .size(14.0)
+            .color(theme.foreground),
+    );
+    ui.add_space(6.0);
+    ui.label(
+        RichText::new(
+            "Your sheets stay on this computer, as plain text files. There's no account and \
+             no tracking. Omacus goes online for two things only: exchange rates, about \
+             twice a day and saved for offline use, and checking GitHub for a new version. \
+             Neither sends anything you've written.",
+        )
+        .size(13.5)
+        .color(theme.dim),
+    );
+    ui.add_space(26.0);
+
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(18.0, 6.0);
         for (label, url) in [
             ("Website", SITE.to_string()),
             ("Docs", format!("{SITE}/docs/")),
             ("Releases", update::RELEASES_URL.to_string()),
+            ("Privacy", format!("{SITE}/privacy/")),
             ("Report an issue", format!("{REPO}/issues/new/choose")),
             ("Source code", REPO.to_string()),
         ] {
