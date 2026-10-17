@@ -1,3 +1,6 @@
+[workspace]
+members = ["engine"]
+
 [package]
 name = "omacus"
 version = "0.1.9"
@@ -11,14 +14,11 @@ repository = "https://github.com/avinashjoshi/omacus"
 homepage = "https://github.com/avinashjoshi/omacus"
 
 [dependencies]
-chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
-chrono-tz = "0.10.4"
+omacus-engine = { path = "engine" }
 dirs = "7.0.0"
 eframe = { version = "0.37.0", default-features = false, features = ["glow", "wayland", "x11", "clipboard", "links"] }
-fend-core = "1.5.8"
 miniz_oxide = "0.8"
 image = { version = "0.25", default-features = false, features = ["png"] }
-regex = { version = "1.13.1", default-features = false, features = ["std", "perf", "unicode-perl", "unicode-case"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11"

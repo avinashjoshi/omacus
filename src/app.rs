@@ -11,14 +11,13 @@ use eframe::egui::{
     Margin, Modifiers, Order, Pos2, Rect, Sense, TextEdit, Vec2, ViewportCommand, pos2, vec2,
 };
 
-use crate::complete;
-use crate::engine::{self, Engine, Kind, LineResult};
 use crate::help;
 use crate::highlight;
 use crate::rates::Rates;
 use crate::sheets::Store;
 use crate::theme::{self, Theme};
 use crate::update::{self, Method, State, Updates};
+use omacus_engine::{self as engine, Engine, Kind, LineResult, complete};
 
 const FONT_SIZE: f32 = 16.0;
 const SIDEBAR_WIDTH: f32 = 210.0;
@@ -219,7 +218,7 @@ impl OmacusApp {
             store: Store::load(WELCOME),
             results: Vec::new(),
             vars: HashSet::new(),
-            engine: Engine::new(rates.clone()),
+            engine: Engine::new(rates.table()),
             rates_seen: rates.version(),
             rates,
             theme,

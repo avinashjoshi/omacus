@@ -1,0 +1,15 @@
+[package]
+name = "omacus-engine"
+version = "0.0.0"
+edition = "2024"
+description = "The Omacus math engine: notepad conventions on top of fend, dates, time zones and more"
+license = "MIT"
+publish = false  # internal; the app's version is the one in ../Cargo.toml
+
+# Pure computation, no files, network or UI, so the same code runs in the desktop
+# app and, compiled to WebAssembly, in the browser.
+[dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std", "wasmbind"] }
+chrono-tz = "0.10.4"
+fend-core = "1.5.8"
+regex = { version = "1.13.1", default-features = false, features = ["std", "perf", "unicode-perl", "unicode-case"] }
