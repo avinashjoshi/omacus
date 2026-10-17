@@ -370,7 +370,10 @@ fn run_installer(version: &str, show: bool) -> Result<(), String> {
         cmd.arg(&path)
             .arg("--no-hyprland")
             .current_dir(&dir)
-            .stdin(Stdio::null());
+            .stdin(Stdio::null())
+            // Install exactly this version, the one whose checksums were checked,
+            // even if a newer one came out since.
+            .env("OMACUS_VERSION", version);
         // On macOS, replace this exact app bundle, wherever it is and whatever it's called.
         if let Some(bundle) = exe().as_deref().and_then(app_bundle) {
             cmd.env("OMACUS_APP", bundle);

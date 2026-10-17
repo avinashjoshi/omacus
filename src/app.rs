@@ -220,7 +220,7 @@ impl OmacusApp {
             store: Store::load(WELCOME),
             results: Vec::new(),
             vars: HashSet::new(),
-            engine: Engine::new(rates.table()),
+            engine: Engine::new(rates.table()).with_clock(engine::monotonic_ms),
             rates_seen: rates.version(),
             rates,
             theme,
@@ -1233,17 +1233,22 @@ impl OmacusApp {
                 .results
                 .iter()
                 .map(|r| {
-                    (r.kind == Kind::Value && !r.display.is_empty()).then(|| {
-                        let swatch = if r.color.is_some() {
-                            swatch_room(&font)
-                        } else {
-                            0.0
-                        };
-                        f.layout_no_wrap(r.display.clone(), font.clone(), Color32::WHITE)
+                    let text = match (&r.kind, r.note) {
+                        (Kind::Value, _) if !r.display.is_empty() => r.display.clone(),
+                        (Kind::Error, Some(note)) => note.to_string(),
+                        _ => return None,
+                    };
+                    let swatch = if r.color.is_some() {
+                        swatch_room(&font)
+                    } else {
+                        0.0
+                    };
+                    Some(
+                        f.layout_no_wrap(text, font.clone(), Color32::WHITE)
                             .size()
                             .x
-                            + swatch
-                    })
+                            + swatch,
+                    )
                 })
                 .collect();
             (f.row_height(&font), answers)
@@ -1363,10 +1368,23 @@ impl OmacusApp {
         let Some(result) = self.results.get(line) else {
             return;
         };
+        let theme = &self.theme;
+        // No answer, but a reason ("Can't divide by zero"): shown quietly, not copyable.
+        if let (Kind::Error, Some(note)) = (&result.kind, result.note) {
+            let galley = ui
+                .ctx()
+                .fonts_mut(|f| f.layout_no_wrap(note.to_string(), font.clone(), theme.comment));
+            let size = galley.size();
+            ui.painter().galley(
+                pos2(right - size.x, y + (h - size.y) / 2.0),
+                galley,
+                theme.comment,
+            );
+            return;
+        }
         if result.kind != Kind::Value || result.display.is_empty() {
             return;
         }
-        let theme = &self.theme;
         let copied = self
             .copied
             .is_some_and(|(l, t)| l == line && t.elapsed() < COPIED_FOR);

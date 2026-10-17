@@ -27,6 +27,37 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Where release files come from: the version the app asked for when it's updating
+# itself (OMACUS_VERSION, the release it checked), otherwise the latest release.
+release_url() {
+  if [[ -n "${OMACUS_VERSION:-}" ]]; then
+    echo "https://github.com/$REPO/releases/download/v${OMACUS_VERSION#v}"
+  else
+    echo "https://github.com/$REPO/releases/latest/download"
+  fi
+}
+
+# fetch <base url> <file> <dest>: download a release file and check it against the
+# same release's SHA256SUMS.txt, so a damaged or swapped download is never installed.
+fetch() {
+  local base=$1 name=$2 dest=$3 want got
+  "${CURL[@]}" "$base/$name" -o "$dest" || return 1
+  "${CURL[@]}" "$base/SHA256SUMS.txt" -o "$dest.sums" || {
+    echo "Couldn't download the release's checksums; not installing." >&2
+    exit 1
+  }
+  want="$(awk -v n="$name" '$2 == n || $2 == "*" n { print tolower($1) }' "$dest.sums")"
+  if command -v sha256sum >/dev/null; then
+    got="$(sha256sum "$dest" | cut -d' ' -f1)"
+  else
+    got="$(shasum -a 256 "$dest" | cut -d' ' -f1)"
+  fi
+  if [[ -z "$want" || "$got" != "$want" ]]; then
+    echo "$name didn't match the release's checksum; not installing it." >&2
+    exit 1
+  fi
+}
+
 # The folder this script was run from, only when it's a file on disk. Piped from curl
 # there is no such folder, and the current directory is never trusted: a shared folder
 # like /tmp could hold someone else's "release".
@@ -45,11 +76,12 @@ install_macos() {
   # The chip, not the shell: a terminal under Rosetta reports x86_64 on Apple Silicon.
   local arch=x86_64
   [[ "$(sysctl -n hw.optional.arm64 2>/dev/null)" == 1 ]] && arch=arm64
-  local dl="https://github.com/$REPO/releases/latest/download"
-  echo "Downloading the latest Omacus for macOS ($arch)…"
+  local dl
+  dl="$(release_url)"
+  echo "Downloading Omacus for macOS ($arch)…"
   # Up to 0.1.7 there was one universal .dmg for both chips.
-  "${CURL[@]}" "$dl/omacus-macos-$arch.dmg" -o "$TMP_DIR/omacus.dmg" 2>/dev/null ||
-    "${CURL[@]}" "$dl/omacus-macos-universal.dmg" -o "$TMP_DIR/omacus.dmg"
+  fetch "$dl" "omacus-macos-$arch.dmg" "$TMP_DIR/omacus.dmg" 2>/dev/null ||
+    fetch "$dl" "omacus-macos-universal.dmg" "$TMP_DIR/omacus.dmg"
   hdiutil attach -quiet -nobrowse -readonly -mountpoint "$MOUNT" "$TMP_DIR/omacus.dmg"
 
   if [[ -n "${OMACUS_APP:-}" ]]; then
@@ -102,8 +134,9 @@ install_linux() {
       exit 1
     fi
     TMP_DIR="$(mktemp -d)"
-    echo "Downloading the latest Omacus release…"
-    "${CURL[@]}" "https://github.com/$REPO/releases/latest/download/omacus-linux-x86_64.tar.gz" | tar -xz -C "$TMP_DIR"
+    echo "Downloading Omacus…"
+    fetch "$(release_url)" "omacus-linux-x86_64.tar.gz" "$TMP_DIR/omacus.tar.gz"
+    tar -xzf "$TMP_DIR/omacus.tar.gz" -C "$TMP_DIR"
     bin="$TMP_DIR/omacus/omacus" desktop="$TMP_DIR/omacus/omacus.desktop"
     png="$TMP_DIR/omacus/icon-256.png" svg="$TMP_DIR/omacus/icon.svg"
   fi

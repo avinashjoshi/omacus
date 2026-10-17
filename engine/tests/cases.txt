@@ -1,0 +1,81 @@
+# Sheets and the answer each line should get, checked by cases.rs.
+#
+#   line => answer        the line's answer
+#   line =>               no answer
+#   line => !reason       no answer, and this reason shown instead
+#   line                  not checked (context for the lines below)
+#
+# Sheets are separated by a line of three dashes. Exchange rates are fixed in
+# cases.rs. Lines starting with "#" before the first sheet are these notes.
+---
+# Variables in sums keep their currency (from an independent review)
+rent = $1000 => $1,000
+rent + 5 => $1,005
+rent - 50 => $950
+---
+$10
+prev + 1 => $11
+---
+$10
+
+prev + 1 => $11
+---
+# One-letter and prose-like variable names
+a = 5 => 5
+b = a * 2 => 10
+b => 10
+---
+I = 3 => 3
+I * 2 => 6
+---
+the = 4 => 4
+my = the + 1 => 5
+---
+# Prose words are still dropped when they aren't variables
+I paid $40 for a lamp => $40
+A coffee at the station $4.50 => $4.50
+---
+# x as times
+2 x 3 => 6
+2 x 3 x 4 => 24
+Tickets 2 x $14 => $28
+3x5 => 15
+0x10 => 0x10
+---
+# Percentages, including from variables
+tax = 8% => 8%
+$100 + tax => $108
+$100 - tax => $92
+$100 - 10% - 10% => $81
+$100 + 10% + 10% => $121
+$1,299 - 15% => $1,104.15
+15% off $1,299 => $1,104.15
+---
+# Words that look like currency codes are prose unless they follow a number
+Lunch for Cad $40 => $40
+Lunch with Bob $40 => $40
+Dinner with Gbp $25 => $25
+50 CAD in USD => $36.76
+CHF 300 in USD => $333.33
+---
+# A wrong guess is worse than no answer
+Room 12 costs $50 => $50
+Food & drinks ₹2,000 * 4 => 8,000 INR
+rent = $1000
+rent + total vibes =>
+---
+# Reasons for no answer
+10 / 0 => !Can't divide by zero
+$5 + 3 kg => !Units don't match
+100000! => !Too big to work out
+10^10^7 => !Too big to work out
+2 + 2 => 4
+---
+# Everyday lines that already work
+Flights: 4 * $1,180 => $4,720
+3.5 km in miles => 2.17 miles
+$84 split 3 ways => $28
+18% tip on $62 => $73.16
+20% of $85 => $17
+$120 as % of $480 => 25%
+1200 * 12 => 14,400
