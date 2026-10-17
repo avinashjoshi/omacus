@@ -63,7 +63,7 @@ pub fn layout(text: &str, vars: &HashSet<String>, theme: &Theme, font: FontId) -
                 && label.trim().chars().next().is_some_and(char::is_alphabetic)
                 && label
                     .chars()
-                    .all(|c| c.is_alphabetic() || " '-_&/".contains(c))
+                    .all(|c| c.is_alphanumeric() || " '-_&/".contains(c))
             {
                 push(&code[..=idx], theme.dim);
                 rest = &code[idx + 1..];

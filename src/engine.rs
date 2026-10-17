@@ -46,7 +46,8 @@ macro_rules! re {
     };
 }
 
-re!(LABEL, r"^\s*([A-Za-z][A-Za-z '\-_&/]*?)\s*:\s+(.*)$");
+pub(crate) const LABEL_PATTERN: &str = r"^\s*([A-Za-z][A-Za-z0-9 '\-_&/]*?)\s*:\s+(.*)$";
+re!(LABEL, LABEL_PATTERN);
 re!(QUOTED, r#""[^"]*""#);
 re!(ASSIGN, r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^=].*)$");
 re!(PCT_ON, r"(?i)^(.+?)\s*%\s+on\s+(.+)$");
@@ -61,16 +62,41 @@ re!(
     r"(?i)^([^%]+?)\s*([+-])\s*(\d[\d,]*(?:\.\d+)?)\s*%(?:\s+[a-z][a-z ]*)?$"
 );
 // fend reads `60 km / 2 hours` as `(60 km / 2) hours`; keep the divisor together.
+// Only when the amount before it has a unit too (`10 / 4 inches` stays fend's).
 re!(
     DIVISOR,
-    r"/\s*(\(?\d[\d,]*(?:\.\d+)?\)?\s*[A-Za-z][A-Za-z_]*(?:\^\d+)?(?:/[A-Za-z][A-Za-z_]*(?:\^\d+)?)*)"
+    r"([A-Za-z)]\s*)/\s*(\(?\d[\d,]*(?:\.\d+)?\)?\s*)([A-Za-z][A-Za-z_]*(?:\^\d+)?(?:/[A-Za-z][A-Za-z_]*(?:\^\d+)?)*)"
 );
-re!(TIMES_X, r"(\d)\s*[x×]\s*(\d)");
+re!(TIMES_X, r"(\d+)(\s*)([x×])(\s*)(\d)");
 re!(SYMBOL_NUM, r"([€¥₹₩₽₺])\s*(\d[\d,]*(?:\.\d+)?)");
-re!(MONEY_PREFIX, r"[$£]\s*\d[\d,]*(?:\.\d+)?");
+re!(MONEY_PREFIX, r"[$£]\s*\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?");
 re!(PREV, r"(?i)\bprev\b");
 // fend answers "version" with its own version number; in a sheet it's prose.
 re!(VERSION_WORD, r"(?i)\bversion\b");
+// "50 percent" -> "50%".
+re!(PERCENT_WORD, r"(?i)(\d)\s*(?:percent|per\s+cent)\b");
+// "half of 50", "twice $40", "a third of 90": quantities, not prose.
+re!(HALF, r"(?i)\b(?:a\s+)?half(?:\s+of)?\s+");
+re!(THIRD, r"(?i)\b(?:a\s+|one\s+)?third(?:\s+of)?\s+");
+re!(QUARTER, r"(?i)\b(?:a\s+|one\s+)?quarter(?:\s+of)?\s+");
+re!(TWICE, r"(?i)\b(?:twice|double)\s+");
+re!(TRIPLE, r"(?i)\btriple\s+");
+// "$4 a day" -> "$4 / day".
+re!(
+    A_DAY,
+    r"(?i)(\d[\d,.]*\)?)\s+(?:a|an|per)\s+(day|week|month|year|hour|minute|night|person|head)s?\b"
+);
+// "3 pizzas at $12" -> "3 pizzas * $12".
+re!(AT_PRICE, r"(?i)(\d.*?)\s+at\s+([$£€¥₹(]|\d)");
+// A time of day the time module didn't claim ("Movie at 7pm"): not math.
+re!(CLOCK_WORD, r"(?i)\b\d{1,2}(?::\d{2})?\s?[ap]\.?m\b");
+// A label ending in a number, then the amount: "Day 3 $50", "iPhone 15 $799".
+re!(
+    LABEL_NUMBER,
+    r"^[A-Za-z][^\d=]*?\d[\d,.]*\s+(\(?[$£€¥₹]?\s*\d.*)$"
+);
+// Two amounts side by side once prose is dropped ("Room 12 $50").
+re!(SIDE_BY_SIDE, r"\d[\d,.]*\)?\s+(\(?[$£€¥₹]?\s*\d)");
 re!(UNKNOWN_IDENT, r"unknown identifier '([^']+)'");
 re!(
     BASE_CONV,
@@ -204,6 +230,16 @@ impl Engine {
                         kind: Kind::Value,
                         display: date,
                     };
+                }
+
+                // A time of day the time module didn't understand isn't math
+                // ("Movie at 7pm" would be 7 picometres). Very long lines are
+                // skipped: fend's parser can take minutes on them.
+                if CLOCK_WORD.is_match(trimmed) || trimmed.len() > 2000 {
+                    return LineResult::new(Kind::Error);
+                }
+                if prev.is_none() && PREV.is_match(trimmed) && !ASSIGN.is_match(trimmed) {
+                    return LineResult::new(Kind::Error);
                 }
 
                 let var = format!("_l{i}");
@@ -360,6 +396,12 @@ pub fn rewrite(line: &str, prev: Option<&str>) -> String {
     };
     s = QUOTED.replace_all(&s, " ").into_owned();
     s = VERSION_WORD.replace_all(&s, " ").into_owned();
+    s = PERCENT_WORD.replace_all(&s, "$1%").into_owned();
+    s = HALF.replace_all(&s, "0.5 * ").into_owned();
+    s = THIRD.replace_all(&s, "(1/3) * ").into_owned();
+    s = QUARTER.replace_all(&s, "0.25 * ").into_owned();
+    s = TWICE.replace_all(&s, "2 * ").into_owned();
+    s = TRIPLE.replace_all(&s, "3 * ").into_owned();
 
     // "Groceries: $40" -> "$40"
     if let Some(c) = LABEL.captures(&s) {
@@ -379,19 +421,44 @@ pub fn rewrite(line: &str, prev: Option<&str>) -> String {
 
     // fend misparses `3 * $95`; `3 * ($95)` is fine.
     s = MONEY_PREFIX.replace_all(&s, "($0)").into_owned();
+    // The number belongs to the label, or fend would multiply it in.
+    if let Some(c) = LABEL_NUMBER.captures(&s) {
+        s = c[1].to_string();
+    }
 
     if let Some(p) = prev {
         s = PREV.replace_all(&s, p).into_owned();
     }
 
-    s = TIMES_X.replace_all(&s, "$1 * $2").into_owned();
+    // "5 x 3" is a product; "0x10" is hex.
+    s = TIMES_X
+        .replace_all(&s, |c: &regex::Captures| {
+            if &c[1] == "0" && c[2].is_empty() && &c[3] == "x" {
+                c[0].to_string()
+            } else {
+                format!("{} * {}", &c[1], &c[5])
+            }
+        })
+        .into_owned();
+    s = A_DAY.replace_all(&s, "$1 / $2").into_owned();
+    s = AT_PRICE.replace_all(&s, "$1 * $2").into_owned();
+    s = drop_prose_words(&s);
     s = IMPERIAL_UNIT
         .replace_all(&s, |c: &regex::Captures| format!("({})", imperial(&c[1]).1))
         .into_owned();
     for (re, unit) in UNIT_ALIAS_RES.iter() {
         s = re.replace_all(&s, *unit).into_owned();
     }
-    s = DIVISOR.replace_all(&s, "/ ($1)").into_owned();
+    s = DIVISOR
+        .replace_all(&s, |c: &regex::Captures| {
+            let unit = c[3].split('/').next().unwrap_or("").to_ascii_lowercase();
+            if KEYWORDS.contains(&unit.as_str()) {
+                c[0].to_string()
+            } else {
+                format!("{}/ ({}{})", &c[1], &c[2], &c[3])
+            }
+        })
+        .into_owned();
 
     // Keep the variable name out of the percentage rewrites.
     let (lhs, mut rhs) = match ASSIGN.captures(&s) {
@@ -432,6 +499,32 @@ pub fn rewrite(line: &str, prev: Option<&str>) -> String {
     }
 }
 
+/// Words that would be a conversion or operator, not a unit, after a number.
+const KEYWORDS: &[&str] = &[
+    "in", "to", "as", "of", "per", "mod", "on", "off", "is", "and",
+];
+
+/// Little words fend would read as units (I is the imaginary unit, a is an are, at
+/// is an atmosphere...). They're prose unless they directly follow a number.
+fn drop_prose_words(s: &str) -> String {
+    const PROSE: &[&str] = &[
+        "I", "a", "A", "an", "An", "the", "The", "at", "At", "my", "My",
+    ];
+    let mut out: Vec<&str> = Vec::new();
+    for tok in s.split(' ') {
+        let after_number = out
+            .iter()
+            .rev()
+            .find(|t| !t.is_empty())
+            .is_some_and(|t| t.ends_with(|c: char| c.is_ascii_digit() || c == ')'));
+        if PROSE.contains(&tok) && !after_number {
+            continue;
+        }
+        out.push(tok);
+    }
+    out.join(" ")
+}
+
 fn symbol_code(sym: char) -> &'static str {
     SYMBOL_CODES
         .iter()
@@ -454,6 +547,12 @@ fn eval_into(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Option<Stri
 /// Like `eval_into`, but drops stray words fend doesn't know
 /// ("Lunch with Bob $40" -> "$40"), so lines can read like notes.
 fn eval_forgiving(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Option<String> {
+    let meaningful = expr
+        .split(|c: char| !c.is_alphabetic())
+        .any(|w| MEANINGFUL.contains(&w.to_ascii_lowercase().as_str()));
+    if meaningful {
+        return None;
+    }
     drop_unknown_words(ctx, var, expr).or_else(|| {
         // Prose fend can't parse at all ("Food & drinks ₹2,000 * 4"): start the
         // expression at the first number, currency or bracket instead.
@@ -471,9 +570,25 @@ fn eval_forgiving(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Option
     })
 }
 
+/// Words that change what a line means; dropping them would give a wrong answer.
+const MEANINGFUL: &[&str] = &[
+    "until", "since", "ago", "before", "after", "every", "except", "without", "not",
+];
+
 fn drop_unknown_words(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Option<String> {
     let mut expr = expr.to_string();
+    let mut dropped = false;
     for _ in 0..12 {
+        // Prose dropped from between two numbers leaves them side by side, and fend
+        // would multiply them ("Room 12 costs $50" -> 12 * $50). The amount is the
+        // second one; the first was part of the label.
+        if dropped
+            && !ASSIGN.is_match(&expr)
+            && let Some(m) = SIDE_BY_SIDE.captures(&expr).and_then(|c| c.get(1))
+        {
+            expr = expr[m.start()..].to_string();
+            continue;
+        }
         let full = match ASSIGN.captures(&expr) {
             Some(c) => format!("{} = ({}); {var} = {}", &c[1], &c[2], &c[1]),
             None => format!("{var} = ({expr})"),
@@ -488,44 +603,63 @@ fn drop_unknown_words(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Op
                     eprintln!("{full:?} -> {e}");
                 }
                 let word = UNKNOWN_IDENT.captures(&e)?.get(1)?.as_str().to_string();
-                let re = Regex::new(&format!(r"\b{}\b", regex::escape(&word))).ok()?;
-                if qualifies_unit(&expr, &re) {
+                if MEANINGFUL.contains(&word.to_ascii_lowercase().as_str()) {
                     return None;
                 }
-                let next = re.replace(&expr, " ").into_owned();
-                if next == expr || !next.chars().any(|c| c.is_ascii_alphanumeric()) {
+                let at = find_word(&expr, &word)?;
+                if qualifies_unit(&expr[at + word.len()..]) {
+                    return None;
+                }
+                let next = format!("{} {}", &expr[..at], &expr[at + word.len()..]);
+                if !next.chars().any(|c| c.is_ascii_alphanumeric()) {
                     return None;
                 }
                 expr = next;
+                dropped = true;
             }
         }
     }
     None
 }
 
-/// Whether the unknown word is directly followed by a unit, like "imperial" in
-/// "imperial gallon". Dropping it would quietly change the answer, so the line
-/// gets no result instead.
-fn qualifies_unit(expr: &str, word: &Regex) -> bool {
-    let Some(m) = word.find(expr) else {
-        return false;
-    };
-    let Some(next) = expr[m.end()..]
+/// Where `word` appears as a whole word in `s`.
+fn find_word(s: &str, word: &str) -> Option<usize> {
+    let is_word = |c: char| c.is_alphanumeric() || c == '_';
+    s.match_indices(word).map(|(i, _)| i).find(|&i| {
+        let before = s[..i].chars().next_back().is_none_or(|c| !is_word(c));
+        let after = s[i + word.len()..]
+            .chars()
+            .next()
+            .is_none_or(|c| !is_word(c));
+        before && after
+    })
+}
+
+/// Whether `rest` (what follows an unknown word) starts with a unit, like "gallon"
+/// after "imperial". Dropping the word would quietly change the answer, so the
+/// line gets no result instead.
+fn qualifies_unit(rest: &str) -> bool {
+    let Some(next) = rest
         .split_whitespace()
         .next()
         .filter(|w| w.chars().all(|c| c.is_ascii_alphabetic()))
     else {
         return false;
     };
-    if matches!(
-        next.to_ascii_lowercase().as_str(),
-        "in" | "to" | "as" | "of" | "on" | "per" | "and" | "with" | "for" | "at"
-    ) {
+    let next = next.to_ascii_lowercase();
+    if KEYWORDS.contains(&next.as_str()) || matches!(next.as_str(), "with" | "for" | "at") {
         return false;
     }
-    let mut ctx = fend_core::Context::new();
-    fend_core::evaluate(&format!("1 {next}"), &mut ctx)
-        .is_ok_and(|r| !r.get_main_result().trim().is_empty())
+    thread_local! {
+        static KNOWN: std::cell::RefCell<std::collections::HashMap<String, bool>> = Default::default();
+    }
+    KNOWN.with(|known| {
+        *known.borrow_mut().entry(next.clone()).or_insert_with(|| {
+            let mut ctx = fend_core::Context::new();
+            fend_core::evaluate(&format!("1 {next}"), &mut ctx)
+                .is_ok_and(|r| !r.get_main_result().trim().is_empty())
+        })
+    })
 }
 
 /// Round long decimals and add thousands separators for display.
@@ -582,6 +716,8 @@ pub fn pretty(raw: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+        .replacen("$-", "-$", 1)
+        .replacen("£-", "-£", 1)
 }
 
 fn looks_like_date(s: &str) -> bool {
@@ -598,19 +734,31 @@ fn looks_like_date(s: &str) -> bool {
 }
 
 fn format_number(int: &str, frac: Option<&str>, money: bool) -> String {
+    // Beyond 15 digits an f64 can't hold the number exactly; group fend's digits as
+    // they are.
+    if int.trim_start_matches('0').len() > 15 {
+        return group_thousands(int);
+    }
     let value: f64 = format!("{int}.{}", frac.unwrap_or("0"))
         .parse()
         .unwrap_or(0.0);
-    let decimals = if money || value >= 1.0 {
+    let leading = frac.map_or(0, |f| f.chars().take_while(|&c| c == '0').count());
+    if value != 0.0 && value < 1e-6 {
+        // Tiny: 1.6e-19, not 0.
+        let sci = format!("{value:.2e}");
+        let (m, e) = sci.split_once('e').unwrap_or((&sci, "0"));
+        let m = m.trim_end_matches('0').trim_end_matches('.');
+        return format!("{m}e{e}");
+    }
+    let decimals = if value >= 1.0 || (money && value >= 0.01) {
         2
     } else {
-        // Keep two significant digits for small numbers: 0.000123 -> 0.00012
-        let leading = frac.map_or(0, |f| f.chars().take_while(|&c| c == '0').count());
-        (leading + 2).min(10)
+        // Two significant digits for small numbers: 0.000123 -> 0.00012
+        leading + 2
     };
     let rounded = format!("{value:.decimals$}");
     let (i, f) = rounded.split_once('.').unwrap_or((&rounded, ""));
-    let f = if money && !f.trim_end_matches('0').is_empty() {
+    let f = if money && decimals == 2 && !f.trim_end_matches('0').is_empty() {
         f.to_string() // $41.10, not $41.1
     } else {
         f.trim_end_matches('0').to_string()
@@ -718,6 +866,56 @@ mod tests {
             copied,
             "# Lunch\nPizza $24           $24\nTip: 18% of prev    $4.32"
         );
+    }
+
+    #[test]
+    fn numbers_in_labels_are_not_multiplied() {
+        assert_eq!(one("Day 3 $50"), "$50");
+        assert_eq!(one("Room 12 costs $50"), "$50");
+        assert_eq!(one("iPhone 15 $799"), "$799");
+        assert_eq!(one("Item 2: $5"), "$5");
+        assert_eq!(one("Movie tickets 2 * $14"), "$28");
+    }
+
+    #[test]
+    fn quantity_words_count() {
+        assert_eq!(one("half of 50"), "25");
+        assert_eq!(one("twice $40"), "$80");
+        assert_eq!(one("a third of 90"), "30");
+        assert_eq!(one("a quarter of $200"), "$50");
+        assert_eq!(one("50 percent off 80"), "40");
+        assert_eq!(one("days until Dec 25"), "");
+    }
+
+    #[test]
+    fn little_words_are_prose() {
+        assert_eq!(one("I spent $40"), "$40");
+        assert_eq!(one("A coffee $4"), "$4");
+        assert_eq!(one("Coffee $4 a day"), "$4 / day");
+        assert_eq!(one("3 pizzas at $12"), "$36");
+        assert_eq!(one("Movie at 7pm"), "");
+    }
+
+    #[test]
+    fn exact_big_and_visible_tiny_numbers() {
+        assert_eq!(one("12345678901234567890"), "12,345,678,901,234,567,890");
+        assert_eq!(one("1e-12"), "1e-12");
+        assert_eq!(one("0.000123"), "0.00012");
+        assert_eq!(one("$5 - $10"), "-$5");
+        assert_eq!(one("0x10 + 1"), "0x11"); // fend answers hex in hex
+        assert_eq!(one("5 x 3"), "15");
+    }
+
+    #[test]
+    fn division_keeps_conversions() {
+        assert_eq!(one("$1200 / 12 in EUR"), "90 EUR");
+        assert_eq!(one("10 / 4 inches"), "2.5 inches");
+        assert_eq!(one("60 km / 2 hours"), "30 km / hour");
+    }
+
+    #[test]
+    fn prev_needs_a_line_above() {
+        assert_eq!(one("prev * 2"), "");
     }
 
     #[test]

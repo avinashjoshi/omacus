@@ -78,7 +78,7 @@ const ABBREVIATIONS: &[(&str, &str)] = &[
     ("AKST", "America/Anchorage"),
     ("HST", "Pacific/Honolulu"),
     ("UTC", "UTC"),
-    ("GMT", "Europe/London"),
+    ("GMT", "Etc/GMT"), // a fixed offset; London in summer is BST
     ("BST", "Europe/London"),
     ("WET", "Europe/Lisbon"),
     ("CET", "Europe/Paris"),
@@ -248,7 +248,7 @@ fn eval_zone(line: &str, now: DateTime<Utc>) -> Option<String> {
     let (to_date, shown) = target.at(instant);
     if date.is_some() {
         // A date was asked for, so say which date it is there.
-        return Some(format!("{shown}, {}", to_date.format("%a %-d %b")));
+        return Some(format!("{shown}, {}", day_label(to_date, source.at(now).0)));
     }
     Some(with_day_change(shown, from_date, to_date))
 }
@@ -327,7 +327,20 @@ fn duration(text: &str) -> Option<Duration> {
         };
         rest = rest[c.get(0)?.end()..].trim_start();
     }
-    Some(Duration::seconds(seconds.round() as i64))
+    // Spans past chrono's range (about 290,000 years) aren't times anyone means.
+    if !seconds.is_finite() || seconds.abs() > 1e13 {
+        return None;
+    }
+    Duration::try_seconds(seconds.round() as i64)
+}
+
+/// "Fri 23 Oct", with the year when it isn't this one.
+fn day_label(day: NaiveDate, today: NaiveDate) -> String {
+    if day.year() == today.year() {
+        day.format("%a %-d %b").to_string()
+    } else {
+        day.format("%a %-d %b %Y").to_string()
+    }
 }
 
 /// "in 3 hours", "90 minutes from now", "in 2 days in Tokyo",
@@ -339,7 +352,7 @@ fn eval_relative(line: &str, now: DateTime<Utc>) -> Option<String> {
             Some(z) => zone(z.as_str())?,
             None => Zone::Local,
         };
-        let then = now + span;
+        let then = now.checked_add_signed(span)?;
         let (today, _) = target.at(now);
         let (day, shown) = target.at(then);
         let shown = match target {
@@ -349,7 +362,7 @@ fn eval_relative(line: &str, now: DateTime<Utc>) -> Option<String> {
         return Some(if day == today {
             shown
         } else {
-            format!("{shown}, {}", day.format("%a %-d %b"))
+            format!("{shown}, {}", day_label(day, today))
         });
     }
 
@@ -357,9 +370,9 @@ fn eval_relative(line: &str, now: DateTime<Utc>) -> Option<String> {
     let (start, source, _) = instant(&c[1], now)?;
     let span = duration(&c[3])?;
     let then = if &c[2] == "-" {
-        start - span
+        start.checked_sub_signed(span)?
     } else {
-        start + span
+        start.checked_add_signed(span)?
     };
     let target = match c.get(4) {
         Some(z) => zone(z.as_str())?,
@@ -367,6 +380,14 @@ fn eval_relative(line: &str, now: DateTime<Utc>) -> Option<String> {
     };
     let (from_date, _) = source.at(start);
     let (to_date, shown) = target.at(then);
+    // Moving more than a day: say which day, not just "next day".
+    if (to_date - from_date).num_days().abs() > 1 {
+        let shown = match (c.get(4), target) {
+            (None, Zone::Local) => clock(then.with_timezone(&Local).time()),
+            _ => shown,
+        };
+        return Some(format!("{shown}, {}", day_label(to_date, from_date)));
+    }
     // Plain clock math in local time doesn't need a zone name.
     let shown = match (c.get(4), target) {
         (None, Zone::Local) => clock(then.with_timezone(&Local).time()),
@@ -393,7 +414,7 @@ enum DateSpec {
 impl DateSpec {
     fn resolve(self, today: NaiveDate) -> Option<NaiveDate> {
         match self {
-            DateSpec::Offset(n) => Some(today + Duration::days(n)),
+            DateSpec::Offset(n) => today.checked_add_signed(Duration::days(n)),
             DateSpec::Weekday { day, next } => {
                 let ahead = (7 + day.num_days_from_monday() as i64
                     - today.weekday().num_days_from_monday() as i64)
@@ -502,8 +523,8 @@ fn eval_date(line: &str) -> Option<String> {
     let base = c[1].to_ascii_lowercase();
     let now = Local::now();
     let mut t = match base.as_str() {
-        "tomorrow" => now + Duration::days(1),
-        "yesterday" => now - Duration::days(1),
+        "tomorrow" => now.checked_add_signed(Duration::days(1))?,
+        "yesterday" => now.checked_sub_signed(Duration::days(1))?,
         _ => now,
     };
     let mut show_time = base == "now";
@@ -511,11 +532,15 @@ fn eval_date(line: &str) -> Option<String> {
         let n: i64 = n.as_str().parse().ok()?;
         let n = if sign.as_str() == "-" { -n } else { n };
         let unit = unit.as_str().to_ascii_lowercase();
+        let span = match unit.as_str() {
+            "minute" | "min" => Duration::try_minutes(n),
+            "hour" | "hr" => Duration::try_hours(n),
+            "day" => Duration::try_days(n),
+            "week" => Duration::try_weeks(n),
+            _ => None,
+        };
         t = match unit.as_str() {
-            "minute" | "min" => t + Duration::minutes(n),
-            "hour" | "hr" => t + Duration::hours(n),
-            "day" => t + Duration::days(n),
-            "week" => t + Duration::weeks(n),
+            "minute" | "min" | "hour" | "hr" | "day" | "week" => t.checked_add_signed(span?)?,
             "month" | "year" => {
                 let per = if unit == "year" { 12 } else { 1 };
                 let months = u32::try_from(n.unsigned_abs() * per).ok()?;
@@ -594,7 +619,7 @@ mod tests {
         );
         assert_eq!(
             conv("Jan 5 9am PST in Tokyo").unwrap(),
-            "2:00 AM JST, Wed 6 Jan"
+            "2:00 AM JST, Wed 6 Jan 2027"
         );
         assert_eq!(
             conv("1 December 2026 noon UTC in NYC").unwrap(),
@@ -630,6 +655,34 @@ mod tests {
         assert_eq!(rel("3 + 45 min"), None);
         assert_eq!(rel("$5 + 3 hours"), None);
         assert_eq!(rel("in 3 m"), None);
+    }
+
+    #[test]
+    fn huge_spans_are_not_times() {
+        let rel = |line: &str| eval_relative(line, now());
+        assert_eq!(rel("in 99999999999 h"), None);
+        assert_eq!(rel("3pm UTC + 99999999999 hours"), None);
+        assert_eq!(eval_date("today + 99999999999999 days"), None);
+        assert_eq!(eval_date("now + 999999999999 hours"), None);
+    }
+
+    #[test]
+    fn long_shifts_say_which_day() {
+        let rel = |line: &str| eval_relative(line, now());
+        assert_eq!(rel("3pm UTC + 3 days").unwrap(), "3:00 PM UTC, Mon 19 Oct");
+        assert_eq!(
+            rel("9am PST + 2 days in London").unwrap(),
+            "5:00 PM BST, Sun 18 Oct"
+        );
+        assert_eq!(
+            rel("in 100 weeks in UTC").unwrap(),
+            "12:00 PM UTC, Fri 15 Sep 2028"
+        );
+    }
+
+    #[test]
+    fn gmt_is_a_fixed_offset() {
+        assert_eq!(conv("3pm GMT in UTC").unwrap(), "3:00 PM UTC");
     }
 
     #[test]
