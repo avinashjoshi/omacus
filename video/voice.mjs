@@ -21,7 +21,7 @@ const src = await readFile(new URL("composition.js", import.meta.url), "utf8");
 const scenes = [...src.matchAll(/\{ id: "([\w-]+)",[^}]*?vo: "([^"]+)" \}/g)].map((m) => ({ id: m[1], vo: m[2] }));
 
 // Names the voice gets wrong, spelled the way they're said. Captions keep the real spelling.
-const SAY = { Omarchy: "Oh-mah-chee" };
+const SAY = { Omarchy: "Oh-mah-chee", Omacus: "Oh-mah-kus" };
 const spoken = (text) => Object.entries(SAY).reduce((t, [w, say]) => t.replaceAll(w, say), text);
 const unspoken = (word) => Object.entries(SAY).reduce((w, [real, say]) => w.replaceAll(say, real), word);
 
