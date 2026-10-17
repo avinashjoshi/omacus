@@ -23,14 +23,18 @@ prev in EUR                   1,818.97 EUR
 | | |
 |---|---|
 | Arithmetic | `2^10`, `sqrt(16)`, `10 mod 3`, `5 x 3`, `10 times 3`, `1.5k` |
-| Percentages | `20% of 340`, `5% on 200`, `15% off $1,299`, `$120 as % of $480`, `5% of what is 6` |
+| Percentages | `20% of 340`, `5% on 200`, `15% off $1,299`, `$120 as % of $480`, `5% of what is 6`, `18% tip on $62` |
+| Splitting | `$84 split 3 ways`, `split $240 between 4 people` |
 | Units | `3.5 km in miles`, `2 hours + 45 min in minutes`, `72 fahrenheit in celsius`, `10 GB / 4` |
+| Downloads | `4 GB at 100 Mbps` → `5 min 20 s`, `700 MB @ 10 MB/s` |
 | Currency | `$30 in EUR`, `€50 + £20 in USD`, `£250 in USD` (live rates, cached 12h) |
 | Variables | `rent = $1200`, then `rent * 12` |
 | Sheet words | `prev`, `sum`/`total`, `avg`/`average` (over the lines since the last blank line or header) |
 | Dates | `today`, `now`, `tomorrow + 2 weeks`, `now - 90 minutes` |
+| Counting days | `days until Dec 25`, `weeks until Christmas`, `days since Jan 1`, `workdays in November`, `days between Mar 1 and Jun 30` |
 | Time zones | `6pm PST in Tokyo`, `time in Sydney`, `now in London`, `10:30 London to New York`, `3pm PST in IST` |
 | Bases | `255 in hex`, `0xff in decimal`, `255 in binary` |
+| CSS & colours | `16px in rem`, `12pt in px`, `#ff8800 in rgb`, `rgb(51, 102, 153) in hex`, `hsl(150, 60%, 45%)` (with a swatch) |
 | Notes | `# Header`, `// comment`, `"quoted text"`, `Label: 40`, stray prose is ignored |
 
 Math, units and currency come from [fend-core](https://github.com/printfn/fend); `src/engine.rs`
@@ -42,7 +46,7 @@ adds the notepad conventions on top.
 - `Esc` or `Ctrl+Q` closes it. Nothing is ever lost: like Sublime Text, every sheet is saved as you
   type and reopens exactly where you left it, cursor included.
 - Click a result to copy it; `Ctrl+Shift+C` copies the last result, and `Ctrl+Shift+S` copies
-  the whole sheet with its answers lined up.
+  the whole sheet with its answers lined up (`Ctrl+Shift+M` as a Markdown table).
 - `Ctrl` `+` / `-` zooms.
 - Colors follow the active Omarchy theme (`colors.toml`) and update live on `omarchy theme set`.
 

@@ -161,6 +161,7 @@
     <a href="#timezones">Time zones</a>
     <a href="#dates">Dates</a>
     <a href="#bases">Number bases</a>
+    <a href="#design">CSS units &amp; colours</a>
     <a href="#notes">Notes &amp; prose</a>
     <p>Using it</p>
     <a href="#sheets">Sheets</a>
@@ -235,6 +236,7 @@ total</pre>
     <p>Functions include <code>sqrt</code>, <code>abs</code>, <code>round</code>, <code>floor</code>, <code>ceil</code>, <code>sin</code>, <code>cos</code>, <code>tan</code>, <code>log</code>, <code>ln</code> and <code>exp</code>; constants <code>pi</code> and <code>e</code>.</p>
 
     <h2 id="percentages">Percentages</h2>
+    <p>Say percentages the way you would out loud: of, on, off, as a percent of. A tip or a tax on top works with a word in between, and a bill splits <code>3 ways</code> or <code>between 4 people</code>.</p>
   <!-- ex:percentages -->
   <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
@@ -244,6 +246,10 @@ total</pre>
       <tr><td><code>15% off $1,299</code></td><td class="ans">$1,104.15</td></tr>
       <tr><td><code>$120 as % of $480</code></td><td class="ans">25%</td></tr>
       <tr><td><code>5% of what is 6</code></td><td class="ans">120</td></tr>
+      <tr><td><code>18% tip on $62</code></td><td class="ans">$73.16</td></tr>
+      <tr><td><code>$62 + 18% tip</code></td><td class="ans">$73.16</td></tr>
+      <tr><td><code>$84 split 3 ways</code></td><td class="ans">$28</td></tr>
+      <tr><td><code>split $240 between 4 people</code></td><td class="ans">$60</td></tr>
     </tbody>
   </table>
   <!-- /ex -->
@@ -251,7 +257,7 @@ total</pre>
     <p class="guide-link">More examples in the guide: <a href="/guides/percentages/">Percentages, the way you'd say them</a>.</p>
 
     <h2 id="units">Units</h2>
-    <p>Hundreds of units for length, area, volume, mass, time, speed, temperature, data, energy and more. Convert with <code>in</code>, <code>to</code> or <code>as</code>; mixing compatible units just works. Cups, gallons, pints and fluid ounces are US measures; say <code>imperial</code> or <code>UK</code> for the British ones.</p>
+    <p>Hundreds of units for length, area, volume, mass, time, speed, temperature, data, energy and more. Convert with <code>in</code>, <code>to</code> or <code>as</code>; mixing compatible units just works. Cups, gallons, pints and fluid ounces are US measures; say <code>imperial</code> or <code>UK</code> for the British ones. A size <code>at</code> a speed (<code>Mbps</code>, <code>MB/s</code>) is how long it takes to download.</p>
   <!-- ex:units -->
   <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
@@ -264,6 +270,8 @@ total</pre>
       <tr><td><code>1 imperial pint in ml</code></td><td class="ans">568.26 ml</td></tr>
       <tr><td><code>10 GB / 4</code></td><td class="ans">2.5 GB</td></tr>
       <tr><td><code>1 acre in m^2</code></td><td class="ans">4,046.86 m^2</td></tr>
+      <tr><td><code>4 GB at 100 Mbps</code></td><td class="ans">5 min 20 s</td></tr>
+      <tr><td><code>80 GB at 50 Mbps</code></td><td class="ans">3 h 33 min</td></tr>
     </tbody>
   </table>
   <!-- /ex -->
@@ -366,6 +374,15 @@ total</pre>
 <code>in 90 minutes</code><span class="c">the time 90 minutes from now</span>
 <code>in 3 hours in Tokyo</code><span class="c">that time in Tokyo</span>
 </div>
+    <p>Count the days to or from a date: <code>until</code> counts to the next one, <code>since</code> from the last one. Ask in days, weeks, months or workdays (Monday to Friday; public holidays aren't known). Christmas, New Year's, Halloween and Valentine's Day work by name.</p>
+<div class="annot">
+<code>days until Dec 25</code><span class="c">the days left until Christmas</span>
+<code>weeks until New Year's</code><span class="c">in weeks and days</span>
+<code>days since Jan 1</code><span class="c">the days so far this year</span>
+<code>workdays until Friday</code><span class="c">working days left before Friday</span>
+<code>days between Mar 1 and Jun 30</code><span class="c">the days from one date to the other</span>
+<code>workdays in November</code><span class="c">Mondays to Fridays in the month</span>
+</div>
 
     <h2 id="bases">Number bases</h2>
   <!-- ex:bases -->
@@ -375,6 +392,24 @@ total</pre>
       <tr><td><code>255 in hex</code></td><td class="ans">ff</td></tr>
       <tr><td><code>0xff in decimal</code></td><td class="ans">255</td></tr>
       <tr><td><code>10 in binary</code></td><td class="ans">1010</td></tr>
+    </tbody>
+  </table>
+  <!-- /ex -->
+
+    <h2 id="design">CSS units &amp; colours</h2>
+    <p>Pixels, <code>rem</code>, <code>em</code> and points convert with a 16px root, or the one you give (<code>at 18px</code>). Colours convert between hex, <code>rgb()</code> and <code>hsl()</code>, with a swatch beside the answer; a colour on its own shows its other form. A line like <code>#ff8800</code> is a colour, while <code># Budget</code> is still a header.</p>
+  <!-- ex:design -->
+  <table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>16px in rem</code></td><td class="ans">1 rem</td></tr>
+      <tr><td><code>1.5rem in px</code></td><td class="ans">24 px</td></tr>
+      <tr><td><code>12pt in px</code></td><td class="ans">16 px</td></tr>
+      <tr><td><code>24px in rem at 18px</code></td><td class="ans">1.3333 rem</td></tr>
+      <tr><td><code>#ff8800 in rgb</code></td><td class="ans">rgb(255, 136, 0)</td></tr>
+      <tr><td><code>#f80 in hsl</code></td><td class="ans">hsl(32, 100%, 50%)</td></tr>
+      <tr><td><code>rgb(51, 102, 153) in hex</code></td><td class="ans">#336699</td></tr>
+      <tr><td><code>hsl(150, 60%, 45%)</code></td><td class="ans">#2eb873</td></tr>
     </tbody>
   </table>
   <!-- /ex -->
@@ -421,6 +456,7 @@ total</pre>
         <tr><td>Click a result</td><td>Copy it</td></tr>
         <tr><td><kbd>Ctrl Shift C</kbd></td><td>Copy the last result</td></tr>
         <tr><td><kbd>Ctrl Shift S</kbd></td><td>Copy the whole sheet with its answers lined up (also in a sheet's right-click menu)</td></tr>
+        <tr><td><kbd>Ctrl Shift M</kbd></td><td>Copy the sheet as a Markdown table, for Slack, GitHub or a doc (also in the right-click menu)</td></tr>
         <tr><td><kbd>Ctrl Z</kbd> / <kbd>Ctrl Shift Z</kbd></td><td>Undo / redo (each sheet has its own history)</td></tr>
         <tr><td><kbd>Ctrl +</kbd> / <kbd>Ctrl −</kbd> / <kbd>Ctrl 0</kbd></td><td>Zoom in / out / reset</td></tr>
         <tr><td><kbd>F1</kbd> or <kbd>Ctrl /</kbd></td><td>Help: shortcuts, live syntax examples, tips</td></tr>

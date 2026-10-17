@@ -75,6 +75,8 @@ Functions include `sqrt`, `abs`, `round`, `floor`, `ceil`, `sin`, `cos`, `tan`, 
 
 ## Percentages
 
+Say percentages the way you would out loud: of, on, off, as a percent of. A tip or a tax on top works with a word in between, and a bill splits `3 ways` or `between 4 people`.
+
 | You type | Omacus shows |
 |---|---|
 | `20% of 340` | 68 |
@@ -82,12 +84,16 @@ Functions include `sqrt`, `abs`, `round`, `floor`, `ceil`, `sin`, `cos`, `tan`, 
 | `15% off $1,299` | $1,104.15 |
 | `$120 as % of $480` | 25% |
 | `5% of what is 6` | 120 |
+| `18% tip on $62` | $73.16 |
+| `$62 + 18% tip` | $73.16 |
+| `$84 split 3 ways` | $28 |
+| `split $240 between 4 people` | $60 |
 
 More examples in the guide: [Percentages, the way you'd say them](https://omacus.com/guides/percentages/).
 
 ## Units
 
-Hundreds of units for length, area, volume, mass, time, speed, temperature, data, energy and more. Convert with `in`, `to` or `as`; mixing compatible units just works. Cups, gallons, pints and fluid ounces are US measures; say `imperial` or `UK` for the British ones.
+Hundreds of units for length, area, volume, mass, time, speed, temperature, data, energy and more. Convert with `in`, `to` or `as`; mixing compatible units just works. Cups, gallons, pints and fluid ounces are US measures; say `imperial` or `UK` for the British ones. A size `at` a speed (`Mbps`, `MB/s`) is how long it takes to download.
 
 | You type | Omacus shows |
 |---|---|
@@ -99,6 +105,8 @@ Hundreds of units for length, area, volume, mass, time, speed, temperature, data
 | `1 imperial pint in ml` | 568.26 ml |
 | `10 GB / 4` | 2.5 GB |
 | `1 acre in m^2` | 4,046.86 m^2 |
+| `4 GB at 100 Mbps` | 5 min 20 s |
+| `80 GB at 50 Mbps` | 3 h 33 min |
 
 More examples in the guide: [Convert units by just writing them](https://omacus.com/guides/unit-conversion/).
 
@@ -190,6 +198,17 @@ in 90 minutes  # the time 90 minutes from now
 in 3 hours in Tokyo  # that time in Tokyo
 ```
 
+Count the days to or from a date: `until` counts to the next one, `since` from the last one. Ask in days, weeks, months or workdays (Monday to Friday; public holidays aren't known). Christmas, New Year's, Halloween and Valentine's Day work by name.
+
+```
+days until Dec 25  # the days left until Christmas
+weeks until New Year's  # in weeks and days
+days since Jan 1  # the days so far this year
+workdays until Friday  # working days left before Friday
+days between Mar 1 and Jun 30  # the days from one date to the other
+workdays in November  # Mondays to Fridays in the month
+```
+
 ## Number bases
 
 | You type | Omacus shows |
@@ -197,6 +216,21 @@ in 3 hours in Tokyo  # that time in Tokyo
 | `255 in hex` | ff |
 | `0xff in decimal` | 255 |
 | `10 in binary` | 1010 |
+
+## CSS units & colours
+
+Pixels, `rem`, `em` and points convert with a 16px root, or the one you give (`at 18px`). Colours convert between hex, `rgb()` and `hsl()`, with a swatch beside the answer; a colour on its own shows its other form. A line like `#ff8800` is a colour, while `# Budget` is still a header.
+
+| You type | Omacus shows |
+|---|---|
+| `16px in rem` | 1 rem |
+| `1.5rem in px` | 24 px |
+| `12pt in px` | 16 px |
+| `24px in rem at 18px` | 1.3333 rem |
+| `#ff8800 in rgb` | rgb(255, 136, 0) |
+| `#f80 in hsl` | hsl(32, 100%, 50%) |
+| `rgb(51, 102, 153) in hex` | #336699 |
+| `hsl(150, 60%, 45%)` | #2eb873 |
 
 ## Notes & prose
 
@@ -240,6 +274,7 @@ On macOS, use `⌘` where this says `Ctrl`, and `⌥` for `Alt`.
 | Click a result | Copy it |
 | `Ctrl Shift C` | Copy the last result |
 | `Ctrl Shift S` | Copy the whole sheet with its answers lined up (also in a sheet's right-click menu) |
+| `Ctrl Shift M` | Copy the sheet as a Markdown table, for Slack, GitHub or a doc (also in the right-click menu) |
 | `Ctrl Z` / `Ctrl Shift Z` | Undo / redo (each sheet has its own history) |
 | `Ctrl +` / `Ctrl −` / `Ctrl 0` | Zoom in / out / reset |
 | `F1` or `Ctrl /` | Help: shortcuts, live syntax examples, tips |
