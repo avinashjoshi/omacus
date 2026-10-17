@@ -16,8 +16,9 @@ const SCENES = [
   { id: "percent", min: 5.4, vo: "Percentages, the way you'd say them. And hundreds of units." },
   { id: "invoice", min: 5.8, vo: "Name a number once. Change it, and everything below updates." },
   { id: "switch", min: 4.8, vo: "Every sheet saves as you type. Jump to any of them in a keystroke." },
+  { id: "share", min: 6.6, vo: "Share any sheet as a link. It opens live in any browser, even on your phone." },
   { id: "themes", min: 5.4, vo: "On Omarchy, it wears your theme, and switches when you do." },
-  { id: "platforms", min: 4.6, vo: "Free and open source. Linux, macOS and Windows." },
+  { id: "platforms", min: 5.0, vo: "Free and open source. Linux, macOS, Windows, and your browser." },
   { id: "end", min: 5.2, vo: "Omacus. Math, the way you write it." },
 ];
 
@@ -158,6 +159,15 @@ function scheduleTyping(tl) {
   tl.events.push({ t: at("switch", 0.42), kind: "thock" });
   [1.0, 1.17, 1.32].forEach((s) => tl.events.push({ t: at("switch", s), kind: "key" }));
   tl.events.push({ t: at("switch", 2.15), kind: "thock" });
+  // Share: click Share, the link is copied, a phone opens it and adds a line.
+  tl.events.push({ t: at("share", SHARE.click), kind: "thock" });
+  tl.events.push({ t: at("share", SHARE.click + 0.12), kind: "pop" });
+  tl.events.push({ t: at("share", SHARE.phoneIn - 0.1), kind: "whoosh" });
+  const extra = DATA.phone.lines.at(-1);
+  phoneTimes = [];
+  for (let i = 0; i < extra.length; i++) phoneTimes.push(at("share", SHARE.typeAt + i * 0.075));
+  phoneTimes.forEach((ct) => tl.events.push({ t: ct, kind: "key" }));
+  tl.events.push({ t: phoneTimes.at(-1) + 0.12, kind: "pop" });
   // Themes: a whoosh per theme.
   for (let i = 0; i < THEMES.length; i++) tl.events.push({ t: at("themes", themeTime(i)), kind: "swish" });
   // Install command.
@@ -172,6 +182,9 @@ function scheduleTyping(tl) {
 }
 let hookTimes = [];
 let cmdTimes = [];
+let phoneTimes = [];
+// The share scene's beats, in seconds from its start.
+const SHARE = { click: 1.0, phoneIn: 2.0, typeAt: 3.7 };
 const themeTime = (i) => 0.55 + i * 0.58;
 
 // ------------------------------------------------------------------------------------
@@ -295,6 +308,7 @@ function setupStatic() {
       <div class="os">${sprite("linux")}<span>Linux</span></div>
       <div class="os">${sprite("apple")}<span>macOS</span></div>
       <div class="os">${sprite("windows")}<span>Windows</span></div>
+      <div class="os"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg><span>Web</span></div>
     </div>
     <div class="cmd"><span class="p">$ </span><span class="c"></span></div>
     <div class="free">Free and open source · MIT</div>`;
@@ -326,6 +340,7 @@ function render(t) {
   renderLogo(local("intro"));
   renderWindow(t);
   renderKeys(local("switch"), sc.switch.dur);
+  renderPhone(t, local("share"), sc.share.dur);
   renderThemes(local("themes"), sc.themes.dur);
   renderPlatforms(t, local("platforms"), sc.platforms.dur);
   renderEnd(local("end"), sc.end.dur);
@@ -406,7 +421,27 @@ function renderWindow(t) {
   const rx = lerp(24, 0, easeOutExpo(pIn)) + lerp(0, -10, easeIn(pOut));
   const ty = lerp(420, 0, easeOutExpo(pIn)) + lerp(0, -60, easeIn(pOut));
   const sc0 = lerp(0.86, 1, easeOutExpo(pIn)) * lerp(1, 0.78, easeIn(pOut));
-  show(stage, easeOut(prog(sIntro, 2.2, 2.65)) * (1 - easeIn(pOut)), `perspective(2400px) translateY(${ty}px) rotateX(${rx}deg) scale(${sc0})`);
+  // Step aside for the phone during the share scene.
+  const sShare = t - sc.share.start;
+  const aside = easeInOut(prog(sShare, SHARE.phoneIn - 0.3, SHARE.phoneIn + 0.6));
+  show(
+    stage,
+    easeOut(prog(sIntro, 2.2, 2.65)) * (1 - easeIn(pOut)),
+    `perspective(2400px) translateX(${lerp(0, -330, aside)}px) translateY(${ty}px) rotateX(${rx}deg) rotateY(${lerp(0, 8, aside)}deg) scale(${sc0 * lerp(1, 0.72, aside)})`,
+  );
+  stage.style.filter = `brightness(${lerp(1, 0.62, aside)})`;
+
+  // Share, above the sheet: hovered, pressed, then "Link copied".
+  const bar = $("#winbar .share");
+  const hover = prog(sShare, SHARE.click - 0.45, SHARE.click - 0.3);
+  const press = prog(sShare, SHARE.click, SHARE.click + 0.06) * (1 - prog(sShare, SHARE.click + 0.14, SHARE.click + 0.3));
+  bar.style.background = `rgba(255,255,255,${0.07 * hover})`;
+  bar.style.color = hover > 0.5 ? "var(--app-fg)" : "";
+  bar.style.transform = `scale(${1 - 0.06 * press})`;
+  const toast = $("#toast");
+  const tIn = prog(sShare, SHARE.click + 0.1, SHARE.click + 0.4);
+  const tOut = prog(sShare, SHARE.click + 2.4, SHARE.click + 2.7);
+  show(toast, easeOut(tIn) * (1 - tOut), `translateY(${lerp(-10, 0, easeOutExpo(tIn))}px)`);
   stage.style.transformOrigin = "50% 60%";
 
   const view = sheetView(t);
@@ -523,6 +558,10 @@ function cameraAt(t) {
   k("invoice", 3.4, { x: 1120, y: L(4.5).y }, 1.18);
   k("invoice", sc.invoice.dur, { x: 1100, y: L(4.5).y }, 1.14);
   k("switch", 0.4, full, 1);
+  k("share", 0.15, full, 1);
+  k("share", 0.8, { x: 1420, y: 230 }, 1.55);
+  k("share", SHARE.click + 0.45, { x: 1420, y: 230 }, 1.55);
+  k("share", SHARE.phoneIn - 0.1, full, 1);
   k("themes", 0, full, 1);
   if (t <= keys[0].t) return keys[0];
   for (let i = 1; i < keys.length; i++) {
@@ -541,6 +580,39 @@ function renderCamera(t) {
   const tx = 960 - c.x * c.z;
   const ty = 520 - c.y * c.z;
   $("#camera").style.transform = `translate(${tx}px, ${ty}px) scale(${c.z})`;
+}
+
+// The shared sheet on a phone, at omacus.com/app.
+function renderPhone(t, s, dur) {
+  const el = $("#phone");
+  if (s < SHARE.phoneIn - 0.5 || s > dur + 0.1) return show(el, 0);
+  const pIn = prog(s, SHARE.phoneIn - 0.2, SHARE.phoneIn + 0.9);
+  const out = prog(s, dur - 0.5, dur);
+  show(
+    el,
+    easeOut(prog(s, SHARE.phoneIn - 0.2, SHARE.phoneIn + 0.2)) * (1 - easeIn(out)),
+    `translateX(${lerp(520, 0, easeOutExpo(pIn))}px) translateY(${lerp(0, -40, easeIn(out))}px) rotate(${lerp(6, -2, easeOutExpo(pIn))}deg)`,
+  );
+  const sheet = DATA.phone;
+  const vars = varsOf(sheet.lines);
+  const n = phoneTimes.filter((ct) => ct <= t).length;
+  const last = sheet.lines.length - 1;
+  const lineIn = (i) => prog(s, SHARE.phoneIn + 0.35 + i * 0.03, SHARE.phoneIn + 0.7 + i * 0.03);
+  el.querySelector(".lines").innerHTML = sheet.lines
+    .map((text, i) => {
+      if (i === last) {
+        if (s < SHARE.typeAt - 0.4) return "";
+        const typing = n < text.length;
+        const caret = typing || Math.floor(s * 2.4) % 2 === 0 ? '<span class="caret"></span>' : "";
+        const done = phoneTimes.at(-1) + 0.1;
+        const p = prog(t, done, done + 0.35);
+        const res = t >= done ? `<span style="opacity:${easeOut(p)};text-shadow:0 0 ${lerp(22, 0, prog(t, done, done + 0.9))}px rgba(240,161,42,.9)">${esc(sheet.results[i])}</span>` : "";
+        return `<li><span class="src">${highlight(text.slice(0, n), vars)}${caret}</span><span class="res">${res}</span></li>`;
+      }
+      const o = easeOut(lineIn(i));
+      return `<li style="opacity:${o}"><span class="src">${highlight(text, vars) || " "}</span><span class="res">${esc(sheet.results[i] || "")}</span></li>`;
+    })
+    .join("");
 }
 
 function renderKeys(s, dur) {
