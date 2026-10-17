@@ -2,7 +2,7 @@
 //
 //   node mux.mjs    -> out/omacus-launch.mp4 (1920x1080)
 //
-// Narration clips (build/vo/<scene>.mp3) start 0.3s into their scene; the music ducks
+// Narration clips (build/vo/<scene>.mp3) start `lead` seconds into their scene; the music ducks
 // under them. Without narration it makes a preview with music and effects only.
 import { readFile, mkdir, access } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
@@ -10,14 +10,13 @@ import { spawnSync } from "node:child_process";
 const BUILD = new URL("build/", import.meta.url).pathname;
 const OUT = new URL("out/", import.meta.url).pathname;
 await mkdir(OUT, { recursive: true });
-const LEAD = 0.3;
 
 const scenes = JSON.parse(await readFile(`${BUILD}scenes.json`, "utf8"));
 const clips = [];
 for (const s of scenes) {
   try {
     await access(`${BUILD}vo/${s.id}.mp3`);
-    clips.push({ path: `${BUILD}vo/${s.id}.mp3`, at: s.start + LEAD });
+    clips.push({ path: `${BUILD}vo/${s.id}.mp3`, at: s.start + s.lead });
   } catch {}
 }
 const voiced = clips.length === scenes.length;

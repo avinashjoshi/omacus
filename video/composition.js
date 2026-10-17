@@ -5,10 +5,11 @@
 // so cuts land on the words; without it, each scene uses its minimum length.
 
 const FPS = 60;
-const LEAD = 0.3; // narration starts this long into its scene
+const LEAD = 0.3; // narration starts this long into its scene (unless the scene sets `lead`)
+const HOOK_IN = 1.0; // a quiet beat on the caret before the first line types
 
 const SCENES = [
-  { id: "hook", min: 3.6, vo: "You think in sentences. Your calculator doesn't." },
+  { id: "hook", min: 3.6, lead: 1.3, hold: 0.9, vo: "You think in sentences. Your calculator doesn't." },
   { id: "intro", min: 8.2, vo: "Meet Omacus, a notepad calculator. Write math the way you'd write a note, and every answer lines up as you type." },
   { id: "currency", min: 4.8, vo: "Split a trip in yen, dollars and euros. Rates stay fresh, and work offline." },
   { id: "zones", min: 4.4, vo: "Time zones, with daylight saving, even on a date next month." },
@@ -71,9 +72,10 @@ function buildTimeline(timings) {
   const scenes = {};
   for (const s of SCENES) {
     const vo = timings[s.id];
-    const dur = Math.max(s.min, vo ? LEAD + vo.duration + 0.55 : 0);
-    const words = vo?.words ?? fakeWords(s.vo, dur - LEAD - 0.6);
-    scenes[s.id] = { ...s, start: t, dur, words: words.map((w) => ({ ...w, t0: w.t0 + t + LEAD, t1: w.t1 + t + LEAD })) };
+    const lead = s.lead ?? LEAD;
+    const dur = Math.max(s.min + (s.hold ?? 0), vo ? lead + vo.duration + 0.55 + (s.hold ?? 0) : 0);
+    const words = vo?.words ?? fakeWords(s.vo, dur - lead - 0.6 - (s.hold ?? 0));
+    scenes[s.id] = { ...s, start: t, dur, words: words.map((w) => ({ ...w, t0: w.t0 + t + lead, t1: w.t1 + t + lead })) };
     t += dur;
   }
   const tl = { scenes, total: t, typing: [], events: [] };
@@ -130,9 +132,9 @@ function scheduleTyping(tl) {
   // Hook: one big line, typed by the hook layer itself (see renderHook).
   const hook = DATA.hook.lines[0];
   hookTimes = [];
-  for (let i = 0; i < hook.length; i++) hookTimes.push(at("hook", 0.35 + i * 0.065 + (hook[i] === " " ? 0.03 : 0)));
+  for (let i = 0; i < hook.length; i++) hookTimes.push(at("hook", HOOK_IN + 0.35 + i * 0.065 + (hook[i] === " " ? 0.03 : 0)));
   hookTimes.forEach((ct) => tl.events.push({ t: ct, kind: "key", big: true }));
-  tl.events.push({ t: at("hook", 1.75), kind: "pop", big: true });
+  tl.events.push({ t: at("hook", HOOK_IN + 1.75), kind: "pop", big: true });
 
   tl.events.push({ t: at("intro", -0.12), kind: "whoosh" });
   logoBeads(0).forEach((b) => tl.events.push({ t: at("intro", b.land), kind: "bead" }));
@@ -331,7 +333,7 @@ function render(t) {
   renderCaptions(t);
 
   // Fade in from black, and out at the very end.
-  const fadeIn = 1 - prog(t, 0, 0.35);
+  const fadeIn = 1 - prog(t, 0, 0.8);
   const fadeOut = prog(t, TL.total - 0.7, TL.total);
   $("#fade").style.opacity = Math.max(fadeIn, easeIn(fadeOut));
   void inScene;
@@ -344,15 +346,16 @@ function renderHook(t, s, dur) {
   const n = hookTimes.filter((ct) => ct <= t).length;
   // Reserve the full width so the line stays centred while it types.
   el.querySelector(".line").style.width = `${text.length + 0.6}ch`;
-  const caret = s < 1.7 && Math.floor(s * 2.4) % 2 === 0 ? '<span class="caret"></span>' : "";
-  el.querySelector(".line").innerHTML = esc(text.slice(0, n)) + (n < text.length || s < 1.7 ? caret : "");
-  const a = prog(s, 1.75, 2.15);
+  const typed = s - HOOK_IN;
+  const caret = typed < 1.7 && Math.floor(s * 2.4) % 2 === 0 ? '<span class="caret"></span>' : "";
+  el.querySelector(".line").innerHTML = esc(text.slice(0, n)) + (n < text.length || typed < 1.7 ? caret : "");
+  const a = prog(typed, 1.75, 2.15);
   const ans = el.querySelector(".ans");
   ans.textContent = DATA.hook.results[0];
   ans.style.opacity = easeOut(a);
   ans.style.transform = `translateY(${lerp(26, 0, easeOutExpo(a))}px)`;
   ans.style.filter = `blur(${lerp(10, 0, easeOut(a))}px)`;
-  ans.style.textShadow = `0 0 ${lerp(40, 0, prog(s, 1.8, 2.8))}px rgba(240,161,42,.8)`;
+  ans.style.textShadow = `0 0 ${lerp(40, 0, prog(typed, 1.8, 2.8))}px rgba(240,161,42,.8)`;
   // Push in slowly, then zoom through into the next scene.
   const out = prog(s, dur - 0.45, dur);
   show(el, 1 - easeIn(out), `scale(${lerp(1, 1.04, s / dur) * lerp(1, 1.6, easeIn(out))})`);
@@ -666,5 +669,5 @@ window.video = {
   duration: () => TL.total,
   render,
   events: () => TL.events.sort((a, b) => a.t - b.t),
-  scenes: () => SCENES.map((s) => ({ id: s.id, start: TL.scenes[s.id].start, dur: TL.scenes[s.id].dur, vo: s.vo })),
+  scenes: () => SCENES.map((s) => ({ id: s.id, start: TL.scenes[s.id].start, dur: TL.scenes[s.id].dur, lead: s.lead ?? LEAD, vo: s.vo })),
 };
