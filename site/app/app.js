@@ -4,6 +4,10 @@
 // part after "#", which browsers never send to the server.
 
 import init, { Calc, suggest, shareEncode, shareDecode } from "./pkg/omacus_web.js";
+import {
+  EditorState, StateField, StateEffect, RangeSetBuilder, Prec, EditorView, Decoration, WidgetType, keymap,
+  defaultKeymap, history as undoHistory, historyKeymap, autocompletion, acceptCompletion, closeCompletion, moveCompletionSelection,
+} from "./editor.js";
 
 const WASM = "/app/pkg/omacus_web_bg.wasm";
 const PREFIX = "omacus:";
@@ -29,7 +33,7 @@ $84 split 3 ways
 days until Christmas
 #ff8800 in hsl
 
-// Click an answer to copy it. Share link (top right) sends this sheet to anyone.
+// Click an answer to copy it. Share link sends this sheet to anyone.
 // Private: your sheets are saved in this browser only. Nothing is uploaded.
 `;
 
@@ -41,13 +45,11 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const el = {
   page: document.body,
-  text: $("[data-text]"),
-  rows: $("[data-rows]"),
+  host: $("[data-text]"),
   editor: $("[data-editor]"),
   sheets: $("[data-sheets]"),
   title: $("[data-title]"),
   shared: $("[data-shared]"),
-  suggest: $("[data-suggest]"),
   toast: $("[data-toast]"),
   menu: $("[data-menu]"),
   menuButton: $("[data-menu-button]"),
@@ -135,7 +137,7 @@ function title(text) {
 // Other tabs: pick up their changes, unless this tab is mid-edit on the same sheet.
 addEventListener("storage", (e) => {
   if (EMBED || !e.key?.startsWith(PREFIX)) return;
-  const typing = document.activeElement === el.text && pendingSave;
+  const typing = view.hasFocus && pendingSave;
   const before = currentText();
   const mine = state.active;
   load();
@@ -154,7 +156,7 @@ function currentText() {
 
 let pendingSave = null;
 function onInput() {
-  const text = el.text.value;
+  const text = view.state.doc.toString();
   if (state.active === "shared") {
     state.shared.text = text;
   } else {
@@ -167,14 +169,21 @@ function onInput() {
   }
   evaluate();
   renderSidebar();
-  updateSuggest();
 }
 
+// Each sheet keeps its own editor state while the page is open, so undo stays per sheet.
+const editorStates = new Map();
+let shownId = null;
+
 function showSheet() {
-  el.text.value = currentText();
+  if (shownId !== null) editorStates.set(shownId, view.state);
+  shownId = state.active;
+  const text = currentText();
+  let es = editorStates.get(state.active);
+  if (!es || es.doc.toString() !== text) es = EditorState.create({ doc: text, extensions: editorExtensions });
+  view.setState(es);
   el.shared.hidden = EMBED || state.active !== "shared";
   showInstall();
-  closeSuggest();
   evaluate();
   renderSidebar();
 }
@@ -185,7 +194,7 @@ function select(id) {
   state.active = id;
   if (id !== "shared") saveIndex();
   showSheet();
-  el.text.focus({ preventScroll: true });
+  view.focus();
   el.page.classList.remove("drawer");
 }
 
@@ -226,63 +235,110 @@ function renderSidebar() {
 }
 
 // ---------------------------------------------------------------------------------
-// Answers and highlighting: the layer over the textarea, one row per line.
+// The editor: CodeMirror (editor.js, bundled by site/tools/editor). Lines wrap at the
+// full width. Each answer floats right at the end of its line, so it sits beside a
+// short line and drops to its own row, still right-aligned, below a long one.
+
+const setResults = StateEffect.define();
+
+class Answer extends WidgetType {
+  constructor(r) {
+    super();
+    this.r = r;
+  }
+  eq(other) {
+    return other.r.display === this.r.display && other.r.color === this.r.color;
+  }
+  toDOM() {
+    const span = document.createElement("span");
+    span.className = "res";
+    span.title = "Click to copy";
+    span.innerHTML =
+      (this.r.color ? `<span class="swatch" style="background:${esc(this.r.color)}"></span>` : "") +
+      `<b>${esc(this.r.display)}</b>`;
+    span.addEventListener("mousedown", (e) => e.preventDefault());
+    span.addEventListener("click", () => copyAnswer(span, this.r.display));
+    return span;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
+function copyAnswer(span, display) {
+  copy(display).then(() => {
+    span.classList.add("copied");
+    toast(`Copied <b>${esc(display)}</b>`);
+    setTimeout(() => span.classList.remove("copied"), 900);
+  });
+}
+
+// Colours and answers for the whole sheet. Sheets are short, so it's redone per change.
+function decorate(doc, answers) {
+  const out = new RangeSetBuilder();
+  const vars = definedVars(doc.toString().split("\n"));
+  for (let n = 1; n <= doc.lines; n++) {
+    const line = doc.line(n);
+    const r = answers[n - 1];
+    const spans = r?.kind === "header" ? [[0, line.length, "t-head"]] : tokens(line.text, vars);
+    for (const [from, to, cls] of spans) {
+      if (to > from) out.add(line.from + from, line.from + to, Decoration.mark({ class: cls }));
+    }
+    if (r?.display) out.add(line.to, line.to, Decoration.widget({ widget: new Answer(r), side: 1 }));
+  }
+  return out.finish();
+}
+
+const sheetField = StateField.define({
+  create: (st) => ({ answers: [], deco: decorate(st.doc, []) }),
+  update(value, tr) {
+    let answers = value.answers;
+    for (const e of tr.effects) if (e.is(setResults)) answers = e.value;
+    if (answers === value.answers && !tr.docChanged) return value;
+    return { answers, deco: decorate(tr.state.doc, answers) };
+  },
+  provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
+});
+
+// Autocomplete: the engine's suggestions for the word being typed.
+function completions(ctx) {
+  if (!calc) return null;
+  const doc = ctx.state.doc.toString();
+  const found = JSON.parse(suggest(doc.slice(0, ctx.pos), doc));
+  if (!found) return null;
+  return { from: found.start, options: found.items.map((label) => ({ label })), filter: false };
+}
+
+// As in the desktop app: Tab accepts a suggestion, Enter is always a new line.
+const editorKeys = [
+  { key: "Tab", run: acceptCompletion },
+  { key: "ArrowDown", run: moveCompletionSelection(true) },
+  { key: "ArrowUp", run: moveCompletionSelection(false) },
+  { key: "Escape", run: closeCompletion },
+  { key: "Mod-Shift-s", run: () => (action("copy"), true) },
+  { key: "Mod-Shift-m", run: () => (action("markdown"), true) },
+];
+
+const editorExtensions = [
+  undoHistory(),
+  Prec.highest(keymap.of(editorKeys)),
+  keymap.of([...defaultKeymap, ...historyKeymap]),
+  EditorView.lineWrapping,
+  sheetField,
+  autocompletion({ override: [completions], defaultKeymap: false, icons: false }),
+  EditorView.updateListener.of((u) => u.docChanged && onInput()),
+  EditorView.contentAttributes.of({ spellcheck: "false", autocapitalize: "off", autocorrect: "off", "aria-label": "Sheet" }),
+];
+
+const view = new EditorView({ parent: el.host, state: EditorState.create({ doc: "", extensions: editorExtensions }) });
 
 let frame = 0;
 function evaluate() {
   cancelAnimationFrame(frame);
   frame = requestAnimationFrame(() => {
-    const text = el.text.value;
-    results = calc ? JSON.parse(calc.evaluate(text)) : [];
-    render(text);
+    results = calc ? JSON.parse(calc.evaluate(view.state.doc.toString())) : [];
+    view.dispatch({ effects: setResults.of(results) });
   });
-}
-
-function render(text) {
-  const lines = text.split("\n");
-  const vars = definedVars(lines);
-  const widest = results.reduce((w, r) => Math.max(w, [...(r.display ?? "")].length + (r.color ? 2 : 0)), 0);
-  // Up to 45% of the width for answers (55% on phones); a longer one ends in "…".
-  const share = el.editor.clientWidth < 600 ? 0.55 : 0.45;
-  const room = Math.max(8, Math.min(widest + 1, Math.floor((el.editor.clientWidth / charWidth()) * share)));
-  el.editor.style.setProperty("--res-w", `${room}ch`);
-  el.page.style.setProperty("--res-w", `${room}ch`);
-
-  el.rows.innerHTML = lines
-    .map((line, i) => {
-      const r = results[i];
-      const src = r?.kind === "header" ? `<span class="t-head">${esc(line)}</span>` : highlight(line, vars);
-      let res = "";
-      if (r?.display) {
-        const swatch = r.color ? `<span class="swatch" style="background:${r.color}"></span>` : "";
-        res = `<span class="res" data-line="${i}" title="${esc(r.display)}">${swatch}<b>${esc(r.display)}</b></span>`;
-      }
-      // A trailing space keeps an empty line one line tall, as in the textarea.
-      return `<div class="row">${src || " "}${res}</div>`;
-    })
-    .join("");
-  syncScroll();
-}
-
-let measured = 0;
-function charWidth() {
-  if (!measured) {
-    const probe = document.createElement("span");
-    probe.textContent = "0".repeat(20);
-    probe.style.cssText = "position:absolute;visibility:hidden;font:inherit;white-space:pre";
-    el.editor.append(probe);
-    measured = probe.getBoundingClientRect().width / 20 || 9;
-    probe.remove();
-  }
-  return measured;
-}
-addEventListener("resize", () => {
-  measured = 0;
-  evaluate();
-});
-
-function syncScroll() {
-  el.rows.style.transform = `translateY(${-el.text.scrollTop}px)`;
 }
 
 function definedVars(lines) {
@@ -294,150 +350,40 @@ function definedVars(lines) {
   return vars;
 }
 
-// The same colours as the desktop app's matte-black theme.
-function highlight(line, vars) {
+// The same colours as the desktop app's matte-black theme, as [from, to, class] spans.
+function tokens(line, vars) {
+  const out = [];
   let code = line;
-  let comment = "";
   const c = line.indexOf("//");
   if (c >= 0) {
+    out.push([c, line.length, "t-com"]);
     code = line.slice(0, c);
-    comment = line.slice(c);
   }
-  let out = "";
+  let at = 0;
   const label = code.match(/^(\s*[A-Za-z][A-Za-z0-9 '\-_&/]*:)(?= )/);
   if (label) {
-    out += `<span class="t-label">${esc(label[1])}</span>`;
-    code = code.slice(label[1].length);
+    out.push([0, label[1].length, "t-label"]);
+    at = label[1].length;
   }
   const re = /("[^"]*"?)|(\d[\w.,]*)|([A-Za-z_]\w*)|([$£€¥₹₩₽₺%#])|(\s+)|(.)/gu;
+  re.lastIndex = at;
   let m;
   while ((m = re.exec(code))) {
     const [tok, str, num, word, sym, ws] = m;
-    if (str) out += `<span class="t-com">${esc(tok)}</span>`;
-    else if (num || sym) out += `<span class="t-num">${esc(tok)}</span>`;
+    const span = (cls) => out.push([m.index, m.index + tok.length, cls]);
+    if (str) span("t-com");
+    else if (num || sym) span("t-num");
     else if (word) {
       const cls = vars.has(word) ? "t-var" : KEYWORDS.has(word.toLowerCase()) ? "t-kw" : "";
-      out += cls ? `<span class="${cls}">${esc(tok)}</span>` : esc(tok);
-    } else if (ws) out += tok;
-    else out += `<span class="t-op">${esc(tok)}</span>`;
+      if (cls) span(cls);
+    } else if (!ws) span("t-op");
   }
-  if (comment) out += `<span class="t-com">${esc(comment)}</span>`;
-  return out;
+  return out.sort((x, y) => x[0] - y[0]);
 }
 
 function esc(s) {
   return s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
 }
-
-// Click an answer to copy it.
-el.editor.addEventListener("click", (e) => {
-  const res = e.target.closest?.(".res");
-  if (!res) return;
-  const r = results[Number(res.dataset.line)];
-  if (!r) return;
-  copy(r.display).then(() => {
-    res.classList.add("copied");
-    toast(`Copied <b>${esc(r.display)}</b>`);
-    setTimeout(() => res.classList.remove("copied"), 900);
-  });
-});
-
-el.text.addEventListener("input", onInput);
-el.text.addEventListener("scroll", syncScroll, { passive: true });
-
-// ---------------------------------------------------------------------------------
-// Autocomplete: the engine's suggestions, in a list at the caret.
-
-let suggestion = null;
-
-function updateSuggest() {
-  const before = el.text.value.slice(0, el.text.selectionStart);
-  if (el.text.selectionStart !== el.text.selectionEnd || !calc) return closeSuggest();
-  const found = JSON.parse(suggest(before, el.text.value));
-  if (!found) return closeSuggest();
-  suggestion = { ...found, index: 0 };
-  el.suggest.replaceChildren(
-    ...found.items.map((item, i) => {
-      const li = document.createElement("li");
-      li.textContent = item;
-      li.setAttribute("role", "option");
-      li.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        accept(i);
-      });
-      return li;
-    }),
-  );
-  markSuggestion();
-  const at = caretPoint(found.start);
-  el.suggest.style.left = `${Math.min(at.x, el.editor.clientWidth - 160)}px`;
-  el.suggest.style.top = `${at.y + at.h}px`;
-  el.suggest.hidden = false;
-}
-
-function markSuggestion() {
-  $$("li", el.suggest).forEach((li, i) => li.setAttribute("aria-selected", String(i === suggestion?.index)));
-}
-
-function closeSuggest() {
-  suggestion = null;
-  el.suggest.hidden = true;
-}
-
-function accept(i = suggestion?.index ?? 0) {
-  if (!suggestion) return;
-  const word = suggestion.items[i];
-  const end = el.text.selectionStart;
-  el.text.setRangeText(word, suggestion.start, end, "end");
-  closeSuggest();
-  onInput();
-  closeSuggest();
-}
-
-// Where a character offset sits, using an invisible copy of the textarea.
-function caretPoint(offset) {
-  const mirror = document.createElement("div");
-  const style = getComputedStyle(el.text);
-  for (const p of ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "fontFamily", "fontSize",
-    "lineHeight", "letterSpacing", "whiteSpace", "overflowWrap", "tabSize", "boxSizing"]) mirror.style[p] = style[p];
-  mirror.style.cssText += `position:absolute;visibility:hidden;top:0;left:0;width:${el.text.clientWidth}px;`;
-  mirror.textContent = el.text.value.slice(0, offset);
-  const mark = document.createElement("span");
-  mark.textContent = "​";
-  mirror.append(mark);
-  el.editor.append(mirror);
-  const x = mark.offsetLeft;
-  const y = mark.offsetTop - el.text.scrollTop;
-  const h = mark.offsetHeight;
-  mirror.remove();
-  return { x, y, h };
-}
-
-el.text.addEventListener("keydown", (e) => {
-  if (suggestion && !el.suggest.hidden) {
-    const n = suggestion.items.length;
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      suggestion.index = (suggestion.index + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
-      return markSuggestion();
-    }
-    if (e.key === "Tab" || e.key === "Enter") {
-      e.preventDefault();
-      return accept();
-    }
-    if (e.key === "Escape") return closeSuggest();
-  }
-  const mod = e.ctrlKey || e.metaKey;
-  if (mod && e.shiftKey && e.key.toLowerCase() === "s") {
-    e.preventDefault();
-    action("copy");
-  } else if (mod && e.shiftKey && e.key.toLowerCase() === "m") {
-    e.preventDefault();
-    action("markdown");
-  }
-});
-el.text.addEventListener("click", closeSuggest);
-el.text.addEventListener("blur", () => setTimeout(closeSuggest, 150));
 
 // ---------------------------------------------------------------------------------
 // Share links: "#v1." then the sheet, deflated and base64url-encoded, by the engine
@@ -538,7 +484,7 @@ async function action(name) {
     flushSave();
     addSheet("");
     showSheet();
-    el.text.focus();
+    view.focus();
   } else if (name === "delete") {
     deleteSheet();
   } else if (name === "export") {
@@ -832,6 +778,13 @@ function standalone() {
 
 async function goOffline() {
   if (!("serviceWorker" in navigator)) return;
+  // Local previews serve files at fixed URLs, which the worker would keep serving
+  // stale; there, remove any worker instead.
+  if (["localhost", "127.0.0.1"].includes(location.hostname)) {
+    for (const reg of await navigator.serviceWorker.getRegistrations()) await reg.unregister();
+    for (const key of await caches.keys()) await caches.delete(key);
+    return;
+  }
   try {
     const reg = await navigator.serviceWorker.register("/app/sw.js", { scope: "/app/" });
     await navigator.serviceWorker.ready;
@@ -873,7 +826,7 @@ async function start() {
   if (state.active !== "shared") showSheet();
   loadRates();
   if (!EMBED) goOffline();
-  if (matchMedia("(min-width: 761px)").matches) el.text.focus({ preventScroll: true });
+  if (matchMedia("(min-width: 761px)").matches) view.focus();
 }
 
 start().catch((e) => {
