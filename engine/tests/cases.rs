@@ -13,6 +13,7 @@ fn engine() -> Engine {
         ("JPY", 150.0),
         ("CHF", 0.9),
         ("BOB", 6.9),
+        ("AUD", 1.5),
     ]))
     .with_clock(omacus_engine::monotonic_ms)
 }
@@ -21,7 +22,9 @@ fn engine() -> Engine {
 fn cases() {
     // Git on Windows may check the file out with CRLF line endings.
     let text = include_str!("cases.txt").replace("\r\n", "\n");
-    let body = text.split_once("\n---\n").map_or(text.as_str(), |(_, rest)| rest);
+    let body = text
+        .split_once("\n---\n")
+        .map_or(text.as_str(), |(_, rest)| rest);
     let engine = engine();
     let mut failures = Vec::new();
     for sheet in body.split("\n---\n") {
@@ -62,5 +65,20 @@ fn cases() {
         "{} lines differ:\n{}",
         failures.len(),
         failures.join("\n")
+    );
+}
+
+/// A line's answer shouldn't depend on where it sits or how long the lines above it
+/// took (from the second review: 50 slow lines got 36 answers and 14 "too big").
+/// Waits on calculating off the window's thread, which drops the sheet-wide budget.
+#[test]
+#[ignore = "needs every line to get the same time limit"]
+fn same_line_same_answer_anywhere() {
+    let sheet = vec!["10000!"; 50].join("\n");
+    let results = engine().eval_document(&sheet);
+    let answered = results.iter().filter(|r| r.kind == Kind::Value).count();
+    assert_eq!(
+        answered, 50,
+        "only {answered} of 50 identical lines got an answer"
     );
 }

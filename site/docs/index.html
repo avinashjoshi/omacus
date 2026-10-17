@@ -220,7 +220,7 @@ total</pre>
 
     <!-- ===================================================== Syntax -->
     <h2 id="arithmetic">Arithmetic</h2>
-    <p>The usual operators, plus words for them. <code>x</code> between numbers multiplies, <code>k</code> and <code>M</code> are thousands and millions, <code>^</code> is a power.</p>
+    <p>The usual operators, plus words for them. <code>x</code> between numbers multiplies, <code>k</code> and <code>M</code> are thousands and millions, <code>^</code> is a power. A comma followed by three digits groups thousands (<code>1,234</code>); followed by any other number of digits it's a decimal comma, so <code>1,5</code> is 1.5 and <code>€12,50</code> is €12.50.</p>
   <!-- ex:arithmetic -->
   <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
@@ -238,7 +238,7 @@ total</pre>
     <p>Functions include <code>sqrt</code>, <code>abs</code>, <code>round</code>, <code>floor</code>, <code>ceil</code>, <code>sin</code>, <code>cos</code>, <code>tan</code>, <code>log</code>, <code>ln</code> and <code>exp</code>; constants <code>pi</code> and <code>e</code>.</p>
 
     <h2 id="percentages">Percentages</h2>
-    <p>Say percentages the way you would out loud: of, on, off, as a percent of. A tip or a tax on top works with a word in between, and a bill splits <code>3 ways</code> or <code>between 4 people</code>.</p>
+    <p>Say percentages the way you would out loud: of, on, off, as a percent of. A tip or a tax on top works with a word in between, and a bill splits <code>3 ways</code> or <code>between 4 people</code>. Percentages added or taken away apply one after another (<code>$100 - 10% - 10%</code> is $81), a percentage times a number is that share of it (<code>10% * 200</code> is 20), and a percentage kept in a variable works the same way: <code>tax = 8%</code>, then <code>$100 + tax</code>.</p>
   <!-- ex:percentages -->
   <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
@@ -250,6 +250,7 @@ total</pre>
       <tr><td><code>5% of what is 6</code></td><td class="ans">120</td></tr>
       <tr><td><code>18% tip on $62</code></td><td class="ans">$73.16</td></tr>
       <tr><td><code>$62 + 18% tip</code></td><td class="ans">$73.16</td></tr>
+      <tr><td><code>10% off 20% off $100</code></td><td class="ans">$72</td></tr>
       <tr><td><code>$84 split 3 ways</code></td><td class="ans">$28</td></tr>
       <tr><td><code>split $240 between 4 people</code></td><td class="ans">$60</td></tr>
     </tbody>
@@ -291,6 +292,7 @@ total</pre>
       <tr><td><code>£250 in USD</code></td><td class="ans">$332.96</td></tr>
       <tr><td><code>¥10,000 in USD</code></td><td class="ans">$63.29</td></tr>
       <tr><td><code>CHF 300 in USD</code></td><td class="ans">$363.88</td></tr>
+      <tr><td><code>C$100 in USD</code></td><td class="ans">$70.68</td></tr>
       <tr><td><code>₹5,000 in USD</code></td><td class="ans">$52.57</td></tr>
     </tbody>
   </table>
@@ -363,11 +365,13 @@ total</pre>
     <p class="guide-link">More examples in the guide: <a href="/guides/time-zones/">Convert time zones in plain English</a>.</p>
 
     <h2 id="dates">Dates</h2>
-    <p><code>today</code>, <code>now</code>, <code>tomorrow</code> and <code>yesterday</code>, plus or minus minutes, hours, days, weeks, months or years.</p>
+    <p><code>today</code>, <code>now</code>, <code>tomorrow</code>, <code>yesterday</code> or any date, plus or minus minutes, hours, days, weeks, months or years. Take one date from another for the days between them. A date without a year is this year's.</p>
 <div class="annot">
 <code>today</code><span class="c">Friday, 16 October 2026</span>
 <code>tomorrow + 2 weeks</code><span class="c">Saturday, 31 October 2026</span>
 <code>now - 90 minutes</code><span class="c">Fri, 16 Oct 2026, 7:09 AM</span>
+<code>Jan 31 + 1 month</code><span class="c">Saturday, 28 February 2026</span>
+<code>Dec 25 - Dec 1</code><span class="c">24 days</span>
 </div>
     <p>For a time of day, add or take away minutes and hours from a clock time, or count from now. Add <code>in</code> and a place to see it there.</p>
 <div class="annot">

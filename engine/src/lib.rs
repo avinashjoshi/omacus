@@ -201,7 +201,7 @@ re!(IS_PCT_OF_WHAT, r"(?i)^(.+?)\s+is\s+(.+?)\s*%\s+of\s+what$");
 // left to right, so "$100 - 10% - 10%" is $81.
 re!(
     PLUS_MINUS_PCT_STEP,
-    r"^([^%]+?)\s*([+-])\s*(\d[\d,]*(?:\.\d+)?)\s*%"
+    r"^([^%]+?)\s*([+-])\s*(\d[\d,]*(?:\.\d+)?\s*%(?:\s*[*/]\s*\d[\d,]*(?:\.\d+)?)*)"
 );
 // A plain number added to or taken from an amount ("rent + 5").
 re!(
@@ -217,10 +217,25 @@ re!(
 // Only when the amount before it has a unit too (`10 / 4 inches` stays fend's).
 re!(
     DIVISOR,
-    r"([A-Za-z)]\s*)/\s*(\(?\d[\d,]*(?:\.\d+)?\)?\s*)([A-Za-z][A-Za-z_]*(?:\^\d+)?(?:/[A-Za-z][A-Za-z_]*(?:\^\d+)?)*)"
+    r"([A-Za-z)]\s*)/\s*(\(?\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?\)?\s*)([A-Za-df-zA-DF-Z_][A-Za-z_]*(?:\^\d+)?(?:/[A-Za-z][A-Za-z_]*(?:\^\d+)?)*)"
 );
 re!(TIMES_X, r"(\d+\)?)(\s*)([x×])(\s*)(\d|\()");
 re!(SYMBOL_NUM, r"([€¥₹₩₽₺])\s*(\d[\d,]*(?:\.\d+)?)");
+// Dollars with a country prefix: "C$100", "A$50", "US$20".
+re!(
+    PREFIXED_DOLLAR,
+    r"\b(US|CA|C|AU|A|NZ|HK|SG|S)\$\s*(\d[\d,]*(?:\.\d+)?)"
+);
+// A decimal comma: thousands always come in threes, so "1,5", "12,50" and
+// "3,14159" can only mean 1.5, 12.50 and 3.14159 ("1,234" stays 1234).
+re!(
+    DECIMAL_COMMA,
+    r"(^|[^\d,.])(\d+),(\d{1,2}|\d{4,})($|[^\d,])"
+);
+// A percentage times a plain number is a share of it: "10% * 200" is 20, not
+// 2,000%. Divided, it stays a percentage ("50% / 2" is 25%).
+re!(PCT_TIMES, r"(\d[\d.]*)\s*%(\s*\*\s*\(?\d)");
+re!(TIMES_PCT, r"(\d\)?\s*[*/]\s*)(\d[\d.]*)\s*%");
 re!(MONEY_PREFIX, r"[$£]\s*\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?");
 re!(PREV, r"(?i)\bprev\b");
 // fend answers "version" with its own version number; in a sheet it's prose.
@@ -374,7 +389,7 @@ impl Engine {
         let started = self.clock.map(|now| now());
         // Names defined so far, and those holding a percentage ("tax = 8%").
         let mut vars: HashSet<String> = HashSet::new();
-        let mut percents: Vec<(Regex, String)> = Vec::new();
+        let mut percents: Vec<(String, Regex, String)> = Vec::new();
 
         text.split('\n')
             .enumerate()
@@ -431,7 +446,7 @@ impl Engine {
                     None => {
                         // "$100 + tax", where tax = 8%: the same as "$100 + 8%".
                         let mut source = source.to_string();
-                        for (re, pct) in &percents {
+                        for (_, re, pct) in &percents {
                             source = re.replace_all(&source, format!("${{1}}{pct}")).into_owned();
                         }
                         let expr = self.currency_first(&rewrite(&source, prev.as_deref(), &vars));
@@ -449,16 +464,28 @@ impl Engine {
                 {
                     let name = c[1].to_string();
                     let value = c[2].trim();
+                    // A redefinition replaces the old value, percentage or not.
+                    percents.retain(|(n, ..)| *n != name);
                     if value.ends_with('%')
                         && value[..value.len() - 1].trim().parse::<f64>().is_ok()
                     {
                         let re = Regex::new(&format!(r"([+-]\s*)\b{}\b", regex::escape(&name)));
                         if let Ok(re) = re {
-                            percents.push((re, value.to_string()));
+                            percents.push((name.clone(), re, value.to_string()));
                         }
                     }
                     vars.insert(name);
                 }
+
+                // Every digit of an approximate answer (see `precisely`), except for
+                // base conversions, which fend formats itself.
+                let result = result.map(|raw| {
+                    if BASE_CONV.is_match(trimmed) {
+                        raw
+                    } else {
+                        precisely(&mut ctx, &budget, &var, raw)
+                    }
+                });
 
                 match result {
                     Some(raw) => {
@@ -676,6 +703,25 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
         None => line.to_string(),
     };
     s = QUOTED.replace_all(&s, " ").into_owned();
+    // Twice: "1,5 + 2,5" shares the space between two matches.
+    for _ in 0..2 {
+        s = DECIMAL_COMMA
+            .replace_all(&s, "${1}${2}.${3}${4}")
+            .into_owned();
+    }
+    s = PREFIXED_DOLLAR
+        .replace_all(&s, |c: &regex::Captures| {
+            let code = match &c[1] {
+                "US" => "USD",
+                "CA" | "C" => "CAD",
+                "AU" | "A" => "AUD",
+                "NZ" => "NZD",
+                "HK" => "HKD",
+                _ => "SGD",
+            };
+            format!("{} {code}", &c[2])
+        })
+        .into_owned();
     s = VERSION_WORD.replace_all(&s, " ").into_owned();
     s = PERCENT_WORD.replace_all(&s, "$1%").into_owned();
     s = HALF.replace_all(&s, "0.5 * ").into_owned();
@@ -775,20 +821,18 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
         format!("({}) / (({}) / 100)", &c[2], &c[1])
     } else if let Some(c) = PCT_ON.captures(&rhs) {
         format!("({}) * (1 + ({}) / 100)", &c[2], &c[1])
-    } else if let Some(c) = PCT_OFF.captures(&rhs) {
-        format!("({}) * (1 - ({}) / 100)", &c[2], &c[1])
+    } else if PCT_OFF.is_match(&rhs) {
+        discounts(&rhs)
     } else if let Some(c) = AS_PCT.captures(&rhs) {
         format!("(({}) / ({})) to %", &c[1], &c[2])
     } else if PLUS_MINUS_PCT_STEP.is_match(&rhs) {
         // One percentage at a time, each applied to the total so far.
         let mut out = rhs;
         while let Some(c) = PLUS_MINUS_PCT_STEP.captures(&out) {
-            let step = format!(
-                "(({}) * (1 {} ({}) / 100))",
-                &c[1],
-                &c[2],
-                c[3].replace(',', "")
-            );
+            // "100 + 10% * 2": the percentage term first (20%), as in ordinary
+            // precedence, then applied to the amount.
+            let term = c[3].replace(',', "").replace('%', " / 100");
+            let step = format!("(({}) * (1 {} ({term})))", &c[1], &c[2]);
             out = format!("{step}{}", &out[c.get(0).unwrap().end()..]);
         }
         out
@@ -796,9 +840,22 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
         rhs
     };
 
+    // Any percentage still multiplied by a number (the ones added or taken away
+    // were handled above) is that share of it.
+    rhs = PCT_TIMES.replace_all(&rhs, "($1 / 100)$2").into_owned();
+    rhs = TIMES_PCT.replace_all(&rhs, "$1($2 / 100)").into_owned();
+
     match lhs {
         Some(name) => format!("{name} = {rhs}"),
         None => rhs,
+    }
+}
+
+/// "10% off 20% off $100": each discount applied in turn ($72).
+fn discounts(s: &str) -> String {
+    match PCT_OFF.captures(s) {
+        Some(c) => format!("({}) * (1 - ({}) / 100)", discounts(&c[2]), &c[1]),
+        None => s.to_string(),
     }
 }
 
@@ -951,6 +1008,71 @@ fn drop_unknown_words(
         }
     }
     None
+}
+
+/// An approximate answer with every digit Omacus might show. fend rounds to ten
+/// decimal places, which loses tiny values ("approx. 0.0000000003"), and in fend
+/// 1.5.8 a rounding carry can land in the wrong digit (2/3/10^10 prints
+/// "approx. 1", 12.3 + that prints "approx. 12.4"). So the value is read back from
+/// the line's variable scaled by 10^20 (or 10^60 for the very smallest) and the
+/// decimal point moved back; Omacus does its own rounding for display.
+fn precisely(ctx: &mut fend_core::Context, budget: &Budget, var: &str, raw: String) -> String {
+    let Some(body) = raw.strip_prefix("approx. ") else {
+        return raw;
+    };
+    // Only a plain number, perhaps with a unit: not a complex number ("1 + 2i"),
+    // a list, or anything else fend writes in several parts.
+    let unit_of = |b: &str| {
+        b.split_once(' ')
+            .map_or(String::new(), |(_, u)| u.to_string())
+    };
+    let raw_unit = unit_of(body);
+    if raw_unit.split(' ').any(|t| {
+        matches!(t, "+" | "-" | "i")
+            || t.ends_with('i') && t.len() > 1 && t[..t.len() - 1].parse::<f64>().is_ok()
+    }) || body.split(' ').next().is_some_and(|n| n.ends_with('i'))
+    {
+        return raw;
+    }
+    for shift in [20usize, 60] {
+        let Ok(scaled) = budget.evaluate(&format!("({var}) * 1e{shift}"), ctx) else {
+            return raw;
+        };
+        let scaled = scaled.get_main_result().trim().to_string();
+        let body = scaled.trim_start_matches("approx. ");
+        let (number, unit) = body.split_once(' ').unwrap_or((body, ""));
+        if unit != raw_unit {
+            return raw;
+        }
+        let (sign, digits) = match number.strip_prefix('-') {
+            Some(d) => ("-", d),
+            None => ("", number),
+        };
+        let (int, frac) = digits.split_once('.').unwrap_or((digits, ""));
+        if int.is_empty() || !int.chars().chain(frac.chars()).all(|c| c.is_ascii_digit()) {
+            return raw;
+        }
+        let int = int.trim_start_matches('0');
+        if int.is_empty() && shift == 20 {
+            continue; // smaller than 10^-20: look further
+        }
+        let shifted = if int.len() > shift {
+            format!(
+                "{}.{}{frac}",
+                &int[..int.len() - shift],
+                &int[int.len() - shift..]
+            )
+        } else {
+            format!("0.{}{int}{frac}", "0".repeat(shift - int.len()))
+        };
+        let unit = if unit.is_empty() {
+            String::new()
+        } else {
+            format!(" {unit}")
+        };
+        return format!("{sign}{shifted}{unit}");
+    }
+    raw
 }
 
 /// Where `word` appears as a whole word in `s`.
