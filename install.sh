@@ -122,9 +122,9 @@ install_linux() {
     bin="$here/omacus" desktop="$here/omacus.desktop" png="$here/icon-256.png" svg="$here/icon.svg"
   elif [[ -n "$here" && -f "$here/Cargo.toml" ]] && grep -q '^name = "omacus"' "$here/Cargo.toml"; then
     # Source checkout.
-    echo "Building Omacus from source…"
-    (cd "$here" && cargo build --release)
-    bin="$here/target/release/omacus" desktop="$here/assets/omacus.desktop"
+    echo "Building Omacus from source (under a minute; the last step is the longest)…"
+    (cd "$here" && cargo build --profile local)
+    bin="$here/target/local/omacus" desktop="$here/assets/omacus.desktop"
     png="$here/assets/icon-256.png" svg="$here/assets/icon.svg"
   else
     # Piped from curl: fetch the latest release.
