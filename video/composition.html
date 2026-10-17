@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Omacus launch video</title>
+<style>
+@font-face { font-family: "Inter"; src: url("/site/fonts/inter-latin.woff2") format("woff2"); font-weight: 100 900; }
+@font-face { font-family: "Inter Tight"; src: url("/site/fonts/inter-tight-latin.woff2") format("woff2"); font-weight: 100 900; }
+@font-face { font-family: "Instrument Serif"; src: url("/site/fonts/instrument-serif-italic-latin.woff2") format("woff2"); font-style: italic; }
+@font-face { font-family: "JetBrains Mono"; src: url("/site/fonts/jetbrains-mono-latin.woff2") format("woff2"); font-weight: 100 800; }
+@font-face { font-family: "JetBrains Mono"; src: url("/site/fonts/jetbrains-mono-latin-ext.woff2") format("woff2"); font-weight: 100 800; unicode-range: U+0100-024F, U+20A0-20C0; }
+
+:root {
+  --bg: #090909;
+  --text: #ecebe8;
+  --text-2: #b8b6b1;
+  --muted: #8a8884;
+  --accent: #f0a12a;
+  --accent-hi: #ffc061;
+  --app-bg: #121212;
+  --app-side: #0d0d0d;
+  --app-fg: #bebebe;
+  --app-dim: #8a8a8d;
+  --app-comment: #6a6a6a;
+  --app-accent: #e68e0d;
+  --app-var: #d35f5f;
+  --app-sel: #262626;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+  --sans: "Inter", system-ui, sans-serif;
+  --display: "Inter Tight", "Inter", sans-serif;
+  --serif: "Instrument Serif", Georgia, serif;
+}
+* { box-sizing: border-box; margin: 0; }
+html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: antialiased; }
+.layer { position: absolute; inset: 0; will-change: transform, opacity; }
+
+/* Background: faint grid and a slow amber glow */
+#bg { background: var(--bg); }
+#grid { background-image: linear-gradient(#1a1a1a 1px, transparent 1px), linear-gradient(90deg, #1a1a1a 1px, transparent 1px);
+  background-size: 64px 64px; mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 20%, transparent 75%); }
+#glow { background: radial-gradient(ellipse 45% 40% at var(--gx, 50%) var(--gy, 60%), rgba(240, 161, 42, 0.18), transparent 70%); }
+
+/* Hook */
+#hook { display: grid; place-items: center; }
+#hook .line { font: 500 92px/1.1 var(--mono); letter-spacing: -0.02em; color: var(--text); white-space: pre; text-align: left; margin: 0 auto; }
+#hook .ans { margin-top: 34px; font: 500 64px/1.1 var(--mono); color: var(--accent); white-space: pre; text-align: center; }
+.caret { display: inline-block; width: 0.08em; height: 1.05em; margin-left: 0.04em; background: var(--accent); vertical-align: -0.16em; }
+
+/* Logo */
+#logo { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 30px; }
+#logo .mark { display: flex; align-items: center; gap: 34px; }
+#logo img { width: 150px; height: 150px; filter: drop-shadow(0 20px 60px rgba(240, 161, 42, 0.35)); }
+#logo .word { font: 600 168px/1 var(--display); letter-spacing: -0.045em; }
+#logo .tag { font: 500 52px/1.2 var(--display); letter-spacing: -0.02em; color: var(--text-2); }
+.serif { font-family: var(--serif); font-style: italic; font-weight: 400; color: var(--accent-hi); letter-spacing: -0.01em; }
+
+/* The app window */
+#camera { transform-origin: 0 0; }
+#window { position: absolute; left: 200px; top: 120px; width: 1520px; height: 860px; border-radius: 20px; overflow: hidden;
+  background: var(--app-bg); border: 1px solid #2a2a2a; display: grid; grid-template-columns: 300px 1fr;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.6), 0 1px 0 rgba(255,255,255,.05) inset, 0 80px 160px -40px rgba(0,0,0,.95), 0 40px 120px -50px rgba(240,161,42,.45);
+  font-family: var(--mono); }
+#side { background: var(--app-side); border-right: 1px solid #1d1d1d; padding: 26px 16px; display: flex; flex-direction: column; }
+#side .head { display: flex; justify-content: space-between; color: #5a5a5a; font: 500 15px var(--mono); letter-spacing: .08em; padding: 0 8px 14px; }
+#side .sheet { position: relative; padding: 12px 18px; margin-bottom: 4px; border-radius: 8px; color: var(--app-dim); font-size: 19px; white-space: nowrap; overflow: hidden; }
+#side .sheet.on { background: var(--app-sel); color: var(--app-fg); }
+#side .sheet.on::before { content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 4px; border-radius: 2px; background: var(--app-accent); }
+#side .foot { margin-top: auto; display: flex; align-items: center; gap: 12px; padding: 8px; color: var(--app-dim); font: 500 17px var(--sans); }
+#side .foot img { width: 24px; height: 24px; }
+#side .foot .v { color: #5f5f5f; font-size: 15px; }
+#side .foot .q { margin-left: auto; color: #6f6f6f; }
+#main { position: relative; padding: 34px 44px; overflow: hidden; }
+#lines { list-style: none; padding: 0; font-size: 26px; line-height: 46px; }
+#lines li { display: flex; justify-content: space-between; gap: 30px; height: 46px; white-space: pre; }
+#lines .src { color: var(--app-fg); }
+#lines .res { color: var(--app-accent); position: relative; text-align: right; }
+#lines .res span { display: inline-block; }
+.t-head { color: var(--app-accent); } .t-com { color: var(--app-comment); } .t-label { color: var(--app-dim); }
+.t-num { color: var(--app-fg); } .t-kw { color: var(--app-fg); } .t-var { color: var(--app-var); } .t-op { color: var(--app-dim); }
+.sel { background: rgba(230, 142, 13, 0.28); border-radius: 3px; }
+#lines .caret { width: 3px; height: 30px; vertical-align: -6px; background: var(--app-accent); }
+
+/* Quick switcher, inside the window */
+#switcher { position: absolute; left: 50%; top: 90px; width: 620px; margin-left: -310px; padding: 12px; border-radius: 14px;
+  background: #0f0f0f; border: 1px solid #2b2b2b; box-shadow: 0 40px 90px -20px rgba(0,0,0,.9); font-family: var(--sans); }
+#switcher .q { padding: 10px 14px 14px; font: 500 24px var(--sans); color: var(--app-fg); }
+#switcher .q .hint { color: #5a5a5a; }
+#switcher .row { padding: 12px 16px; border-radius: 9px; font-size: 21px; color: var(--app-dim); display: flex; justify-content: space-between; }
+#switcher .row.on { background: var(--app-sel); color: var(--app-fg); }
+#switcher .row small { color: #5f5f5f; font-size: 16px; }
+#scrim { position: absolute; inset: 0; background: rgba(0,0,0,.45); }
+
+/* Keycaps */
+#keys { display: flex; align-items: flex-end; justify-content: center; padding-bottom: 170px; gap: 18px; }
+.key { min-width: 96px; height: 84px; padding: 0 24px; display: grid; place-items: center; border-radius: 16px;
+  font: 600 32px var(--sans); color: var(--text); background: linear-gradient(180deg, #2a2a2a, #1b1b1b);
+  border: 1px solid #3a3a3a; box-shadow: 0 6px 0 #0c0c0c, 0 20px 40px -10px rgba(0,0,0,.8); }
+.plus { font: 500 34px var(--sans); color: var(--muted); align-self: flex-end; margin-bottom: 22px; }
+
+/* Theme montage */
+#themes { perspective: 2400px; }
+#themes .card { position: absolute; left: 50%; top: 50%; width: 1240px; height: 760px; margin: -400px 0 0 -620px; border-radius: 18px; overflow: hidden;
+  box-shadow: 0 60px 140px -30px rgba(0,0,0,.95); border: 1px solid #2c2c2c; background: #111; }
+#themes .card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#themes .label { position: absolute; left: 50%; bottom: 150px; transform: translateX(-50%); padding: 14px 28px; border-radius: 999px;
+  background: rgba(16,16,16,.88); border: 1px solid #333; font: 600 28px var(--sans); white-space: nowrap; display: flex; align-items: center; gap: 14px; z-index: 200; }
+#themes .label i { width: 44px; height: 24px; border-radius: 999px; display: inline-flex; overflow: hidden; border: 1px solid rgba(255,255,255,.15); }
+#themes .label i b { flex: 1; }
+
+/* Platforms and install */
+#platforms { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 56px; }
+#platforms .icons { display: flex; gap: 120px; }
+#platforms .os { display: flex; flex-direction: column; align-items: center; gap: 24px; font: 600 36px var(--display); color: var(--text-2); }
+#platforms svg { width: 120px; height: 120px; color: var(--text); }
+#platforms .cmd { font: 500 38px var(--mono); padding: 26px 40px; border-radius: 18px; background: linear-gradient(180deg, #151515, #0f0f0f);
+  border: 1px solid #2e2e2e; box-shadow: 0 30px 60px -30px #000; white-space: pre; }
+#platforms .cmd .p { color: var(--accent); }
+#platforms .free { font: 500 30px var(--sans); color: var(--muted); }
+
+/* End card */
+#end { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 34px; }
+#end .mark { display: flex; align-items: center; gap: 30px; }
+#end img { width: 128px; height: 128px; }
+#end .word { font: 600 128px/1 var(--display); letter-spacing: -0.045em; }
+#end .tag { font: 500 58px/1.2 var(--display); letter-spacing: -0.02em; }
+#end .url { margin-top: 18px; font: 600 40px var(--sans); color: var(--accent-hi); letter-spacing: .01em; }
+#end .sub { font: 500 26px var(--sans); color: var(--muted); }
+
+/* Captions */
+#captions { display: flex; align-items: flex-end; justify-content: center; padding-bottom: 54px; pointer-events: none; }
+#captions .box { max-width: 1500px; padding: 14px 28px; border-radius: 14px; background: rgba(8,8,8,.88); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,.06);
+  font: 600 38px/1.35 var(--sans); letter-spacing: -0.01em; text-align: center; }
+#captions .w { color: rgba(236,235,232,.42); }
+#captions .w.said { color: var(--text); }
+
+#fade { background: #000; }
+
+/* The animated logo */
+.logo-svg { width: 190px; height: 190px; }
+#end .logo-svg { width: 132px; height: 132px; }
+.logo-svg svg { width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 24px 60px rgba(240, 161, 42, 0.32)); }
+#logo .word span, #end .word span { display: inline-block; }
+
+/* Sidebar highlight that glides between sheets */
+#side { position: relative; }
+#pill { position: absolute; left: 16px; right: 16px; height: 51px; border-radius: 8px; background: var(--app-sel); }
+#pill::before { content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 4px; border-radius: 2px; background: var(--app-accent); }
+#side .sheet.on { background: none; }
+#side .sheet.on::before { display: none; }
+#side .sheet { position: relative; z-index: 1; }
+
+/* Light sweep between sections */
+#wipe { overflow: hidden; pointer-events: none; }
+#wipe .bar { position: absolute; top: -20%; height: 140%; width: 260px; left: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 192, 97, 0.0) 20%, rgba(255, 192, 97, 0.55) 50%, rgba(255, 192, 97, 0) 80%, transparent);
+  filter: blur(18px); transform: skewX(-18deg); mix-blend-mode: screen; }
+</style>
+</head>
+<body>
+<div id="bg" class="layer"></div>
+<div id="grid" class="layer"></div>
+<div id="glow" class="layer"></div>
+
+<div id="hook" class="layer"><div><div class="line"></div><div class="ans"></div></div></div>
+
+<div id="logo" class="layer">
+  <div class="mark"><div class="logo-svg"></div><span class="word">omacus</span></div>
+  <div class="tag">Math, the way you <span class="serif">write</span> it.</div>
+</div>
+
+<div id="stage" class="layer">
+  <div id="camera" class="layer">
+    <div id="window">
+      <aside id="side">
+        <div id="pill"></div>
+        <div class="head"><span>SHEETS</span><span>+</span></div>
+        <div id="sheets"></div>
+        <div class="foot"><img src="/assets/icon-64.png" alt=""><span>omacus</span><span class="v" id="ver"></span><span class="q">?</span></div>
+      </aside>
+      <div id="main">
+        <ul id="lines"></ul>
+        <div id="scrim"></div>
+        <div id="switcher"><div class="q"></div><div class="rows"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="keys" class="layer"></div>
+<div id="themes" class="layer"></div>
+<div id="platforms" class="layer"></div>
+
+<div id="end" class="layer">
+  <div class="mark"><div class="logo-svg"></div><span class="word">omacus</span></div>
+  <div class="tag">Math, the way you <span class="serif">write</span> it.</div>
+  <div class="url">omacus.com</div>
+  <div class="sub">Free and open source · Linux · macOS · Windows</div>
+</div>
+
+<div id="wipe" class="layer"><div class="bar"></div></div>
+<div id="captions" class="layer"><div class="box"></div></div>
+<div id="fade" class="layer"></div>
+
+<script src="/video/composition.js"></script>
+</body>
+</html>

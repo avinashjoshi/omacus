@@ -18,7 +18,7 @@ echo
 # One bullet per commit subject, with any "- " bullets from the commit body nested
 # under it. Version bumps, chores, trailers and website-only commits are left out.
 notes="$(
-  git log --no-merges --pretty='format:%s%n%b%x1e' "$range" -- . ':!site' ':!.github/workflows/site.yml' ':!.github/workflows/freshen.yml' |
+  git log --no-merges --pretty='format:%s%n%b%x1e' "$range" -- . ':!site' ':!.github/workflows/site.yml' ':!.github/workflows/freshen.yml' ':!video' |
     awk -v RS='\x1e' '
       {
         n = split($0, lines, "\n"); subject = ""
