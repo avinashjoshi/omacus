@@ -21,7 +21,7 @@ const scenes = [...src.matchAll(/\{ id: "([\w-]+)", min: [\d.]+, vo: "([^"]+)" \
 
 const voices = (await (await fetch(`${API}/voices`, { headers })).json()).voices ?? [];
 if (!voices.length) throw new Error("couldn't list voices; check the API key");
-const PREFERRED = [process.env.VOICE, "Brian", "Eric", "George", "Daniel", "Chris", "Adam"].filter(Boolean);
+const PREFERRED = [process.env.VOICE, "Sarah", "Alice", "Lily", "Matilda"].filter(Boolean);
 const voice = PREFERRED.map((n) => voices.find((v) => v.name.split(" ")[0].toLowerCase() === n.toLowerCase())).find(Boolean) ?? voices[0];
 console.log(`voices: ${voices.map((v) => v.name.split(" ")[0]).join(", ")}`);
 console.log(`using: ${voice.name} (${voice.voice_id})`);
