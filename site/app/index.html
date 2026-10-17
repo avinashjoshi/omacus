@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Omacus in your browser: a notepad calculator</title>
+  <meta name="description" content="Omacus, the notepad calculator, in your browser: write prices, units, currencies, time zones and dates in plain words and see answers as you type. Share any sheet as a link. Free, no sign-up.">
+  <link rel="canonical" href="https://omacus.com/app">
+  <meta name="theme-color" content="#0d0d0d">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Omacus">
+  <meta property="og:url" content="https://omacus.com/app">
+  <meta property="og:title" content="Omacus in your browser">
+  <meta property="og:description" content="A notepad calculator: write math in plain words, answers line up as you type. Share any sheet as a link.">
+  <meta property="og:image" content="https://omacus.com/img/og.png?v=2">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/site.css">
+  <link rel="stylesheet" href="/app/app.css">
+</head>
+<body class="app-page">
+  <header class="bar">
+    <button class="icon-btn sheets-toggle" type="button" aria-label="Sheets" aria-controls="side" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="24" height="24">omacus</a>
+    <span class="bar-title" data-title></span>
+    <div class="bar-actions">
+      <button class="btn primary share" type="button" data-share>Share link</button>
+      <div class="menu">
+        <button class="icon-btn" type="button" aria-label="More" aria-haspopup="menu" aria-expanded="false" data-menu-button>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+        </button>
+        <div class="menu-list" role="menu" hidden data-menu>
+          <button role="menuitem" data-action="copy">Copy with answers</button>
+          <button role="menuitem" data-action="markdown">Copy as Markdown table</button>
+          <hr>
+          <button role="menuitem" data-action="new">New sheet</button>
+          <button role="menuitem" data-action="export">Export all sheets (.zip)</button>
+          <button role="menuitem" data-action="import">Import sheets…</button>
+          <hr>
+          <button role="menuitem" data-action="delete" class="danger">Delete this sheet</button>
+          <hr>
+          <a role="menuitem" href="/download/">Get the desktop app</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <aside class="side" id="side">
+      <div class="side-head"><span>Sheets</span><button class="icon-btn small" type="button" aria-label="New sheet" data-action="new">+</button></div>
+      <nav class="sheet-list" data-sheets aria-label="Sheets"></nav>
+      <details class="side-foot">
+        <summary>Saved in this browser</summary>
+        <p>Sheets stay on this device, in this browser; nothing is uploaded. Export them (⋯ menu) to keep a copy. On iPhone and iPad, Safari clears a site's data after a week without a visit, unless you add Omacus to your Home Screen.</p>
+      </details>
+    </aside>
+
+    <main class="sheet">
+      <div class="shared-banner" hidden data-shared>
+        <span><b>Shared sheet.</b> Edits stay here until you save it.</span>
+        <button class="btn small primary" type="button" data-action="save-shared">Save to my sheets</button>
+      </div>
+      <div class="editor" data-editor>
+        <div class="layer" aria-hidden="true"><div class="rows" data-rows></div></div>
+        <textarea data-text spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="Sheet"></textarea>
+        <ul class="suggest" role="listbox" hidden data-suggest></ul>
+      </div>
+      <p class="loading" data-loading>Loading the engine…</p>
+    </main>
+  </div>
+
+  <div class="toast" role="status" aria-live="polite" hidden data-toast></div>
+  <input type="file" accept=".txt,.zip,text/plain,application/zip" multiple hidden data-import>
+
+  <script type="module" src="/app/app.js"></script>
+</body>
+</html>

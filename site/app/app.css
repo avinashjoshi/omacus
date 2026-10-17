@@ -1,0 +1,526 @@
+/* omacus.com/app: the notepad calculator in the browser. Colours and fonts come
+   from site.css; this is the app's layout. */
+
+/* Elements styled with a display value still hide with the hidden attribute. */
+.app-page [hidden] {
+  display: none !important;
+}
+
+.app-page {
+  --bar: 56px;
+  --side-w: 240px;
+  --line-h: 1.7;
+  --font-size: 15px;
+  --res-w: 12ch;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--app-bg);
+  color: var(--app-fg);
+}
+
+/* ---------- Top bar ---------- */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--bar);
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--app-side);
+}
+
+.bar .brand {
+  font-size: 16px;
+}
+
+.bar-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--app-dim);
+  font: 500 13px var(--mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.bar-title::before {
+  content: "/ ";
+  color: var(--line-2);
+}
+
+.bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bar .btn {
+  padding: 8px 14px;
+  font-size: 14px;
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-2);
+  font: 500 18px/1 var(--sans);
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.icon-btn.small {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  font-size: 16px;
+}
+
+/* Sheets button on phones: three bars. */
+.sheets-toggle {
+  display: none;
+  position: relative;
+}
+
+.sheets-toggle span {
+  position: absolute;
+  left: 10px;
+  width: 15px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.sheets-toggle span:nth-child(1) { top: 12px; }
+.sheets-toggle span:nth-child(2) { top: 17px; }
+.sheets-toggle span:nth-child(3) { top: 22px; }
+
+/* ---------- Menu ---------- */
+
+.menu {
+  position: relative;
+}
+
+.menu-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 230px;
+  padding: 6px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 20px 50px -20px #000;
+}
+
+.menu-list button,
+.menu-list a {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-2);
+  font: 500 14px var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-list button:hover,
+.menu-list a:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.menu-list .danger {
+  color: #e57373;
+}
+
+.menu-list hr {
+  margin: 5px 6px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* ---------- Layout ---------- */
+
+.workspace {
+  display: grid;
+  grid-template-columns: var(--side-w) minmax(0, 1fr);
+  height: calc(100dvh - var(--bar));
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--app-side);
+}
+
+.side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 12px 8px 16px;
+  color: var(--app-dim);
+  font: 500 11.5px var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sheet-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2px 8px 12px;
+}
+
+.sheet-list button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--app-dim);
+  font: 14px var(--mono);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sheet-list button span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sheet-list button:hover {
+  background: var(--app-hover);
+  color: var(--app-fg);
+}
+
+.sheet-list button[aria-current="true"] {
+  background: var(--app-sel);
+  color: var(--app-fg);
+  box-shadow: inset 2px 0 0 var(--app-accent);
+}
+
+.sheet-list .shared-tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-glow);
+  color: var(--accent-hi);
+  font: 600 10.5px var(--sans);
+}
+
+.side-foot {
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--line);
+  color: var(--app-dim);
+  font-size: 12.5px;
+}
+
+.side-foot summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.side-foot summary::before {
+  content: "● ";
+  color: #4caf50;
+  font-size: 9px;
+  vertical-align: 2px;
+}
+
+.side-foot p {
+  margin: 8px 0 0;
+  line-height: 1.5;
+}
+
+/* ---------- Sheet ---------- */
+
+.sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.shared-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(90deg, rgba(240, 161, 42, 0.1), transparent);
+  color: var(--text-2);
+  font-size: 14px;
+}
+
+.shared-banner b {
+  color: var(--text);
+}
+
+.shared-banner .btn {
+  margin-left: auto;
+}
+
+.btn.small {
+  padding: 6px 12px;
+  font-size: 13.5px;
+}
+
+.editor {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  font: var(--font-size) / var(--line-h) var(--mono);
+}
+
+/* The textarea holds the text and the caret; the layer on top draws the colours
+   and the answers. Both wrap at exactly the same width. */
+.editor textarea,
+.editor .rows {
+  padding: 22px calc(var(--res-w) + 56px) 40vh 28px;
+  font: inherit;
+  letter-spacing: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+}
+
+.editor textarea {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  outline: 0;
+  resize: none;
+  overflow-y: auto;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--app-accent);
+  -webkit-text-fill-color: transparent;
+  /* No scrollbar: it would narrow the text and the layer would wrap differently. */
+  scrollbar-width: none;
+}
+
+.editor textarea::-webkit-scrollbar {
+  display: none;
+}
+
+.editor textarea::selection {
+  background: rgba(230, 142, 13, 0.28);
+}
+
+/* Above the textarea so answers can be clicked; everything else lets clicks through. */
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.rows {
+  position: relative;
+  color: var(--app-fg);
+  will-change: transform;
+}
+
+.row {
+  position: relative;
+  min-height: calc(var(--line-h) * 1em);
+}
+
+/* The answer sits in the right gutter, on the row's first line. */
+.res {
+  position: absolute;
+  top: 0;
+  right: calc(-1 * (var(--res-w) + 28px));
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  width: var(--res-w);
+  height: calc(var(--line-h) * 1em);
+  overflow: hidden;
+  color: var(--app-accent);
+  white-space: nowrap;
+  pointer-events: auto;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.res b {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: inherit;
+  text-overflow: ellipsis;
+}
+
+.res:hover {
+  background: var(--app-hover);
+}
+
+.res.copied {
+  color: var(--app-dim);
+}
+
+.swatch {
+  flex: none;
+  width: 0.8em;
+  height: 0.8em;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+
+.t-head {
+  color: var(--app-accent);
+}
+
+/* ---------- Autocomplete ---------- */
+
+.suggest {
+  position: absolute;
+  z-index: 20;
+  min-width: 140px;
+  max-height: 240px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--app-sel);
+  border-radius: 8px;
+  background: var(--app-side);
+  box-shadow: 0 16px 40px -16px #000;
+  list-style: none;
+  font: 13.5px / 1.4 var(--mono);
+}
+
+.suggest li {
+  padding: 5px 10px;
+  border-radius: 5px;
+  color: var(--app-fg);
+  cursor: pointer;
+}
+
+.suggest li[aria-selected="true"] {
+  background: var(--app-sel);
+  color: var(--app-accent);
+}
+
+.loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--app-dim);
+  font: 14px var(--mono);
+  background: var(--app-bg);
+}
+
+/* ---------- Toast ---------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 11px 16px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 14px;
+  box-shadow: 0 20px 50px -20px #000;
+  transform: translateX(-50%);
+}
+
+.toast small {
+  color: var(--muted);
+}
+
+.toast button {
+  border: 0;
+  background: none;
+  color: var(--accent-hi);
+  font: 600 14px var(--sans);
+  cursor: pointer;
+}
+
+/* ---------- Phones ---------- */
+
+@media (max-width: 760px) {
+  .app-page {
+    --font-size: 14px;
+  }
+
+  .sheets-toggle {
+    display: grid;
+  }
+
+  .bar .brand {
+    display: none;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .side {
+    position: fixed;
+    top: var(--bar);
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    width: min(300px, 84vw);
+    transform: translateX(-102%);
+    transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    box-shadow: 20px 0 60px -20px #000;
+  }
+
+  .app-page.drawer .side {
+    transform: none;
+  }
+
+  .editor textarea,
+  .editor .rows {
+    padding: 16px calc(var(--res-w) + 32px) 40vh 16px;
+  }
+
+  .res {
+    right: calc(-1 * (var(--res-w) + 16px));
+  }
+
+  .shared-banner {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}

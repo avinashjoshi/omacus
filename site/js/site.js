@@ -37,7 +37,7 @@
     menu.addEventListener("click", () => setOpen(!header.classList.contains("open")));
     for (const a of $$("#site-nav a")) a.addEventListener("click", () => setOpen(false));
     addEventListener("keydown", (e) => e.key === "Escape" && setOpen(false));
-    matchMedia("(min-width: 721px)").addEventListener("change", () => setOpen(false));
+    matchMedia("(min-width: 901px)").addEventListener("change", () => setOpen(false));
   }
 
   // Copy buttons.
