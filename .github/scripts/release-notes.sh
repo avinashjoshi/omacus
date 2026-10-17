@@ -48,7 +48,8 @@ cat <<EOF
 
 | Platform | Download |
 |---|---|
-| **macOS** (Apple Silicon & Intel) | [omacus-macos-universal.dmg]($dl/omacus-macos-universal.dmg) |
+| **macOS** (Apple Silicon) | [omacus-macos-arm64.dmg]($dl/omacus-macos-arm64.dmg) |
+| **macOS** (Intel) | [omacus-macos-x86_64.dmg]($dl/omacus-macos-x86_64.dmg) |
 | **Windows** (x64) | [omacus-windows-x86_64.zip]($dl/omacus-windows-x86_64.zip) |
 | **Ubuntu / Debian** | [omacus-linux-x86_64.deb]($dl/omacus-linux-x86_64.deb) |
 | **Fedora / openSUSE** | [omacus-linux-x86_64.rpm]($dl/omacus-linux-x86_64.rpm) |

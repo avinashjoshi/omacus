@@ -113,7 +113,7 @@ curl -fsSL https://omacus.com/install | bash
 ```
 
 Installs `Omacus.app` into Applications (Apple Silicon and Intel) and opens without a security
-prompt. Or download [`omacus-macos-universal.dmg`](https://omacus.com/mac) and drag Omacus to
+prompt. Or download the .dmg for your chip ([omacus.com/mac](https://omacus.com/mac)) and drag Omacus to
 Applications; the app isn't notarized yet, so the first time, open it once, then go to
 **System Settings → Privacy & Security** and click **Open Anyway**
 (or run `xattr -dr com.apple.quarantine /Applications/Omacus.app`).
