@@ -19,9 +19,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 const LATEST_URL: &str = "https://api.github.com/repos/avinashjoshi/omacus/releases/latest";
-const INSTALLER_URL: &str = "https://omacus.com/install";
-const WINDOWS_ZIP_URL: &str =
-    "https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64.zip";
+const REPO: &str = "avinashjoshi/omacus";
 pub const RELEASES_URL: &str = "https://github.com/avinashjoshi/omacus/releases";
 const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -120,12 +118,12 @@ impl Updates {
     }
 
     /// Ask GitHub if the last check was over a day ago. Called at launch and then
-    /// every minute, so a window that stays open still hears about new versions.
+    /// on every frame (cheaply), so a window that stays open still hears about new versions.
     pub fn check_if_due(&self, on_update: impl Fn() + Send + 'static) {
         let now = now_secs();
         {
             let mut checked_at = self.checked_at.lock().unwrap();
-            if !enabled() || now.saturating_sub(*checked_at) <= CHECK_EVERY.as_secs() {
+            if now.saturating_sub(*checked_at) <= CHECK_EVERY.as_secs() || !enabled() {
                 return;
             }
             // Count the try, so an offline machine asks again tomorrow, not every minute.
@@ -179,14 +177,17 @@ impl Updates {
         self.state.lock().unwrap().clone()
     }
 
-    /// Run the installer on a background thread; `on_done` wakes the UI.
+    /// Install the available version on a background thread; `on_done` wakes the UI.
     pub fn install(&self, on_done: impl Fn() + Send + 'static) {
+        let Some(version) = self.available() else {
+            return;
+        };
         *self.state.lock().unwrap() = State::Installing;
         let state = self.state.clone();
         std::thread::spawn(move || {
             let result = match method() {
-                Method::Replace => replace_exe(),
-                _ => run_installer(false),
+                Method::Replace => replace_exe(&version),
+                _ => run_installer(&version, false),
             };
             *state.lock().unwrap() = match result {
                 Ok(()) => State::Installed,
@@ -256,8 +257,8 @@ pub fn cli() -> i32 {
     }
     println!("Updating Omacus {} → {latest}…", current());
     let result = match method() {
-        Method::Replace => replace_exe(),
-        _ => run_installer(true),
+        Method::Replace => replace_exe(&latest),
+        _ => run_installer(&latest, true),
     };
     match result {
         Ok(()) => {
@@ -271,55 +272,114 @@ pub fn cli() -> i32 {
     }
 }
 
-/// The one-line installer, without the Hyprland questions (an update keeps the
-/// existing keybind and window rule). `show` passes its output through.
-fn run_installer(show: bool) -> Result<(), String> {
-    let mut cmd = Command::new("bash");
-    cmd.arg("-c")
-        .arg(format!(
-            "set -o pipefail; curl -fsSL {INSTALLER_URL} | bash -s -- --no-hyprland"
-        ))
-        // The installer treats a folder with Cargo.toml as a source checkout.
-        .current_dir(std::env::temp_dir())
-        .stdin(Stdio::null());
-    // On macOS, replace the app where it is, not wherever the installer would
-    // put a new one.
-    if let Some(dir) = exe().as_deref().and_then(app_bundle).and_then(Path::parent) {
-        cmd.env("OMACUS_APP_DIR", dir);
-    }
-    if show {
-        let status = cmd.status().map_err(|e| e.to_string())?;
-        return status
-            .success()
-            .then_some(())
-            .ok_or_else(|| format!("the installer exited with {status}"));
-    }
-    let out = cmd.output().map_err(|e| e.to_string())?;
-    if out.status.success() {
-        return Ok(());
-    }
-    let err = String::from_utf8_lossy(&out.stderr);
-    Err(err
+/// A file from a release, checked against that release's SHA256SUMS.txt. Both come
+/// from GitHub over HTTPS for the exact version, so a damaged or swapped download is
+/// refused rather than run.
+fn release_file(version: &str, name: &str) -> Result<Vec<u8>, String> {
+    let url = |file: &str| format!("https://github.com/{REPO}/releases/download/v{version}/{file}");
+    let get = |file: &str| -> Result<Vec<u8>, String> {
+        let mut bytes = Vec::new();
+        crate::rates::http()
+            .get(url(file))
+            .header("User-Agent", concat!("omacus/", env!("CARGO_PKG_VERSION")))
+            .call()
+            .map_err(|e| format!("download failed: {e}"))?
+            .into_body()
+            .with_config()
+            .limit(64 * 1024 * 1024)
+            .reader()
+            .read_to_end(&mut bytes)
+            .map_err(|e| format!("download failed: {e}"))?;
+        Ok(bytes)
+    };
+    let sums = String::from_utf8(get("SHA256SUMS.txt")?)
+        .map_err(|_| "unreadable checksums".to_string())?;
+    let expected = sums
         .lines()
-        .rev()
-        .find(|l| !l.trim().is_empty())
-        .unwrap_or("the installer failed")
-        .trim()
-        .to_string())
+        .find_map(|line| {
+            let (hash, file) = line.split_once(char::is_whitespace)?;
+            (file.trim().trim_start_matches('*') == name).then(|| hash.to_ascii_lowercase())
+        })
+        .ok_or_else(|| format!("{name} isn't in the release's checksums"))?;
+    let bytes = get(name)?;
+    if sha256_hex(&bytes) != expected {
+        return Err(format!(
+            "{name} didn't match its checksum; not installing it"
+        ));
+    }
+    Ok(bytes)
 }
 
-/// Windows: download the latest .exe and swap it in for this one.
-fn replace_exe() -> Result<(), String> {
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// A new folder only this user can read, for running the installer from.
+fn private_dir() -> Result<PathBuf, String> {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let dir = std::env::temp_dir().join(format!("omacus-update-{}-{nanos}", std::process::id()));
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+/// Linux and macOS: the release's own install.sh, checked, without the Hyprland
+/// questions (an update keeps the existing keybind and window rule). `show` passes
+/// its output through.
+fn run_installer(version: &str, show: bool) -> Result<(), String> {
+    let script = release_file(version, "install.sh")?;
+    let dir = private_dir()?;
+    let result = (|| {
+        let path = dir.join("install.sh");
+        std::fs::write(&path, &script).map_err(|e| e.to_string())?;
+        let mut cmd = Command::new("bash");
+        cmd.arg(&path)
+            .arg("--no-hyprland")
+            .current_dir(&dir)
+            .stdin(Stdio::null());
+        // On macOS, replace this exact app bundle, wherever it is and whatever it's called.
+        if let Some(bundle) = exe().as_deref().and_then(app_bundle) {
+            cmd.env("OMACUS_APP", bundle);
+        }
+        if show {
+            let status = cmd.status().map_err(|e| e.to_string())?;
+            return status
+                .success()
+                .then_some(())
+                .ok_or_else(|| format!("the installer exited with {status}"));
+        }
+        let out = cmd.output().map_err(|e| e.to_string())?;
+        if out.status.success() {
+            return Ok(());
+        }
+        let err = String::from_utf8_lossy(&out.stderr);
+        Err(err
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("the installer failed")
+            .trim()
+            .to_string())
+    })();
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
+/// Windows: the release's .exe, checked, swapped in for this one.
+fn replace_exe(version: &str) -> Result<(), String> {
     let exe = exe().ok_or("couldn't find the running executable")?;
-    let mut zip = Vec::new();
-    ureq::get(WINDOWS_ZIP_URL)
-        .header("User-Agent", concat!("omacus/", env!("CARGO_PKG_VERSION")))
-        .call()
-        .map_err(|e| format!("download failed: {e}"))?
-        .into_body()
-        .into_reader()
-        .read_to_end(&mut zip)
-        .map_err(|e| format!("download failed: {e}"))?;
+    let zip = release_file(version, "omacus-windows-x86_64.zip")?;
     let new = extract_exe(&zip)?;
     swap_in(&exe, &new)
 }
@@ -340,22 +400,28 @@ fn extract_exe(zip: &[u8]) -> Result<Vec<u8>, String> {
 /// and move the new one into place. If the last step fails, put the old one back.
 fn swap_in(exe: &Path, new: &[u8]) -> Result<(), String> {
     let (staged, old) = (sibling(exe, "new"), sibling(exe, "old"));
-    let denied = |e: std::io::Error| match e.kind() {
+    let explain = |e: std::io::Error| match e.kind() {
         std::io::ErrorKind::PermissionDenied => format!(
-            "no permission to write to {}; download the new version instead",
-            exe.parent().unwrap_or(exe).display()
+            "no permission to replace {} (is another Omacus window open?); download the new version instead",
+            exe.display()
         ),
         _ => e.to_string(),
     };
-    std::fs::write(&staged, new).map_err(denied)?;
+    if let Err(e) = std::fs::write(&staged, new) {
+        let _ = std::fs::remove_file(&staged);
+        return Err(explain(e));
+    }
     let _ = std::fs::remove_file(&old);
     if let Err(e) = std::fs::rename(exe, &old) {
         let _ = std::fs::remove_file(&staged);
-        return Err(denied(e));
+        return Err(explain(e));
     }
     if let Err(e) = std::fs::rename(&staged, exe) {
-        let _ = std::fs::rename(&old, exe);
-        return Err(e.to_string());
+        let _ = std::fs::remove_file(&staged);
+        return Err(match std::fs::rename(&old, exe) {
+            Ok(()) => e.to_string(),
+            Err(_) => format!("{e}; the previous version is at {}", old.display()),
+        });
     }
     #[cfg(unix)]
     {
@@ -370,7 +436,22 @@ fn app_bundle(exe: &Path) -> Option<&Path> {
         .find(|p| p.extension().is_some_and(|e| e == "app"))
 }
 
+/// Whether checking is on. The answer is cached for a minute: this is asked on
+/// every frame, and shouldn't read a file each time.
 fn enabled() -> bool {
+    static CACHE: Mutex<Option<(std::time::Instant, bool)>> = Mutex::new(None);
+    let mut cache = CACHE.lock().unwrap();
+    if let Some((at, on)) = *cache
+        && at.elapsed() < Duration::from_secs(60)
+    {
+        return on;
+    }
+    let on = read_enabled();
+    *cache = Some((std::time::Instant::now(), on));
+    on
+}
+
+fn read_enabled() -> bool {
     if std::env::var_os("OMACUS_NO_UPDATE_CHECK").is_some() {
         return false;
     }
@@ -393,7 +474,8 @@ fn fetch_latest() -> Result<String, Box<dyn std::error::Error>> {
 
 fn from_latest_page() -> Result<String, Box<dyn std::error::Error>> {
     use ureq::ResponseExt;
-    let response = ureq::get(format!("{RELEASES_URL}/latest"))
+    let response = crate::rates::http()
+        .get(format!("{RELEASES_URL}/latest"))
         .header("User-Agent", concat!("omacus/", env!("CARGO_PKG_VERSION")))
         .call()?;
     let path = response.get_uri().path();
@@ -405,7 +487,8 @@ fn from_latest_page() -> Result<String, Box<dyn std::error::Error>> {
 }
 
 fn from_api() -> Result<String, Box<dyn std::error::Error>> {
-    let body = ureq::get(LATEST_URL)
+    let body = crate::rates::http()
+        .get(LATEST_URL)
         .header("User-Agent", concat!("omacus/", env!("CARGO_PKG_VERSION")))
         .header("Accept", "application/vnd.github+json")
         .call()?
@@ -502,6 +585,23 @@ mod tests {
         assert_eq!(std::fs::read(&exe).unwrap(), b"newer build");
         assert_eq!(std::fs::read(sibling(&exe, "old")).unwrap(), b"new build");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    #[ignore = "network"]
+    fn downloads_and_verifies_a_release_file() {
+        let script = release_file("0.1.5", "install.sh").unwrap();
+        assert!(script.starts_with(b"#!/usr/bin/env bash"));
+        assert!(release_file("0.1.5", "no-such-file").is_err());
+    }
+
+    #[test]
+    fn hashes_like_sha256sum() {
+        // printf omacus | sha256sum
+        assert_eq!(
+            sha256_hex(b"omacus"),
+            "35c9293164625a75db5ee2dd57387bff729e1b6d28994eabd316f86104b366c5"
+        );
     }
 
     #[test]

@@ -49,7 +49,8 @@ impl Rates {
     }
 
     /// Fetch new rates in the background when they're over 12 hours old. Called at
-    /// launch and then every minute, so a window left open for days stays current.
+    /// launch and then on every frame (two atomic reads when nothing's due), so a
+    /// window left open for days stays current.
     pub fn refresh_if_stale(&self, on_update: impl Fn() + Send + 'static) {
         let now = now_secs();
         let stale = now.saturating_sub(self.fetched_at.load(Ordering::Relaxed)) > MAX_AGE.as_secs();
@@ -71,8 +72,8 @@ impl Rates {
         });
     }
 
-    /// For the CLI: fetch synchronously when there is no cache yet, since the
-    /// process would exit before a background refresh could finish.
+    /// For the CLI: fetch synchronously when the cache is stale, since the process
+    /// would exit before a background refresh could finish.
     pub fn load_blocking() -> Self {
         let rates = Self::default();
         let cache = read_cache();
@@ -150,8 +151,21 @@ fn write_cache(rates: &HashMap<String, f64>) {
     }
 }
 
+/// The HTTP client for rates and updates, with timeouts so being offline (or a
+/// stalled connection) never hangs the command line.
+pub fn http() -> &'static ureq::Agent {
+    static AGENT: std::sync::LazyLock<ureq::Agent> = std::sync::LazyLock::new(|| {
+        ureq::Agent::config_builder()
+            .timeout_connect(Some(Duration::from_secs(5)))
+            .timeout_global(Some(Duration::from_secs(60)))
+            .build()
+            .into()
+    });
+    &AGENT
+}
+
 fn fetch() -> Result<HashMap<String, f64>, Box<dyn std::error::Error>> {
-    let body = ureq::get(RATES_URL).call()?.body_mut().read_to_string()?;
+    let body = http().get(RATES_URL).call()?.body_mut().read_to_string()?;
     Ok(serde_json::from_str::<ApiResponse>(&body)?.rates)
 }
 
