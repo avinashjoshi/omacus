@@ -1,6 +1,6 @@
 # Omacus
 
-> Omacus is a free, open-source (MIT) notepad calculator for Linux, macOS and Windows, made first for Omarchy. You write calculations in plain words, one per line, and each answer appears beside its line as you type. It understands units, 160+ currencies with cached live exchange rates, time zones with daylight saving, percentages, dates, number bases, variables and running totals. Sheets are saved automatically as plain text files on your own disk.
+> Omacus is a free, open-source (MIT) notepad calculator for Linux, macOS and Windows, made first for Omarchy. You write calculations in plain words, one per line, and each answer appears beside its line as you type. It understands units, 160+ currencies with cached live exchange rates, time zones with daylight saving, percentages, tips and bill splitting, dates and day counting, download times, CSS units, colours, number bases, variables and running totals. Sheets are saved automatically as plain text files on your own disk.
 
 Key facts:
 

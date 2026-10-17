@@ -67,6 +67,7 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
             ("Click a result", "Copy it"),
             ("Ctrl+Shift+C", "Copy the last result"),
             ("Ctrl+Shift+S", "Copy the sheet with its answers"),
+            ("Ctrl+Shift+M", "Copy the sheet as a Markdown table"),
         ],
     ),
     (
@@ -117,6 +118,8 @@ const SYNTAX: &[(&str, &[&str])] = &[
             "15% off $1,299",
             "$120 as % of $480",
             "5% of what is 6",
+            "18% tip on $62",
+            "$84 split 3 ways",
         ],
     ),
     (
@@ -126,6 +129,7 @@ const SYNTAX: &[(&str, &[&str])] = &[
             "2 hours + 45 min in minutes",
             "72 fahrenheit in celsius",
             "10 GB / 4",
+            "4 GB at 100 Mbps",
             "60 mph in km/h",
             "2 imperial pints in ml",
         ],
@@ -173,11 +177,28 @@ const SYNTAX: &[(&str, &[&str])] = &[
     ),
     (
         "Dates",
-        &["today", "tomorrow + 2 weeks", "now - 90 minutes"],
+        &[
+            "today",
+            "tomorrow + 2 weeks",
+            "now - 90 minutes",
+            "days until Dec 25",
+            "workdays in November",
+            "days since Jan 1",
+        ],
     ),
     (
         "Number bases",
         &["255 in hex", "0xff in decimal", "10 in binary"],
+    ),
+    (
+        "Design",
+        &[
+            "16px in rem",
+            "12pt in px",
+            "#ff8800 in rgb",
+            "rgb(51, 102, 153) in hex",
+            "hsl(210, 50%, 40%)",
+        ],
     ),
     (
         "Notes",
@@ -718,7 +739,7 @@ mod tests {
         for (group, lines) in SYNTAX {
             let results = engine.eval_document(&lines.join("\n"));
             for (line, r) in lines.iter().zip(results) {
-                let is_note = line.starts_with('#') || line.starts_with("//");
+                let is_note = crate::engine::is_header(line) || line.starts_with("//");
                 assert_eq!(
                     r.display.is_empty(),
                     is_note,

@@ -25,6 +25,8 @@ pub struct LineResult {
     pub kind: Kind,
     /// Formatted result shown in the results column (empty when nothing to show).
     pub display: String,
+    /// A colour answer ("#ff8800 in rgb"), shown as a swatch beside it.
+    pub color: Option<[u8; 3]>,
 }
 
 impl LineResult {
@@ -32,8 +34,23 @@ impl LineResult {
         Self {
             kind,
             display: String::new(),
+            color: None,
         }
     }
+
+    fn value(display: String) -> Self {
+        Self {
+            kind: Kind::Value,
+            display,
+            color: None,
+        }
+    }
+}
+
+/// A `#` line is a header, unless it's a colour ("#ff8800", "#f80 in rgb").
+pub fn is_header(line: &str) -> bool {
+    let line = line.trim();
+    line.starts_with('#') && !crate::extras::is_color(line)
 }
 
 pub struct Engine {
@@ -50,7 +67,8 @@ pub(crate) const LABEL_PATTERN: &str = r"^\s*([A-Za-z][A-Za-z0-9 '\-_&/]*?)\s*:\
 re!(LABEL, LABEL_PATTERN);
 re!(QUOTED, r#""[^"]*""#);
 re!(ASSIGN, r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^=].*)$");
-re!(PCT_ON, r"(?i)^(.+?)\s*%\s+on\s+(.+)$");
+// "5% on $200", and with a word in between: "18% tip on $62".
+re!(PCT_ON, r"(?i)^(.+?)\s*%\s+(?:[a-z]+\s+)?on\s+(.+)$");
 re!(PCT_OFF, r"(?i)^(.+?)\s*%\s+off\s+(.+)$");
 re!(PCT_OF_WHAT, r"(?i)^(.+?)\s*%\s+of\s+what\s+is\s+(.+)$");
 re!(AS_PCT, r"(?i)^(.+?)\s+as\s+(?:a\s+)?%\s+(?:of\s+)?(.+)$");
@@ -85,6 +103,16 @@ re!(TRIPLE, r"(?i)\btriple\s+");
 re!(
     A_DAY,
     r"(?i)(\d[\d,.]*\)?)\s+(?:a|an|per)\s+(day|week|month|year|hour|minute|night|person|head)s?\b"
+);
+// "$84 split 3 ways", "split $84 between 4 people" -> "$84 / 3".
+re!(
+    SPLIT,
+    r"(?i)^(?:split\s+(.+?)|(.+?)\s+split)\s+(?:(\d+)\s+ways|(?:between|among|across|by)\s+(\d+)(?:\s+(?:people|persons|friends|of\s+us))?)$"
+);
+// "4 GB at 100 Mbps": how long a download takes ("(4 GB) / (100 Mbps)").
+re!(
+    TRANSFER,
+    r"(?i)^(.*\d.*?\b(?:[kmgtpe]i?b|[kmgtpe]?bytes?|[kmgtpe]?bits?))\s+(?:at|over|@)\s+(.*\d.*?(?:bps|b/s|bits?/s|bytes?/s|per\s+second))$"
 );
 // "3 pizzas at $12" -> "3 pizzas * $12".
 re!(AT_PRICE, r"(?i)(\d.*?)\s+at\s+([$£€¥₹(]|\d)");
@@ -217,7 +245,7 @@ impl Engine {
                     block.clear();
                     return LineResult::new(Kind::Empty);
                 }
-                if trimmed.starts_with('#') {
+                if is_header(trimmed) {
                     block.clear();
                     return LineResult::new(Kind::Header);
                 }
@@ -226,9 +254,12 @@ impl Engine {
                 }
 
                 if let Some(date) = crate::time::eval(trimmed) {
+                    return LineResult::value(date);
+                }
+                if let Some(extra) = crate::extras::eval(trimmed) {
                     return LineResult {
-                        kind: Kind::Value,
-                        display: date,
+                        color: extra.color,
+                        ..LineResult::value(extra.display)
                     };
                 }
 
@@ -272,6 +303,8 @@ impl Engine {
                         prev = Some(var);
                         let display = if BASE_CONV.is_match(trimmed) {
                             raw.trim_start_matches("approx. ").to_string()
+                        } else if let Some(time) = transfer_time(trimmed, &raw) {
+                            time
                         } else {
                             pretty(&raw)
                         };
@@ -279,10 +312,7 @@ impl Engine {
                             Some((_, name)) => format!("{display} {name}"),
                             None => display,
                         };
-                        LineResult {
-                            kind: Kind::Value,
-                            display,
-                        }
+                        LineResult::value(display)
                     }
                     None => LineResult::new(Kind::Error),
                 }
@@ -360,6 +390,34 @@ pub fn with_answers(text: &str, results: &[LineResult]) -> String {
     out.join("\n")
 }
 
+/// The sheet as a Markdown table, for Slack, GitHub or a doc: each line beside its
+/// answer. The first header names the table; later headers become bold rows, and
+/// blank lines and `//` notes are left out.
+pub fn markdown_table(text: &str, results: &[LineResult]) -> String {
+    let cell = |s: &str| s.trim().replace('|', "\\|");
+    let mut lines = text.split('\n').zip(results).peekable();
+    while lines.peek().is_some_and(|(l, _)| l.trim().is_empty()) {
+        lines.next();
+    }
+    let title = match lines.peek() {
+        Some((l, r)) if r.kind == Kind::Header => {
+            let t = cell(l.trim_start_matches('#'));
+            lines.next();
+            t
+        }
+        _ => String::new(),
+    };
+    let mut out = vec![format!("| {title} | |"), "|---|---:|".to_string()];
+    for (line, r) in lines {
+        match r.kind {
+            Kind::Empty | Kind::Comment => {}
+            Kind::Header => out.push(format!("| **{}** | |", cell(line.trim_start_matches('#')))),
+            _ => out.push(format!("| {} | {} |", cell(line), cell(&r.display))),
+        }
+    }
+    out.join("\n")
+}
+
 /// Names assigned anywhere in the sheet (`rent = $1200`), for highlighting.
 pub fn defined_variables(text: &str) -> std::collections::HashSet<String> {
     text.lines()
@@ -406,6 +464,15 @@ pub fn rewrite(line: &str, prev: Option<&str>) -> String {
     // "Groceries: $40" -> "$40"
     if let Some(c) = LABEL.captures(&s) {
         s = c[2].to_string();
+    }
+
+    if let Some(c) = SPLIT.captures(&s) {
+        let amount = c.get(1).or(c.get(2)).map_or("", |m| m.as_str());
+        let ways = c.get(3).or(c.get(4)).map_or("", |m| m.as_str());
+        s = format!("({amount}) / {ways}");
+    }
+    if let Some(c) = TRANSFER.captures(&s) {
+        s = format!("({}) / ({})", &c[1], &c[2]);
     }
 
     // Currency symbols fend doesn't know: "€20" -> "20 EUR", "in €" -> "in EUR".
@@ -720,6 +787,50 @@ pub fn pretty(raw: &str) -> String {
         .replacen("£-", "-£", 1)
 }
 
+/// A download time reads better as "5 min 20 s" than "320 seconds".
+fn transfer_time(line: &str, raw: &str) -> Option<String> {
+    let line = LABEL
+        .captures(line)
+        .map_or(line.to_string(), |c| c[2].to_string());
+    if !TRANSFER.is_match(&line) {
+        return None;
+    }
+    let raw = raw.trim_start_matches("approx. ");
+    let secs: f64 = [" seconds", " second", " s"]
+        .iter()
+        .find_map(|unit| raw.strip_suffix(unit))?
+        .replace(',', "")
+        .parse()
+        .ok()?;
+    Some(human_duration(secs))
+}
+
+/// "0.5 s", "32 s", "5 min 20 s", "2 h 13 min", "3 days 4 h".
+fn human_duration(secs: f64) -> String {
+    if secs < 10.0 {
+        let s = format!("{secs:.1}");
+        return format!("{} s", s.trim_end_matches('0').trim_end_matches('.'));
+    }
+    let total = secs.round() as u64;
+    let parts = [
+        (total / 86_400, "day"),
+        (total % 86_400 / 3_600, "h"),
+        (total % 3_600 / 60, "min"),
+        (total % 60, "s"),
+    ];
+    let shown: Vec<String> = parts
+        .iter()
+        .skip_while(|(n, _)| *n == 0)
+        .take(2)
+        .filter(|(n, _)| *n > 0)
+        .map(|(n, unit)| match *unit {
+            "day" if *n != 1 => format!("{n} days"),
+            _ => format!("{n} {unit}"),
+        })
+        .collect();
+    shown.join(" ")
+}
+
 fn looks_like_date(s: &str) -> bool {
     const NAMES: &[&str] = &[
         "Monday",
@@ -787,7 +898,7 @@ fn group_thousands(int: &str) -> String {
 mod tests {
     use super::*;
 
-    fn eval(doc: &str) -> Vec<String> {
+    fn eval_results(doc: &str) -> Vec<LineResult> {
         Engine::new(Rates::fixed(&[
             ("USD", 1.0),
             ("EUR", 0.9),
@@ -797,9 +908,10 @@ mod tests {
             ("CHF", 0.9),
         ]))
         .eval_document(doc)
-        .into_iter()
-        .map(|r| r.display)
-        .collect()
+    }
+
+    fn eval(doc: &str) -> Vec<String> {
+        eval_results(doc).into_iter().map(|r| r.display).collect()
     }
 
     fn one(line: &str) -> String {
@@ -884,7 +996,43 @@ mod tests {
         assert_eq!(one("a third of 90"), "30");
         assert_eq!(one("a quarter of $200"), "$50");
         assert_eq!(one("50 percent off 80"), "40");
-        assert_eq!(one("days until Dec 25"), "");
+        // Counted by the time module, not multiplied out by fend.
+        assert!(one("days until Dec 25").ends_with(" days"));
+    }
+
+    #[test]
+    fn splits_tips_and_downloads() {
+        assert_eq!(one("$84 split 3 ways"), "$28");
+        assert_eq!(one("split $84 3 ways"), "$28");
+        assert_eq!(one("Dinner: $240 split between 4 people"), "$60");
+        assert_eq!(one("18% tip on $62"), "$73.16");
+        assert_eq!(one("$62 + 18% tip"), "$73.16");
+        assert_eq!(one("4 GB at 100 Mbps"), "5 min 20 s");
+        assert_eq!(one("Game: 80 GB at 50 Mbps"), "3 h 33 min");
+        assert_eq!(one("700 MB @ 10 MB/s"), "1 min 10 s");
+        assert_eq!(one("10 MB at 100 Mbps"), "0.8 s");
+        // "at" a price is still multiplication.
+        assert_eq!(one("3 pizzas at $12"), "$36");
+    }
+
+    #[test]
+    fn copies_a_markdown_table() {
+        let doc = "# Trip | Kyoto\n// notes\nFlights $1,180\n\n## Food\nLunch $18\ntotal";
+        let table = markdown_table(doc, &eval_results(doc));
+        assert_eq!(
+            table,
+            "| Trip \\| Kyoto | |\n|---|---:|\n| Flights $1,180 | $1,180 |\n| **Food** | |\n| Lunch $18 | $18 |\n| total | $18 |"
+        );
+    }
+
+    #[test]
+    fn colors_and_css_units() {
+        let r = eval_results("#ff8800 in rgb\n#ff8800\n# Palette\n16px in rem");
+        assert_eq!(r[0].display, "rgb(255, 136, 0)");
+        assert_eq!(r[0].color, Some([255, 136, 0]));
+        assert_eq!(r[1].kind, Kind::Value);
+        assert_eq!(r[2].kind, Kind::Header);
+        assert_eq!(r[3].display, "1 rem");
     }
 
     #[test]

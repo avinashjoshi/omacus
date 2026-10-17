@@ -1,6 +1,7 @@
 //! Dates and time zones. fend-core ships without a clock, so these are handled here:
 //! `today`, `tomorrow + 2 weeks`, `now - 90 minutes`, `3pm PST in IST`,
-//! `time in Tokyo`, `10:30 London to New York`, `3pm PST on Dec 1 in London`.
+//! `time in Tokyo`, `10:30 London to New York`, `3pm PST on Dec 1 in London`,
+//! and counting days: `days until Dec 25`, `workdays in November`.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -55,6 +56,37 @@ re!(
       | (\d{4})-(\d{2})-(\d{2})
     )\b"
 );
+// "days until Dec 25", "weeks since Jan 1", "until Christmas", "workdays till Friday".
+re!(
+    SPAN,
+    r"(?i)^(?:how\s+(?:many|long)\s+)?(?:(days|weeks|months|workdays|work\s+days|weekdays|business\s+days)\s+)?(until|till|til|before|since)\s+(.+?)\??$"
+);
+// "days between Mar 1 and Jun 30", "workdays from Dec 1 to Dec 24".
+re!(
+    BETWEEN,
+    r"(?i)^(?:how\s+many\s+)?(days|weeks|workdays|work\s+days|weekdays|business\s+days)\s+(?:between|from)\s+(.+?)\s+(?:and|to|until|till)\s+(.+?)\??$"
+);
+// "days in February", "workdays in November 2026".
+re!(
+    IN_MONTH,
+    r"(?i)^(?:how\s+many\s+)?(days|workdays|work\s+days|weekdays|business\s+days)\s+in\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?(?:\s+(\d{4}))?\??$"
+);
+/// Holidays on the same date every year, for "days until Christmas".
+const HOLIDAYS: &[(&str, u32, u32)] = &[
+    ("christmas eve", 12, 24),
+    ("christmas", 12, 25),
+    ("xmas", 12, 25),
+    ("new year's eve", 12, 31),
+    ("new years eve", 12, 31),
+    ("new year's day", 1, 1),
+    ("new year's", 1, 1),
+    ("new years", 1, 1),
+    ("new year", 1, 1),
+    ("halloween", 10, 31),
+    ("valentine's day", 2, 14),
+    ("valentines day", 2, 14),
+    ("valentine's", 2, 14),
+];
 re!(
     CLOCK,
     r"(?i)^(?:(noon|midnight|now)|(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?)\s*(.*)$"
@@ -226,7 +258,8 @@ fn label(tz: Tz, abbr: &str) -> String {
 
 pub fn eval(line: &str) -> Option<String> {
     let now = Utc::now();
-    eval_date(line)
+    eval_span(line, Local::now().date_naive())
+        .or_else(|| eval_date(line))
         .or_else(|| eval_relative(line, now))
         .or_else(|| eval_zone(line, now))
 }
@@ -513,6 +546,179 @@ fn take_date(lhs: &str) -> (String, Option<DateSpec>) {
     )
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Count {
+    Days,
+    Weeks,
+    Months,
+    Workdays,
+}
+
+fn count_unit(word: Option<&str>) -> Count {
+    match word.map(|w| w.to_ascii_lowercase()) {
+        Some(w) if w.starts_with("week") && w != "weekdays" => Count::Weeks,
+        Some(w) if w.starts_with("month") => Count::Months,
+        Some(w) if w.contains("day") && w != "days" => Count::Workdays,
+        _ => Count::Days,
+    }
+}
+
+/// A date on its own ("Dec 25", "Friday", "Christmas", "2026-12-01"), the next one
+/// when `ahead`, the last one otherwise.
+fn lone_date(text: &str, today: NaiveDate, ahead: bool) -> Option<NaiveDate> {
+    let text = text.trim().trim_start_matches("the ").trim();
+    let lower = text.to_ascii_lowercase();
+    let (month, day, year) = if let Some(&(_, m, d)) = HOLIDAYS.iter().find(|(n, ..)| *n == lower) {
+        (m, d, None)
+    } else {
+        let (rest, spec) = take_date(text);
+        let spec = spec.filter(|_| rest.is_empty())?;
+        match spec {
+            DateSpec::MonthDay { month, day, year } => (month, day, year),
+            DateSpec::Weekday { day, next } if !ahead => {
+                // "since Friday": the last one.
+                let back = (7 + today.weekday().num_days_from_monday() as i64
+                    - day.num_days_from_monday() as i64)
+                    % 7;
+                let back = if next || back == 0 { back + 7 } else { back };
+                return today.checked_sub_signed(Duration::days(back));
+            }
+            other => return other.resolve(today),
+        }
+    };
+    if let Some(y) = year {
+        return NaiveDate::from_ymd_opt(y, month, day);
+    }
+    let this = NaiveDate::from_ymd_opt(today.year(), month, day)?;
+    let year = match (ahead, this < today, this > today) {
+        (true, true, _) => today.year() + 1,
+        (false, _, true) => today.year() - 1,
+        _ => today.year(),
+    };
+    NaiveDate::from_ymd_opt(year, month, day)
+}
+
+/// Mondays to Fridays from `from` up to, not including, `to`.
+fn workdays(from: NaiveDate, to: NaiveDate) -> i64 {
+    let (a, b) = if from <= to { (from, to) } else { (to, from) };
+    let days = (b - a).num_days();
+    let full = days / 7 * 5;
+    let partial = (0..days % 7)
+        .filter(|i| {
+            let wd = (a.weekday().num_days_from_monday() as i64 + days / 7 * 7 + i) % 7;
+            wd < 5
+        })
+        .count() as i64;
+    full + partial
+}
+
+fn plural(n: i64, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
+/// The span from `from` to `to` in the unit asked for.
+fn span(from: NaiveDate, to: NaiveDate, unit: Count) -> String {
+    let days = (to - from).num_days().abs();
+    match unit {
+        Count::Days => plural(days, "day", "days"),
+        Count::Workdays => {
+            // Working days left before the date (or since it), not counting today.
+            let (a, b) = if from <= to { (from, to) } else { (to, from) };
+            plural(
+                workdays(a.succ_opt().unwrap_or(a), b),
+                "workday",
+                "workdays",
+            )
+        }
+        Count::Weeks => match (days / 7, days % 7) {
+            (w, 0) => plural(w, "week", "weeks"),
+            (w, d) => format!(
+                "{}, {}",
+                plural(w, "week", "weeks"),
+                plural(d, "day", "days")
+            ),
+        },
+        Count::Months => {
+            let (a, b) = if from <= to { (from, to) } else { (to, from) };
+            let mut months = (b.year() - a.year()) * 12 + b.month() as i32 - a.month() as i32;
+            if b.day() < a.day() {
+                months -= 1;
+            }
+            let anchor = a
+                .checked_add_months(Months::new(months.max(0) as u32))
+                .unwrap_or(a);
+            let rest = (b - anchor).num_days();
+            match (months, rest) {
+                (m, 0) => plural(m as i64, "month", "months"),
+                (0, d) => plural(d, "day", "days"),
+                (m, d) => format!(
+                    "{}, {}",
+                    plural(m as i64, "month", "months"),
+                    plural(d, "day", "days")
+                ),
+            }
+        }
+    }
+}
+
+fn eval_span(line: &str, today: NaiveDate) -> Option<String> {
+    let line = line.trim();
+    if let Some(c) = IN_MONTH.captures(line) {
+        let month = [
+            "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+        ]
+        .iter()
+        .position(|m| c[2].to_ascii_lowercase().starts_with(m))? as u32
+            + 1;
+        let year = match c.get(3) {
+            Some(y) => y.as_str().parse().ok()?,
+            // A month well past is next year's ("workdays in March", asked in October).
+            None if month + 2 < today.month() => today.year() + 1,
+            None => today.year(),
+        };
+        let first = NaiveDate::from_ymd_opt(year, month, 1)?;
+        let next = first.checked_add_months(Months::new(1))?;
+        return Some(match count_unit(Some(&c[1])) {
+            Count::Workdays => plural(workdays(first, next), "workday", "workdays"),
+            _ => plural((next - first).num_days(), "day", "days"),
+        });
+    }
+    if let Some(c) = BETWEEN.captures(line) {
+        let a = lone_date(&c[2], today, true)?;
+        let b = lone_date(&c[3], today, true)?;
+        let names_year = |t: &str| {
+            t.split(|ch: char| !ch.is_ascii_digit())
+                .any(|n| n.len() == 4)
+        };
+        // "Dec 1 to Jan 5": the January after.
+        let b = if b < a && !names_year(&c[3]) {
+            b.with_year(a.year() + 1).filter(|d| *d > a).unwrap_or(b)
+        } else {
+            b
+        };
+        let unit = count_unit(Some(&c[1]));
+        return Some(if unit == Count::Workdays {
+            plural(workdays(a.min(b), a.max(b)), "workday", "workdays")
+        } else {
+            span(a, b, unit)
+        });
+    }
+    let c = SPAN.captures(line)?;
+    let ahead = !c[2].eq_ignore_ascii_case("since");
+    let date = lone_date(&c[3], today, ahead)?;
+    let unit = count_unit(c.get(1).map(|m| m.as_str()));
+    if date == today {
+        return Some("today".into());
+    }
+    let shown = span(today, date, unit);
+    // The wrong side of today: "until" a date that's past says so.
+    Some(match (ahead, date > today) {
+        (true, false) => format!("{shown} ago"),
+        (false, true) => format!("in {shown}"),
+        _ => shown,
+    })
+}
+
 fn clock(t: NaiveTime) -> String {
     let (pm, hour) = t.hour12();
     format!("{hour}:{:02} {}", t.minute(), if pm { "PM" } else { "AM" })
@@ -588,6 +794,51 @@ mod tests {
         assert_eq!(conv("9am IST in EST").unwrap(), "11:30 PM EDT (prev day)");
         assert_eq!(conv("7am Singapore in Dubai").unwrap(), "3:00 AM GST");
         assert_eq!(conv("noon UTC in Asia/Kabul").unwrap(), "4:30 PM UTC+0430");
+    }
+
+    #[test]
+    fn counts_days() {
+        // Friday 16 Oct 2026.
+        let today = NaiveDate::from_ymd_opt(2026, 10, 16).unwrap();
+        let span = |l: &str| eval_span(l, today);
+        assert_eq!(span("days until Dec 25").as_deref(), Some("70 days"));
+        assert_eq!(span("until Christmas").as_deref(), Some("70 days"));
+        assert_eq!(
+            span("how many days until Christmas?").as_deref(),
+            Some("70 days")
+        );
+        assert_eq!(span("weeks until Dec 25").as_deref(), Some("10 weeks"));
+        assert_eq!(span("weeks until New Year's").as_deref(), Some("11 weeks"));
+        assert_eq!(
+            span("months until Dec 25").as_deref(),
+            Some("2 months, 9 days")
+        );
+        assert_eq!(span("days since Jan 1").as_deref(), Some("288 days"));
+        assert_eq!(
+            span("days until Oct 1 2026").as_deref(),
+            Some("15 days ago")
+        );
+        assert_eq!(span("days until today").as_deref(), Some("today"));
+        assert_eq!(span("days until Friday").as_deref(), Some("today"));
+        assert_eq!(span("days until next Friday").as_deref(), Some("7 days"));
+        assert_eq!(span("days since Monday").as_deref(), Some("4 days"));
+        // Mon 19 to Fri 23, then the 26th: 6 working days before the 27th.
+        assert_eq!(span("workdays until Oct 27").as_deref(), Some("6 workdays"));
+        assert_eq!(
+            span("days between Mar 1 2026 and Jun 30 2026").as_deref(),
+            Some("121 days")
+        );
+        assert_eq!(
+            span("workdays from Nov 2 2026 to Nov 9 2026").as_deref(),
+            Some("5 workdays")
+        );
+        assert_eq!(
+            span("days from Dec 20 to Jan 5").as_deref(),
+            Some("16 days")
+        );
+        assert_eq!(span("days in February 2028").as_deref(), Some("29 days"));
+        assert_eq!(span("workdays in November").as_deref(), Some("21 workdays"));
+        assert_eq!(span("days until the meeting"), None);
     }
 
     #[test]

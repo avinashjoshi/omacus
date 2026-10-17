@@ -45,7 +45,7 @@ pub fn layout(text: &str, vars: &HashSet<String>, theme: &Theme, font: FontId) -
             push("\n", theme.foreground);
         }
         let trimmed = line.trim_start();
-        if trimmed.starts_with('#') {
+        if crate::engine::is_header(trimmed) {
             push(line, theme.accent);
             continue;
         }

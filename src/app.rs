@@ -72,6 +72,8 @@ enum SheetAction {
     Move(usize, isize),
     /// Copy a sheet as text with its answers lined up.
     Copy(usize),
+    /// Copy a sheet as a Markdown table.
+    CopyMarkdown(usize),
 }
 
 /// A message at the bottom of the window.
@@ -307,6 +309,14 @@ impl OmacusApp {
                 self.toast = Some(Toast::info("Sheet copied with answers"));
                 return;
             }
+            SheetAction::CopyMarkdown(i) => {
+                let text = &self.store.sheets[i].text;
+                let results = self.engine.eval_document(text);
+                let ctx = self.ctx.clone();
+                ctx.copy_text(engine::markdown_table(text, &results));
+                self.toast = Some(Toast::info("Sheet copied as a Markdown table"));
+                return;
+            }
         }
         self.sheet_switched();
     }
@@ -419,6 +429,9 @@ impl OmacusApp {
         let (quit, copy_last, sidebar) = ctx.input_mut(|i| {
             if i.consume_key(cmd_shift, Key::S) {
                 action = Some(SheetAction::Copy(self.store.active));
+            }
+            if i.consume_key(cmd_shift, Key::M) {
+                action = Some(SheetAction::CopyMarkdown(self.store.active));
             }
             if i.consume_key(cmd, Key::N) {
                 action = Some(SheetAction::New);
@@ -1075,6 +1088,9 @@ impl OmacusApp {
                         if ui.button("Copy with answers").clicked() {
                             action = Some(SheetAction::Copy(i));
                         }
+                        if ui.button("Copy as Markdown table").clicked() {
+                            action = Some(SheetAction::CopyMarkdown(i));
+                        }
                         ui.separator();
                         if ui.button("Delete sheet").clicked() {
                             action = Some(SheetAction::Delete(i));
@@ -1099,9 +1115,15 @@ impl OmacusApp {
                 .results
                 .iter()
                 .map(|r| {
+                    let swatch = if r.color.is_some() {
+                        swatch_room(&font)
+                    } else {
+                        0.0
+                    };
                     f.layout_no_wrap(r.display.clone(), font.clone(), Color32::WHITE)
                         .size()
                         .x
+                        + swatch
                 })
                 .fold(0.0, f32::max);
             (f.row_height(&font), widest)
@@ -1233,8 +1255,15 @@ impl OmacusApp {
             .ctx()
             .fonts_mut(|f| f.layout_no_wrap(text, font.clone(), theme.accent));
         let size = galley.size();
-        let rect =
-            Rect::from_min_size(pos2(right - size.x, y), vec2(size.x, h)).expand2(vec2(6.0, 1.0));
+        // A colour answer gets a swatch of it, left of the text.
+        let swatch = result.color.filter(|_| !copied);
+        let extra = if swatch.is_some() {
+            swatch_room(font)
+        } else {
+            0.0
+        };
+        let rect = Rect::from_min_size(pos2(right - size.x - extra, y), vec2(size.x + extra, h))
+            .expand2(vec2(6.0, 1.0));
         let response = ui.interact(rect, ui.scope_id().with(("result", line)), Sense::click());
 
         if response.hovered() {
@@ -1248,6 +1277,21 @@ impl OmacusApp {
             ui.ctx().request_repaint_after(COPIED_FOR);
         }
         let color = if copied { theme.dim } else { theme.accent };
+        if let Some([r, g, b]) = swatch {
+            let side = font.size * 0.8;
+            let square = Rect::from_min_size(
+                pos2(right - size.x - extra, y + (h - side) / 2.0),
+                vec2(side, side),
+            );
+            ui.painter()
+                .rect_filled(square, CornerRadius::same(3), Color32::from_rgb(r, g, b));
+            ui.painter().rect_stroke(
+                square,
+                CornerRadius::same(3),
+                egui::Stroke::new(1.0, theme.selection),
+                egui::StrokeKind::Inside,
+            );
+        }
         ui.painter()
             .galley(pos2(right - size.x, y + (h - size.y) / 2.0), galley, color);
     }
@@ -1446,6 +1490,11 @@ fn install_fonts(ctx: &egui::Context) {
         fonts.families.insert(family, chain.clone());
     }
     ctx.set_fonts(fonts);
+}
+
+/// Width a colour swatch and its gap take beside a result.
+fn swatch_room(font: &FontId) -> f32 {
+    font.size * 0.8 + 8.0
 }
 
 fn is_system_dark(ctx: &egui::Context) -> bool {

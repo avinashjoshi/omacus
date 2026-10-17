@@ -4,6 +4,7 @@
 mod app;
 mod complete;
 mod engine;
+mod extras;
 mod help;
 mod highlight;
 mod rates;
