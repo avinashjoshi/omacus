@@ -8,6 +8,9 @@
 
 .app-page {
   --bar: 56px;
+  /* Room for the iPhone's status bar and notch when installed to the Home Screen
+     (the status bar is translucent and the page runs under it). Zero elsewhere. */
+  --safe-top: env(safe-area-inset-top, 0px);
   --side-w: 240px;
   --line-h: 1.7;
   --font-size: 15px;
@@ -24,8 +27,8 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  height: var(--bar);
-  padding: 0 14px;
+  height: calc(var(--bar) + var(--safe-top));
+  padding: var(--safe-top) max(14px, env(safe-area-inset-right, 0px)) 0 max(14px, env(safe-area-inset-left, 0px));
   border-bottom: 1px solid var(--line);
   background: var(--app-side);
 }
@@ -194,7 +197,7 @@
 .workspace {
   display: grid;
   grid-template-columns: var(--side-w) minmax(0, 1fr);
-  height: calc(100dvh - var(--bar));
+  height: calc(100dvh - var(--bar) - var(--safe-top));
 }
 
 .side {
@@ -382,79 +385,65 @@
   font: var(--font-size) / var(--line-h) var(--mono);
 }
 
-/* The textarea holds the text and the caret; the layer on top draws the colours
-   and the answers. Both wrap at exactly the same width. */
-.editor textarea,
-.editor .rows {
-  padding: 22px calc(var(--res-w) + 56px) 40vh 28px;
-  font: inherit;
-  letter-spacing: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  tab-size: 4;
-}
-
-.editor textarea {
+/* CodeMirror fills the sheet area and scrolls itself. */
+.cm-host,
+.cm-host .cm-editor {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  border: 0;
-  outline: 0;
-  resize: none;
-  overflow-y: auto;
-  background: transparent;
-  color: transparent;
-  caret-color: var(--app-accent);
-  -webkit-text-fill-color: transparent;
-  /* No scrollbar: it would narrow the text and the layer would wrap differently. */
-  scrollbar-width: none;
 }
 
-.editor textarea::-webkit-scrollbar {
-  display: none;
-}
-
-.editor textarea::selection {
-  background: rgba(230, 142, 13, 0.28);
-}
-
-/* Above the textarea so answers can be clicked; everything else lets clicks through. */
-.layer {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.rows {
-  position: relative;
+.cm-editor {
   color: var(--app-fg);
-  will-change: transform;
+  font: inherit;
 }
 
-.row {
-  position: relative;
-  min-height: calc(var(--line-h) * 1em);
+.cm-editor.cm-focused {
+  outline: none;
 }
 
-/* The answer sits in the right gutter, on the row's first line. */
+.cm-editor .cm-scroller {
+  padding: 22px 28px 40vh;
+  font: inherit;
+  line-height: inherit;
+}
+
+.cm-editor .cm-content {
+  padding: 0;
+  caret-color: var(--app-accent);
+}
+
+.cm-editor .cm-line {
+  padding: 0;
+}
+
+/* A line grows to hold an answer that dropped below it. */
+.cm-editor .cm-line::after {
+  content: "";
+  display: block;
+  clear: both;
+}
+
+.cm-editor .cm-cursor {
+  border-left: 2px solid var(--app-accent);
+}
+
+.cm-editor .cm-selectionBackground,
+.cm-editor.cm-focused .cm-selectionBackground,
+.cm-editor .cm-content ::selection {
+  background: rgba(230, 142, 13, 0.28) !important;
+}
+
+/* The answer: at the right edge, beside its line when there's room, else just below. */
 .res {
-  position: absolute;
-  top: 0;
-  right: calc(-1 * (var(--res-w) + 28px));
-  display: flex;
+  float: right;
+  display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 8px;
-  width: var(--res-w);
-  height: calc(var(--line-h) * 1em);
-  overflow: hidden;
+  max-width: 100%;
+  margin: 0 -4px 0 3ch;
+  padding: 0 4px;
   color: var(--app-accent);
   white-space: nowrap;
-  pointer-events: auto;
   cursor: pointer;
   border-radius: 5px;
 }
@@ -488,32 +477,33 @@
 
 /* ---------- Autocomplete ---------- */
 
-.suggest {
-  position: absolute;
-  z-index: 20;
-  min-width: 140px;
-  max-height: 240px;
-  margin: 0;
+.cm-tooltip.cm-tooltip-autocomplete {
   padding: 4px;
-  overflow-y: auto;
   border: 1px solid var(--app-sel);
   border-radius: 8px;
   background: var(--app-side);
   box-shadow: 0 16px 40px -16px #000;
-  list-style: none;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul {
+  min-width: 140px;
+  max-height: 240px;
   font: 13.5px / 1.4 var(--mono);
 }
 
-.suggest li {
+.cm-tooltip.cm-tooltip-autocomplete > ul > li {
   padding: 5px 10px;
   border-radius: 5px;
   color: var(--app-fg);
-  cursor: pointer;
 }
 
-.suggest li[aria-selected="true"] {
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
   background: var(--app-sel);
   color: var(--app-accent);
+}
+
+.menu-list .phone-only {
+  display: none;
 }
 
 .loading {
@@ -564,6 +554,7 @@
 
 .app-page.embed {
   --bar: 0px;
+  --safe-top: 0px;
 }
 
 .app-page.embed .bar,
@@ -630,7 +621,7 @@
 
   .side {
     position: fixed;
-    top: var(--bar);
+    top: calc(var(--bar) + var(--safe-top));
     bottom: 0;
     left: 0;
     z-index: 40;
@@ -644,13 +635,18 @@
     transform: none;
   }
 
-  .editor textarea,
-  .editor .rows {
-    padding: 16px calc(var(--res-w) + 32px) 40vh 16px;
+  .cm-editor .cm-scroller {
+    padding: 16px 16px 40vh;
   }
 
-  .res {
-    right: calc(-1 * (var(--res-w) + 16px));
+  /* The top bar keeps the sheet's name; Share and Private move into the ⋯ menu. */
+  .bar .share,
+  .private-chip {
+    display: none;
+  }
+
+  .menu-list .phone-only {
+    display: block;
   }
 
   .shared-banner {

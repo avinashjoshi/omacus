@@ -2,12 +2,25 @@
 // it install to a Home Screen. Pages load fresh when there's a connection; the
 // engine, styles and fonts (whose URLs change with every version) come from cache.
 
-const CACHE = "omacus-app";
+// A new name drops everything older workers saved (here: files from before the
+// CodeMirror editor), so no page runs on a stale mix.
+const CACHE = "omacus-app-2";
+// Local previews serve files at fixed URLs, which a cache would keep stale.
+const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
 
 self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener("activate", (e) =>
+  e.waitUntil(
+    (async () => {
+      for (const key of await caches.keys()) if (key !== CACHE || LOCAL) await caches.delete(key);
+      if (LOCAL) return self.registration.unregister();
+      await self.clients.claim();
+    })(),
+  ),
+);
 
 self.addEventListener("fetch", (e) => {
+  if (LOCAL) return;
   const req = e.request;
   const url = new URL(req.url);
   if (req.method !== "GET" || url.origin !== location.origin) return;
