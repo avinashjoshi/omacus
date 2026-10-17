@@ -42,7 +42,7 @@ Or in Terminal: `xattr -dr com.apple.quarantine /Applications/Omacus.app`. You o
 
 The version is at the bottom of the sidebar. When a new one is out, a small dot appears next to it; click it to see what's new and choose **Update now**, and Omacus installs the new version and offers to restart. You can also check any time from **About** in the help window (`F1`). Your sheets, keybind and settings stay as they are. From a terminal, `omacus update` does the same.
 
-On Windows, Update now swaps in the new `omacus.exe` wherever you keep it. If you installed the .deb or .rpm, the button opens the download page instead, so you update the same way you installed. Omacus checks GitHub for the latest version number at most once a day; to turn that off, put `check_for_updates = false` in `settings.toml` (see [Where files live](https://omacus.com/docs/#files)).
+On Windows, Update now swaps in the new `omacus.exe` wherever you keep it. If you installed the .deb or .rpm, the button opens the download page instead, so you update the same way you installed. Omacus checks GitHub for the latest version number when it starts (at most once an hour) and every 4 hours while it stays open; to turn that off, put `check_for_updates = false` in `settings.toml` (see [Where files live](https://omacus.com/docs/#files)).
 
 ## Your first sheet
 
@@ -342,7 +342,7 @@ Omacus only shows answers it's sure about. Usually the line mixes things that ca
 
 ### Does it need the internet?
 
-Only to refresh exchange rates and, once a day, to check for a new version (which you can turn off; see [Updating](https://omacus.com/docs/#updating)). Everything else is calculated on your computer, and cached rates keep currency math working offline.
+Only to refresh exchange rates and to check for a new version when it starts and every few hours (which you can turn off; see [Updating](https://omacus.com/docs/#updating)). Everything else is calculated on your computer, and cached rates keep currency math working offline.
 
 ### macOS says it can't verify the app.
 
@@ -354,7 +354,7 @@ Choose **More info → Run anyway**. The warning appears because the executable 
 
 ### Is my data sent anywhere?
 
-No. Sheets stay on your disk. Omacus makes two kinds of request: one for exchange rates, and a daily check of the latest version number on GitHub. Neither sends anything about you or your sheets, and the version check can be turned off with `check_for_updates = false` in `settings.toml` (see [Where files live](https://omacus.com/docs/#files)).
+No. Sheets stay on your disk. Omacus makes two kinds of request: one for exchange rates, and a check of the latest version number on GitHub. Neither sends anything about you or your sheets, and the version check can be turned off with `check_for_updates = false` in `settings.toml` (see [Where files live](https://omacus.com/docs/#files)).
 
 ## How it works
 

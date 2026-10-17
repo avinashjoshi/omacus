@@ -313,7 +313,7 @@ impl OmacusApp {
             self.theme = Theme::load(system_dark);
             apply_visuals(ctx, &self.theme);
         }
-        // Both are no-ops unless their 12-hour / daily schedule is due.
+        // Both are no-ops unless their schedule is due (rates every 12 hours, updates every 4).
         let repaint = ctx.clone();
         self.rates
             .refresh_if_stale(move || repaint.request_repaint());

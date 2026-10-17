@@ -1,7 +1,8 @@
-//! New releases: a daily check, and installing them.
+//! New releases: checking for them, and installing them.
 //!
-//! At most once a day, Omacus asks GitHub for the latest release tag, on a
-//! background thread; the answer is cached so most launches make no request.
+//! On launch, and every few hours while it stays open, Omacus asks GitHub for the
+//! latest release tag on a background thread. The answer is cached, so reopening
+//! the app within the hour makes no request.
 //! Nothing about the user or their sheets is sent. Turn it off with
 //! `check_for_updates = false` in `settings.toml` in the config folder.
 //!
@@ -21,7 +22,12 @@ use serde::{Deserialize, Serialize};
 const LATEST_URL: &str = "https://api.github.com/repos/avinashjoshi/omacus/releases/latest";
 const REPO: &str = "avinashjoshi/omacus";
 pub const RELEASES_URL: &str = "https://github.com/avinashjoshi/omacus/releases";
-const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
+/// How old the last answer may be at launch, so reopening the app often doesn't ask again.
+const AT_LAUNCH: Duration = Duration::from_secs(60 * 60);
+/// How often a window that stays open asks.
+const WHILE_OPEN: Duration = Duration::from_secs(4 * 60 * 60);
+/// How soon to try again after a failed check (offline, say).
+const RETRY_AFTER: Duration = Duration::from_secs(30 * 60);
 
 pub fn current() -> &'static str {
     env!("CARGO_PKG_VERSION")
@@ -99,12 +105,13 @@ pub struct Updates {
     latest: Arc<Mutex<Option<String>>>,
     state: Arc<Mutex<State>>,
     check: Arc<Mutex<Check>>,
-    /// When GitHub was last asked (or a try was made), for the daily schedule.
+    /// When GitHub last answered, and when it was last asked.
     checked_at: Arc<Mutex<u64>>,
+    tried_at: Arc<Mutex<u64>>,
 }
 
 impl Updates {
-    /// Use the cached answer now, and ask GitHub in the background if it's a day old.
+    /// Use the cached answer now, and ask GitHub in the background if it's over an hour old.
     pub fn check(on_update: impl Fn() + Send + 'static) -> Self {
         let cache = read_cache();
         let updates = Self {
@@ -112,27 +119,35 @@ impl Updates {
             state: Arc::new(Mutex::new(State::Idle)),
             check: Arc::new(Mutex::new(Check::Idle)),
             checked_at: Arc::new(Mutex::new(cache.checked_at)),
+            tried_at: Arc::new(Mutex::new(0)),
         };
-        updates.check_if_due(on_update);
+        updates.check_older_than(AT_LAUNCH, on_update);
         updates
     }
 
-    /// Ask GitHub if the last check was over a day ago. Called at launch and then
-    /// on every frame (cheaply), so a window that stays open still hears about new versions.
+    /// Called on every frame (cheaply), so a window that stays open still hears
+    /// about new versions.
     pub fn check_if_due(&self, on_update: impl Fn() + Send + 'static) {
+        self.check_older_than(WHILE_OPEN, on_update);
+    }
+
+    /// Ask GitHub in the background if its last answer is older than `age`, and no
+    /// try was made in the last half hour.
+    fn check_older_than(&self, age: Duration, on_update: impl Fn() + Send + 'static) {
         let now = now_secs();
         {
-            let mut checked_at = self.checked_at.lock().unwrap();
-            if now.saturating_sub(*checked_at) <= CHECK_EVERY.as_secs() || !enabled() {
+            let checked_at = *self.checked_at.lock().unwrap();
+            let mut tried_at = self.tried_at.lock().unwrap();
+            if !is_due(now, checked_at, *tried_at, age) || !enabled() {
                 return;
             }
-            // Count the try, so an offline machine asks again tomorrow, not every minute.
-            *checked_at = now;
+            *tried_at = now;
         }
-        let latest = self.latest.clone();
+        let (latest, checked_at) = (self.latest.clone(), self.checked_at.clone());
         std::thread::spawn(move || {
             if let Ok(version) = fetch_latest() {
                 write_cache(&version);
+                *checked_at.lock().unwrap() = now_secs();
                 *latest.lock().unwrap() = Some(version);
                 on_update();
             }
@@ -156,14 +171,19 @@ impl Updates {
         *self.check.lock().unwrap()
     }
 
-    /// Ask GitHub now (the About pane's button), whatever the daily schedule says.
+    /// Ask GitHub now (the About pane's button), whatever the schedule says.
     pub fn check_now(&self, on_done: impl Fn() + Send + 'static) {
         *self.check.lock().unwrap() = Check::Checking;
-        let (latest, check) = (self.latest.clone(), self.check.clone());
+        let (latest, check, checked_at) = (
+            self.latest.clone(),
+            self.check.clone(),
+            self.checked_at.clone(),
+        );
         std::thread::spawn(move || {
             *check.lock().unwrap() = match fetch_latest() {
                 Ok(version) => {
                     write_cache(&version);
+                    *checked_at.lock().unwrap() = now_secs();
                     *latest.lock().unwrap() = Some(version);
                     Check::Done
                 }
@@ -501,6 +521,14 @@ fn from_api() -> Result<String, Box<dyn std::error::Error>> {
     Ok(tag.trim_start_matches('v').to_string())
 }
 
+/// Whether to ask now: the last answer is older than `age`, and the last try (which
+/// may have failed) was over `RETRY_AFTER` ago.
+fn is_due(now: u64, checked_at: u64, tried_at: u64, age: Duration) -> bool {
+    // A time in the future means the clock moved back; don't wait for it.
+    (checked_at > now || now - checked_at > age.as_secs())
+        && now.saturating_sub(tried_at) > RETRY_AFTER.as_secs()
+}
+
 /// Whether `a` is a later version than `b` ("0.1.10" > "0.1.9").
 fn is_newer(a: &str, b: &str) -> bool {
     let parse = |v: &str| -> Vec<u64> {
@@ -550,6 +578,23 @@ mod tests {
     fn reads_latest_from_the_release_page() {
         let v = from_latest_page().unwrap();
         assert!(v.split('.').count() == 3, "{v}");
+    }
+
+    #[test]
+    fn checks_on_launch_and_while_open() {
+        let (hour, now) = (60 * 60, 100 * 24 * 60 * 60);
+        // Launch: ask unless the last answer is under an hour old.
+        assert!(is_due(now, 0, 0, AT_LAUNCH));
+        assert!(is_due(now, now - 2 * hour, 0, AT_LAUNCH));
+        assert!(!is_due(now, now - hour / 2, 0, AT_LAUNCH));
+        // Open: every four hours.
+        assert!(!is_due(now, now - 3 * hour, 0, WHILE_OPEN));
+        assert!(is_due(now, now - 5 * hour, 0, WHILE_OPEN));
+        // Offline: try again after half an hour, not every frame.
+        assert!(!is_due(now, 0, now - 60, WHILE_OPEN));
+        assert!(is_due(now, 0, now - hour, WHILE_OPEN));
+        // A last check "in the future" doesn't block checking.
+        assert!(is_due(now, now + 24 * hour, 0, WHILE_OPEN));
     }
 
     #[test]

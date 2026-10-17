@@ -94,7 +94,7 @@
      "name": "Does it need the internet?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "Only to refresh exchange rates and, once a day, to check for a new version (which you can turn off). Everything else is calculated on your computer, and cached rates keep currency math working offline."
+      "text": "Only to refresh exchange rates and to check for a new version when it starts and every few hours (which you can turn off). Everything else is calculated on your computer, and cached rates keep currency math working offline."
      }
     },
     {
@@ -118,7 +118,7 @@
      "name": "Is my data sent anywhere?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "No. Sheets stay on your disk. Omacus makes two kinds of request: one for exchange rates, and a daily check of the latest version number on GitHub. Neither sends anything about you or your sheets, and the version check can be turned off with check_for_updates = false in settings.toml."
+      "text": "No. Sheets stay on your disk. Omacus makes two kinds of request: one for exchange rates, and a check of the latest version number on GitHub. Neither sends anything about you or your sheets, and the version check can be turned off with check_for_updates = false in settings.toml."
      }
     }
    ]
@@ -202,7 +202,7 @@
     <!-- ===================================================== First sheet -->
     <h3 id="updating">Updating</h3>
     <p>The version is at the bottom of the sidebar. When a new one is out, a small dot appears next to it; click it to see what's new and choose <strong>Update now</strong>, and Omacus installs the new version and offers to restart. You can also check any time from <strong>About</strong> in the help window (<kbd>F1</kbd>). Your sheets, keybind and settings stay as they are. From a terminal, <code>omacus update</code> does the same.</p>
-    <p>On Windows, Update now swaps in the new <code>omacus.exe</code> wherever you keep it. If you installed the .deb or .rpm, the button opens the download page instead, so you update the same way you installed. Omacus checks GitHub for the latest version number at most once a day; to turn that off, put <code>check_for_updates = false</code> in <code>settings.toml</code> (see <a href="#files">Where files live</a>).</p>
+    <p>On Windows, Update now swaps in the new <code>omacus.exe</code> wherever you keep it. If you installed the .deb or .rpm, the button opens the download page instead, so you update the same way you installed. Omacus checks GitHub for the latest version number when it starts (at most once an hour) and every 4 hours while it stays open; to turn that off, put <code>check_for_updates = false</code> in <code>settings.toml</code> (see <a href="#files">Where files live</a>).</p>
 
     <h2 id="first-sheet">Your first sheet</h2>
     <p>Open Omacus and start typing. Each line is calculated on its own, and the result appears at the right edge of that line. Lines that aren't math (headers, comments, prose) simply have no result.</p>
@@ -504,13 +504,13 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
     <h3>A line shows no result. Why?</h3>
     <p>Omacus only shows answers it's sure about. Usually the line mixes things that can't be combined (dollars plus kilometres) or uses a word as a unit by accident. Try the expression on its own, and if you think it should work, <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">open an issue</a> with the exact line.</p>
     <h3>Does it need the internet?</h3>
-    <p>Only to refresh exchange rates and, once a day, to check for a new version (which you can turn off; see <a href="#updating">Updating</a>). Everything else is calculated on your computer, and cached rates keep currency math working offline.</p>
+    <p>Only to refresh exchange rates and to check for a new version when it starts and every few hours (which you can turn off; see <a href="#updating">Updating</a>). Everything else is calculated on your computer, and cached rates keep currency math working offline.</p>
     <h3>macOS says it can't verify the app.</h3>
     <p>That's because Omacus isn't notarized by Apple yet. Install with the <a href="#mac">one-line installer</a> to avoid the prompt, or allow it once under <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>.</p>
     <h3>Windows SmartScreen warns about an unknown publisher.</h3>
     <p>Choose <strong>More info → Run anyway</strong>. The warning appears because the executable isn't code-signed yet.</p>
     <h3>Is my data sent anywhere?</h3>
-    <p>No. Sheets stay on your disk. Omacus makes two kinds of request: one for exchange rates, and a daily check of the latest version number on GitHub. Neither sends anything about you or your sheets, and the version check can be turned off with <code>check_for_updates = false</code> in <code>settings.toml</code> (see <a href="#files">Where files live</a>).</p>
+    <p>No. Sheets stay on your disk. Omacus makes two kinds of request: one for exchange rates, and a check of the latest version number on GitHub. Neither sends anything about you or your sheets, and the version check can be turned off with <code>check_for_updates = false</code> in <code>settings.toml</code> (see <a href="#files">Where files live</a>).</p>
 
     <h2 id="how-it-works">How it works</h2>
     <p>Omacus is a single Rust program: one native window and one engine, shared by the app and the command line. Every keystroke re-evaluates the sheet from top to bottom. For each line:</p>

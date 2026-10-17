@@ -179,7 +179,8 @@ else the system's light or dark mode. On macOS, shortcuts use ⌘ wherever this 
 ### Updating
 
 The version sits at the bottom of the sidebar, with a dot when a new one is out; click it to update
-and restart. About (F1) has a Check for updates button, or run `omacus update`. Omacus checks GitHub for the latest version at most once a day;
+and restart. About (F1) has a Check for updates button, or run `omacus update`. Omacus checks GitHub for the latest version when it starts (at most once an hour) and every
+4 hours while open;
 `check_for_updates = false` in `settings.toml` turns that off. On Windows it swaps in the new `omacus.exe`
 where it is. Installed from a .deb or .rpm, the notice links to the download instead.
 
