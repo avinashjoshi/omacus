@@ -346,9 +346,68 @@ pre {
   margin-left: 8px;
 }
 
+.menu-toggle {
+  display: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-left: -16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.menu-toggle svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Phones: the links fold into a menu under the header; Download stays in view. */
 @media (max-width: 720px) {
-  .nav a:not(.btn):not(.keep) {
+  .menu-toggle {
+    display: grid;
+  }
+
+  .nav a:not(.btn) {
     display: none;
+  }
+
+  .site-header.open {
+    background: var(--bg);
+    border-bottom-color: var(--line);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .site-header.open .menu-toggle {
+    margin-left: auto;
+  }
+
+  .site-header.open .nav {
+    position: absolute;
+    top: 64px;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    height: calc(100vh - 64px);
+    padding: 8px var(--gutter) 20px;
+    background: var(--bg);
+    overflow-y: auto;
+  }
+
+  .site-header.open .nav a:not(.btn) {
+    display: block;
+    padding: 13px 12px;
+    font-size: 17px;
+  }
+
+  .site-header.open .nav .btn {
+    margin: 10px 0 0;
+    justify-content: center;
   }
 }
 
@@ -1382,6 +1441,30 @@ kbd {
   font-size: 18px;
 }
 
+#download .cta {
+  margin-top: 0;
+}
+
+.cta .platforms {
+  justify-content: center;
+  margin-top: 22px;
+}
+
+.cta .more {
+  justify-content: center;
+  gap: 24px;
+  margin-top: 22px;
+  font-size: 14.5px;
+}
+
+.cta .more a {
+  color: var(--muted);
+}
+
+.cta .more a:hover {
+  color: var(--text);
+}
+
 .cta .cmd {
   max-width: 520px;
   margin: 0 auto 18px;
@@ -1480,6 +1563,10 @@ kbd {
 
 .docs-nav p:first-child {
   margin-top: 0;
+}
+
+.docs-nav-toggle {
+  display: none;
 }
 
 .docs-nav a {
@@ -2163,7 +2250,7 @@ kbd {
     gap: 14px 20px;
   }
 
-  /* Docs: a sticky row of section chips you swipe through. */
+  /* Docs: a sticky bar naming the section you're in; tap it for the full list. */
   .docs {
     padding-top: 0;
   }
@@ -2172,31 +2259,75 @@ kbd {
     position: sticky;
     top: 64px;
     z-index: 40;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
+    display: block;
+    max-height: none;
     margin: 0 calc(-1 * var(--gutter)) 24px;
-    padding: 10px var(--gutter);
-    background: rgba(9, 9, 9, 0.88);
+    padding: 0 var(--gutter);
+    background: rgba(9, 9, 9, 0.92);
     backdrop-filter: blur(14px) saturate(140%);
     -webkit-backdrop-filter: blur(14px) saturate(140%);
-    font-size: 14px;
+    border-bottom: 1px solid var(--line);
+    font-size: 15px;
   }
 
-  .docs-nav::-webkit-scrollbar {
+  .docs-nav > p,
+  .docs-nav > a {
     display: none;
   }
 
-  .docs-nav p {
-    display: none;
+  .docs-nav.open {
+    max-height: calc(100vh - 64px);
+    overflow-y: auto;
+    padding-bottom: 16px;
   }
 
-  .docs-nav a {
-    flex: none;
-    white-space: nowrap;
-    padding: 6px 12px;
-    border: 1px solid var(--line);
-    border-radius: 999px;
+  .docs-nav.open > p {
+    display: block;
+    margin: 18px 0 6px;
+  }
+
+  .docs-nav.open > a {
+    display: block;
+    padding: 9px 10px;
+    margin: 0 -10px;
+  }
+
+  .docs-nav-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 13px 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .docs-nav-toggle span {
+    color: var(--faint);
+    font: 500 11.5px/1 var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .docs-nav-toggle b {
+    flex: 1;
+    font-weight: 600;
+    color: var(--accent-hi);
+  }
+
+  .docs-nav-toggle svg {
+    width: 18px;
+    height: 18px;
+    color: var(--muted);
+    transition: transform 0.2s;
+  }
+
+  .docs-nav.open .docs-nav-toggle svg {
+    transform: rotate(180deg);
   }
 
   .docs-nav a.on {

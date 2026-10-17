@@ -17,7 +17,7 @@ curl -fsSL https://omacus.com/install | bash
 
 This installs Omacus for your user (no root) into `~/.local/bin`, with a launcher entry and icon. On Omarchy it then asks whether to add a keybind and a floating-window rule; see [Omarchy & Hyprland](https://omacus.com/docs/#omarchy).
 
-Prefer a package? [.deb](https://omacus.com/deb) for Ubuntu and Debian (`sudo apt install ./omacus-linux-x86_64.deb`), [.rpm](https://omacus.com/rpm) for Fedora and openSUSE (`sudo dnf install ./omacus-linux-x86_64.rpm`), or the [.tar.gz](https://omacus.com/linux) with an `install.sh` inside. Prebuilt Linux binaries are x86_64; on ARM, [build from source](https://omacus.com/docs/#contributing).
+Prefer a package? [.deb](https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.deb) for Ubuntu and Debian (`sudo apt install ./omacus-linux-x86_64.deb`), [.rpm](https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.rpm) for Fedora and openSUSE (`sudo dnf install ./omacus-linux-x86_64.rpm`), or the [.tar.gz](https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.tar.gz) with an `install.sh` inside. Prebuilt Linux binaries are x86_64; on ARM, [build from source](https://omacus.com/docs/#contributing).
 
 ### macOS
 
@@ -27,7 +27,7 @@ curl -fsSL https://omacus.com/install | bash
 
 Installs `Omacus.app` into `/Applications` (or `~/Applications`) and links the command-line tool at `~/.local/bin/omacus`. Apps installed this way open without a security prompt.
 
-You can also [download the .dmg](https://omacus.com/mac) and drag Omacus to Applications. Omacus isn't notarized by Apple yet, so the first time macOS blocks it:
+You can also [download the .dmg](https://omacus.com/download/#mac) for your Mac's chip and drag Omacus to Applications. Omacus isn't notarized by Apple yet, so the first time macOS blocks it:
 
 - Open Omacus once. macOS says it can't verify it; click **Done**.
 - Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to Omacus.
@@ -36,7 +36,7 @@ Or in Terminal: `xattr -dr com.apple.quarantine /Applications/Omacus.app`. You o
 
 ### Windows
 
-[Download the .zip](https://omacus.com/windows), unzip it anywhere (for example `%LOCALAPPDATA%\Programs\Omacus`) and run `omacus.exe`. It's a single portable file. If SmartScreen warns about an unknown publisher, choose **More info → Run anyway**. Right-click it to **Pin to Start**; a shortcut's Properties let you set a global shortcut key.
+[Download the .zip](https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64.zip), unzip it anywhere (for example `%LOCALAPPDATA%\Programs\Omacus`) and run `omacus.exe`. It's a single portable file. If SmartScreen warns about an unknown publisher, choose **More info → Run anyway**. Right-click it to **Pin to Start**; a shortcut's Properties let you set a global shortcut key.
 
 ### Updating
 

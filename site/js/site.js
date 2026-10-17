@@ -25,6 +25,21 @@
     for (const a of chips) a.classList.toggle("primary", a.dataset.arch === arch);
   }
 
+  // Phones: the menu button opens the site links under the header.
+  const menu = $(".menu-toggle");
+  if (menu && header) {
+    const icon = $("use", menu);
+    const setOpen = (open) => {
+      header.classList.toggle("open", open);
+      menu.setAttribute("aria-expanded", String(open));
+      icon.setAttribute("href", `/img/sprite.svg#${open ? "close" : "menu"}`);
+    };
+    menu.addEventListener("click", () => setOpen(!header.classList.contains("open")));
+    for (const a of $$("#site-nav a")) a.addEventListener("click", () => setOpen(false));
+    addEventListener("keydown", (e) => e.key === "Escape" && setOpen(false));
+    matchMedia("(min-width: 721px)").addEventListener("change", () => setOpen(false));
+  }
+
   // Copy buttons.
   for (const btn of $$("[data-copy]")) {
     const label = btn.innerHTML;
@@ -96,6 +111,26 @@
         }, 3200);
   }
 
+  // Docs on phones: a bar names the section in view; tapping it opens the full list.
+  const docsBar = $(".docs-nav");
+  let docsLabel = null;
+  if (docsBar) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "docs-nav-toggle";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.innerHTML = '<span>On this page</span><b></b><svg aria-hidden="true"><use href="/img/sprite.svg#chevron"/></svg>';
+    docsLabel = $("b", toggle);
+    docsLabel.textContent = $("a", docsBar)?.textContent ?? "";
+    docsBar.prepend(toggle);
+    const setOpen = (open) => {
+      docsBar.classList.toggle("open", open);
+      toggle.setAttribute("aria-expanded", String(open));
+    };
+    toggle.addEventListener("click", () => setOpen(!docsBar.classList.contains("open")));
+    for (const a of $$("a", docsBar)) a.addEventListener("click", () => setOpen(false));
+  }
+
   // Docs: highlight the section in view.
   const docsNav = $(".docs-nav") || $(".toc");
   if (docsNav) {
@@ -107,10 +142,7 @@
           for (const a of links.values()) a.classList.remove("on");
           const on = links.get(e.target.id);
           on?.classList.add("on");
-          // On phones the nav is one swipeable row; keep the current section's chip in view.
-          if (on && docsNav.scrollWidth > docsNav.clientWidth) {
-            docsNav.scrollTo({ left: on.offsetLeft - 16, behavior: reduceMotion ? "auto" : "smooth" });
-          }
+          if (on && docsLabel) docsLabel.textContent = on.textContent;
         }
       },
       { rootMargin: "-20% 0px -70% 0px" },

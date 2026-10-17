@@ -212,14 +212,15 @@
 <header class="site-header">
   <div class="wrap">
     <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="28" height="28">omacus</a>
-    <nav class="nav" aria-label="Main">
+    <nav class="nav" id="site-nav" aria-label="Main">
       <a href="/#features">Features</a>
       <a href="/use-cases/">Use cases</a>
       <a href="/guides/">Guides</a>
-      <a href="/docs/" class="keep">Docs</a>
+      <a href="/docs/">Docs</a>
       <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
       <a class="btn primary" href="/download/"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>
     </nav>
+    <button class="menu-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="Menu"><svg aria-hidden="true"><use href="/img/sprite.svg#menu"/></svg></button>
   </div>
 </header>
 
@@ -475,55 +476,18 @@
   <!-- Download -->
   <section id="download">
     <div class="wrap">
-      <div class="section-head center reveal">
-        <span class="kicker">// download</span>
-        <h2>Get <em class="serif">Omacus</em>.</h2>
-        <p>Free and MIT licensed. Pick your platform; <span data-version-text>the latest release</span> is always one command away.</p>
-      </div>
-
-      <div class="downloads reveal">
-        <article class="dl" id="omarchy">
-          <header><svg aria-hidden="true"><use href="/img/sprite.svg#archlinux"/></svg><h3>Omarchy <small>&amp; Arch</small></h3></header>
-          <p>Installs the app, then offers a keybind (<kbd>Super Ctrl Alt =</kbd> by default, checked against yours) and a floating window.</p>
-          <div class="cmd"><span class="prompt">$</span><code>curl -fsSL https://omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL https://omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
-          <p class="note">Colors follow your Omarchy theme automatically.</p>
-        </article>
-
-        <article class="dl" id="mac">
-          <header><svg aria-hidden="true"><use href="/img/sprite.svg#apple"/></svg><h3>macOS <small>Apple Silicon &amp; Intel</small></h3></header>
-          <p>The one-liner picks the build for your Mac's chip, installs <code>Omacus.app</code> into Applications and opens without a security prompt.</p>
-          <div class="cmd"><span class="prompt">$</span><code>curl -fsSL https://omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL https://omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
-          <div class="links">
-            <a class="btn" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-macos-arm64.dmg" data-arch="arm64"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Apple Silicon .dmg</a>
-            <a class="btn" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-macos-x86_64.dmg" data-arch="x86_64"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Intel .dmg</a>
-          </div>
-          <p class="note">Not sure which? Apple menu → About This Mac shows the chip. From a .dmg, macOS asks once: open the app, then <b>System Settings → Privacy &amp; Security → Open Anyway</b>.</p>
-        </article>
-
-        <article class="dl" id="windows">
-          <header><svg aria-hidden="true"><use href="/img/sprite.svg#windows"/></svg><h3>Windows <small>64-bit</small></h3></header>
-          <p>A single portable <code>omacus.exe</code>. Unzip it anywhere and run it; pin it to Start if you like. It updates itself.</p>
-          <div class="links"><a class="btn primary" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64.zip"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download .zip</a></div>
-          <p class="note">If SmartScreen warns about an unknown publisher, choose <b>More info → Run anyway</b>.</p>
-        </article>
-
-        <article class="dl" id="linux">
-          <header><svg aria-hidden="true"><use href="/img/sprite.svg#linux"/></svg><h3>Other Linux <small>x86_64</small></h3></header>
-          <p>The same one-liner works on any distribution, or use a package:</p>
-          <div class="links">
-            <a class="btn" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.deb"><svg aria-hidden="true"><use href="/img/sprite.svg#ubuntu"/></svg>.deb</a>
-            <a class="btn" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.rpm"><svg aria-hidden="true"><use href="/img/sprite.svg#fedora"/></svg>.rpm</a>
-            <a class="btn" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.tar.gz"><svg aria-hidden="true"><use href="/img/sprite.svg#terminal"/></svg>.tar.gz</a>
-          </div>
-          <p class="note">Ubuntu: <code>sudo apt install ./omacus-linux-x86_64.deb</code> · Fedora: <code>sudo dnf install ./omacus-linux-x86_64.rpm</code></p>
-        </article>
-      </div>
-
       <div class="cta reveal">
+        <span class="kicker">// download</span>
         <h2>Your next calculation is <em class="serif">a sentence</em>.</h2>
-        <p>One command, and Omacus is a keystroke away.</p>
+        <p>Free and MIT licensed, for Omarchy, Linux, macOS and Windows. One command installs it, and it keeps itself up to date.</p>
         <div class="cmd"><span class="prompt">$</span><code>curl -fsSL https://omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL https://omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
-        <div class="dl-row"><a class="btn" href="/docs/"><svg aria-hidden="true"><use href="/img/sprite.svg#book"/></svg>Read the docs</a><a class="btn" href="https://github.com/avinashjoshi/omacus"><svg aria-hidden="true"><use href="/img/sprite.svg#github"/></svg>Star on GitHub</a></div>
+        <div class="dl-row platforms">
+          <a class="btn" href="/download/#mac"><svg aria-hidden="true"><use href="/img/sprite.svg#apple"/></svg>macOS</a>
+          <a class="btn" href="/download/#windows"><svg aria-hidden="true"><use href="/img/sprite.svg#windows"/></svg>Windows</a>
+          <a class="btn" href="/download/#linux"><svg aria-hidden="true"><use href="/img/sprite.svg#linux"/></svg>.deb, .rpm, .tar.gz</a>
+          <a class="btn" href="/download/"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>All downloads</a>
+        </div>
+        <div class="dl-row more"><a href="/docs/">Read the docs</a><a href="https://github.com/avinashjoshi/omacus">Star on GitHub</a></div>
       </div>
     </div>
   </section>
