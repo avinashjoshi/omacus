@@ -72,6 +72,7 @@ fn run_app() {
 
 fn cli_engine() -> omacus_engine::Engine {
     omacus_engine::Engine::new(rates::Rates::load_blocking().table())
+        .with_clock(omacus_engine::monotonic_ms)
 }
 
 fn run_expr(expr: &str) {

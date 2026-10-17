@@ -5,7 +5,10 @@
 //! `sum`/`avg`, percentage phrases, currency symbols, forgiving prose, and
 //! human-friendly result formatting.
 
+use std::collections::HashSet;
 use std::sync::LazyLock;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use regex::Regex;
 
@@ -33,6 +36,9 @@ pub struct LineResult {
     pub display: String,
     /// A colour answer ("#ff8800 in rgb"), shown as a swatch beside it.
     pub color: Option<[u8; 3]>,
+    /// Why a line that looks like math has no answer ("Can't divide by zero"),
+    /// shown quietly in place of one.
+    pub note: Option<&'static str>,
 }
 
 impl LineResult {
@@ -41,6 +47,7 @@ impl LineResult {
             kind,
             display: String::new(),
             color: None,
+            note: None,
         }
     }
 
@@ -49,8 +56,115 @@ impl LineResult {
             kind: Kind::Value,
             display,
             color: None,
+            note: None,
         }
     }
+
+    fn error(note: Option<&'static str>) -> Self {
+        Self {
+            note,
+            ..Self::new(Kind::Error)
+        }
+    }
+}
+
+/// How long one line may calculate before it's stopped (`100000!` or `10^10^7`
+/// would otherwise freeze the window), and the shorter turn each line gets once
+/// a sheet has already taken `SHEET_MS`.
+const LINE_MS: f64 = 150.0;
+const LATE_LINE_MS: f64 = 20.0;
+const SHEET_MS: f64 = 1000.0;
+/// Without a clock, a cap on fend's progress checks instead. Ordinary lines use a
+/// few thousand; `10000!` about 900,000.
+const MAX_CHECKS: u64 = 2_000_000;
+/// With a clock, a backstop in case checks stop being cheap.
+const MAX_CHECKS_TIMED: u64 = 200_000_000;
+
+/// One line's allowance, handed to fend, which checks it as it works.
+struct Budget {
+    checks: AtomicU64,
+    max_checks: u64,
+    clock: Option<fn() -> f64>,
+    deadline: f64,
+    stopped: AtomicBool,
+    /// fend's last error on this line, to explain a missing answer.
+    error: Mutex<Option<String>>,
+}
+
+impl Budget {
+    fn new(clock: Option<fn() -> f64>, ms: f64) -> Self {
+        Self {
+            checks: AtomicU64::new(0),
+            max_checks: if clock.is_some() {
+                MAX_CHECKS_TIMED
+            } else {
+                MAX_CHECKS
+            },
+            clock,
+            deadline: clock.map_or(0.0, |now| now() + ms),
+            stopped: AtomicBool::new(false),
+            error: Mutex::new(None),
+        }
+    }
+
+    fn stopped(&self) -> bool {
+        self.stopped.load(Ordering::Relaxed)
+    }
+
+    fn evaluate(
+        &self,
+        input: &str,
+        ctx: &mut fend_core::Context,
+    ) -> Result<fend_core::FendResult, String> {
+        if self.stopped() {
+            return Err("interrupted".into());
+        }
+        let r = fend_core::evaluate_with_interrupt(input, ctx, self);
+        if let Err(e) = &r {
+            *self.error.lock().unwrap() = Some(e.clone());
+        }
+        r
+    }
+
+    /// Why the line has no answer, when it's worth saying.
+    fn note(&self) -> Option<&'static str> {
+        if self.stopped() {
+            return Some("Too big to work out");
+        }
+        let error = self.error.lock().unwrap();
+        let error = error.as_deref()?;
+        if error.contains("division by zero") {
+            Some("Can't divide by zero")
+        } else if error.contains("are incompatible") {
+            Some("Units don't match")
+        } else {
+            None
+        }
+    }
+}
+
+impl fend_core::Interrupt for Budget {
+    fn should_interrupt(&self) -> bool {
+        let n = self.checks.fetch_add(1, Ordering::Relaxed);
+        let over = n >= self.max_checks
+            || (n.is_multiple_of(128) && self.clock.is_some_and(|now| now() > self.deadline));
+        if over {
+            self.stopped.store(true, Ordering::Relaxed);
+        }
+        over
+    }
+}
+
+/// Milliseconds since the first call: a clock for `Engine::with_clock` outside the
+/// browser (where the web app passes `Date.now`).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn monotonic_ms() -> f64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_secs_f64()
+        * 1000.0
 }
 
 /// A `#` line is a header, unless it's a colour ("#ff8800", "#f80 in rgb").
@@ -60,6 +174,9 @@ pub fn is_header(line: &str) -> bool {
 }
 
 pub struct Engine {
+    /// Milliseconds from any fixed point, for the per-line time limit. Without
+    /// one, lines are limited by how much work fend does instead.
+    clock: Option<fn() -> f64>,
     rates: Rates,
 }
 
@@ -80,10 +197,21 @@ re!(PCT_OF_WHAT, r"(?i)^(.+?)\s*%\s+of\s+what\s+is\s+(.+)$");
 re!(AS_PCT, r"(?i)^(.+?)\s+as\s+(?:a\s+)?%\s+(?:of\s+)?(.+)$");
 re!(IS_WHAT_PCT, r"(?i)^(.+?)\s+is\s+what\s+%\s+of\s+(.+)$");
 re!(IS_PCT_OF_WHAT, r"(?i)^(.+?)\s+is\s+(.+?)\s*%\s+of\s+what$");
-// "$100 - 20%", "$50 + 8% tax": a percentage of the amount, not of 1.
+// "$100 - 20%", "$50 + 8% tax": a percentage of the amount, not of 1. Applied
+// left to right, so "$100 - 10% - 10%" is $81.
 re!(
-    PLUS_MINUS_PCT,
-    r"(?i)^([^%]+?)\s*([+-])\s*(\d[\d,]*(?:\.\d+)?)\s*%(?:\s+[a-z][a-z ]*)?$"
+    PLUS_MINUS_PCT_STEP,
+    r"^([^%]+?)\s*([+-])\s*(\d[\d,]*(?:\.\d+)?)\s*%"
+);
+// A plain number added to or taken from an amount ("rent + 5").
+re!(
+    BARE_NUMBER,
+    r"(^|[+\-(]\s*)(\d[\d,]*(?:\.\d+)?)(\s*(?:[+\-)]|$))"
+);
+// fend's complaint when a currency meets a plain number.
+re!(
+    CURRENCY_VS_PLAIN,
+    r"cannot convert from (\S+) to (\S+): units '(\w+)' and '(\w+)' are incompatible"
 );
 // fend reads `60 km / 2 hours` as `(60 km / 2) hours`; keep the divisor together.
 // Only when the amount before it has a unit too (`10 / 4 inches` stays fend's).
@@ -91,7 +219,7 @@ re!(
     DIVISOR,
     r"([A-Za-z)]\s*)/\s*(\(?\d[\d,]*(?:\.\d+)?\)?\s*)([A-Za-z][A-Za-z_]*(?:\^\d+)?(?:/[A-Za-z][A-Za-z_]*(?:\^\d+)?)*)"
 );
-re!(TIMES_X, r"(\d+)(\s*)([x×])(\s*)(\d)");
+re!(TIMES_X, r"(\d+\)?)(\s*)([x×])(\s*)(\d|\()");
 re!(SYMBOL_NUM, r"([€¥₹₩₽₺])\s*(\d[\d,]*(?:\.\d+)?)");
 re!(MONEY_PREFIX, r"[$£]\s*\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?");
 re!(PREV, r"(?i)\bprev\b");
@@ -211,11 +339,6 @@ static WORD_OP_RES: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
         .collect()
 });
 
-const COMMON_CURRENCIES: &[&str] = &[
-    "USD", "EUR", "GBP", "INR", "JPY", "CNY", "CAD", "AUD", "CHF", "NZD", "SGD", "HKD", "SEK",
-    "NOK", "DKK", "MXN", "BRL", "KRW", "ZAR", "AED", "SAR", "RUB", "PLN", "THB", "IDR",
-];
-
 const SYMBOL_CODES: &[(char, &str)] = &[
     ('€', "EUR"),
     ('¥', "JPY"),
@@ -227,7 +350,13 @@ const SYMBOL_CODES: &[(char, &str)] = &[
 
 impl Engine {
     pub fn new(rates: Rates) -> Self {
-        Self { rates }
+        Self { rates, clock: None }
+    }
+
+    /// Limit each line by time, read from `clock` (milliseconds).
+    pub fn with_clock(mut self, clock: fn() -> f64) -> Self {
+        self.clock = Some(clock);
+        self
     }
 
     fn context(&self) -> fend_core::Context {
@@ -242,6 +371,10 @@ impl Engine {
         let mut ctx = self.context();
         let mut block: Vec<String> = Vec::new();
         let mut prev: Option<String> = None;
+        let started = self.clock.map(|now| now());
+        // Names defined so far, and those holding a percentage ("tax = 8%").
+        let mut vars: HashSet<String> = HashSet::new();
+        let mut percents: Vec<(Regex, String)> = Vec::new();
 
         text.split('\n')
             .enumerate()
@@ -279,6 +412,11 @@ impl Engine {
                     return LineResult::new(Kind::Error);
                 }
 
+                let late = match (self.clock, started) {
+                    (Some(now), Some(t0)) => now() - t0 > SHEET_MS,
+                    _ => false,
+                };
+                let budget = Budget::new(self.clock, if late { LATE_LINE_MS } else { LINE_MS });
                 let var = format!("_l{i}");
                 // `sum`, or `subtotal = sum` to keep it in a variable.
                 let total = match ASSIGN.captures(trimmed) {
@@ -289,16 +427,38 @@ impl Engine {
                 let target = imperial_target(trimmed);
                 let source = target.as_ref().map_or(trimmed, |(expr, _)| expr.as_str());
                 let result = match total {
-                    Some(expr) => eval_into(&mut ctx, &var, &expr),
+                    Some(expr) => eval_into(&mut ctx, &budget, &var, &expr),
                     None => {
-                        let expr = self.currency_first(&rewrite(source, prev.as_deref()));
+                        // "$100 + tax", where tax = 8%: the same as "$100 + 8%".
+                        let mut source = source.to_string();
+                        for (re, pct) in &percents {
+                            source = re.replace_all(&source, format!("${{1}}{pct}")).into_owned();
+                        }
+                        let expr = self.currency_first(&rewrite(&source, prev.as_deref(), &vars));
                         let expr = self.drop_name_collisions(&expr);
                         if expr.trim().is_empty() {
                             return LineResult::new(Kind::Comment);
                         }
-                        eval_forgiving(&mut ctx, &var, &expr)
+                        eval_forgiving(&mut ctx, &budget, &var, &expr)
+                            .or_else(|| self.with_currency(&mut ctx, &budget, &var, &expr))
                     }
                 };
+
+                if result.is_some()
+                    && let Some(c) = ASSIGN.captures(trimmed)
+                {
+                    let name = c[1].to_string();
+                    let value = c[2].trim();
+                    if value.ends_with('%')
+                        && value[..value.len() - 1].trim().parse::<f64>().is_ok()
+                    {
+                        let re = Regex::new(&format!(r"([+-]\s*)\b{}\b", regex::escape(&name)));
+                        if let Ok(re) = re {
+                            percents.push((re, value.to_string()));
+                        }
+                    }
+                    vars.insert(name);
+                }
 
                 match result {
                     Some(raw) => {
@@ -320,7 +480,7 @@ impl Engine {
                         };
                         LineResult::value(display)
                     }
-                    None => LineResult::new(Kind::Error),
+                    None => LineResult::error(budget.note()),
                 }
             })
             .collect()
@@ -339,21 +499,78 @@ impl Engine {
             .into_owned()
     }
 
-    /// "Lunch with Bob $40": fend reads "Bob" as the Bolivian boliviano. Title-case
-    /// words that collide with uncommon currency codes are treated as prose.
+    /// "Lunch with Bob $40", "Lunch for Cad $40": fend reads a title-case word that
+    /// spells a currency code as that currency. It's prose unless it follows a
+    /// number ("50 Cad") or names a conversion ("in Cad").
     fn drop_name_collisions(&self, expr: &str) -> String {
         WORD.replace_all(expr, |c: &regex::Captures| {
             let w = &c[0];
+            let m = c.get(0).unwrap();
             let title = w.chars().next().is_some_and(char::is_uppercase)
                 && w.chars().skip(1).all(char::is_lowercase);
+            let before = expr[..m.start()].trim_end();
+            let after_amount = before.ends_with(|ch: char| ch.is_ascii_digit() || ch == ')');
+            let after_conversion = before
+                .rsplit(|ch: char| !ch.is_alphabetic())
+                .next()
+                .is_some_and(|word| {
+                    matches!(
+                        word.to_ascii_lowercase().as_str(),
+                        "in" | "to" | "as" | "per"
+                    )
+                });
             let upper = w.to_ascii_uppercase();
-            if title && !COMMON_CURRENCIES.contains(&upper.as_str()) && self.rates.knows(&upper) {
+            if title && !after_amount && !after_conversion && self.rates.knows(&upper) {
                 String::new()
             } else {
                 w.to_string()
             }
         })
         .into_owned()
+    }
+
+    /// "rent + 5" where rent is $1,000: a plain number added to or taken from an
+    /// amount is in its currency. Only tried when fend refused to mix the two.
+    fn with_currency(
+        &self,
+        ctx: &mut fend_core::Context,
+        budget: &Budget,
+        var: &str,
+        expr: &str,
+    ) -> Option<String> {
+        let error = budget.error.lock().unwrap().clone()?;
+        let c = CURRENCY_VS_PLAIN.captures(&error)?;
+        let unit = match (&c[3], &c[4]) {
+            ("unitless", "BASE_CURRENCY") => c[2].to_string(),
+            ("BASE_CURRENCY", "unitless") => c[1].to_string(),
+            _ => return None,
+        };
+        let (lhs, rhs) = match ASSIGN.captures(expr) {
+            Some(c) => (Some(c[1].to_string()), c[2].to_string()),
+            None => (None, expr.to_string()),
+        };
+        let mut rhs = rhs;
+        loop {
+            let next = BARE_NUMBER
+                .replace_all(&rhs, |c: &regex::Captures| {
+                    let amount = if unit.chars().all(|ch| ch.is_ascii_alphabetic()) {
+                        format!("({} {unit})", &c[2])
+                    } else {
+                        format!("({unit}{})", &c[2])
+                    };
+                    format!("{}{amount}{}", &c[1], &c[3])
+                })
+                .into_owned();
+            if next == rhs {
+                break;
+            }
+            rhs = next;
+        }
+        let expr = match lhs {
+            Some(name) => format!("{name} = {rhs}"),
+            None => rhs,
+        };
+        eval_into(ctx, budget, var, &expr)
     }
 
     /// Evaluate a single expression in a fresh context (used by the CLI).
@@ -452,7 +669,7 @@ fn aggregate(line: &str, block: &[String]) -> Option<String> {
 }
 
 /// Turn a notepad-style line into something fend understands.
-pub fn rewrite(line: &str, prev: Option<&str>) -> String {
+pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String {
     // Inline comments and quoted text are ignored.
     let mut s = match line.find("//") {
         Some(idx) => line[..idx].to_string(),
@@ -504,18 +721,25 @@ pub fn rewrite(line: &str, prev: Option<&str>) -> String {
     }
 
     // "5 x 3" is a product; "0x10" is hex.
-    s = TIMES_X
-        .replace_all(&s, |c: &regex::Captures| {
-            if &c[1] == "0" && c[2].is_empty() && &c[3] == "x" {
-                c[0].to_string()
-            } else {
-                format!("{} * {}", &c[1], &c[5])
-            }
-        })
-        .into_owned();
+    // Again until nothing changes: "2 x 3 x 4" shares the 3 between two matches.
+    loop {
+        let next = TIMES_X
+            .replace_all(&s, |c: &regex::Captures| {
+                if &c[1] == "0" && c[2].is_empty() && &c[3] == "x" {
+                    c[0].to_string()
+                } else {
+                    format!("{} * {}", &c[1], &c[5])
+                }
+            })
+            .into_owned();
+        if next == s {
+            break;
+        }
+        s = next;
+    }
     s = A_DAY.replace_all(&s, "$1 / $2").into_owned();
     s = AT_PRICE.replace_all(&s, "$1 * $2").into_owned();
-    s = drop_prose_words(&s);
+    s = drop_prose_words(&s, vars);
     s = IMPERIAL_UNIT
         .replace_all(&s, |c: &regex::Captures| format!("({})", imperial(&c[1]).1))
         .into_owned();
@@ -555,13 +779,19 @@ pub fn rewrite(line: &str, prev: Option<&str>) -> String {
         format!("({}) * (1 - ({}) / 100)", &c[2], &c[1])
     } else if let Some(c) = AS_PCT.captures(&rhs) {
         format!("(({}) / ({})) to %", &c[1], &c[2])
-    } else if let Some(c) = PLUS_MINUS_PCT.captures(&rhs) {
-        format!(
-            "({}) * (1 {} ({}) / 100)",
-            &c[1],
-            &c[2],
-            c[3].replace(',', "")
-        )
+    } else if PLUS_MINUS_PCT_STEP.is_match(&rhs) {
+        // One percentage at a time, each applied to the total so far.
+        let mut out = rhs;
+        while let Some(c) = PLUS_MINUS_PCT_STEP.captures(&out) {
+            let step = format!(
+                "(({}) * (1 {} ({}) / 100))",
+                &c[1],
+                &c[2],
+                c[3].replace(',', "")
+            );
+            out = format!("{step}{}", &out[c.get(0).unwrap().end()..]);
+        }
+        out
     } else {
         rhs
     };
@@ -578,13 +808,19 @@ const KEYWORDS: &[&str] = &[
 ];
 
 /// Little words fend would read as units (I is the imaginary unit, a is an are, at
-/// is an atmosphere...). They're prose unless they directly follow a number.
-fn drop_prose_words(s: &str) -> String {
+/// is an atmosphere...). They're prose unless they directly follow a number, or
+/// are a variable: one defined above, or being defined on this line.
+fn drop_prose_words(s: &str, vars: &HashSet<String>) -> String {
     const PROSE: &[&str] = &[
         "I", "a", "A", "an", "An", "the", "The", "at", "At", "my", "My",
     ];
+    let assigned = ASSIGN.captures(s).map(|c| c[1].to_string());
     let mut out: Vec<&str> = Vec::new();
     for tok in s.split(' ') {
+        if vars.contains(tok) || assigned.as_deref() == Some(tok) {
+            out.push(tok);
+            continue;
+        }
         let after_number = out
             .iter()
             .rev()
@@ -606,27 +842,37 @@ fn symbol_code(sym: char) -> &'static str {
 }
 
 /// Evaluate `expr` and bind the result to the hidden line variable `var`.
-fn eval_into(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Option<String> {
+fn eval_into(
+    ctx: &mut fend_core::Context,
+    budget: &Budget,
+    var: &str,
+    expr: &str,
+) -> Option<String> {
     let full = match ASSIGN.captures(expr) {
         // `x = 5` -> `x = (5); _l3 = x`
         Some(c) => format!("{} = ({}); {var} = {}", &c[1], &c[2], &c[1]),
         None => format!("{var} = ({expr})"),
     };
-    let r = fend_core::evaluate(&full, ctx).ok()?;
+    let r = budget.evaluate(&full, ctx).ok()?;
     let out = r.get_main_result().trim().to_string();
     (!out.is_empty()).then_some(out)
 }
 
 /// Like `eval_into`, but drops stray words fend doesn't know
 /// ("Lunch with Bob $40" -> "$40"), so lines can read like notes.
-fn eval_forgiving(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Option<String> {
+fn eval_forgiving(
+    ctx: &mut fend_core::Context,
+    budget: &Budget,
+    var: &str,
+    expr: &str,
+) -> Option<String> {
     let meaningful = expr
         .split(|c: char| !c.is_alphabetic())
         .any(|w| MEANINGFUL.contains(&w.to_ascii_lowercase().as_str()));
     if meaningful {
         return None;
     }
-    drop_unknown_words(ctx, var, expr).or_else(|| {
+    drop_unknown_words(ctx, budget, var, expr).or_else(|| {
         // Prose fend can't parse at all ("Food & drinks ₹2,000 * 4"): start the
         // expression at the first number, currency or bracket instead.
         if ASSIGN.is_match(expr) {
@@ -636,10 +882,17 @@ fn eval_forgiving(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Option
         let start = tokens
             .iter()
             .position(|t| t.starts_with(|c: char| c.is_ascii_digit() || "$£€¥₹(-.".contains(c)))?;
-        if start == 0 {
+        // Only skip words. Skipping an operator or a variable ("rent + 5" -> "5")
+        // would answer a different sum.
+        if start == 0
+            || tokens[start] == "-"
+            || tokens[..start]
+                .iter()
+                .any(|t| t.contains(['+', '-', '*', '/', '^', '=', '%']) || t.starts_with("_l"))
+        {
             return None;
         }
-        drop_unknown_words(ctx, var, &tokens[start..].join(" "))
+        drop_unknown_words(ctx, budget, var, &tokens[start..].join(" "))
     })
 }
 
@@ -648,7 +901,12 @@ const MEANINGFUL: &[&str] = &[
     "until", "since", "ago", "before", "after", "every", "except", "without", "not",
 ];
 
-fn drop_unknown_words(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Option<String> {
+fn drop_unknown_words(
+    ctx: &mut fend_core::Context,
+    budget: &Budget,
+    var: &str,
+    expr: &str,
+) -> Option<String> {
     let mut expr = expr.to_string();
     let mut dropped = false;
     for _ in 0..12 {
@@ -666,7 +924,7 @@ fn drop_unknown_words(ctx: &mut fend_core::Context, var: &str, expr: &str) -> Op
             Some(c) => format!("{} = ({}); {var} = {}", &c[1], &c[2], &c[1]),
             None => format!("{var} = ({expr})"),
         };
-        match fend_core::evaluate(&full, ctx) {
+        match budget.evaluate(&full, ctx) {
             Ok(r) => {
                 let out = r.get_main_result().trim().to_string();
                 return (!out.is_empty()).then_some(out);

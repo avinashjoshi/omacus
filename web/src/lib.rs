@@ -7,6 +7,14 @@ use omacus_engine::{Engine, Kind, Rates, complete};
 use serde_json::json;
 use wasm_bindgen::prelude::*;
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+extern "C" {
+    /// The browser's clock, for the engine's per-line time limit.
+    #[wasm_bindgen(js_namespace = Date)]
+    fn now() -> f64;
+}
+
 #[wasm_bindgen]
 pub struct Calc {
     engine: Engine,
@@ -24,10 +32,10 @@ impl Calc {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         let rates = Rates::default();
-        Self {
-            engine: Engine::new(rates.clone()),
-            rates,
-        }
+        let engine = Engine::new(rates.clone());
+        #[cfg(target_arch = "wasm32")]
+        let engine = engine.with_clock(now);
+        Self { engine, rates }
     }
 
     /// Exchange rates as `{"EUR": 0.92, ...}` (units per 1 USD). Returns whether
@@ -43,7 +51,8 @@ impl Calc {
         }
     }
 
-    /// Every line's answer: `[{"kind": "value", "display": "$28", "color": null}, ...]`.
+    /// Every line's answer: `[{"kind": "value", "display": "$28", "color": null,
+    /// "note": null}, ...]`, where `note` says why a line has no answer.
     pub fn evaluate(&self, text: &str) -> String {
         let results: Vec<_> = self
             .engine
@@ -54,6 +63,7 @@ impl Calc {
                     "kind": kind(&r.kind),
                     "display": r.display,
                     "color": r.color.map(|[r, g, b]| format!("#{r:02x}{g:02x}{b:02x}")),
+                    "note": r.note,
                 })
             })
             .collect();

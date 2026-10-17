@@ -459,6 +459,15 @@
   background: var(--app-hover);
 }
 
+.res.note {
+  color: var(--app-comment);
+  cursor: default;
+}
+
+.res.note:hover {
+  background: none;
+}
+
 .res.copied {
   color: var(--app-dim);
 }
