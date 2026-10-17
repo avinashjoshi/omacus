@@ -324,12 +324,15 @@ fn private_dir() -> Result<PathBuf, String> {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
     let dir = std::env::temp_dir().join(format!("omacus-update-{}-{nanos}", std::process::id()));
-    let mut builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
-    {
+    let builder = {
         use std::os::unix::fs::DirBuilderExt;
+        let mut builder = std::fs::DirBuilder::new();
         builder.mode(0o700);
-    }
+        builder
+    };
+    #[cfg(not(unix))]
+    let builder = std::fs::DirBuilder::new();
     builder.create(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
 }
