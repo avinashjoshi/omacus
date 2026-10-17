@@ -81,3 +81,10 @@ assets = [
     { source = "assets/omacus.desktop", dest = "/usr/share/applications/omacus.desktop", mode = "644" },
     { source = "assets/icon-256.png", dest = "/usr/share/icons/hicolor/256x256/apps/omacus.png", mode = "644" },
 ]
+
+# `./install.sh` from a source checkout: about as fast, a few MB bigger, and built in
+# a fraction of the time (the release profile's whole-program pass is for downloads).
+[profile.local]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
