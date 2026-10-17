@@ -43,16 +43,6 @@
     else if (platform.includes("win")) select("windows");
   }
 
-  // Latest version from GitHub (falls back to what's in the HTML).
-  fetch("https://api.github.com/repos/avinashjoshi/omacus/releases/latest")
-    .then((r) => (r.ok ? r.json() : null))
-    .then((rel) => {
-      if (!rel?.tag_name) return;
-      for (const el of $$("[data-version]")) el.textContent = rel.tag_name;
-      for (const el of $$("[data-version-text]")) el.textContent = `Omacus ${rel.tag_name}`;
-    })
-    .catch(() => {});
-
   // Reveal on scroll.
   const revealer = new IntersectionObserver(
     (entries) => {

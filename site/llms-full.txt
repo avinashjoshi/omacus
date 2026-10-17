@@ -12,7 +12,7 @@ Omacus runs on Omarchy and any Linux, macOS (Apple Silicon and Intel) and Window
 ### Omarchy, Arch and any Linux
 
 ```
-curl -fsSL omacus.com/install | bash
+curl -fsSL https://omacus.com/install | bash
 ```
 
 This installs Omacus for your user (no root) into `~/.local/bin`, with a launcher entry and icon. On Omarchy it then asks whether to add a keybind and a floating-window rule; see [Omarchy & Hyprland](https://omacus.com/docs/#omarchy).
@@ -22,7 +22,7 @@ Prefer a package? [.deb](https://omacus.com/deb) for Ubuntu and Debian (`sudo ap
 ### macOS
 
 ```
-curl -fsSL omacus.com/install | bash
+curl -fsSL https://omacus.com/install | bash
 ```
 
 Installs `Omacus.app` into `/Applications` (or `~/Applications`) and links the command-line tool at `~/.local/bin/omacus`. Apps installed this way open without a security prompt.
@@ -235,7 +235,7 @@ On macOS, use `⌘` where this says `Ctrl`, and `⌥` for `Alt`.
 | `Ctrl Tab` / `Ctrl Shift Tab` | Next / previous sheet (also `Ctrl PgDn` / `Ctrl PgUp`) |
 | `Ctrl 1` … `Ctrl 9` | Jump to a sheet |
 | `Alt ↑` / `Alt ↓` | Move the sheet up / down |
-| `Ctrl Delete` | Delete the sheet (kept in trash) |
+| `Ctrl Shift Delete` | Delete the sheet (Undo appears for a few seconds; it's also kept in trash) |
 | `Ctrl B` | Show / hide the sidebar |
 | Click a result | Copy it |
 | `Ctrl Shift C` | Copy the last result |
@@ -303,9 +303,9 @@ When the installer runs on Omarchy, it asks:
 Your config files are backed up first (`*.bak.`), nothing is added twice, and the change is rolled back if Hyprland reports an error. For unattended installs, pass the answer:
 
 ```
-curl -fsSL omacus.com/install | bash -s -- --hyprland  # default key
-curl -fsSL omacus.com/install | bash -s -- --key "SUPER ALT + N"  # your key
-curl -fsSL omacus.com/install | bash -s -- --no-hyprland  # leave Hyprland alone
+curl -fsSL https://omacus.com/install | bash -s -- --hyprland  # default key
+curl -fsSL https://omacus.com/install | bash -s -- --key "SUPER ALT + N"  # your key
+curl -fsSL https://omacus.com/install | bash -s -- --no-hyprland  # leave Hyprland alone
 ```
 
 To set it up by hand, add to `~/.config/hypr/bindings.lua` and `~/.config/hypr/looknfeel.lua`:
@@ -342,7 +342,7 @@ Omacus only shows answers it's sure about. Usually the line mixes things that ca
 
 ### Does it need the internet?
 
-Only to refresh exchange rates. Everything else is local, and cached rates keep currency math working offline.
+Only to refresh exchange rates and, once a day, to check for a new version (which you can turn off; see [Updating](https://omacus.com/docs/#updating)). Everything else is calculated on your computer, and cached rates keep currency math working offline.
 
 ### macOS says it can't verify the app.
 

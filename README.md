@@ -52,7 +52,7 @@ adds the notepad conventions on top.
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` (or `Ctrl+PgDn` / `PgUp`) | Next / previous sheet |
 | `Ctrl+1` … `Ctrl+9` | Jump to sheet |
 | `Alt+↑` / `Alt+↓` | Move sheet up / down |
-| `Ctrl+Delete` | Delete sheet (moved to `trash/`, not destroyed) |
+| `Ctrl+Shift+Delete` | Delete sheet (Undo appears; moved to `trash/`, not destroyed) |
 | `Ctrl+B` | Toggle the sidebar |
 
 Right-click a sheet in the sidebar for the same actions. A sheet's title is its first line.
@@ -96,9 +96,9 @@ back if Hyprland reports an error.
 For unattended installs, pass the answer instead:
 
 ```sh
-curl -fsSL omacus.com/install | bash -s -- --hyprland                 # default key
-curl -fsSL omacus.com/install | bash -s -- --key "SUPER + ALT + N"    # your key
-curl -fsSL omacus.com/install | bash -s -- --no-hyprland              # leave Hyprland alone
+curl -fsSL https://omacus.com/install | bash -s -- --hyprland                 # default key
+curl -fsSL https://omacus.com/install | bash -s -- --key "SUPER + ALT + N"    # your key
+curl -fsSL https://omacus.com/install | bash -s -- --no-hyprland              # leave Hyprland alone
 ```
 
 Colors follow your Omarchy theme and switch with it.

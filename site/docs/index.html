@@ -94,7 +94,7 @@
      "name": "Does it need the internet?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "Only to refresh exchange rates. Everything else is local, and cached rates keep currency math working offline."
+      "text": "Only to refresh exchange rates and, once a day, to check for a new version (which you can turn off). Everything else is calculated on your computer, and cached rates keep currency math working offline."
      }
     },
     {
@@ -182,12 +182,12 @@
     <p>Omacus runs on Omarchy and any Linux, macOS (Apple Silicon and Intel) and Windows. Every <a href="https://github.com/avinashjoshi/omacus/releases">release</a> has notes and downloads for each.</p>
 
     <h3 id="linux">Omarchy, Arch and any Linux</h3>
-    <pre>curl -fsSL omacus.com/install | bash</pre>
+    <pre>curl -fsSL https://omacus.com/install | bash</pre>
     <p>This installs Omacus for your user (no root) into <code>~/.local/bin</code>, with a launcher entry and icon. On Omarchy it then asks whether to add a keybind and a floating-window rule; see <a href="#omarchy">Omarchy &amp; Hyprland</a>.</p>
     <p>Prefer a package? <a href="/deb">.deb</a> for Ubuntu and Debian (<code>sudo apt install ./omacus-linux-x86_64.deb</code>), <a href="/rpm">.rpm</a> for Fedora and openSUSE (<code>sudo dnf install ./omacus-linux-x86_64.rpm</code>), or the <a href="/linux">.tar.gz</a> with an <code>install.sh</code> inside. Prebuilt Linux binaries are x86_64; on ARM, <a href="#contributing">build from source</a>.</p>
 
     <h3 id="mac">macOS</h3>
-    <pre>curl -fsSL omacus.com/install | bash</pre>
+    <pre>curl -fsSL https://omacus.com/install | bash</pre>
     <p>Installs <code>Omacus.app</code> into <code>/Applications</code> (or <code>~/Applications</code>) and links the command-line tool at <code>~/.local/bin/omacus</code>. Apps installed this way open without a security prompt.</p>
     <p>You can also <a href="/mac">download the .dmg</a> and drag Omacus to Applications. Omacus isn't notarized by Apple yet, so the first time macOS blocks it:</p>
     <ol>
@@ -413,7 +413,7 @@ total</pre>
         <tr><td><kbd>Ctrl Tab</kbd> / <kbd>Ctrl Shift Tab</kbd></td><td>Next / previous sheet (also <kbd>Ctrl PgDn</kbd> / <kbd>Ctrl PgUp</kbd>)</td></tr>
         <tr><td><kbd>Ctrl 1</kbd> … <kbd>Ctrl 9</kbd></td><td>Jump to a sheet</td></tr>
         <tr><td><kbd>Alt ↑</kbd> / <kbd>Alt ↓</kbd></td><td>Move the sheet up / down</td></tr>
-        <tr><td><kbd>Ctrl Delete</kbd></td><td>Delete the sheet (kept in trash)</td></tr>
+        <tr><td><kbd>Ctrl Shift Delete</kbd></td><td>Delete the sheet (Undo appears for a few seconds; it's also kept in trash)</td></tr>
         <tr><td><kbd>Ctrl B</kbd></td><td>Show / hide the sidebar</td></tr>
         <tr><td>Click a result</td><td>Copy it</td></tr>
         <tr><td><kbd>Ctrl Shift C</kbd></td><td>Copy the last result</td></tr>
@@ -473,9 +473,9 @@ total</pre>
     </ol>
     <p>Your config files are backed up first (<code>*.bak.&lt;timestamp&gt;</code>), nothing is added twice, and the change is rolled back if Hyprland reports an error. For unattended installs, pass the answer:</p>
 <div class="annot">
-<code>curl -fsSL omacus.com/install | bash -s -- --hyprland</code><span class="c"># default key</span>
-<code>curl -fsSL omacus.com/install | bash -s -- --key "SUPER ALT + N"</code><span class="c"># your key</span>
-<code>curl -fsSL omacus.com/install | bash -s -- --no-hyprland</code><span class="c"># leave Hyprland alone</span>
+<code>curl -fsSL https://omacus.com/install | bash -s -- --hyprland</code><span class="c"># default key</span>
+<code>curl -fsSL https://omacus.com/install | bash -s -- --key "SUPER ALT + N"</code><span class="c"># your key</span>
+<code>curl -fsSL https://omacus.com/install | bash -s -- --no-hyprland</code><span class="c"># leave Hyprland alone</span>
 </div>
     <p>To set it up by hand, add to <code>~/.config/hypr/bindings.lua</code> and <code>~/.config/hypr/looknfeel.lua</code>:</p>
 <pre>o.bind("SUPER + CTRL + ALT + EQUAL", "Omacus calculator", { launch = "omacus", focus = "^omacus$" })
@@ -504,7 +504,7 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
     <h3>A line shows no result. Why?</h3>
     <p>Omacus only shows answers it's sure about. Usually the line mixes things that can't be combined (dollars plus kilometres) or uses a word as a unit by accident. Try the expression on its own, and if you think it should work, <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">open an issue</a> with the exact line.</p>
     <h3>Does it need the internet?</h3>
-    <p>Only to refresh exchange rates. Everything else is local, and cached rates keep currency math working offline.</p>
+    <p>Only to refresh exchange rates and, once a day, to check for a new version (which you can turn off; see <a href="#updating">Updating</a>). Everything else is calculated on your computer, and cached rates keep currency math working offline.</p>
     <h3>macOS says it can't verify the app.</h3>
     <p>That's because Omacus isn't notarized by Apple yet. Install with the <a href="#mac">one-line installer</a> to avoid the prompt, or allow it once under <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>.</p>
     <h3>Windows SmartScreen warns about an unknown publisher.</h3>
