@@ -1508,6 +1508,21 @@ kbd {
   color: var(--accent);
 }
 
+.feature-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 14px;
+  color: var(--accent-hi);
+  font-size: 14px;
+}
+
+.feature-link svg {
+  width: 14px;
+  height: 14px;
+}
+
 /* "Or try it in your browser" under the hero's installer. */
 .try-web {
   margin: 18px 0 0;
@@ -2085,6 +2100,27 @@ kbd {
 
 .sheet-card figcaption span {
   margin-left: 8px;
+}
+
+/* "Open in the web app": the sheet, live, in omacus.com/app. */
+.sheet-card .open-sheet {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  color: var(--accent-hi);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.sheet-card .open-sheet svg {
+  width: 13px;
+  height: 13px;
+  transition: transform 0.2s;
+}
+
+.sheet-card .open-sheet:hover svg {
+  transform: translateX(3px);
 }
 
 .sheet-lines {

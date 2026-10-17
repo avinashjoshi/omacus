@@ -12,6 +12,7 @@ use regex::Regex;
 pub mod complete;
 pub mod extras;
 mod rates;
+pub mod share;
 pub mod time;
 
 pub use rates::Rates;

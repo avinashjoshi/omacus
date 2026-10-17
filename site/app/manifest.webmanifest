@@ -1,0 +1,17 @@
+{
+  "name": "Omacus",
+  "short_name": "Omacus",
+  "description": "A notepad calculator: write math in plain words, answers line up as you type.",
+  "id": "/app/",
+  "start_url": "/app/",
+  "scope": "/app/",
+  "display": "standalone",
+  "background_color": "#121212",
+  "theme_color": "#0d0d0d",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "/img/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "/img/icon-512.png", "type": "image/png", "sizes": "512x512" },
+    { "src": "/img/icon.svg", "type": "image/svg+xml", "sizes": "any" }
+  ]
+}

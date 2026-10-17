@@ -28,8 +28,13 @@ ureq = "3.4.2"
 [build-dependencies]
 miniz_oxide = "0.8"
 
+# Share links clicked on macOS arrive as an Apple Event (see src/links.rs).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSString", "objc2-core-services"] }
+
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
+windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_System_Registry"] }
 # Updates on Windows arrive as the release .zip.
 zip = { version = "9.0", default-features = false, features = ["deflate"] }
 
@@ -64,6 +69,10 @@ identifier = "dev.omacus.Omacus"
 icon = ["assets/icon-256.png", "assets/icon-512.png"]
 category = "public.app-category.productivity"
 short_description = "A notepad calculator"
+
+# omacus:// share links open the app.
+[package.metadata.bundle.osx]
+url_schemes = ["omacus"]
 
 # `cargo generate-rpm` -> .rpm for Fedora/openSUSE
 [package.metadata.generate-rpm]

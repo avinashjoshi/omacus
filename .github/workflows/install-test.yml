@@ -33,6 +33,11 @@ jobs:
           out="$("$HOME/.local/bin/omacus" '2 hours + 30 min in minutes')"
           echo "$out"
           test "$out" = "150 minutes"
+      - name: Linux opens omacus:// share links
+        if: runner.os == 'Linux'
+        run: |
+          grep -q '^MimeType=x-scheme-handler/omacus;' "$HOME/.local/share/applications/omacus.desktop"
+          grep -q '^Exec=omacus %u' "$HOME/.local/share/applications/omacus.desktop"
       - name: macOS app bundle is in place and not quarantined
         if: runner.os == 'macOS'
         run: |

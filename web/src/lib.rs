@@ -99,6 +99,19 @@ pub fn suggest(before: &str, sheet: &str) -> String {
     json!({ "start": start, "items": items }).to_string()
 }
 
+/// The `v1.…` part of a share link for a sheet (the same as the desktop app makes).
+#[wasm_bindgen(js_name = shareEncode)]
+pub fn share_encode(text: &str) -> String {
+    omacus_engine::share::encode(text)
+}
+
+/// The sheet in a share link or its `v1.…` part, or `undefined` if it isn't one
+/// (or would expand past 1 MB).
+#[wasm_bindgen(js_name = shareDecode)]
+pub fn share_decode(link: &str) -> Option<String> {
+    omacus_engine::share::decode(link)
+}
+
 /// Whether a line is a header (`# Trip`) rather than a colour (`#ff8800`).
 #[wasm_bindgen(js_name = isHeader)]
 pub fn is_header(line: &str) -> bool {

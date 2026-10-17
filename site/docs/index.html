@@ -171,6 +171,7 @@
     <a href="#themes">Themes</a>
     <a href="#cli">Command line</a>
     <a href="#omarchy">Omarchy &amp; Hyprland</a>
+    <a href="#sharing">Sharing &amp; web app</a>
     <a href="#files">Where files live</a>
     <p>More</p>
     <a href="#faq">FAQ</a>
@@ -352,7 +353,7 @@ total</pre>
       <tr><td><code>noon UTC in Sydney</code></td><td class="ans">11:00 PM AEDT</td></tr>
       <tr><td><code>Standup 9:30am PST in Berlin</code></td><td class="ans">6:30 PM CEST</td></tr>
       <tr><td><code>3pm PST on Dec 1 in London</code></td><td class="ans">11:00 PM GMT, Tue 1 Dec</td></tr>
-      <tr><td><code>9am PST tomorrow in Tokyo</code></td><td class="ans">1:00 AM JST, Sun 18 Oct</td></tr>
+      <tr><td><code>9am PST tomorrow in Tokyo</code></td><td class="ans">1:00 AM JST, Mon 19 Oct</td></tr>
       <tr><td><code>3pm PST in IST</code></td><td class="ans">3:30 AM IST (next day)</td></tr>
     </tbody>
   </table>
@@ -440,7 +441,25 @@ total</pre>
       <li><strong>Deleting is safe.</strong> Deleted sheets move to a <code>trash</code> folder next to your sheets; copy one back to restore it.</li>
       <li><strong>Plain text.</strong> Each sheet is a <code>.txt</code> file, so you can search, sync or back them up with anything.</li>
     </ul>
-    <p>Right-click a sheet in the sidebar for <em>New sheet</em>, <em>Move up</em>, <em>Move down</em> and <em>Delete sheet</em>.</p>
+    <p>Right-click a sheet in the sidebar for <em>New sheet</em>, <em>Move up</em>, <em>Move down</em>, <em>Copy with answers</em>, <em>Copy as Markdown table</em>, <em>Share link</em> and <em>Delete sheet</em>.</p>
+
+    <h2 id="sharing">Sharing &amp; the web app</h2>
+    <p>Any sheet can travel as a link. <kbd>Ctrl Shift L</kbd>, or <em>Share link</em> in a sheet's right-click menu, copies one like <code>omacus.com/app#v1.U1bwyS…</code>. Whoever opens it sees the sheet in <a href="/app">Omacus in the browser</a>, with every answer worked out live by the same engine as the desktop app.</p>
+    <ul>
+      <li><strong>The sheet is the link.</strong> It's compressed into the part after <code>#</code>, which browsers never send to a server, so Omacus never sees or stores it. Anyone who has the link can read the sheet, so share it the way you'd share a document.</li>
+      <li><strong>Answers are recalculated when it's opened.</strong> Currencies use that day's rates, and <code>today</code> or <code>days until</code> count from the day it's opened.</li>
+      <li><strong>Length.</strong> A typical sheet makes a link of a few hundred characters. Past about 2,000, some email and SMS apps can cut a link off; past 8,000, some chat apps can too. Omacus tells you the length when it copies one. For a very long sheet, <kbd>Ctrl Shift M</kbd> copies it as a Markdown table instead.</li>
+    </ul>
+    <h3 id="open-links">Opening a link in the app</h3>
+    <p>A shared sheet opens as a new sheet (or switches to it, if you already have it):</p>
+    <ul>
+      <li>On the web page, choose <strong>Open in Omacus</strong>. The installer and the macOS app register <code>omacus://</code> links, and Windows registers them the first time Omacus runs.</li>
+      <li>Paste a link into any sheet: it opens the shared sheet instead of pasting the text.</li>
+      <li>From a terminal: <code>omacus open 'https://omacus.com/app#v1.…'</code>.</li>
+    </ul>
+    <h3 id="web-app">The web app</h3>
+    <p><a href="/app">omacus.com/app</a> is Omacus in any modern browser, on a computer or a phone, with nothing to install. Sheets you make there are saved in that browser on that device, and are never uploaded. Export them from the ⋯ menu as a <code>.zip</code> of <code>.txt</code> files, the same format as the desktop app's sheets folder, and import them anywhere.</p>
+    <p>Chrome, Edge and Android can install it as an app (⋯ → <em>Install as an app</em>), and it works offline once opened. On iPhone and iPad, choose Share → <em>Add to Home Screen</em>: Safari otherwise clears a site's data after seven days without a visit.</p>
 
     <h2 id="shortcuts">Keyboard shortcuts</h2>
     <p>On macOS, use <kbd>⌘</kbd> where this says <kbd>Ctrl</kbd>, and <kbd>⌥</kbd> for <kbd>Alt</kbd>.</p>
@@ -458,6 +477,7 @@ total</pre>
         <tr><td><kbd>Ctrl Shift C</kbd></td><td>Copy the last result</td></tr>
         <tr><td><kbd>Ctrl Shift S</kbd></td><td>Copy the whole sheet with its answers lined up (also in a sheet's right-click menu)</td></tr>
         <tr><td><kbd>Ctrl Shift M</kbd></td><td>Copy the sheet as a Markdown table, for Slack, GitHub or a doc (also in the right-click menu)</td></tr>
+        <tr><td><kbd>Ctrl Shift L</kbd></td><td>Copy a share link to the sheet (see <a href="#sharing">Sharing</a>)</td></tr>
         <tr><td><kbd>Ctrl Z</kbd> / <kbd>Ctrl Shift Z</kbd></td><td>Undo / redo (each sheet has its own history)</td></tr>
         <tr><td><kbd>Ctrl +</kbd> / <kbd>Ctrl −</kbd> / <kbd>Ctrl 0</kbd></td><td>Zoom in / out / reset</td></tr>
         <tr><td><kbd>F1</kbd> or <kbd>Ctrl /</kbd></td><td>Help: shortcuts, live syntax examples, tips</td></tr>
@@ -501,6 +521,7 @@ total</pre>
 <code>omacus</code><span class="c"># no arguments: open the window</span>
 <code>omacus --version</code><span class="c"># which version you have</span>
 <code>omacus update</code><span class="c"># install the latest version</span>
+<code>omacus open '&lt;share link&gt;'</code><span class="c"># open a shared sheet in the window</span>
 </div>
     <p>A single expression exits with status 1 when there's no answer, which makes it easy to use in scripts. On Windows, <code>omacus.exe "..."</code> works the same from a terminal.</p>
 
@@ -549,6 +570,8 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
     <p>That's because Omacus isn't notarized by Apple yet. Install with the <a href="#mac">one-line installer</a> to avoid the prompt, or allow it once under <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>.</p>
     <h3>Windows SmartScreen warns about an unknown publisher.</h3>
     <p>Choose <strong>More info → Run anyway</strong>. The warning appears because the executable isn't code-signed yet.</p>
+    <h3>Who can see a sheet I share?</h3>
+    <p>Anyone you give the link to. The sheet is inside the link itself, after the <code>#</code>, which browsers don't send to servers, so it isn't uploaded or stored anywhere. Don't share a link to a sheet you'd want kept private.</p>
     <h3>Is my data sent anywhere?</h3>
     <p>No. Sheets stay on your disk. Omacus makes two kinds of request: one for exchange rates, and a check of the latest version number on GitHub. Neither sends anything about you or your sheets, and the version check can be turned off with <code>check_for_updates = false</code> in <code>settings.toml</code> (see <a href="#files">Where files live</a>).</p>
 

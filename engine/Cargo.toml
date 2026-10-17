@@ -12,4 +12,5 @@ publish = false  # internal; the app's version is the one in ../Cargo.toml
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std", "wasmbind"] }
 chrono-tz = "0.10.4"
 fend-core = "1.5.8"
+miniz_oxide = "0.8"
 regex = { version = "1.13.1", default-features = false, features = ["std", "perf", "unicode-perl", "unicode-case"] }

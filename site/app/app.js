@@ -3,14 +3,12 @@
 // Sheets live in this browser's localStorage; a share link carries a sheet in the
 // part after "#", which browsers never send to the server.
 
-import init, { Calc, suggest } from "./pkg/omacus_web.js";
+import init, { Calc, suggest, shareEncode, shareDecode } from "./pkg/omacus_web.js";
 
 const WASM = "/app/pkg/omacus_web_bg.wasm";
 const PREFIX = "omacus:";
 const RATES_URL = "https://open.er-api.com/v6/latest/USD";
 const RATES_MAX_AGE = 12 * 60 * 60 * 1000;
-const SHARE_VERSION = "v1.";
-const SHARE_MAX_BYTES = 1 << 20; // a shared sheet expands to at most 1 MB
 const KEYWORDS = new Set(["prev", "sum", "total", "avg", "average", "mean", "today", "now",
   "tomorrow", "yesterday", "plus", "minus", "times", "mod"]);
 
@@ -436,47 +434,12 @@ el.text.addEventListener("click", closeSuggest);
 el.text.addEventListener("blur", () => setTimeout(closeSuggest, 150));
 
 // ---------------------------------------------------------------------------------
-// Share links: "#v1." then the sheet, deflated and base64url-encoded.
-
-async function encodeShare(text) {
-  const stream = new Blob([new TextEncoder().encode(text)]).stream().pipeThrough(new CompressionStream("deflate-raw"));
-  const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return SHARE_VERSION + btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-async function decodeShare(hash) {
-  if (!hash.startsWith(SHARE_VERSION)) return null;
-  const b64 = hash.slice(SHARE_VERSION.length).replace(/-/g, "+").replace(/_/g, "/");
-  let bin;
-  try {
-    bin = atob(b64 + "===".slice((b64.length + 3) % 4));
-  } catch {
-    return null;
-  }
-  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-  const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
-  const chunks = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.length;
-      // A link can't make the browser unpack gigabytes.
-      if (size > SHARE_MAX_BYTES) return null;
-      chunks.push(value);
-    }
-  } catch {
-    return null;
-  }
-  return new TextDecoder().decode(await new Blob(chunks).arrayBuffer());
-}
+// Share links: "#v1." then the sheet, deflated and base64url-encoded, by the engine
+// (the desktop app makes and reads exactly the same links).
 
 async function share() {
   const text = currentText();
-  const url = `${location.origin}/app#${await encodeShare(text)}`;
+  const url = `${location.origin}/app#${shareEncode(text)}`;
   await copy(url);
   const n = url.length.toLocaleString();
   if (url.length > 8000) toast(`Link copied (${n} characters). <small>Long links can be cut off by some apps; for a long sheet, Copy as Markdown table is safer.</small>`);
@@ -487,9 +450,9 @@ async function share() {
 async function openShared() {
   const hash = decodeURIComponent(location.hash.slice(1));
   if (!hash) return;
-  const text = await decodeShare(hash);
+  const text = shareDecode(hash);
   history.replaceState(null, "", location.pathname);
-  if (text === null) return toast("That link couldn't be opened: it may be cut off or damaged.");
+  if (text === undefined) return toast("That link couldn't be opened: it may be cut off or damaged.");
   // Already saved? Open that copy instead of a duplicate.
   const same = state.order.find((id) => state.texts.get(id) === text);
   if (same) {
@@ -497,9 +460,26 @@ async function openShared() {
     select(same);
     return toast("This sheet is already in your sheets.");
   }
-  state.shared = { text };
+  state.shared = { text, link: hash };
   state.active = "shared";
   showSheet();
+}
+
+// "Open in Omacus": hand the sheet to the desktop app through its omacus:// link.
+// If nothing takes it (no app, or one older than 0.1.10), say where to get it.
+function openInApp() {
+  const link = `omacus://open#${shareEncode(currentText())}`;
+  let left = false;
+  const away = () => (left = true);
+  addEventListener("blur", away, { once: true });
+  document.addEventListener("visibilitychange", away, { once: true });
+  location.href = link;
+  setTimeout(() => {
+    removeEventListener("blur", away);
+    if (!left) {
+      toast('Nothing opened it. <a href="/download/">Get Omacus</a> <small>(0.1.10 or newer opens links)</small>');
+    }
+  }, 1600);
 }
 
 function saveShared() {
@@ -563,6 +543,10 @@ async function action(name) {
     saveShared();
   } else if (name === "share") {
     share();
+  } else if (name === "open-app") {
+    openInApp();
+  } else if (name === "install") {
+    installPrompt?.prompt();
   }
 }
 
@@ -777,6 +761,49 @@ function toast(html, undo) {
 }
 
 // ---------------------------------------------------------------------------------
+// Offline and installable: a service worker caches the app; browsers that can
+// install it get a menu item, and iPhones a note about Add to Home Screen.
+
+let installPrompt = null;
+addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  $("[data-install]").hidden = false;
+});
+addEventListener("appinstalled", () => {
+  installPrompt = null;
+  $("[data-install]").hidden = true;
+  toast("Installed. Omacus now opens like an app and works offline.");
+});
+
+function standalone() {
+  return matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+}
+
+async function goOffline() {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.register("/app/sw.js", { scope: "/app/" });
+    await navigator.serviceWorker.ready;
+    // What this page loaded before the worker took over, for offline use.
+    const urls = [
+      ...new Set([
+        `${location.origin}/app/`,
+        ...performance
+          .getEntriesByType("resource")
+          .map((r) => r.name)
+          .filter((u) => u.startsWith(location.origin)),
+      ]),
+    ];
+    (reg.active ?? navigator.serviceWorker.controller)?.postMessage({ type: "cache", urls });
+  } catch {
+    // No offline support here (a private window, say); the app still works online.
+  }
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  if (ios && !standalone()) $("[data-ios-hint]").hidden = false;
+}
+
+// ---------------------------------------------------------------------------------
 // Start.
 
 async function start() {
@@ -788,6 +815,7 @@ async function start() {
   await openShared();
   if (state.active !== "shared") showSheet();
   loadRates();
+  goOffline();
   if (matchMedia("(min-width: 761px)").matches) el.text.focus({ preventScroll: true });
 }
 

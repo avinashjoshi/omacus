@@ -13,11 +13,13 @@
 - llms-full.txt: the docs as Markdown, for AI assistants and answer engines.
 """
 
+import base64
 import datetime
 import html
 import json
 import re
 import subprocess
+import zlib
 from pathlib import Path
 
 SITE = Path(__file__).resolve().parent.parent
@@ -294,6 +296,14 @@ def highlight(line, variables):
     return out
 
 
+def share_link(text):
+    """A link that opens `text` in omacus.com/app: the same "v1." format the app
+    and the engine make (raw deflate, base64url without padding)."""
+    packer = zlib.compressobj(9, zlib.DEFLATED, -15)
+    packed = packer.compress(text.encode()) + packer.flush()
+    return "/app#v1." + base64.urlsafe_b64encode(packed).decode().rstrip("=")
+
+
 def sheet_html(name):
     path = PAGES / "sheets" / f"{name}.txt"
     if not path.exists():
@@ -305,7 +315,10 @@ def sheet_html(name):
         f'<span class="res">{html.escape(result)}</span></li>'
         for line, result in zip(lines, evaluate(lines)))
     title = lines[0].lstrip("# ").strip()
-    return (f'<figure class="sheet-card">\n  <figcaption><i></i><i></i><i></i><span>{html.escape(title)}</span></figcaption>\n'
+    open_link = (f'<a class="open-sheet" href="{share_link(chr(10).join(lines))}">'
+                 'Open in the web app <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a>')
+    return (f'<figure class="sheet-card">\n  <figcaption><i></i><i></i><i></i><span>{html.escape(title)}</span>'
+            f'{open_link}</figcaption>\n'
             f'  <ol class="sheet-lines">\n{rows}\n  </ol>\n</figure>')
 
 

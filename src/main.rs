@@ -4,6 +4,7 @@
 mod app;
 mod help;
 mod highlight;
+mod links;
 mod rates;
 mod sheets;
 mod theme;
@@ -18,6 +19,7 @@ USAGE:
     omacus                 open the calculator window
     omacus <expression>    evaluate one expression and print the result
     cat sheet | omacus -   evaluate a sheet from stdin, one result per line
+    omacus open <link>     open a share link (omacus.com/app#…) as a sheet
     omacus update          install the latest version
     omacus --version       print the version
 ";
@@ -25,6 +27,21 @@ USAGE:
 fn main() {
     update::init();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // A share link, from `omacus open <link>` or the OS opening an omacus:// link.
+    let link = match args.as_slice() {
+        [cmd, link] if cmd == "open" => Some(link),
+        [link] => Some(link),
+        _ => None,
+    };
+    if let Some(text) = link.and_then(|l| links::from_arg(l)) {
+        links::push(text);
+        return run_app();
+    }
+    if args.first().is_some_and(|a| a == "open") {
+        attach_console();
+        eprintln!("omacus: that isn't an Omacus share link");
+        std::process::exit(1);
+    }
     if !args.is_empty() {
         attach_console();
     }
@@ -41,12 +58,15 @@ fn main() {
         }
         Some("-") => run_stdin(),
         Some(_) => run_expr(&args.join(" ")),
-        None => {
-            if let Err(e) = app::run() {
-                eprintln!("omacus: {e}");
-                std::process::exit(1);
-            }
-        }
+        None => run_app(),
+    }
+}
+
+fn run_app() {
+    links::register();
+    if let Err(e) = app::run() {
+        eprintln!("omacus: {e}");
+        std::process::exit(1);
     }
 }
 
