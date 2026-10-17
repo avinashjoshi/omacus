@@ -33,11 +33,11 @@ window.OMACUS_DEMO = [
    },
    {
     "text": "total",
-    "result": "$9,907.02"
+    "result": "$9,910.06"
    },
    {
     "text": "each = prev / 4",
-    "result": "$2,476.75"
+    "result": "$2,477.51"
    },
    {
     "text": "",
@@ -45,11 +45,11 @@ window.OMACUS_DEMO = [
    },
    {
     "text": "each in EUR",
-    "result": "2,208.40 EUR"
+    "result": "2,203.79 EUR"
    },
    {
     "text": "each in GBP",
-    "result": "1,867.60 GBP"
+    "result": "1,860.21 GBP"
    },
    {
     "text": "",
@@ -106,7 +106,7 @@ window.OMACUS_DEMO = [
    },
    {
     "text": "prev in EUR",
-    "result": "6,188.75 EUR"
+    "result": "6,173.94 EUR"
    }
   ]
  },

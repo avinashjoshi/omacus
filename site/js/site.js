@@ -11,6 +11,20 @@
   addEventListener("scroll", onScroll, { passive: true });
   onScroll();
 
+  // Mac downloads: browsers all say "Intel" in their user agent, but the graphics
+  // renderer often names the chip. Highlight the likely .dmg; both stay one click away.
+  const chips = $$("[data-arch]");
+  if (chips.length) {
+    let gpu = "";
+    try {
+      const gl = document.createElement("canvas").getContext("webgl");
+      const info = gl && gl.getExtension("WEBGL_debug_renderer_info");
+      gpu = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : "";
+    } catch {}
+    const arch = /Intel|AMD|Radeon/.test(gpu) ? "x86_64" : "arm64";
+    for (const a of chips) a.classList.toggle("primary", a.dataset.arch === arch);
+  }
+
   // Copy buttons.
   for (const btn of $$("[data-copy]")) {
     const label = btn.innerHTML;

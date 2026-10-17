@@ -189,7 +189,7 @@ def header(path):
     return ('<header class="site-header">\n  <div class="wrap">\n'
             '    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="28" height="28">omacus</a>\n'
             '    <nav class="nav" aria-label="Main">\n' + "\n".join(links) + "\n"
-            '      <a class="btn primary" href="/#download"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>\n'
+            '      <a class="btn primary" href="/download/"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>\n'
             "    </nav>\n  </div>\n</header>")
 
 
@@ -443,6 +443,128 @@ def H(s):
     return html.unescape(re.sub(r"<[^>]+>", "", s)).strip()
 
 
+# ---------------------------------------------------------------------------------------
+# Downloads
+#
+# One copy of the platform cards, on the home page and on /download/. Short links like
+# /mac lead to the right card; only a button you click downloads a file.
+
+DL = "https://github.com/avinashjoshi/omacus/releases/latest/download"
+INSTALL_CMD = ('<div class="cmd"><span class="prompt">$</span><code>curl -fsSL https://omacus.com/install | bash</code>'
+               '<button class="copy" data-copy="curl -fsSL https://omacus.com/install | bash"><svg aria-hidden="true">'
+               '<use href="/img/sprite.svg#copy"/></svg>Copy</button></div>')
+SHORT_LINKS = {"mac": "mac", "windows": "windows", "linux": "linux", "deb": "linux", "rpm": "linux"}
+
+
+def btn(href, icon, label, cls="btn", attrs=""):
+    return (f'<a class="{cls}" href="{href}"{attrs}><svg aria-hidden="true"><use href="/img/sprite.svg#{icon}"/></svg>'
+            f'{label}</a>')
+
+
+def download_cards(indent):
+    cards = f'''<div class="downloads reveal">
+  <article class="dl" id="omarchy">
+    <header><svg aria-hidden="true"><use href="/img/sprite.svg#archlinux"/></svg><h3>Omarchy <small>&amp; Arch</small></h3></header>
+    <p>Installs the app, then offers a keybind (<kbd>Super Ctrl Alt =</kbd> by default, checked against yours) and a floating window.</p>
+    {INSTALL_CMD}
+    <p class="note">Colors follow your Omarchy theme automatically.</p>
+  </article>
+
+  <article class="dl" id="mac">
+    <header><svg aria-hidden="true"><use href="/img/sprite.svg#apple"/></svg><h3>macOS <small>Apple Silicon &amp; Intel</small></h3></header>
+    <p>The one-liner picks the build for your Mac's chip, installs <code>Omacus.app</code> into Applications and opens without a security prompt.</p>
+    {INSTALL_CMD}
+    <div class="links">
+      {btn(f"{DL}/omacus-macos-arm64.dmg", "download", "Apple Silicon .dmg", attrs=' data-arch="arm64"')}
+      {btn(f"{DL}/omacus-macos-x86_64.dmg", "download", "Intel .dmg", attrs=' data-arch="x86_64"')}
+    </div>
+    <p class="note">Not sure which? Apple menu → About This Mac shows the chip. From a .dmg, macOS asks once: open the app, then <b>System Settings → Privacy &amp; Security → Open Anyway</b>.</p>
+  </article>
+
+  <article class="dl" id="windows">
+    <header><svg aria-hidden="true"><use href="/img/sprite.svg#windows"/></svg><h3>Windows <small>64-bit</small></h3></header>
+    <p>A single portable <code>omacus.exe</code>. Unzip it anywhere and run it; pin it to Start if you like. It updates itself.</p>
+    <div class="links">{btn(f"{DL}/omacus-windows-x86_64.zip", "download", "Download .zip", "btn primary")}</div>
+    <p class="note">If SmartScreen warns about an unknown publisher, choose <b>More info → Run anyway</b>.</p>
+  </article>
+
+  <article class="dl" id="linux">
+    <header><svg aria-hidden="true"><use href="/img/sprite.svg#linux"/></svg><h3>Other Linux <small>x86_64</small></h3></header>
+    <p>The same one-liner works on any distribution, or use a package:</p>
+    <div class="links">
+      {btn(f"{DL}/omacus-linux-x86_64.deb", "ubuntu", ".deb")}
+      {btn(f"{DL}/omacus-linux-x86_64.rpm", "fedora", ".rpm")}
+      {btn(f"{DL}/omacus-linux-x86_64.tar.gz", "terminal", ".tar.gz")}
+    </div>
+    <p class="note">Ubuntu: <code>sudo apt install ./omacus-linux-x86_64.deb</code> · Fedora: <code>sudo dnf install ./omacus-linux-x86_64.rpm</code></p>
+  </article>
+</div>'''
+    return "\n".join((indent + l) if l else l for l in cards.split("\n"))
+
+
+def fill_downloads():
+    """The home page's cards, /download/, and the short links that point into it."""
+    path = SITE / "index.html"
+    text = re.sub(r'( *)<div class="downloads reveal">.*?\n\1</div>',
+                  lambda m: download_cards(m[1]).lstrip(" ").join([m[1], ""]), path.read_text(), count=1, flags=re.S)
+    path.write_text(text)
+
+    meta = {"path": "/download/", "h1": "Download Omacus",
+            "title": "Download Omacus: free notepad calculator for Linux, macOS and Windows",
+            "description": "Download Omacus, the free and open-source notepad calculator: a one-line installer for "
+                           "Omarchy, Linux and macOS, .dmg for Apple Silicon and Intel Macs, a portable Windows .exe, "
+                           "and .deb, .rpm and .tar.gz packages."}
+    page = head(meta, []) + header("/download/") + f'''
+
+<main class="wrap download-page">
+  <div class="section-head center">
+    <span class="kicker">// download</span>
+    <h1>Get <em class="serif">Omacus</em>.</h1>
+    <p>Free and MIT licensed. <span data-version-text>The latest release</span>, for every platform. Once installed, Omacus tells you when there's a new version and updates in a click.</p>
+  </div>
+
+{download_cards("  ")}
+
+  <section class="release-facts" aria-labelledby="every-release">
+    <h2 id="every-release">Every release</h2>
+    <ul>
+      <li><a href="https://github.com/avinashjoshi/omacus/releases/latest">Release notes</a> list what changed, with every file.</li>
+      <li><a href="{DL}/SHA256SUMS.txt">SHA256SUMS.txt</a> has each file's checksum: <code>sha256sum -c SHA256SUMS.txt --ignore-missing</code>.</li>
+      <li>Runs on 64-bit Linux with glibc 2.35 or newer (Ubuntu 22.04, Fedora 36 and later), macOS 11 or newer, and Windows 10 and 11.</li>
+      <li>Built from source on GitHub for every release. <a href="/docs/#install">Install notes</a> cover each platform.</li>
+    </ul>
+  </section>
+</main>
+
+''' + footer() + '''
+
+<script src="/js/site.js"></script>
+</body>
+</html>
+'''
+    out = SITE / "download" / "index.html"
+    out.parent.mkdir(exist_ok=True)
+    out.write_text(page)
+
+    for name, card in SHORT_LINKS.items():
+        url = f"/download/#{card}"
+        (SITE / name / "index.html").write_text(f'''<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Download Omacus</title>
+  <meta name="robots" content="noindex">
+  <meta http-equiv="refresh" content="0; url={url}">
+  <link rel="canonical" href="https://omacus.com/download/">
+  <script>location.replace("{url}");</script>
+</head>
+<body><p><a href="{url}">Download Omacus</a></p></body>
+</html>
+''')
+    return ["/download/"]
+
+
 def sitemap(paths):
     entries = []
     for p in ["/", "/docs/"] + paths:
@@ -461,7 +583,7 @@ if __name__ == "__main__":
     fill_home()
     demo_data()
     llms_full()
-    pages = build_pages()
+    pages = build_pages() + fill_downloads()
     for f, path in [(SITE / "index.html", "/"), (SITE / "docs" / "index.html", "/docs/")]:
         sync_chrome(f, path)
     sitemap(pages)

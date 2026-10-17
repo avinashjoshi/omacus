@@ -1317,6 +1317,47 @@ kbd {
   }
 }
 
+/* /download/ */
+
+.download-page {
+  padding-top: 72px;
+  padding-bottom: 40px;
+}
+
+.download-page .section-head h1 {
+  font-size: clamp(40px, 6vw, 64px);
+}
+
+.download-page .dl {
+  scroll-margin-top: 96px;
+}
+
+.download-page .dl:target {
+  border-color: var(--accent);
+}
+
+.release-facts {
+  max-width: 720px;
+  margin: 64px auto 0;
+  padding: 0;
+}
+
+.release-facts h2 {
+  font-size: 24px;
+  margin-bottom: 14px;
+}
+
+.release-facts ul {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text-2);
+  line-height: 1.7;
+}
+
+.release-facts a {
+  color: var(--accent);
+}
+
 /* Closing CTA */
 
 .cta {
