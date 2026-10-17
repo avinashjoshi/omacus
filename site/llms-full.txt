@@ -256,11 +256,11 @@ The sidebar lists your sheets; a sheet's title is its first line. Create as many
 - **Deleting is safe.** Deleted sheets move to a `trash` folder next to your sheets; copy one back to restore it.
 - **Plain text.** Each sheet is a `.txt` file, so you can search, sync or back them up with anything.
 
-Right-click a sheet in the sidebar for *New sheet*, *Move up*, *Move down*, *Copy with answers*, *Copy as Markdown table*, *Share link* and *Delete sheet*.
+The **⋯** above a sheet, the **⋯** on its row in the sidebar, and a right-click on that row all open the same menu: *New sheet*, *Move up*, *Move down*, *Copy with answers*, *Copy as Markdown table*, *Share link* and *Delete sheet*.
 
 ## Sharing & the web app
 
-Any sheet can travel as a link. `Ctrl Shift L`, or *Share link* in a sheet's right-click menu, copies one like `omacus.com/app#v1.U1bwyS…`. Whoever opens it sees the sheet in [Omacus in the browser](https://omacus.com/app), with every answer worked out live by the same engine as the desktop app.
+Any sheet can travel as a link. **Share** above the sheet, or `Ctrl Shift L`, copies one like `omacus.com/app#v1.U1bwyS…`. Whoever opens it sees the sheet in [Omacus in the browser](https://omacus.com/app), with every answer worked out live by the same engine as the desktop app.
 
 - **The sheet is the link.** It's compressed into the part after `#`, which browsers never send to a server, so Omacus never sees or stores it. Anyone who has the link can read the sheet, so share it the way you'd share a document.
 - **Answers are recalculated when it's opened.** Currencies use that day's rates, and `today` or `days until` count from the day it's opened.
@@ -297,8 +297,8 @@ On macOS, use `⌘` where this says `Ctrl`, and `⌥` for `Alt`.
 | `Ctrl B` | Show / hide the sidebar |
 | Click a result | Copy it |
 | `Ctrl Shift C` | Copy the last result |
-| `Ctrl Shift S` | Copy the whole sheet with its answers lined up (also in a sheet's right-click menu) |
-| `Ctrl Shift M` | Copy the sheet as a Markdown table, for Slack, GitHub or a doc (also in the right-click menu) |
+| `Ctrl Shift S` | Copy the whole sheet with its answers lined up (also in the sheet's ⋯ menu) |
+| `Ctrl Shift M` | Copy the sheet as a Markdown table, for Slack, GitHub or a doc (also in the ⋯ menu) |
 | `Ctrl Shift L` | Copy a share link to the sheet (see [Sharing](https://omacus.com/docs/#sharing)) |
 | `Ctrl Z` / `Ctrl Shift Z` | Undo / redo (each sheet has its own history) |
 | `Ctrl +` / `Ctrl −` / `Ctrl 0` | Zoom in / out / reset |

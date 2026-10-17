@@ -33,6 +33,10 @@ days until Christmas
 // Private: your sheets are saved in this browser only. Nothing is uploaded.
 `;
 
+// Embedded in omacus.com's homepage (/app/?embed#v1.…): just the editor, on the sheet
+// in the link, with nothing read from or saved to this browser's sheets.
+const EMBED = new URLSearchParams(location.search).has("embed");
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const el = {
@@ -130,7 +134,7 @@ function title(text) {
 
 // Other tabs: pick up their changes, unless this tab is mid-edit on the same sheet.
 addEventListener("storage", (e) => {
-  if (!e.key?.startsWith(PREFIX)) return;
+  if (EMBED || !e.key?.startsWith(PREFIX)) return;
   const typing = document.activeElement === el.text && pendingSave;
   const before = currentText();
   const mine = state.active;
@@ -168,7 +172,7 @@ function onInput() {
 
 function showSheet() {
   el.text.value = currentText();
-  el.shared.hidden = state.active !== "shared";
+  el.shared.hidden = EMBED || state.active !== "shared";
   showInstall();
   closeSuggest();
   evaluate();
@@ -453,7 +457,7 @@ async function openShared() {
   const hash = decodeURIComponent(location.hash.slice(1));
   if (!hash) return;
   const text = shareDecode(hash);
-  history.replaceState(null, "", location.pathname);
+  history.replaceState(null, "", location.pathname + location.search);
   if (text === undefined) return toast("That link couldn't be opened: it may be cut off or damaged.");
   // Already saved? Open that copy instead of a duplicate.
   const same = state.order.find((id) => state.texts.get(id) === text);
@@ -554,7 +558,8 @@ async function action(name) {
   } else if (name === "privacy") {
     toast(
       "<b>Private.</b> Sheets are saved in this browser, on this device, and never uploaded. " +
-        "A share link carries the sheet after the #, which browsers don't send to any server.",
+        "A share link carries the sheet after the #, which browsers don't send to any server. " +
+        '<a href="/privacy/" target="_blank" rel="noopener">Privacy</a>',
       null,
       7000,
     );
@@ -796,7 +801,7 @@ function showInstall() {
     : ios()
       ? `<b>Install Omacus:</b> tap ${SHARE_ICON} then <b>Add to Home Screen</b>. It works offline, like an app, and Safari keeps your sheets.`
       : null;
-  banner.hidden = dismissed || standalone() || !text || state.active === "shared";
+  banner.hidden = EMBED || dismissed || standalone() || !text || state.active === "shared";
   if (text) $("[data-install-text]").innerHTML = text;
   $("[data-action=install]", banner).hidden = !installPrompt;
 }
@@ -851,15 +856,23 @@ async function goOffline() {
 // Start.
 
 async function start() {
-  load();
-  if (!state.order.length) addSheet(WELCOME);
+  if (EMBED) {
+    el.page.classList.add("embed");
+    const open = $("[data-embed-open]");
+    open.hidden = false;
+    // Carry the edits along to the full app.
+    open.addEventListener("click", () => (open.href = `/app#${shareEncode(currentText())}`));
+  } else {
+    load();
+    if (!state.order.length) addSheet(WELCOME);
+  }
   await init({ module_or_path: WASM });
   calc = new Calc();
   el.loading.remove();
   await openShared();
   if (state.active !== "shared") showSheet();
   loadRates();
-  goOffline();
+  if (!EMBED) goOffline();
   if (matchMedia("(min-width: 761px)").matches) el.text.focus({ preventScroll: true });
 }
 

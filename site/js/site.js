@@ -175,11 +175,63 @@
 
     let visible = true;
     new IntersectionObserver((es) => (visible = es[0].isIntersecting)).observe(stageEl);
-    const sleep = (ms) =>
+    // Each run of the replay has a number; switching modes starts a new one, and the
+    // old run's pending sleeps never wake, so it simply stops.
+    let run = 0;
+    let current = 0;
+    const sleep = (ms, mine = run) =>
       new Promise((resolve) => {
-        const tick = () => (visible && !document.hidden ? setTimeout(resolve, ms) : setTimeout(tick, 250));
+        const tick = () =>
+          mine !== run
+            ? null
+            : visible && !document.hidden
+              ? setTimeout(() => mine === run && resolve(), ms)
+              : setTimeout(tick, 250);
         tick();
       });
+
+    // Two modes: Watch (the replay) and Try it (the real editor, omacus.com/app
+    // embedded, on the sheet that was playing; it loads only when asked).
+    const caption = $("[data-caption]");
+    const modes = $$("[data-mode]");
+    let frame = null;
+    const setMode = (mode) => {
+      for (const b of modes) b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
+      stageEl.classList.toggle("live", mode === "try");
+      caption.textContent =
+        mode === "try"
+          ? "The real engine, running in your browser. Edit anything; nothing is saved."
+          : "A replay with real answers from the Omacus engine.";
+    };
+    const tryIt = (i = current) => {
+      run++;
+      current = i;
+      setActive(i);
+      popup.classList.remove("show");
+      setMode("try");
+      if (!frame) {
+        frame = document.createElement("iframe");
+        frame.title = "Omacus, live: edit this sheet";
+        frame.className = "win-frame";
+        list.parentElement.append(frame);
+        frame.addEventListener("load", () => frame.contentDocument?.querySelector("textarea")?.focus());
+      }
+      frame.hidden = false;
+      frame.src = `/app/?embed#${sheets[i].link}`;
+    };
+    const watch = () => {
+      if (!stageEl.classList.contains("live")) return;
+      run++;
+      setMode("watch");
+      if (frame) frame.hidden = true;
+      if (reduceMotion) render(sheets[current], sheets[current].lines.length - 1, null, false);
+      else play(current, run);
+    };
+    for (const b of modes) b.addEventListener("click", () => (b.dataset.mode === "try" ? tryIt() : watch()));
+    side.addEventListener("click", (e) => {
+      const el = e.target.closest(".sheet");
+      if (el) tryIt(Number(el.dataset.i));
+    });
 
     const setActive = (i) => {
       for (const el of $$(".sheet", side)) el.classList.toggle("active", Number(el.dataset.i) === i);
@@ -227,13 +279,15 @@
     };
     const hidePopup = () => popup.classList.remove("show");
 
-    (async function loop() {
-      for (let s = 0; ; s = (s + 1) % sheets.length) {
+    async function play(from, mine) {
+      const pause = (ms) => sleep(ms, mine);
+      for (let s = from; ; s = (s + 1) % sheets.length) {
         const sheet = sheets[s];
         const vars = definedVars(sheet.lines.map((l) => l.text));
+        current = s;
         setActive(s);
         list.innerHTML = "";
-        await sleep(500);
+        await pause(500);
         for (let i = 0; i < sheet.lines.length; i++) {
           const text = sheet.lines[i].text;
           let completedWord = false;
@@ -246,28 +300,29 @@
               const items = COMPLETIONS[word.toLowerCase()];
               if (items) {
                 showPopup(li, items);
-                await sleep(650);
+                await pause(650);
                 hidePopup();
                 n += rest.length;
                 render(sheet, i, n, true);
                 completedWord = true;
-                await sleep(120);
+                await pause(120);
                 continue;
               }
             }
             if (!word) completedWord = false;
-            await sleep(text[n - 1] === " " ? 55 : 24 + Math.random() * 38);
+            await pause(text[n - 1] === " " ? 55 : 24 + Math.random() * 38);
           }
           render(sheet, i, null, false);
-          await sleep(text ? 230 : 120);
+          await pause(text ? 230 : 120);
         }
         // Keep the caret on a fresh line at the end.
         const li = document.createElement("li");
         li.innerHTML = '<span class="src"><span class="caret"></span></span><span class="res"></span>';
         list.appendChild(li);
-        await sleep(3400);
+        await pause(3400);
       }
-    })();
+    }
+    play(0, run);
   }
 
   // Same rules as the app's highlighter (src/highlight.rs), simplified.
