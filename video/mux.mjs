@@ -1,6 +1,6 @@
 // Mix narration, music and sound effects onto the rendered video.
 //
-//   node mux.mjs    -> out/omacus-launch.mp4 (1920x1080) and out/omacus-launch-vertical.mp4
+//   node mux.mjs    -> out/omacus-launch.mp4 (1920x1080)
 //
 // Narration clips (build/vo/<scene>.mp3) start 0.3s into their scene; the music ducks
 // under them. Without narration it makes a preview with music and effects only.
@@ -52,10 +52,3 @@ run([...inputs, "-filter_complex", graph, "-map", "0:v", "-map", "[aout]", "-c:v
   "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-movflags", "+faststart", "-shortest", `${OUT}${name}.mp4`]);
 console.log(`out/${name}.mp4`);
 
-// A 9:16 cut for Reels, Shorts and TikTok: the frame centred over a blurred fill.
-run(["-i", `${OUT}${name}.mp4`, "-filter_complex",
-  "[0:v]split=2[a][b];[a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=40:2,eq=brightness=-0.25[bg];" +
-  "[b]scale=1080:-2[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2[v]",
-  "-map", "[v]", "-map", "0:a", "-c:v", "libx264", "-preset", "slow", "-crf", "17", "-pix_fmt", "yuv420p",
-  "-c:a", "copy", "-movflags", "+faststart", `${OUT}${name}-vertical.mp4`]);
-console.log(`out/${name}-vertical.mp4`);

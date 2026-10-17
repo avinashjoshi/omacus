@@ -22,5 +22,5 @@ narration, so editing a line re-times the cuts. Preview single frames with
 
 Needs Node, Python 3, ffmpeg and Chrome or Chromium (set `CHROME` if it isn't found).
 
-Output goes to `out/`: `omacus-launch.mp4` and `omacus-launch-vertical.mp4` (or
-`-preview` versions when there's no narration yet).
+Output goes to `out/omacus-launch.mp4` (or `omacus-launch-preview.mp4` when there's
+no narration yet).
