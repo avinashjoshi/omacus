@@ -54,6 +54,8 @@ pub struct Store {
     pub active: usize,
     pub sidebar: bool,
     state_dirty: bool,
+    /// The last deleted sheet and where it was, so it can be put back.
+    deleted: Option<(usize, Sheet)>,
 }
 
 impl Store {
@@ -120,6 +122,7 @@ impl Store {
             sidebar: state.sidebar.unwrap_or(true),
             sheets,
             state_dirty: false,
+            deleted: None,
         };
         if store.sheets.is_empty() {
             store.new_sheet(welcome);
@@ -177,15 +180,19 @@ impl Store {
         }
         let sheet = self.sheets.remove(idx);
         if let Some(dir) = &self.dir {
+            // The trash gets the text as it is now, unsaved edits included.
             let trash = dir.with_file_name("trash");
             let _ = std::fs::create_dir_all(&trash);
-            let from = dir.join(format!("{}.txt", sheet.id));
-            if from.exists() {
-                let _ = std::fs::rename(&from, trash.join(format!("{}.txt", sheet.id)));
-            } else {
-                let _ = std::fs::write(trash.join(format!("{}.txt", sheet.id)), &sheet.text);
+            if write_atomic(
+                &trash.join(format!("{}.txt", sheet.id)),
+                sheet.text.as_bytes(),
+            )
+            .is_ok()
+            {
+                let _ = std::fs::remove_file(dir.join(format!("{}.txt", sheet.id)));
             }
         }
+        self.deleted = Some((idx, sheet));
         if self.sheets.is_empty() {
             self.new_sheet("");
         }
@@ -221,16 +228,44 @@ impl Store {
         self.state_dirty || self.sheets.iter().any(|s| s.dirty)
     }
 
-    pub fn save(&mut self) {
-        let Some(dir) = self.dir.clone() else { return };
+    /// Put back the sheet deleted last, where it was. Returns its title.
+    pub fn undo_delete(&mut self) -> Option<String> {
+        let (idx, mut sheet) = self.deleted.take()?;
+        if let Some(dir) = &self.dir {
+            let _ = std::fs::remove_file(
+                dir.with_file_name("trash")
+                    .join(format!("{}.txt", sheet.id)),
+            );
+        }
+        sheet.dirty = true;
+        let title = sheet.title();
+        // A deleted last sheet was replaced by an empty one; drop that again.
+        if self.sheets.len() == 1 && self.sheets[0].text.is_empty() {
+            self.sheets.clear();
+        }
+        let idx = idx.min(self.sheets.len());
+        self.sheets.insert(idx, sheet);
+        self.active = idx;
+        self.state_dirty = true;
+        Some(title)
+    }
+
+    /// Write changed sheets and the state. Keeps going past a failure, and returns
+    /// the first error so it can be shown.
+    pub fn save(&mut self) -> Result<(), String> {
+        let Some(dir) = self.dir.clone() else {
+            return Ok(());
+        };
+        let mut first_error = None;
         for sheet in self.sheets.iter_mut().filter(|s| s.dirty) {
-            if write_atomic(
+            match write_atomic(
                 &dir.join(format!("{}.txt", sheet.id)),
                 sheet.text.as_bytes(),
-            )
-            .is_ok()
-            {
-                sheet.dirty = false;
+            ) {
+                Ok(()) => sheet.dirty = false,
+                Err(e) => {
+                    first_error.get_or_insert(format!("{}: {e}", sheet.title()));
+                }
             }
         }
         let state = State {
@@ -243,18 +278,43 @@ impl Store {
                 .collect(),
             sidebar: Some(self.sidebar),
         };
-        if let Ok(json) = serde_json::to_vec_pretty(&state) {
-            let _ = write_atomic(&dir.with_file_name("state.json"), &json);
+        if let Ok(json) = serde_json::to_vec_pretty(&state)
+            && let Err(e) = write_atomic(&dir.with_file_name("state.json"), &json)
+        {
+            first_error.get_or_insert(format!("state.json: {e}"));
         }
         self.state_dirty = false;
+        first_error.map_or(Ok(()), Err)
     }
 }
 
 /// Write to a temp file and rename, so a crash never leaves a half-written sheet.
+/// Write to a temporary file, flush it to disk, then rename it over the original,
+/// so a crash or power cut leaves either the old file or the new one. The temporary
+/// name is unique, so two Omacus windows never write the same one.
 fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(tmp, path)
+    use std::io::Write;
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mut name = path.as_os_str().to_owned();
+    name.push(format!(".{}-{n}.tmp", std::process::id()));
+    let tmp = PathBuf::from(name);
+    let result = (|| {
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    #[cfg(unix)]
+    if let Some(dir) = path.parent()
+        && let Ok(dir) = std::fs::File::open(dir)
+    {
+        let _ = dir.sync_all();
+    }
+    result
 }
 
 /// Earlier versions kept a single `sheet.txt`.
@@ -297,7 +357,7 @@ mod tests {
         store.current().mark_dirty();
         store.set_cursor(5);
         store.toggle_sidebar();
-        store.save();
+        store.save().unwrap();
 
         let mut again = Store::load_in(Some(root.clone()), "# Welcome");
         assert_eq!(again.sheets.len(), 2);
@@ -315,7 +375,7 @@ mod tests {
         let mut store = Store::load_in(Some(root.clone()), "# A");
         store.new_sheet("# B");
         store.new_sheet("# C");
-        store.save();
+        store.save().unwrap();
         // Order is C, B, A. Move C down, then delete B.
         store.move_active(1);
         assert_eq!(
@@ -323,7 +383,7 @@ mod tests {
             ["B", "C", "A"]
         );
         store.delete(0);
-        store.save();
+        store.save().unwrap();
 
         let again = Store::load_in(Some(root.clone()), "");
         assert_eq!(
@@ -335,13 +395,59 @@ mod tests {
     }
 
     #[test]
+    fn a_deleted_sheet_can_come_back_with_unsaved_edits() {
+        let root = temp_root("undo");
+        let mut store = Store::load_in(Some(root.clone()), "# A");
+        store.new_sheet("# B");
+        store.save().unwrap();
+        // An edit that hasn't been saved yet still reaches the trash.
+        store.sheets[0].text = "# B\nlate edit".into();
+        store.sheets[0].mark_dirty();
+        store.delete(0);
+        let trashed = std::fs::read_to_string(
+            root.join("trash")
+                .join(format!("{}.txt", store.deleted.as_ref().unwrap().1.id)),
+        )
+        .unwrap();
+        assert_eq!(trashed, "# B\nlate edit");
+
+        assert_eq!(store.undo_delete().as_deref(), Some("B"));
+        assert_eq!(
+            store.sheets.iter().map(Sheet::title).collect::<Vec<_>>(),
+            ["B", "A"]
+        );
+        store.save().unwrap();
+        let again = Store::load_in(Some(root.clone()), "");
+        assert_eq!(again.sheets[0].text, "# B\nlate edit");
+        assert_eq!(std::fs::read_dir(root.join("trash")).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_save_says_so() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = temp_root("readonly");
+        let mut store = Store::load_in(Some(root.clone()), "# A");
+        store.save().unwrap();
+        let sheets = root.join("sheets");
+        std::fs::set_permissions(&sheets, std::fs::Permissions::from_mode(0o500)).unwrap();
+        store.sheets[0].text = "# A\nmore".into();
+        store.sheets[0].mark_dirty();
+        let result = store.save();
+        std::fs::set_permissions(&sheets, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(result.is_err(), "{result:?}");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn sheets_made_back_to_back_never_collide() {
         let root = temp_root("burst");
         let mut store = Store::load_in(Some(root.clone()), "# 0");
         for i in 1..200 {
             store.new_sheet(&format!("# {i}"));
         }
-        store.save();
+        store.save().unwrap();
         let again = Store::load_in(Some(root.clone()), "");
         assert_eq!(again.sheets.len(), 200);
         let _ = std::fs::remove_dir_all(root);

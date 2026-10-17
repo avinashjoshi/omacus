@@ -74,6 +74,47 @@ enum SheetAction {
     Copy(usize),
 }
 
+/// A message at the bottom of the window.
+struct Toast {
+    text: String,
+    at: Instant,
+    /// Offers Undo for a deleted sheet.
+    undo: bool,
+    error: bool,
+}
+
+impl Toast {
+    fn info(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            at: Instant::now(),
+            undo: false,
+            error: false,
+        }
+    }
+    fn undo(text: String) -> Self {
+        Self {
+            undo: true,
+            ..Self::info(text)
+        }
+    }
+    fn error(text: String) -> Self {
+        Self {
+            error: true,
+            ..Self::info(text)
+        }
+    }
+    fn lasts(&self) -> Duration {
+        Duration::from_millis(if self.undo {
+            6000
+        } else if self.error {
+            5000
+        } else {
+            1600
+        })
+    }
+}
+
 /// Ctrl+P: find a sheet by name (or by something written in it).
 #[derive(Default)]
 struct Switcher {
@@ -131,7 +172,9 @@ pub struct OmacusApp {
     dirty_since: Option<Instant>,
     copied: Option<(usize, Instant)>,
     /// A short confirmation at the bottom of the window ("Sheet copied…").
-    toast: Option<(String, Instant)>,
+    toast: Option<Toast>,
+    /// When a save last failed, so the error isn't repeated every 400ms.
+    save_error_at: Option<Instant>,
     switcher: Option<Switcher>,
     ctx: egui::Context,
     evaluated_at: Instant,
@@ -180,6 +223,7 @@ impl OmacusApp {
             dirty_since: None,
             copied: None,
             toast: None,
+            save_error_at: None,
             ctx: cc.egui_ctx.clone(),
             evaluated_at: Instant::now(),
             popup: None,
@@ -241,7 +285,11 @@ impl OmacusApp {
         match action {
             SheetAction::Select(i) => self.store.select(i),
             SheetAction::New => self.store.new_sheet(""),
-            SheetAction::Delete(i) => self.store.delete(i),
+            SheetAction::Delete(i) => {
+                let title = self.store.sheets[i].title();
+                self.store.delete(i);
+                self.toast = Some(Toast::undo(format!("Deleted \u{201c}{title}\u{201d}")));
+            }
             SheetAction::Move(i, step) => {
                 self.store.select(i);
                 self.store.move_active(step);
@@ -251,7 +299,7 @@ impl OmacusApp {
                 let results = self.engine.eval_document(text);
                 let ctx = self.ctx.clone();
                 ctx.copy_text(engine::with_answers(text, &results));
-                self.toast = Some(("Sheet copied with answers".into(), Instant::now()));
+                self.toast = Some(Toast::info("Sheet copied with answers"));
                 return;
             }
         }
@@ -281,7 +329,7 @@ impl OmacusApp {
         if self.store.has_unsaved() {
             let since = *self.dirty_since.get_or_insert_with(Instant::now);
             if since.elapsed() >= SAVE_DELAY {
-                self.store.save();
+                self.save();
                 self.dirty_since = None;
             } else {
                 ctx.request_repaint_after(SAVE_DELAY);
@@ -381,7 +429,9 @@ impl OmacusApp {
             if i.consume_key(Modifiers::ALT, Key::ArrowDown) {
                 action = Some(SheetAction::Move(self.store.active, 1));
             }
-            if i.consume_key(cmd, Key::Delete) {
+            // Ctrl+Delete is "delete the next word" in the editor; deleting a whole
+            // sheet takes Shift too.
+            if i.consume_key(cmd_shift, Key::Delete) {
                 action = Some(SheetAction::Delete(self.store.active));
             }
             let digits = [
@@ -428,7 +478,7 @@ impl OmacusApp {
             self.copied = Some((idx, Instant::now()));
         }
         if quit {
-            self.store.save();
+            self.save();
             ctx.send_viewport_cmd(ViewportCommand::Close);
         }
     }
@@ -652,36 +702,72 @@ impl OmacusApp {
         }
     }
 
-    /// A short confirmation, fading out after a moment.
+    /// Save, and say so when it fails (once every 30 seconds at most).
+    fn save(&mut self) {
+        if let Err(e) = self.store.save()
+            && self
+                .save_error_at
+                .is_none_or(|t| t.elapsed() > Duration::from_secs(30))
+        {
+            self.save_error_at = Some(Instant::now());
+            self.toast = Some(Toast::error(format!("Couldn't save {e}")));
+        }
+    }
+
+    /// A short message at the bottom of the window, fading out; Undo when a sheet
+    /// was just deleted.
     fn show_toast(&mut self, ctx: &egui::Context) {
-        const SHOW_FOR: Duration = Duration::from_millis(1600);
-        let Some((text, at)) = &self.toast else {
-            return;
-        };
-        let age = at.elapsed();
-        if age > SHOW_FOR {
+        let Some(toast) = &self.toast else { return };
+        let show_for = toast.lasts();
+        let age = toast.at.elapsed();
+        if age > show_for {
             self.toast = None;
             return;
         }
-        let fade = 1.0 - (age.as_secs_f32() / SHOW_FOR.as_secs_f32()).powi(4);
-        let theme = &self.theme;
+        let fade = 1.0 - (age.as_secs_f32() / show_for.as_secs_f32()).powi(6);
+        let theme = self.theme.clone();
+        let (text, undo, error) = (toast.text.clone(), toast.undo, toast.error);
+        let mut undone = false;
         egui::Area::new(egui::Id::unique("omacus-toast"))
             .anchor(Align2::CENTER_BOTTOM, vec2(0.0, -24.0))
             .order(Order::Foreground)
-            .interactable(false)
+            .interactable(undo)
             .show(ctx, |ui| {
                 Frame::NONE
                     .fill(theme.selection.gamma_multiply(fade))
                     .corner_radius(CornerRadius::same(8))
                     .inner_margin(Margin::symmetric(14, 8))
                     .show(ui, |ui| {
-                        ui.label(
-                            egui::RichText::new(text.as_str())
-                                .size(13.0)
-                                .color(theme.foreground.gamma_multiply(fade)),
-                        );
+                        ui.horizontal(|ui| {
+                            let color = if error {
+                                theme.variable
+                            } else {
+                                theme.foreground
+                            };
+                            ui.label(
+                                egui::RichText::new(text.as_str())
+                                    .size(13.0)
+                                    .color(color.gamma_multiply(fade)),
+                            );
+                            if undo {
+                                let button = egui::Button::new(
+                                    egui::RichText::new("Undo")
+                                        .size(13.0)
+                                        .color(theme.accent.gamma_multiply(fade)),
+                                )
+                                .frame(false);
+                                undone = ui.add(button).clicked();
+                            }
+                        });
                     });
             });
+        if undone {
+            self.toast = None;
+            if self.store.undo_delete().is_some() {
+                self.sheet_switched();
+                self.touched();
+            }
+        }
         ctx.request_repaint();
     }
 
@@ -796,7 +882,7 @@ impl OmacusApp {
             self.updates.install(move || ctx.request_repaint());
         }
         if restart {
-            self.store.save();
+            self.save();
             match update::relaunch() {
                 Ok(()) => ctx.send_viewport_cmd(ViewportCommand::Close),
                 Err(e) => eprintln!("omacus: couldn't restart: {e}"),
@@ -1230,7 +1316,7 @@ impl eframe::App for OmacusApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.store.save();
+        self.save();
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {

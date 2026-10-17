@@ -54,7 +54,10 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
             ("Ctrl+PgDn  /  Ctrl+PgUp", "Next / previous sheet"),
             ("Ctrl+1 … Ctrl+9", "Jump to a sheet"),
             ("Alt+↑  /  Alt+↓", "Move the sheet up / down"),
-            ("Ctrl+Delete", "Delete the sheet (kept in trash)"),
+            (
+                "Ctrl+Shift+Delete",
+                "Delete the sheet (Undo, and kept in trash)",
+            ),
             ("Ctrl+B", "Show / hide the sidebar"),
         ],
     ),
@@ -623,10 +626,30 @@ fn syntax(ui: &mut egui::Ui, theme: &Theme, engine: &Engine) -> bool {
         });
     });
 
+    // The examples' answers, worked out once a minute rather than every frame (the
+    // minute keeps the clock examples current).
+    let minute = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() / 60);
+    let results: Vec<Vec<String>> = ui.ctx().memory_mut(|m| {
+        m.data
+            .get_temp_mut_or_insert_with(egui::Id::unique(("omacus-help-answers", minute)), || {
+                SYNTAX
+                    .iter()
+                    .map(|(_, lines)| {
+                        engine
+                            .eval_document(&lines.join("\n"))
+                            .into_iter()
+                            .map(|r| r.display)
+                            .collect()
+                    })
+                    .collect::<Vec<Vec<String>>>()
+            })
+            .clone()
+    });
     let width = ui.available_width();
-    for (group, lines) in SYNTAX {
+    for ((group, lines), results) in SYNTAX.iter().zip(&results) {
         heading(ui, theme, group);
-        let results = engine.eval_document(&lines.join("\n"));
         for (line, result) in lines.iter().zip(results) {
             ui.horizontal(|ui| {
                 left_cell(
@@ -637,7 +660,7 @@ fn syntax(ui: &mut egui::Ui, theme: &Theme, engine: &Engine) -> bool {
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
-                        RichText::new(result.display)
+                        RichText::new(result.as_str())
                             .monospace()
                             .color(theme.accent),
                     );
