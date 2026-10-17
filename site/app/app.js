@@ -265,6 +265,23 @@ class Answer extends WidgetType {
   }
 }
 
+// Why a line has no answer ("Can't divide by zero"), shown quietly in its place.
+class Note extends WidgetType {
+  constructor(text) {
+    super();
+    this.text = text;
+  }
+  eq(other) {
+    return other.text === this.text;
+  }
+  toDOM() {
+    const span = document.createElement("span");
+    span.className = "res note";
+    span.textContent = this.text;
+    return span;
+  }
+}
+
 function copyAnswer(span, display) {
   copy(display).then(() => {
     span.classList.add("copied");
@@ -285,6 +302,7 @@ function decorate(doc, answers) {
       if (to > from) out.add(line.from + from, line.from + to, Decoration.mark({ class: cls }));
     }
     if (r?.display) out.add(line.to, line.to, Decoration.widget({ widget: new Answer(r), side: 1 }));
+    else if (r?.note) out.add(line.to, line.to, Decoration.widget({ widget: new Note(r.note), side: 1 }));
   }
   return out.finish();
 }
