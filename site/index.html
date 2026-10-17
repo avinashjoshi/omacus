@@ -212,15 +212,17 @@
 <header class="site-header">
   <div class="wrap">
     <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="28" height="28">omacus</a>
-    <nav class="nav" id="site-nav" aria-label="Main">
-      <a href="/#features">Features</a>
-      <a href="/use-cases/">Use cases</a>
-      <a href="/guides/">Guides</a>
-      <a href="/docs/">Docs</a>
-      <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+    <nav class="nav" aria-label="Main">
+      <div class="nav-links" id="site-nav">
+        <a href="/#features">Features</a>
+        <a href="/use-cases/">Use cases</a>
+        <a href="/guides/">Guides</a>
+        <a href="/docs/">Docs</a>
+        <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+      </div>
       <a class="btn primary" href="/download/"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>
+      <button class="menu-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="Menu"><span></span><span></span><span></span></button>
     </nav>
-    <button class="menu-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="Menu"><svg aria-hidden="true"><use href="/img/sprite.svg#menu"/></svg></button>
   </div>
 </header>
 
@@ -229,7 +231,7 @@
   <!-- Hero -->
   <section class="hero" style="padding-top:72px">
     <div class="wrap">
-      <span class="eyebrow"><span class="tag" data-version>v0.1.0</span>Free &amp; open source · Omarchy, Linux, macOS, Windows</span>
+      <span class="eyebrow"><span class="tag" data-version>v0.1.0</span><span>Free &amp; open source<span class="eyebrow-more"> · Omarchy, Linux, macOS, Windows</span></span></span>
       <h1>Math, the way you <em class="serif">write</em> it.</h1>
       <p class="lede">Omacus is a notepad calculator. Jot down prices, units, currencies and time zones in plain words, and the answers line up beside them as you type.</p>
 

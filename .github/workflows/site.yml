@@ -45,6 +45,10 @@ jobs:
         # Cloudflare in front of omacus.com caches CSS and JS for hours, so pages point
         # at each file by its content hash and pick up a new version immediately.
         run: |
+          # Icons first: pages and site.js point into the sprite, then get hashed themselves.
+          hash=$(sha256sum _site/img/sprite.svg | cut -c1-10)
+          grep -rl --include='*.html' --include='*.js' '/img/sprite.svg#' _site |
+            xargs sed -i "s#/img/sprite.svg\##/img/sprite.svg?v=$hash\##g"
           for asset in css/site.css js/site.js js/demo-data.js; do
             hash=$(sha256sum "_site/$asset" | cut -c1-10)
             find _site -name '*.html' -exec sed -i "s#\"/$asset\"#\"/$asset?v=$hash\"#g" {} +

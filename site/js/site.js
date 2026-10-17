@@ -28,11 +28,11 @@
   // Phones: the menu button opens the site links under the header.
   const menu = $(".menu-toggle");
   if (menu && header) {
-    const icon = $("use", menu);
     const setOpen = (open) => {
       header.classList.toggle("open", open);
+      document.documentElement.classList.toggle("menu-open", open);
       menu.setAttribute("aria-expanded", String(open));
-      icon.setAttribute("href", `/img/sprite.svg#${open ? "close" : "menu"}`);
+      menu.setAttribute("aria-label", open ? "Close menu" : "Menu");
     };
     menu.addEventListener("click", () => setOpen(!header.classList.contains("open")));
     for (const a of $$("#site-nav a")) a.addEventListener("click", () => setOpen(false));
