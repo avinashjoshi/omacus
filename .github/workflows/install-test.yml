@@ -41,6 +41,19 @@ jobs:
           test -x "$app/Contents/MacOS/omacus"
           ! xattr -p com.apple.quarantine "$app" 2>/dev/null
           codesign --verify --deep "$app"
+      - name: macOS got the build for this chip
+        if: runner.os == 'macOS'
+        run: |
+          app=/Applications/Omacus.app
+          test -d "$app" || app="$HOME/Applications/Omacus.app"
+          archs="$(lipo -archs "$app/Contents/MacOS/omacus")"
+          echo "installed: $archs"
+          # Releases after 0.1.7 have a .dmg per chip; these runners are Apple Silicon.
+          if curl -fsIL -o /dev/null https://github.com/${{ github.repository }}/releases/latest/download/omacus-macos-arm64.dmg; then
+            test "$archs" = arm64
+          else
+            test "$archs" = "x86_64 arm64"
+          fi
 
   # Install the release before the latest, run `omacus update`, and check it ends
   # up on the latest: the same path as the app's Update now button.
@@ -82,7 +95,9 @@ jobs:
         if: steps.v.outputs.run == 'true' && runner.os == 'macOS'
         working-directory: ${{ runner.temp }}
         run: |
-          curl -fsSLo omacus.dmg "${{ steps.v.outputs.dl }}/omacus-macos-universal.dmg"
+          # Up to 0.1.7 there was one universal .dmg; after, one per chip (these runners are arm64).
+          curl -fsSLo omacus.dmg "${{ steps.v.outputs.dl }}/omacus-macos-arm64.dmg" ||
+            curl -fsSLo omacus.dmg "${{ steps.v.outputs.dl }}/omacus-macos-universal.dmg"
           hdiutil attach -quiet -nobrowse -readonly -mountpoint mnt omacus.dmg
           # From 0.1.4, an update replaces the app where it is, so test that with
           # ~/Applications; before, updates always went to /Applications.
@@ -122,3 +137,8 @@ jobs:
           got="$("$(cat "$RUNNER_TEMP/omacus-path")" --version | cat)"
           echo "$got"
           test "$got" = "omacus ${{ steps.v.outputs.latest }}"
+          if [[ "$RUNNER_OS" == macOS ]] && curl -fsIL -o /dev/null "https://github.com/$GITHUB_REPOSITORY/releases/download/v${{ steps.v.outputs.latest }}/omacus-macos-arm64.dmg"; then
+            archs="$(lipo -archs "$(cat "$RUNNER_TEMP/omacus-path")")"
+            echo "updated to: $archs"
+            test "$archs" = arm64
+          fi

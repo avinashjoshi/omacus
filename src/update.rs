@@ -400,6 +400,7 @@ fn run_installer(version: &str, show: bool) -> Result<(), String> {
 }
 
 /// Windows: the release's .exe, checked, swapped in for this one.
+#[cfg(windows)]
 fn replace_exe(version: &str) -> Result<(), String> {
     let exe = exe().ok_or("couldn't find the running executable")?;
     let zip = release_file(version, "omacus-windows-x86_64.zip")?;
@@ -407,7 +408,13 @@ fn replace_exe(version: &str) -> Result<(), String> {
     swap_in(&exe, &new)
 }
 
+#[cfg(not(windows))]
+fn replace_exe(_version: &str) -> Result<(), String> {
+    Err("only Windows updates by replacing the executable".into())
+}
+
 /// The `omacus.exe` inside a release zip.
+#[cfg(any(windows, test))]
 fn extract_exe(zip: &[u8]) -> Result<Vec<u8>, String> {
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip))
         .map_err(|e| format!("the download isn't a valid zip: {e}"))?;
@@ -421,6 +428,7 @@ fn extract_exe(zip: &[u8]) -> Result<Vec<u8>, String> {
 
 /// Write the new executable next to `exe`, move the running one aside to `.old`,
 /// and move the new one into place. If the last step fails, put the old one back.
+#[cfg(any(windows, test))]
 fn swap_in(exe: &Path, new: &[u8]) -> Result<(), String> {
     let (staged, old) = (sibling(exe, "new"), sibling(exe, "old"));
     let explain = |e: std::io::Error| match e.kind() {

@@ -42,8 +42,14 @@ install_macos() {
   local app new
   TMP_DIR="$(mktemp -d)"
   MOUNT="$TMP_DIR/mnt"
-  echo "Downloading the latest Omacus for macOS…"
-  "${CURL[@]}" "https://github.com/$REPO/releases/latest/download/omacus-macos-universal.dmg" -o "$TMP_DIR/omacus.dmg"
+  # The chip, not the shell: a terminal under Rosetta reports x86_64 on Apple Silicon.
+  local arch=x86_64
+  [[ "$(sysctl -n hw.optional.arm64 2>/dev/null)" == 1 ]] && arch=arm64
+  local dl="https://github.com/$REPO/releases/latest/download"
+  echo "Downloading the latest Omacus for macOS ($arch)…"
+  # Up to 0.1.7 there was one universal .dmg for both chips.
+  "${CURL[@]}" "$dl/omacus-macos-$arch.dmg" -o "$TMP_DIR/omacus.dmg" 2>/dev/null ||
+    "${CURL[@]}" "$dl/omacus-macos-universal.dmg" -o "$TMP_DIR/omacus.dmg"
   hdiutil attach -quiet -nobrowse -readonly -mountpoint "$MOUNT" "$TMP_DIR/omacus.dmg"
 
   if [[ -n "${OMACUS_APP:-}" ]]; then

@@ -1389,7 +1389,22 @@ fn apply_visuals(ctx: &egui::Context, theme: &Theme) {
 }
 
 /// JetBrains Mono ships inside the binary so Omacus looks the same everywhere.
-static BUNDLED_FONT: &[u8] = include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf");
+// egui's own fonts (1.4 MB) are left out; these cover everything Omacus shows. They are
+// stored deflated (see build.rs) and inflated once at startup.
+macro_rules! font {
+    ($name:literal) => {
+        include_bytes!(concat!(env!("OUT_DIR"), "/", $name, ".deflate"))
+    };
+}
+static BUNDLED_FONT: &[u8] = font!("JetBrainsMono-Regular.ttf");
+/// ₹, ₩, ₺ and the other currency signs JetBrains Mono lacks, cut from Noto Sans.
+static CURRENCY_FONT: &[u8] = font!("NotoSans-Currency.ttf");
+/// Emoji people type into notes ("✈ Flights").
+static EMOJI_FONT: &[u8] = font!("NotoEmoji-Regular.ttf");
+
+fn inflate(packed: &[u8]) -> FontData {
+    FontData::from_owned(miniz_oxide::inflate::decompress_to_vec(packed).expect("bundled font"))
+}
 static ICON: &[u8] = include_bytes!("../assets/icon-256.png");
 
 /// On Linux, honour the user's monospace font (JetBrains Mono Nerd Font on Omarchy).
@@ -1414,18 +1429,21 @@ fn system_font() -> Option<Vec<u8>> {
 }
 
 fn install_fonts(ctx: &egui::Context) {
-    let data = match system_font() {
-        Some(bytes) => FontData::from_owned(bytes),
-        None => FontData::from_static(BUNDLED_FONT),
+    let mut fonts = FontDefinitions::empty();
+    let mut chain = Vec::new();
+    // The user's font first, then the bundled ones for anything it lacks.
+    let mut add = |name: &str, data: FontData| {
+        fonts.font_data.insert(name.into(), Arc::new(data));
+        chain.push(name.to_string());
     };
-    let mut fonts = FontDefinitions::default();
-    fonts.font_data.insert("mono".into(), Arc::new(data));
+    if let Some(bytes) = system_font() {
+        add("system", FontData::from_owned(bytes));
+    }
+    add("mono", inflate(BUNDLED_FONT));
+    add("currency", inflate(CURRENCY_FONT));
+    add("emoji", inflate(EMOJI_FONT));
     for family in [FontFamily::Monospace, FontFamily::Proportional] {
-        fonts
-            .families
-            .entry(family)
-            .or_default()
-            .insert(0, "mono".into());
+        fonts.families.insert(family, chain.clone());
     }
     ctx.set_fonts(fonts);
 }

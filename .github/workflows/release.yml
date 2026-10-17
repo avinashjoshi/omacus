@@ -110,26 +110,46 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-      - name: Build universal binary
+      - name: Build for Apple Silicon and Intel
         run: |
           cargo build --release --locked --target aarch64-apple-darwin
           cargo build --release --locked --target x86_64-apple-darwin
-          lipo -create -output omacus-universal \
-            target/aarch64-apple-darwin/release/omacus \
-            target/x86_64-apple-darwin/release/omacus
-      - name: Bundle Omacus.app and .dmg
+      - name: Bundle Omacus.app and a .dmg for each chip
+        # One .dmg per chip rather than a universal one: each download is half the size.
         run: |
           cargo install cargo-bundle --version 0.12.0 --locked
           cargo bundle --release
-          APP=target/release/bundle/osx/Omacus.app
-          cp omacus-universal "$APP/Contents/MacOS/omacus"
-          codesign --force --deep --sign - "$APP"   # ad-hoc; not notarized
-          mkdir dmg && cp -R "$APP" dmg/ && ln -s /Applications dmg/Applications
-          hdiutil create -volname Omacus -srcfolder dmg -ov -format UDZO omacus-macos-universal.dmg
+          for arch in arm64:aarch64 x86_64:x86_64; do
+            name="${arch%%:*}" target="${arch#*:}-apple-darwin"
+            rm -rf "dmg-$name" && mkdir "dmg-$name"
+            cp -R target/release/bundle/osx/Omacus.app "dmg-$name/"
+            cp "target/$target/release/omacus" "dmg-$name/Omacus.app/Contents/MacOS/omacus"
+            codesign --force --deep --sign - "dmg-$name/Omacus.app"   # ad-hoc; not notarized
+            ln -s /Applications "dmg-$name/Applications"
+            hdiutil create -volname Omacus -srcfolder "dmg-$name" -ov -format UDZO "omacus-macos-$name.dmg"
+          done
+      - name: Check each .dmg holds a working app for its chip
+        # Before anything is published: right architecture, and it runs (Intel via Rosetta).
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          for name in arm64 x86_64; do
+            mnt="$RUNNER_TEMP/mnt-$name"
+            hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mnt" "omacus-macos-$name.dmg"
+            bin="$mnt/Omacus.app/Contents/MacOS/omacus"
+            [[ "$(lipo -archs "$bin")" == "$name" ]] || { echo "omacus-macos-$name.dmg holds $(lipo -archs "$bin")"; exit 1; }
+            if [[ "$name" == x86_64 ]] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+              softwareupdate --install-rosetta --agree-to-license >/dev/null
+            fi
+            out="$(arch "-$name" "$bin" --version)"
+            echo "$name: $out"
+            [[ "$out" == "omacus $version" ]]
+            hdiutil detach -quiet "$mnt"
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: macos
-          path: omacus-macos-universal.dmg
+          path: omacus-macos-*.dmg
 
   publish:
     needs: [check, linux, windows, macos]
