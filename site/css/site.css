@@ -856,6 +856,25 @@ section {
   font-size: 18px;
 }
 
+/* Film */
+
+.film {
+  max-width: 1040px;
+  margin: 0 auto;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  box-shadow: 0 40px 90px -40px #000, 0 0 0 1px rgba(0, 0, 0, 0.5);
+  background: #0a0a0a;
+}
+
+.film video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+}
+
 /* Feature grid */
 
 .features {

@@ -36,6 +36,7 @@ Key facts:
 
 ## Project
 
+- [One-minute video tour](https://omacus.com/#video): narrated, with captions
 - [Source code on GitHub](https://github.com/avinashjoshi/omacus)
 - [Releases and release notes](https://github.com/avinashjoshi/omacus/releases)
 - [Report a bug or request a feature](https://github.com/avinashjoshi/omacus/issues/new/choose)

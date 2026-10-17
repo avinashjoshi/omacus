@@ -2,6 +2,9 @@
 
 *OM-a-kus, like abacus.* A notepad calculator for Omarchy, Linux, macOS and Windows.
 **[omacus.com](https://omacus.com)** · [Docs](https://omacus.com/docs/) · [Download](https://omacus.com/#download)
+
+[![Watch Omacus in one minute](assets/video-thumb.jpg)](https://omacus.com/#video)
+
 Type on the left, results appear on the right.
 
 ```
