@@ -56,6 +56,13 @@ re!(
       | (\d{4})-(\d{2})-(\d{2})
     )\b"
 );
+// "Jan 31 + 1 month", "Dec 1 - 2 weeks": a date moved by a span.
+re!(
+    DATE_SHIFT,
+    r"(?i)^(.+?)\s*([+-])\s*(\d+)\s*(day|week|month|year)s?$"
+);
+// "Dec 25 - Dec 1": days between two dates.
+re!(DATE_DIFF, r"^(.+?)\s+-\s+(.+)$");
 // "days until Dec 25", "weeks since Jan 1", "until Christmas", "workdays till Friday".
 re!(
     SPAN,
@@ -258,8 +265,10 @@ fn label(tz: Tz, abbr: &str) -> String {
 
 pub fn eval(line: &str) -> Option<String> {
     let now = Utc::now();
-    eval_span(line, Local::now().date_naive())
+    let today = Local::now().date_naive();
+    eval_span(line, today)
         .or_else(|| eval_date(line))
+        .or_else(|| eval_date_math(line, today))
         .or_else(|| eval_relative(line, now))
         .or_else(|| eval_zone(line, now))
 }
@@ -722,6 +731,51 @@ fn eval_span(line: &str, today: NaiveDate) -> Option<String> {
 fn clock(t: NaiveTime) -> String {
     let (pm, hour) = t.hour12();
     format!("{hour}:{:02} {}", t.minute(), if pm { "PM" } else { "AM" })
+}
+
+/// Arithmetic on a named date: "Jan 31 + 1 month" (a date), "Dec 25 - Dec 1" (days).
+/// A date without a year is this year's.
+fn eval_date_math(line: &str, today: NaiveDate) -> Option<String> {
+    if let Some(c) = DATE_SHIFT.captures(line) {
+        let date = this_years(&c[1], today)?;
+        let n: i64 = c[3].parse().ok()?;
+        let n = if &c[2] == "-" { -n } else { n };
+        let moved = match c[4].to_ascii_lowercase().as_str() {
+            "day" => date.checked_add_signed(Duration::try_days(n)?)?,
+            "week" => date.checked_add_signed(Duration::try_weeks(n)?)?,
+            unit => {
+                let months =
+                    u32::try_from(n.unsigned_abs() * if unit == "year" { 12 } else { 1 }).ok()?;
+                if n < 0 {
+                    date.checked_sub_months(Months::new(months))?
+                } else {
+                    date.checked_add_months(Months::new(months))?
+                }
+            }
+        };
+        return Some(moved.format("%A, %-d %B %Y").to_string());
+    }
+    let c = DATE_DIFF.captures(line)?;
+    let (a, b) = (this_years(&c[1], today)?, this_years(&c[2], today)?);
+    let days = (a - b).num_days();
+    let shown = plural(days.abs(), "day", "days");
+    Some(if days < 0 { format!("-{shown}") } else { shown })
+}
+
+/// A date on its own, with a month name or holiday read as this year's ("Jan 31"
+/// is this January, not the next one); weekdays and "tomorrow" count from today.
+fn this_years(text: &str, today: NaiveDate) -> Option<NaiveDate> {
+    let named = lone_date(text, NaiveDate::from_ymd_opt(today.year(), 1, 1)?, true)?;
+    let from_today = lone_date(text, today, true)?;
+    // Only a weekday or a relative word depends on today; for those both agree
+    // with today's reading, so prefer it whenever it differs only by the year.
+    Some(
+        if named.month() == from_today.month() && named.day() == from_today.day() {
+            named
+        } else {
+            from_today
+        },
+    )
 }
 
 fn eval_date(line: &str) -> Option<String> {

@@ -30,6 +30,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libwayland-dev libx11-dev
       - run: cargo test --workspace --locked
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # Answers checked against exact maths and unit definitions, not fend.
+      - name: Accuracy
+        if: runner.os == 'Linux'
+        run: cargo build --locked && python3 engine/tests/accuracy.py target/debug/omacus
 
   # The engine also runs in the browser (omacus.com/app), so it must build for
   # WebAssembly: no files, threads or network in it.
