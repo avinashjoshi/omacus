@@ -180,9 +180,13 @@ Any platform with [Rust](https://rustup.rs):
 
 ```sh
 git clone https://github.com/avinashjoshi/omacus && cd omacus
-cargo build --release          # binary in target/release/
-./install.sh                   # Linux: builds and installs for your user
+./install.sh                   # Linux: builds (under a minute) and installs for your user
+cargo run                      # or just run it: a quick debug build
 ```
+
+`cargo build --release` makes the smallest binary, the way releases are built; its last
+step optimizes the whole program on one core and can sit at the final crate for a few
+minutes.
 
 On other desktops, bind a global shortcut to `omacus` in your keyboard settings.
 
