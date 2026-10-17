@@ -1,6 +1,11 @@
 //! Sheets live as plain text files in `~/.local/share/omacus/sheets/`, Sublime-style:
 //! every edit is saved, nothing asks to be saved, and closing the window loses nothing.
 //! `state.json` remembers order, the active sheet, cursors and the sidebar.
+//!
+//! Two windows can be open on the same sheets. Each remembers every file's size and
+//! modification time as it last read or wrote it, and `sync` picks up what the other
+//! window changed. When both changed a sheet, this window's text is saved and the
+//! other's becomes a new sheet, so neither is lost.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -14,6 +19,24 @@ pub struct Sheet {
     pub text: String,
     pub cursor: usize,
     dirty: bool,
+    /// The file as this window last read or wrote it; `None` until it's on disk.
+    stamp: Option<Stamp>,
+}
+
+/// A file's modification time and size, to notice another window's writes.
+type Stamp = (SystemTime, u64);
+
+fn stamp(path: &Path) -> Option<Stamp> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.modified().ok()?, meta.len()))
+}
+
+/// What `sync` found.
+#[derive(Default, Debug)]
+pub struct Synced {
+    /// The open sheet's text changed (or another sheet is open now).
+    pub active_changed: bool,
+    pub changed: bool,
 }
 
 impl Sheet {
@@ -56,6 +79,8 @@ pub struct Store {
     state_dirty: bool,
     /// The last deleted sheet and where it was, so it can be put back.
     deleted: Option<(usize, Sheet)>,
+    /// Titles of sheets that two windows changed at once, to tell the user.
+    conflicts: Vec<String>,
 }
 
 impl Store {
@@ -100,18 +125,11 @@ impl Store {
             found.sort_by_key(|(_, id)| rank(id));
 
             for (_, id) in found {
-                if let Ok(text) = std::fs::read_to_string(dir.join(format!("{id}.txt"))) {
-                    let cursor = state
-                        .cursors
-                        .get(&id)
-                        .copied()
-                        .unwrap_or(text.chars().count());
-                    sheets.push(Sheet {
-                        id,
-                        text,
-                        cursor,
-                        dirty: false,
-                    });
+                if let Some(mut sheet) = read_sheet(dir, &id) {
+                    if let Some(&cursor) = state.cursors.get(&id) {
+                        sheet.cursor = cursor;
+                    }
+                    sheets.push(sheet);
                 }
             }
         }
@@ -123,6 +141,7 @@ impl Store {
             sheets,
             state_dirty: false,
             deleted: None,
+            conflicts: Vec::new(),
         };
         if store.sheets.is_empty() {
             store.new_sheet(welcome);
@@ -167,6 +186,7 @@ impl Store {
             text: text.to_string(),
             cursor: text.chars().count(),
             dirty: true,
+            stamp: None,
         };
         self.sheets.insert(0, sheet);
         self.active = 0;
@@ -228,6 +248,73 @@ impl Store {
         self.state_dirty || self.sheets.iter().any(|s| s.dirty)
     }
 
+    /// Titles of sheets that another window changed while this one was editing them.
+    pub fn take_conflicts(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.conflicts)
+    }
+
+    /// Pick up what another window did: reload sheets it changed (unless they have
+    /// edits here, which `save` sorts out), drop ones it deleted, and add new ones.
+    pub fn sync(&mut self) -> Synced {
+        let mut synced = Synced::default();
+        let Some(dir) = self.dir.clone() else {
+            return synced;
+        };
+        let active = self.sheets[self.active].id.clone();
+        let mut i = 0;
+        while i < self.sheets.len() {
+            let sheet = &mut self.sheets[i];
+            let path = dir.join(format!("{}.txt", sheet.id));
+            let now = stamp(&path);
+            if sheet.dirty || sheet.stamp.is_none() || now == sheet.stamp {
+                i += 1;
+                continue;
+            }
+            synced.changed = true;
+            match now.and_then(|_| read_sheet(&dir, &sheet.id)) {
+                Some(fresh) => {
+                    if fresh.text != sheet.text {
+                        synced.active_changed |= sheet.id == active;
+                        sheet.cursor = sheet.cursor.min(fresh.text.chars().count());
+                        sheet.text = fresh.text;
+                    }
+                    sheet.stamp = fresh.stamp;
+                    i += 1;
+                }
+                // Deleted in the other window.
+                None => {
+                    self.sheets.remove(i);
+                    synced.active_changed |= self.sheets.iter().all(|s| s.id != active);
+                }
+            }
+        }
+        // Sheets made in the other window go to the top, like new ones here.
+        let deleted = self.deleted.as_ref().map(|(_, s)| s.id.as_str());
+        let new: Vec<Sheet> = std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| {
+                e.file_name()
+                    .into_string()
+                    .ok()?
+                    .strip_suffix(".txt")
+                    .map(String::from)
+            })
+            .filter(|id| Some(id.as_str()) != deleted && self.sheets.iter().all(|s| &s.id != id))
+            .filter_map(|id| read_sheet(&dir, &id))
+            .collect();
+        if !new.is_empty() {
+            synced.changed = true;
+            self.sheets.splice(0..0, new);
+        }
+        if self.sheets.is_empty() {
+            self.new_sheet("");
+        }
+        self.active = self.sheets.iter().position(|s| s.id == active).unwrap_or(0);
+        synced
+    }
+
     /// Put back the sheet deleted last, where it was. Returns its title.
     pub fn undo_delete(&mut self) -> Option<String> {
         let (idx, mut sheet) = self.deleted.take()?;
@@ -238,6 +325,7 @@ impl Store {
             );
         }
         sheet.dirty = true;
+        sheet.stamp = None;
         let title = sheet.title();
         // A deleted last sheet was replaced by an empty one; drop that again.
         if self.sheets.len() == 1 && self.sheets[0].text.is_empty() {
@@ -257,16 +345,35 @@ impl Store {
             return Ok(());
         };
         let mut first_error = None;
+        let mut theirs = Vec::new();
         for sheet in self.sheets.iter_mut().filter(|s| s.dirty) {
-            match write_atomic(
-                &dir.join(format!("{}.txt", sheet.id)),
-                sheet.text.as_bytes(),
-            ) {
-                Ok(()) => sheet.dirty = false,
+            let path = dir.join(format!("{}.txt", sheet.id));
+            // Another window wrote this sheet since we read it: keep its text as a new sheet.
+            if sheet.stamp.is_some()
+                && stamp(&path) != sheet.stamp
+                && let Ok(text) = std::fs::read_to_string(&path)
+                && text != sheet.text
+            {
+                self.conflicts.push(sheet.title());
+                theirs.push(text);
+            }
+            match write_atomic(&path, sheet.text.as_bytes()) {
+                Ok(()) => {
+                    sheet.dirty = false;
+                    sheet.stamp = stamp(&path);
+                }
                 Err(e) => {
                     first_error.get_or_insert(format!("{}: {e}", sheet.title()));
                 }
             }
+        }
+        if !theirs.is_empty() {
+            let active = self.sheets[self.active].id.clone();
+            for text in theirs {
+                self.new_sheet(&text);
+            }
+            self.active = self.sheets.iter().position(|s| s.id == active).unwrap_or(0);
+            return self.save().and(first_error.map_or(Ok(()), Err));
         }
         let state = State {
             order: self.sheets.iter().map(|s| s.id.clone()).collect(),
@@ -288,7 +395,6 @@ impl Store {
     }
 }
 
-/// Write to a temp file and rename, so a crash never leaves a half-written sheet.
 /// Write to a temporary file, flush it to disk, then rename it over the original,
 /// so a crash or power cut leaves either the old file or the new one. The temporary
 /// name is unique, so two Omacus windows never write the same one.
@@ -315,6 +421,19 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         let _ = dir.sync_all();
     }
     result
+}
+
+fn read_sheet(dir: &Path, id: &str) -> Option<Sheet> {
+    let path = dir.join(format!("{id}.txt"));
+    let stamp = stamp(&path);
+    let text = std::fs::read_to_string(&path).ok()?;
+    Some(Sheet {
+        id: id.to_string(),
+        cursor: text.chars().count(),
+        text,
+        dirty: false,
+        stamp,
+    })
 }
 
 /// Earlier versions kept a single `sheet.txt`.
@@ -437,6 +556,64 @@ mod tests {
         let result = store.save();
         std::fs::set_permissions(&sheets, std::fs::Permissions::from_mode(0o700)).unwrap();
         assert!(result.is_err(), "{result:?}");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn two_windows_see_each_others_changes() {
+        let root = temp_root("windows");
+        let mut a = Store::load_in(Some(root.clone()), "# Shared\n1 + 1");
+        a.save().unwrap();
+        let mut b = Store::load_in(Some(root.clone()), "");
+        // Some filesystems only keep whole seconds; make sure the next write looks new.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+
+        // B edits; A, with nothing unsaved, picks it up.
+        b.sheets[0].text = "# Shared\n2 + 2".into();
+        b.sheets[0].mark_dirty();
+        b.save().unwrap();
+        let synced = a.sync();
+        assert!(synced.active_changed);
+        assert_eq!(a.sheets[0].text, "# Shared\n2 + 2");
+
+        // B makes a sheet; A lists it.
+        b.new_sheet("# From B");
+        b.save().unwrap();
+        a.sync();
+        assert!(a.sheets.iter().any(|s| s.title() == "From B"));
+
+        // B deletes it; A drops it.
+        let idx = b.sheets.iter().position(|s| s.title() == "From B").unwrap();
+        b.delete(idx);
+        b.save().unwrap();
+        a.sync();
+        assert!(a.sheets.iter().all(|s| s.title() != "From B"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn editing_the_same_sheet_in_two_windows_keeps_both() {
+        let root = temp_root("conflict");
+        let mut a = Store::load_in(Some(root.clone()), "# Shared");
+        a.save().unwrap();
+        let mut b = Store::load_in(Some(root.clone()), "");
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+
+        b.sheets[0].text = "# Shared\nfrom B".into();
+        b.sheets[0].mark_dirty();
+        b.save().unwrap();
+        // A edited too, before it noticed.
+        a.sheets[0].text = "# Shared\nfrom A".into();
+        a.sheets[0].mark_dirty();
+        a.save().unwrap();
+
+        assert_eq!(a.take_conflicts(), ["Shared"]);
+        let texts: Vec<_> = a.sheets.iter().map(|s| s.text.as_str()).collect();
+        assert!(texts.contains(&"# Shared\nfrom A"), "{texts:?}");
+        assert!(texts.contains(&"# Shared\nfrom B"), "{texts:?}");
+        assert_eq!(a.current().text, "# Shared\nfrom A");
+        let again = Store::load_in(Some(root.clone()), "");
+        assert_eq!(again.sheets.len(), 2);
         let _ = std::fs::remove_dir_all(root);
     }
 

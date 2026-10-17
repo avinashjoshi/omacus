@@ -175,6 +175,9 @@ pub struct OmacusApp {
     toast: Option<Toast>,
     /// When a save last failed, so the error isn't repeated every 400ms.
     save_error_at: Option<Instant>,
+    /// When another window's changes were last looked for, and whether this one had focus.
+    synced_at: Instant,
+    focused: bool,
     switcher: Option<Switcher>,
     ctx: egui::Context,
     evaluated_at: Instant,
@@ -224,6 +227,8 @@ impl OmacusApp {
             copied: None,
             toast: None,
             save_error_at: None,
+            synced_at: Instant::now(),
+            focused: true,
             ctx: cc.egui_ctx.clone(),
             evaluated_at: Instant::now(),
             popup: None,
@@ -326,6 +331,7 @@ impl OmacusApp {
             self.rates_seen = v;
             self.evaluate();
         }
+        self.sync_with_other_windows(ctx);
         if self.store.has_unsaved() {
             let since = *self.dirty_since.get_or_insert_with(Instant::now);
             if since.elapsed() >= SAVE_DELAY {
@@ -712,6 +718,32 @@ impl OmacusApp {
             self.save_error_at = Some(Instant::now());
             self.toast = Some(Toast::error(format!("Couldn't save {e}")));
         }
+        if let Some(title) = self.store.take_conflicts().first() {
+            self.toast = Some(Toast::info(format!(
+                "\u{201c}{title}\u{201d} changed in another window too; its version is a new sheet"
+            )));
+        }
+    }
+
+    /// Pick up sheets another Omacus window changed: when this window regains focus,
+    /// and every few seconds.
+    fn sync_with_other_windows(&mut self, ctx: &egui::Context) {
+        const EVERY: Duration = Duration::from_secs(3);
+        let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
+        let regained = focused && !self.focused;
+        self.focused = focused;
+        if !regained && self.synced_at.elapsed() < EVERY {
+            ctx.request_repaint_after(EVERY);
+            return;
+        }
+        self.synced_at = Instant::now();
+        let synced = self.store.sync();
+        if synced.active_changed {
+            self.popup = None;
+            self.pending_cursor = Some(self.store.current().cursor);
+            self.evaluate();
+        }
+        ctx.request_repaint_after(EVERY);
     }
 
     /// A short message at the bottom of the window, fading out; Undo when a sheet
