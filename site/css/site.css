@@ -326,6 +326,7 @@ pre {
 }
 
 .nav a {
+  white-space: nowrap;
   padding: 8px 12px;
   border-radius: 8px;
   color: var(--text-2);
@@ -403,8 +404,9 @@ pre {
   transform: translateY(-5.5px) rotate(-45deg);
 }
 
-/* Phones: the links fold into a sheet under the header; Download stays in view. */
-@media (max-width: 720px) {
+/* Phones and narrow windows: the links fold into a sheet under the header;
+   Download stays in view. */
+@media (max-width: 900px) {
   .menu-toggle {
     display: block;
   }
@@ -474,6 +476,7 @@ pre {
   .site-header.open .nav-links a:nth-child(3) { transition-delay: 0.12s; }
   .site-header.open .nav-links a:nth-child(4) { transition-delay: 0.16s; }
   .site-header.open .nav-links a:nth-child(5) { transition-delay: 0.2s; }
+  .site-header.open .nav-links a:nth-child(6) { transition-delay: 0.24s; }
 
   .site-header.open {
     background: var(--bg);
@@ -1503,6 +1506,30 @@ kbd {
 
 .release-facts a {
   color: var(--accent);
+}
+
+/* "Or try it in your browser" under the hero's installer. */
+.try-web {
+  margin: 18px 0 0;
+  text-align: center;
+  font-size: 14.5px;
+}
+
+.try-web a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-hi);
+}
+
+.try-web svg {
+  width: 15px;
+  height: 15px;
+  transition: transform 0.2s;
+}
+
+.try-web a:hover svg {
+  transform: translateX(3px);
 }
 
 /* Closing CTA */

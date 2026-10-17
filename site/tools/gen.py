@@ -176,7 +176,7 @@ def llms_full():
 # Shared header and footer
 
 NAV = [("/#features", "Features"), ("/use-cases/", "Use cases"), ("/guides/", "Guides"),
-       ("/docs/", "Docs"), ("https://github.com/avinashjoshi/omacus", "GitHub")]
+       ("/docs/", "Docs"), ("/app", "Web app"), ("https://github.com/avinashjoshi/omacus", "GitHub")]
 FOOTER = [("/docs/", "Docs"), ("/guides/", "Guides"), ("/use-cases/", "Use cases"),
           ("https://github.com/avinashjoshi/omacus/releases", "Releases"),
           ("https://github.com/avinashjoshi/omacus/issues/new/choose", "Report an issue"),
@@ -570,7 +570,7 @@ def fill_downloads():
 
 def sitemap(paths):
     entries = []
-    for p in ["/", "/docs/"] + paths:
+    for p in ["/", "/docs/", "/app"] + paths:
         extra = ""
         if p == "/":
             extra = "".join(f"\n    <image:image><image:loc>https://omacus.com/img/screens/{n}.webp</image:loc></image:image>"

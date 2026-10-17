@@ -5,7 +5,7 @@ name: Site
 on:
   push:
     branches: [main]
-    paths: ["site/**", "install.sh", "Cargo.toml", ".github/workflows/site.yml"]
+    paths: ["site/**", "engine/**", "web/**", "install.sh", "Cargo.toml", "Cargo.lock", ".github/workflows/site.yml"]
   workflow_dispatch:
   # The monthly refresh (freshen.yml) deploys through this after committing.
   workflow_call:
@@ -35,12 +35,25 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 0  # for the site's last-modified date
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Assemble
         run: |
           mkdir _site
           cp -r site/. _site/
-          rm -rf _site/tools
+          rm -rf _site/tools _site/app/pkg
           cp install.sh _site/install
+      - name: Build the engine for the browser (omacus.com/app)
+        # The desktop app's own engine, compiled to WebAssembly. The CLI version must
+        # match the wasm-bindgen crate pinned in web/Cargo.toml.
+        run: |
+          cargo install wasm-bindgen-cli --version 0.2.129 --locked
+          cargo build -p omacus-web --release --locked --target wasm32-unknown-unknown
+          wasm-bindgen --target web --no-typescript --out-dir _site/app/pkg \
+            target/wasm32-unknown-unknown/release/omacus_web.wasm
+          ls -l _site/app/pkg
       - name: Version assets
         # Cloudflare in front of omacus.com caches CSS and JS for hours, so pages point
         # at each file by its content hash and pick up a new version immediately.
@@ -49,7 +62,13 @@ jobs:
           hash=$(sha256sum _site/img/sprite.svg | cut -c1-10)
           grep -rl --include='*.html' --include='*.js' '/img/sprite.svg#' _site |
             xargs sed -i "s#/img/sprite.svg\##/img/sprite.svg?v=$hash\##g"
-          for asset in css/site.css js/site.js js/demo-data.js; do
+          # The app's engine: its .wasm and JS glue, referenced from app.js.
+          for f in omacus_web_bg.wasm omacus_web.js; do
+            hash=$(sha256sum "_site/app/pkg/$f" | cut -c1-10)
+            sed -i "s#pkg/$f\"#pkg/$f?v=$hash\"#g" _site/app/app.js
+          done
+          grep -o 'pkg/[a-z_]*\.[a-z]*?v=[0-9a-f]*' _site/app/app.js
+          for asset in css/site.css js/site.js js/demo-data.js app/app.css app/app.js; do
             hash=$(sha256sum "_site/$asset" | cut -c1-10)
             find _site -name '*.html' -exec sed -i "s#\"/$asset\"#\"/$asset?v=$hash\"#g" {} +
           done
