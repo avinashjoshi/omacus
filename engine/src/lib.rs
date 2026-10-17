@@ -9,7 +9,12 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::rates::Rates;
+pub mod complete;
+pub mod extras;
+mod rates;
+pub mod time;
+
+pub use rates::Rates;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -63,7 +68,7 @@ macro_rules! re {
     };
 }
 
-pub(crate) const LABEL_PATTERN: &str = r"^\s*([A-Za-z][A-Za-z0-9 '\-_&/]*?)\s*:\s+(.*)$";
+pub const LABEL_PATTERN: &str = r"^\s*([A-Za-z][A-Za-z0-9 '\-_&/]*?)\s*:\s+(.*)$";
 re!(LABEL, LABEL_PATTERN);
 re!(QUOTED, r#""[^"]*""#);
 re!(ASSIGN, r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^=].*)$");

@@ -2,15 +2,11 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app;
-mod complete;
-mod engine;
-mod extras;
 mod help;
 mod highlight;
 mod rates;
 mod sheets;
 mod theme;
-mod time;
 mod update;
 
 use std::io::Read;
@@ -54,8 +50,8 @@ fn main() {
     }
 }
 
-fn cli_engine() -> engine::Engine {
-    engine::Engine::new(rates::Rates::load_blocking())
+fn cli_engine() -> omacus_engine::Engine {
+    omacus_engine::Engine::new(rates::Rates::load_blocking().table())
 }
 
 fn run_expr(expr: &str) {

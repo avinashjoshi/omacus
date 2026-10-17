@@ -3,9 +3,9 @@
 
 use eframe::egui::{self, Color32, CornerRadius, FontId, Frame, Margin, RichText, Sense, vec2};
 
-use crate::engine::Engine;
 use crate::theme::Theme;
 use crate::update::{self, Check, Updates};
+use omacus_engine::Engine;
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tab {
@@ -725,7 +725,7 @@ fn tips(ui: &mut egui::Ui, theme: &Theme) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rates::Rates;
+    use omacus_engine::Rates;
 
     #[test]
     fn every_example_has_a_result() {
@@ -739,7 +739,7 @@ mod tests {
         for (group, lines) in SYNTAX {
             let results = engine.eval_document(&lines.join("\n"));
             for (line, r) in lines.iter().zip(results) {
-                let is_note = crate::engine::is_header(line) || line.starts_with("//");
+                let is_note = omacus_engine::is_header(line) || line.starts_with("//");
                 assert_eq!(
                     r.display.is_empty(),
                     is_note,

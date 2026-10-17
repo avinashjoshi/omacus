@@ -1,9 +1,10 @@
-//! Currency exchange rates for fend, cached on disk and refreshed in the background.
+//! Currency exchange rates for the engine's table, cached on disk and refreshed in
+//! the background.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -25,12 +26,10 @@ struct ApiResponse {
     rates: HashMap<String, f64>,
 }
 
-/// Shared, cheaply clonable rate table. `version` bumps whenever new rates arrive
-/// so the UI knows to re-evaluate.
+/// The engine's rate table, kept fresh. Cheap to clone; clones share the table.
 #[derive(Clone, Default)]
 pub struct Rates {
-    table: Arc<RwLock<HashMap<String, f64>>>,
-    version: Arc<AtomicU64>,
+    table: omacus_engine::Rates,
     /// When the rates in `table` were fetched, and when a refresh was last tried.
     fetched_at: Arc<AtomicU64>,
     tried_at: Arc<AtomicU64>,
@@ -43,7 +42,7 @@ impl Rates {
         let rates = Self::default();
         let cache = read_cache();
         rates.fetched_at.store(cache.fetched_at, Ordering::Relaxed);
-        rates.set(cache.rates);
+        rates.table.set(cache.rates);
         rates.refresh_if_stale(on_update);
         rates
     }
@@ -65,7 +64,7 @@ impl Rates {
             if let Ok(fresh) = fetch() {
                 write_cache(&fresh);
                 rates.fetched_at.store(now_secs(), Ordering::Relaxed);
-                rates.set(fresh);
+                rates.table.set(fresh);
                 on_update();
             }
             rates.fetching.store(false, Ordering::Relaxed);
@@ -78,53 +77,21 @@ impl Rates {
         let rates = Self::default();
         let cache = read_cache();
         let stale = now_secs().saturating_sub(cache.fetched_at) > MAX_AGE.as_secs();
-        rates.set(cache.rates);
+        rates.table.set(cache.rates);
         if stale && let Ok(fresh) = fetch() {
             write_cache(&fresh);
-            rates.set(fresh);
+            rates.table.set(fresh);
         }
         rates
     }
 
-    #[cfg(test)]
-    pub fn fixed(pairs: &[(&str, f64)]) -> Self {
-        let rates = Self::default();
-        rates.set(pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect());
-        rates
+    /// The table to give the engine.
+    pub fn table(&self) -> omacus_engine::Rates {
+        self.table.clone()
     }
 
     pub fn version(&self) -> u64 {
-        self.version.load(Ordering::Relaxed)
-    }
-
-    pub fn knows(&self, code: &str) -> bool {
-        self.table.read().unwrap().contains_key(code)
-    }
-
-    fn set(&self, table: HashMap<String, f64>) {
-        if table.is_empty() {
-            return;
-        }
-        *self.table.write().unwrap() = table;
-        self.version.fetch_add(1, Ordering::Relaxed);
-    }
-}
-
-impl fend_core::ExchangeRateFnV2 for Rates {
-    fn relative_to_base_currency(
-        &self,
-        currency: &str,
-        _options: &fend_core::ExchangeRateFnV2Options,
-    ) -> Result<f64, Box<dyn std::error::Error + Send + Sync + 'static>> {
-        if currency == "USD" {
-            return Ok(1.0);
-        }
-        self.table
-            .read()
-            .unwrap()
-            .get(currency)
-            .copied()
-            .ok_or_else(|| format!("no exchange rate for {currency}").into())
+        self.table.version()
     }
 }
 
