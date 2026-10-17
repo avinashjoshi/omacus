@@ -58,6 +58,13 @@ jobs:
         # Cloudflare in front of omacus.com caches CSS and JS for hours, so pages point
         # at each file by its content hash and pick up a new version immediately.
         run: |
+          # Screenshots, images and the video, wherever a page points at one ("/img/…"):
+          # they change in place when the app's look changes.
+          for f in $(cd _site && find img media -type f \( -name '*.webp' -o -name '*.png' -o -name '*.jpg' -o -name '*.mp4' \)); do
+            hash=$(sha256sum "_site/$f" | cut -c1-10)
+            find _site -name '*.html' -exec sed -i "s#\"/$f\"#\"/$f?v=$hash\"#g" {} +
+          done
+          grep -rho '"/\(img\|media\)/[^"]*?v=[0-9a-f]*"' _site | sort -u
           # Icons first: pages and site.js point into the sprite, then get hashed themselves.
           hash=$(sha256sum _site/img/sprite.svg | cut -c1-10)
           grep -rl --include='*.html' --include='*.js' '/img/sprite.svg#' _site |
