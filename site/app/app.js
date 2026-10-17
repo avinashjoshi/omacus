@@ -30,6 +30,7 @@ days until Christmas
 #ff8800 in hsl
 
 // Click an answer to copy it. Share link (top right) sends this sheet to anyone.
+// Private: your sheets are saved in this browser only. Nothing is uploaded.
 `;
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -168,6 +169,7 @@ function onInput() {
 function showSheet() {
   el.text.value = currentText();
   el.shared.hidden = state.active !== "shared";
+  showInstall();
   closeSuggest();
   evaluate();
   renderSidebar();
@@ -547,6 +549,15 @@ async function action(name) {
     openInApp();
   } else if (name === "install") {
     installPrompt?.prompt();
+  } else if (name === "dismiss-install") {
+    dismissInstall();
+  } else if (name === "privacy") {
+    toast(
+      "<b>Private.</b> Sheets are saved in this browser, on this device, and never uploaded. " +
+        "A share link carries the sheet after the #, which browsers don't send to any server.",
+      null,
+      7000,
+    );
   }
 }
 
@@ -744,7 +755,7 @@ async function copy(text) {
 }
 
 let toastTimer = 0;
-function toast(html, undo) {
+function toast(html, undo, ms) {
   el.toast.innerHTML = `<span>${html}</span>`;
   if (undo) {
     const b = document.createElement("button");
@@ -757,22 +768,56 @@ function toast(html, undo) {
   }
   el.toast.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el.toast.hidden = true), undo ? 6000 : 3200);
+  toastTimer = setTimeout(() => (el.toast.hidden = true), ms ?? (undo ? 6000 : 3200));
 }
 
 // ---------------------------------------------------------------------------------
-// Offline and installable: a service worker caches the app; browsers that can
-// install it get a menu item, and iPhones a note about Add to Home Screen.
+// Offline and installable: a service worker caches the app. The first time, a banner
+// says it can be installed: an Install button where the browser offers one, and the
+// Add to Home Screen steps on iPhone and iPad, which have no install prompt.
 
+const INSTALL_DISMISSED = "omacus:install-dismissed";
+const SHARE_ICON =
+  '<svg class="ios-share" viewBox="0 0 24 24" aria-label="Share"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M7 10H5v11h14V10h-2"/></svg>';
 let installPrompt = null;
+
+function ios() {
+  return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function showInstall() {
+  const banner = $("[data-install-banner]");
+  let dismissed = false;
+  try {
+    dismissed = localStorage.getItem(INSTALL_DISMISSED) === "1";
+  } catch {}
+  const text = installPrompt
+    ? "<b>Install Omacus.</b> It opens in its own window and works offline."
+    : ios()
+      ? `<b>Install Omacus:</b> tap ${SHARE_ICON} then <b>Add to Home Screen</b>. It works offline, like an app, and Safari keeps your sheets.`
+      : null;
+  banner.hidden = dismissed || standalone() || !text || state.active === "shared";
+  if (text) $("[data-install-text]").innerHTML = text;
+  $("[data-action=install]", banner).hidden = !installPrompt;
+}
+
+function dismissInstall() {
+  try {
+    localStorage.setItem(INSTALL_DISMISSED, "1");
+  } catch {}
+  $("[data-install-banner]").hidden = true;
+}
+
 addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   installPrompt = e;
   $("[data-install]").hidden = false;
+  showInstall();
 });
 addEventListener("appinstalled", () => {
   installPrompt = null;
   $("[data-install]").hidden = true;
+  $("[data-install-banner]").hidden = true;
   toast("Installed. Omacus now opens like an app and works offline.");
 });
 
@@ -799,8 +844,7 @@ async function goOffline() {
   } catch {
     // No offline support here (a private window, say); the app still works online.
   }
-  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  if (ios && !standalone()) $("[data-ios-hint]").hidden = false;
+  showInstall();
 }
 
 // ---------------------------------------------------------------------------------

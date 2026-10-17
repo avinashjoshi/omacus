@@ -979,6 +979,87 @@ impl OmacusApp {
 
     /// One quiet row: the logo, name and version (opens About, or the update when
     /// one is out, marked with a dot), and "?" for help.
+    /// Share and ⋯ above the sheet, lined up with the answers: the actions for this sheet,
+    /// without a right-click. Quiet until the pointer comes near.
+    fn sheet_bar(&mut self, ui: &mut egui::Ui) {
+        let theme = self.theme.clone();
+        let i = self.store.active;
+        let count = self.store.sheets.len();
+        let mut action = None;
+        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
+        let near = ui
+            .ctx()
+            .pointer_hover_pos()
+            .is_some_and(|p| row.expand2(vec2(0.0, 24.0)).contains(p));
+
+        let dots_rect = Rect::from_min_size(pos2(row.right() - 28.0, row.top()), vec2(28.0, 28.0));
+        let dots = ui.interact(dots_rect, ui.scope_id().with("bar-dots"), Sense::click());
+        let font = FontId::proportional(13.0);
+        let label = ui.painter().layout_no_wrap("Share".into(), font, theme.dim);
+        let share_rect = Rect::from_min_max(
+            pos2(dots_rect.left() - 4.0 - label.size().x - 24.0, row.top()),
+            pos2(dots_rect.left() - 4.0, row.bottom()),
+        );
+        let share = ui.interact(share_rect, ui.scope_id().with("bar-share"), Sense::click());
+
+        let painter = ui.painter();
+        if share.hovered() {
+            painter.rect_filled(share_rect, CornerRadius::same(6), theme.hover);
+        }
+        let color = if share.hovered() {
+            theme.foreground
+        } else if near {
+            theme.dim
+        } else {
+            theme.comment
+        };
+        // A small arrow out of a box, drawn so it doesn't depend on the font.
+        let icon = pos2(share_rect.left() + 13.0, row.center().y);
+        let stroke = egui::Stroke::new(1.4, color);
+        painter.line_segment([icon + vec2(0.0, 3.0), icon + vec2(0.0, -5.0)], stroke);
+        painter.line_segment([icon + vec2(-3.0, -2.0), icon + vec2(0.0, -5.0)], stroke);
+        painter.line_segment([icon + vec2(3.0, -2.0), icon + vec2(0.0, -5.0)], stroke);
+        painter.line_segment([icon + vec2(-5.0, 0.0), icon + vec2(-5.0, 5.0)], stroke);
+        painter.line_segment([icon + vec2(-5.0, 5.0), icon + vec2(5.0, 5.0)], stroke);
+        painter.line_segment([icon + vec2(5.0, 5.0), icon + vec2(5.0, 0.0)], stroke);
+        painter.text(
+            pos2(share_rect.left() + 22.0, row.center().y),
+            Align2::LEFT_CENTER,
+            "Share",
+            FontId::proportional(13.0),
+            color,
+        );
+
+        let menu = egui::Popup::menu(&dots).align(egui::RectAlign::BOTTOM_END);
+        let open = menu.is_open();
+        if near || open {
+            dots_button(ui, &dots, &theme, open);
+        } else {
+            paint_dots(ui.painter(), dots_rect.center(), theme.comment);
+        }
+        menu.show(|ui| sheet_menu(ui, i, count, &mut action));
+
+        if share.hovered() || dots.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if share
+            .on_hover_text(format!(
+                "Copy a link to this sheet ({})",
+                help::keys("Ctrl+Shift+L")
+            ))
+            .clicked()
+        {
+            action = Some(SheetAction::Share(i));
+        }
+        dots.on_hover_text("Copy, share and more");
+        ui.add_space(2.0);
+
+        if let Some(a) = action {
+            self.apply(a);
+            self.focus_editor = true;
+        }
+    }
+
     fn sidebar_footer(&mut self, ui: &mut egui::Ui, theme: &Theme) {
         let available = self.updates.available();
         let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
@@ -1110,33 +1191,28 @@ impl OmacusApp {
                         color,
                     );
 
+                    // A ⋯ on the selected or hovered row opens the same menu as a right-click.
+                    let dots_rect = Rect::from_center_size(
+                        pos2(rect.right() - 15.0, rect.center().y),
+                        vec2(24.0, 24.0),
+                    );
+                    let dots = ui.interact(
+                        dots_rect,
+                        ui.scope_id().with(("sheet-dots", i)),
+                        Sense::click(),
+                    );
+                    let menu = egui::Popup::menu(&dots);
+                    let open = menu.is_open();
+                    if active || resp.hovered() || dots.hovered() || open {
+                        dots_button(ui, &dots, &theme, open);
+                    }
+                    menu.show(|ui| sheet_menu(ui, i, count, &mut action));
+                    dots.on_hover_text("Share, copy and more");
+
                     if resp.clicked() {
                         action = Some(SheetAction::Select(i));
                     }
-                    resp.context_menu(|ui| {
-                        if ui.button("New sheet").clicked() {
-                            action = Some(SheetAction::New);
-                        }
-                        if i > 0 && ui.button("Move up").clicked() {
-                            action = Some(SheetAction::Move(i, -1));
-                        }
-                        if i + 1 < count && ui.button("Move down").clicked() {
-                            action = Some(SheetAction::Move(i, 1));
-                        }
-                        if ui.button("Copy with answers").clicked() {
-                            action = Some(SheetAction::Copy(i));
-                        }
-                        if ui.button("Copy as Markdown table").clicked() {
-                            action = Some(SheetAction::CopyMarkdown(i));
-                        }
-                        if ui.button("Share link").clicked() {
-                            action = Some(SheetAction::Share(i));
-                        }
-                        ui.separator();
-                        if ui.button("Delete sheet").clicked() {
-                            action = Some(SheetAction::Delete(i));
-                        }
-                    });
+                    resp.context_menu(|ui| sheet_menu(ui, i, count, &mut action));
                 }
             });
 
@@ -1417,8 +1493,14 @@ impl eframe::App for OmacusApp {
 
         let frame = Frame::NONE
             .fill(self.theme.background)
-            .inner_margin(Margin::symmetric(24, 20));
+            .inner_margin(Margin {
+                left: 24,
+                right: 24,
+                top: 8,
+                bottom: 20,
+            });
         egui::CentralPanel::default().frame(frame).show(ui, |ui| {
+            self.sheet_bar(ui);
             egui::ScrollArea::vertical()
                 .id_salt(("scroll", &self.store.sheets[self.store.active].id))
                 .auto_shrink([false, false])
@@ -1438,6 +1520,63 @@ impl eframe::App for OmacusApp {
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         self.theme.background.to_normalized_gamma_f32()
+    }
+}
+
+/// The actions for sheet `i`: the right-click menu, and the ⋯ on its row and above it.
+fn sheet_menu(ui: &mut egui::Ui, i: usize, count: usize, action: &mut Option<SheetAction>) {
+    let item = |ui: &mut egui::Ui, text: &str, keys: Option<&str>| {
+        let mut button = egui::Button::new(text);
+        if let Some(k) = keys {
+            button = button.shortcut_text(help::keys(k));
+        }
+        ui.add(button).clicked()
+    };
+    if item(ui, "Share link", Some("Ctrl+Shift+L")) {
+        *action = Some(SheetAction::Share(i));
+    }
+    if item(ui, "Copy with answers", Some("Ctrl+Shift+S")) {
+        *action = Some(SheetAction::Copy(i));
+    }
+    if item(ui, "Copy as Markdown table", Some("Ctrl+Shift+M")) {
+        *action = Some(SheetAction::CopyMarkdown(i));
+    }
+    ui.separator();
+    if item(ui, "New sheet", Some("Ctrl+N")) {
+        *action = Some(SheetAction::New);
+    }
+    if i > 0 && item(ui, "Move up", None) {
+        *action = Some(SheetAction::Move(i, -1));
+    }
+    if i + 1 < count && item(ui, "Move down", None) {
+        *action = Some(SheetAction::Move(i, 1));
+    }
+    ui.separator();
+    if item(ui, "Delete sheet", Some("Ctrl+Shift+Delete")) {
+        *action = Some(SheetAction::Delete(i));
+    }
+}
+
+fn paint_dots(painter: &egui::Painter, center: Pos2, color: Color32) {
+    for dx in [-5.0, 0.0, 5.0] {
+        painter.circle_filled(center + vec2(dx, 0.0), 1.5, color);
+    }
+}
+
+/// A ⋯ button: brighter, with a background, when hovered or its menu is open.
+fn dots_button(ui: &egui::Ui, resp: &egui::Response, theme: &Theme, open: bool) {
+    let painter = ui.painter();
+    if resp.hovered() || open {
+        painter.rect_filled(resp.rect, CornerRadius::same(6), theme.hover);
+    }
+    let color = if resp.hovered() || open {
+        theme.foreground
+    } else {
+        theme.dim
+    };
+    paint_dots(painter, resp.rect.center(), color);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
 }
 
