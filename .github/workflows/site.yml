@@ -30,8 +30,9 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 0  # for the site's last-modified date
       - name: Assemble
@@ -60,12 +61,12 @@ jobs:
           sed -i "s/>v[0-9][0-9.]*</>v$version</" _site/index.html
           echo "version $version, last modified $lastmod"
           ! grep -rq -e '{{version}}' -e '{{lastmod}}' _site
-      - uses: actions/configure-pages@v6
-      - uses: actions/upload-pages-artifact@v5
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: _site
       - id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
       - name: Tell search engines
         # IndexNow notifies Bing, Yandex and others (Bing also feeds ChatGPT and Copilot
         # search) that the pages changed. The key file is site/<key>.txt.

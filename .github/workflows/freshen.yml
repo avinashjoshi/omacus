@@ -8,6 +8,9 @@ on:
     - cron: "17 6 1 * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   regenerate:
     runs-on: ubuntu-22.04
@@ -16,15 +19,19 @@ jobs:
     outputs:
       changed: ${{ steps.commit.outputs.changed }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Linux build dependencies
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libwayland-dev libx11-dev
       - run: cargo build --release --locked
       - run: python3 site/tools/gen.py
       - id: commit
         name: Commit
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if git diff --quiet; then
             echo "Examples are current."
@@ -35,7 +42,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -qam "Refresh website examples"
-          git push
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
           echo changed=true >> "$GITHUB_OUTPUT"
 
   # A push made with GITHUB_TOKEN doesn't start other workflows, so deploy here.

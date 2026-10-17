@@ -14,8 +14,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Read-only by default; only publishing gets write access.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release
@@ -28,7 +29,9 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       release: ${{ steps.version.outputs.release }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - id: version
         run: |
           version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
@@ -50,9 +53,11 @@ jobs:
     needs: ci
     runs-on: ubuntu-22.04 # older glibc, so the binary runs on more distros
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libwayland-dev libx11-dev
       - run: cargo build --release --locked
       - name: Package .tar.gz
@@ -62,10 +67,11 @@ jobs:
           tar -C dist -czf omacus-linux-x86_64.tar.gz omacus
       - name: Package .deb and .rpm
         run: |
-          cargo install cargo-deb cargo-generate-rpm --locked
+          cargo install cargo-deb --version 3.8.0 --locked
+          cargo install cargo-generate-rpm --version 0.21.0 --locked
           cargo deb --no-build --no-strip --output omacus-linux-x86_64.deb
           cargo generate-rpm --output omacus-linux-x86_64.rpm
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: linux
           path: |
@@ -76,9 +82,11 @@ jobs:
     needs: ci
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo build --release --locked
       - name: Package .zip
         shell: pwsh
@@ -86,7 +94,7 @@ jobs:
           New-Item -ItemType Directory dist | Out-Null
           Copy-Item target/release/omacus.exe, README.md dist/
           Compress-Archive -Path dist/* -DestinationPath omacus-windows-x86_64.zip
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: windows
           path: omacus-windows-x86_64.zip
@@ -95,11 +103,13 @@ jobs:
     needs: ci
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Build universal binary
         run: |
           cargo build --release --locked --target aarch64-apple-darwin
@@ -109,27 +119,30 @@ jobs:
             target/x86_64-apple-darwin/release/omacus
       - name: Bundle Omacus.app and .dmg
         run: |
-          cargo install cargo-bundle --locked
+          cargo install cargo-bundle --version 0.12.0 --locked
           cargo bundle --release
           APP=target/release/bundle/osx/Omacus.app
           cp omacus-universal "$APP/Contents/MacOS/omacus"
           codesign --force --deep --sign - "$APP"   # ad-hoc; not notarized
           mkdir dmg && cp -R "$APP" dmg/ && ln -s /Applications dmg/Applications
           hdiutil create -volname Omacus -srcfolder dmg -ov -format UDZO omacus-macos-universal.dmg
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: macos
           path: omacus-macos-universal.dmg
 
   publish:
     needs: [check, linux, windows, macos]
+    permissions:
+      contents: write
     if: needs.check.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           fetch-depth: 0 # tags and history for the release notes
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: dist
           merge-multiple: true
@@ -138,7 +151,7 @@ jobs:
           (cd dist && sha256sum omacus-* install.sh > SHA256SUMS.txt)
           .github/scripts/release-notes.sh "${{ needs.check.outputs.version }}" "${{ github.repository }}" > notes.md
           cat notes.md
-      - uses: softprops/action-gh-release@v3
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           tag_name: v${{ needs.check.outputs.version }}
           target_commitish: ${{ github.sha }}
@@ -148,4 +161,6 @@ jobs:
 
   install-test:
     needs: publish
+    permissions:
+      contents: read
     uses: ./.github/workflows/install-test.yml
