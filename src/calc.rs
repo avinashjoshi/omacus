@@ -1,17 +1,21 @@
 //! Calculation off the window's thread. A worker owns its own engine and each
 //! sheet's last calculation, so an edit redoes only the lines from the first one
 //! that changed, and the window never waits on math (`100000!` can take its full
-//! time limit while typing carries on).
+//! time limit while typing carries on). Answers come back every SLICE as they're
+//! worked out, so a long, slow sheet fills in from the top even while it's edited.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::time::{Duration, Instant};
 
 use omacus_engine::{Engine, LineResult, Sheet};
 
 /// Sheets whose calculations are kept; beyond this the worker starts afresh.
 const KEEP: usize = 32;
+/// How often answers so far are sent back while a sheet is being worked out.
+const SLICE: Duration = Duration::from_millis(100);
 
 struct Job {
     id: u64,
@@ -19,11 +23,12 @@ struct Job {
     text: String,
 }
 
-/// Answers for a sheet's text.
+/// Answers for a sheet's text: all of them, or (`complete` false) the first lines'.
 pub struct Done {
     pub sheet: String,
     pub text: String,
     pub results: Vec<LineResult>,
+    pub complete: bool,
 }
 
 pub struct Calculator {
@@ -53,19 +58,29 @@ impl Calculator {
                         sheets.clear();
                     }
                     let sheet = sheets.entry(job.sheet.clone()).or_default();
-                    let stop = || newest.load(Ordering::Relaxed) != job.id;
-                    let Some(results) = engine.eval_sheet_until(&job.text, sheet, stop) else {
-                        continue;
-                    };
-                    let done = Done {
-                        sheet: job.sheet,
-                        text: job.text,
-                        results,
-                    };
-                    if outbox.send(done).is_err() {
-                        break;
+                    loop {
+                        let newer = || newest.load(Ordering::Relaxed) != job.id;
+                        let until = Instant::now() + SLICE;
+                        let stop = || newer() || Instant::now() > until;
+                        let results = engine.eval_sheet_until(&job.text, sheet, stop);
+                        if results.is_none() && newer() {
+                            break;
+                        }
+                        let complete = results.is_some();
+                        let done = Done {
+                            sheet: job.sheet.clone(),
+                            text: job.text.clone(),
+                            results: results.unwrap_or_else(|| sheet.done().to_vec()),
+                            complete,
+                        };
+                        if outbox.send(done).is_err() {
+                            return;
+                        }
+                        wake();
+                        if complete {
+                            break;
+                        }
                     }
-                    wake();
                 }
             })
             .expect("start the calculation thread");
@@ -101,7 +116,7 @@ mod tests {
     fn wait(calc: &Calculator) -> Done {
         let start = Instant::now();
         loop {
-            if let Some(done) = calc.take() {
+            if let Some(done) = calc.take().filter(|d| d.complete) {
                 return done;
             }
             assert!(start.elapsed() < Duration::from_secs(30), "no answers");
@@ -194,5 +209,31 @@ mod tests {
             .map(|r| (r.display.clone(), r.note))
             .collect();
         assert_eq!(got, want);
+    }
+
+    /// A slow sheet fills in from the top: the first lines' answers arrive before
+    /// the slow lines below them are done, and then all of them (from the third
+    /// review: a slow sheet showed nothing until every line was worked out).
+    #[test]
+    fn answers_arrive_part_way_through() {
+        let calc = Calculator::new(engine(), || {});
+        let text = ["1 + 1", "100000!", "100000!", "100000!", "100000!", "2 + 2"].join("\n");
+        calc.request("s", &text);
+        let start = Instant::now();
+        let mut part = None;
+        let done = loop {
+            assert!(start.elapsed() < Duration::from_secs(30), "no answers");
+            match calc.take() {
+                Some(d) if d.complete => break d,
+                Some(d) => part = part.or(Some(d)),
+                None => std::thread::sleep(Duration::from_millis(5)),
+            }
+        };
+        let part = part.expect("answers so far, before the slow lines were done");
+        assert_eq!(part.text, text);
+        assert!(part.results.len() < 6);
+        assert_eq!(part.results[0].display, "2");
+        assert_eq!(done.results.len(), 6);
+        assert_eq!(done.results[5].display, "4");
     }
 }
