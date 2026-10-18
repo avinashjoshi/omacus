@@ -171,3 +171,37 @@ fn reusing_work_matches_starting_over() {
         }
     }
 }
+
+/// A calculation cut off between any two lines (newer text arrived) must leave the
+/// sheet's saved work right: finishing it later gives what starting over gives,
+/// even when the text changed in between.
+#[test]
+fn stopping_part_way_keeps_saved_work_right() {
+    use std::cell::Cell;
+    let engine = engine();
+    for sheet in sheets() {
+        let lines = sheet.lines().count();
+        let edited = sheet.replacen('\n', " + 1\n", 1);
+        for after in 0..=lines {
+            for next in [&sheet, &edited] {
+                let mut cache = Sheet::default();
+                let checks = Cell::new(0);
+                let stopped = engine.eval_sheet_until(&sheet, &mut cache, || {
+                    checks.set(checks.get() + 1);
+                    checks.get() > after
+                });
+                if after == 0 && lines > 1 {
+                    assert!(stopped.is_none(), "never stopped: {sheet:?}");
+                }
+                if let Some(done) = stopped {
+                    assert!(same(&done, &engine.eval_document(&sheet)), "{sheet:?}");
+                }
+                let finished = engine.eval_sheet(next, &mut cache);
+                assert!(
+                    same(&finished, &engine.eval_document(next)),
+                    "stopped after {after} lines, then {next:?}"
+                );
+            }
+        }
+    }
+}

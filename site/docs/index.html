@@ -220,7 +220,7 @@ total</pre>
 
     <!-- ===================================================== Syntax -->
     <h2 id="arithmetic">Arithmetic</h2>
-    <p>The usual operators, plus words for them. <code>x</code> between numbers multiplies, <code>k</code> and <code>M</code> are thousands and millions, <code>^</code> is a power. A comma followed by three digits groups thousands (<code>1,234</code>); followed by any other number of digits it's a decimal comma, so <code>1,5</code> is 1.5 and <code>€12,50</code> is €12.50.</p>
+    <p>The usual operators, plus words for them. <code>x</code> between numbers multiplies, <code>k</code> and <code>M</code> are thousands and millions, <code>^</code> is a power. A comma followed by three digits groups thousands (<code>1,234</code>); followed by any other number of digits it's a decimal comma, so <code>1,5</code> is 1.5 and <code>€12,50</code> is €12.50. Dots in threes before a decimal comma group thousands too: <code>€1.234,56</code> is €1,234.56. <code>lakh</code> and <code>crore</code> after a number are 100,000 and 10,000,000.</p>
   <!-- ex:arithmetic -->
   <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
@@ -365,13 +365,15 @@ total</pre>
     <p class="guide-link">More examples in the guide: <a href="/guides/time-zones/">Convert time zones in plain English</a>.</p>
 
     <h2 id="dates">Dates</h2>
-    <p><code>today</code>, <code>now</code>, <code>tomorrow</code>, <code>yesterday</code> or any date, plus or minus minutes, hours, days, weeks, months or years. Take one date from another for the days between them. A date without a year is this year's.</p>
+    <p><code>today</code>, <code>now</code>, <code>tomorrow</code>, <code>yesterday</code> or any date, plus or minus minutes, hours, days, weeks, months or years. Take one date from another for the days between them. A date without a year is this year's. Days, weeks, months and years move along the calendar, so a clock change in between never lands you on the wrong day; minutes and hours are time that passes.</p>
 <div class="annot">
 <code>today</code><span class="c">Friday, 16 October 2026</span>
 <code>tomorrow + 2 weeks</code><span class="c">Saturday, 31 October 2026</span>
 <code>now - 90 minutes</code><span class="c">Fri, 16 Oct 2026, 7:09 AM</span>
 <code>Jan 31 + 1 month</code><span class="c">Saturday, 28 February 2026</span>
 <code>Dec 25 - Dec 1</code><span class="c">24 days</span>
+<code>next Friday</code><span class="c">Friday, 23 October 2026</span>
+<code>last Monday</code><span class="c">Monday, 12 October 2026</span>
 </div>
     <p>For a time of day, add or take away minutes and hours from a clock time, or count from now. Add <code>in</code> and a place to see it there.</p>
 <div class="annot">
@@ -380,7 +382,7 @@ total</pre>
 <code>in 90 minutes</code><span class="c">the time 90 minutes from now</span>
 <code>in 3 hours in Tokyo</code><span class="c">that time in Tokyo</span>
 </div>
-    <p>Count the days to or from a date: <code>until</code> counts to the next one, <code>since</code> from the last one. Ask in days, weeks, months or workdays (Monday to Friday; public holidays aren't known). Christmas, New Year's, Halloween and Valentine's Day work by name.</p>
+    <p>Count the days to or from a date: <code>until</code> counts to the next one, <code>since</code> from the last one. Ask in days, weeks, months or workdays (Monday to Friday; public holidays aren't known). Christmas, New Year's, Halloween and Valentine's Day work by name. Dates with slashes work when there's only one way to read them (<code>12/25</code> or <code>25/12</code>); for one like <code>2/3</code>, write the month (<code>Feb 3</code>), since it's 3 February in some places and 2 March in others.</p>
 <div class="annot">
 <code>days until Dec 25</code><span class="c">the days left until Christmas</span>
 <code>weeks until New Year's</code><span class="c">in weeks and days</span>

@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use chrono::{
-    DateTime, Datelike, Duration, Local, Months, NaiveDate, NaiveTime, TimeZone, Timelike, Utc,
-    Weekday,
+    DateTime, Datelike, Days, Duration, Local, Months, NaiveDate, NaiveDateTime, NaiveTime,
+    TimeZone, Timelike, Utc, Weekday,
 };
 use chrono_tz::Tz;
 use regex::Regex;
@@ -61,6 +61,8 @@ re!(
     DATE_SHIFT,
     r"(?i)^(.+?)\s*([+-])\s*(\d+)\s*(day|week|month|year)s?$"
 );
+// "12/25", "25/12/2026": only read as a date where a span needs one.
+re!(SLASH_DATE, r"^(\d{1,2})/(\d{1,2})(?:/(\d{4}|\d{2}))?$");
 // "Dec 25 - Dec 1": days between two dates.
 re!(DATE_DIFF, r"^(.+?)\s+-\s+(.+)$");
 // "days until Dec 25", "weeks since Jan 1", "until Christmas", "workdays till Friday".
@@ -219,6 +221,14 @@ impl Zone {
         }
     }
 
+    /// The clock time here at `utc`.
+    fn wall(self, utc: DateTime<Utc>) -> NaiveDateTime {
+        match self {
+            Zone::Local => utc.with_timezone(&Local).naive_local(),
+            Zone::Tz(tz) => utc.with_timezone(&tz).naive_local(),
+        }
+    }
+
     /// The UTC instant for a wall-clock time on `date` in this zone.
     fn to_utc(self, date: NaiveDate, time: NaiveTime) -> Option<DateTime<Utc>> {
         let naive = date.and_time(time);
@@ -267,10 +277,92 @@ pub fn eval(line: &str) -> Option<String> {
     let now = Utc::now();
     let today = Local::now().date_naive();
     eval_span(line, today)
-        .or_else(|| eval_date(line))
+        .or_else(|| eval_date(line, Local::now()))
+        .or_else(|| eval_lone(line, today))
         .or_else(|| eval_date_math(line, today))
         .or_else(|| eval_relative(line, now))
         .or_else(|| eval_zone(line, now))
+}
+
+/// Why a date line has no answer: "days until 2/3" could be 3 February or 2 March.
+pub fn note(line: &str) -> Option<&'static str> {
+    let line = line.trim();
+    let dates: Vec<String> = if let Some(c) = SPAN.captures(line) {
+        vec![c[3].to_string()]
+    } else {
+        let c = BETWEEN.captures(line)?;
+        vec![c[2].to_string(), c[3].to_string()]
+    };
+    dates
+        .iter()
+        .any(|d| matches!(slash_date(d), Some(None)))
+        .then_some("Write the month: Feb 3 or 3 Feb")
+}
+
+/// A date written with slashes, as "Dec 25 2026" text for `lone_date`: `Some(None)`
+/// when it could be either way round ("2/3"); "12/25" and "25/12" can't be.
+fn slash_date(text: &str) -> Option<Option<String>> {
+    let c = SLASH_DATE.captures(text.trim())?;
+    let (a, b): (u32, u32) = (c[1].parse().ok()?, c[2].parse().ok()?);
+    let (month, day) = match (a <= 12, b <= 12) {
+        _ if a == b => (a, b),
+        (true, false) => (a, b),
+        (false, true) => (b, a),
+        (true, true) => return Some(None),
+        (false, false) => return None,
+    };
+    let name = *[
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ]
+    .get(month.checked_sub(1)? as usize)?;
+    let year = match c.get(3).map(|y| y.as_str()) {
+        Some(y) if y.len() == 2 => format!(" 20{y}"),
+        Some(y) => format!(" {y}"),
+        None => String::new(),
+    };
+    Some(Some(format!("{name} {day}{year}")))
+}
+
+/// A date where a span needs one: "Dec 25", "next Friday", and "12/25" or "25/12"
+/// (only when there's one way to read it).
+fn span_date(text: &str, today: NaiveDate, ahead: bool) -> Option<NaiveDate> {
+    match slash_date(text) {
+        Some(Some(named)) => lone_date(&named, today, ahead),
+        Some(None) => None,
+        None => lone_date(text, today, ahead),
+    }
+}
+
+/// A date on its own: "Dec 25", "2026-12-25", "next Friday", "last Monday". A
+/// bare weekday ("Friday") is left alone: on its own line it's usually a heading.
+fn eval_lone(line: &str, today: NaiveDate) -> Option<String> {
+    let text = line.trim();
+    let lower = text.to_ascii_lowercase();
+    let (text, lead) = match ["on ", "this ", "last "]
+        .iter()
+        .find(|p| lower.starts_with(*p))
+    {
+        Some(p) => (text[p.len()..].trim(), Some(p.trim())),
+        None => (text, None),
+    };
+    let (rest, spec) = take_date(text);
+    if !rest.is_empty() {
+        return None;
+    }
+    let date = match spec? {
+        DateSpec::Offset(_) => return None, // "today", "tomorrow": eval_date's
+        DateSpec::Weekday { next, .. } => match lead {
+            Some("last") if !next => lone_date(text, today, false)?,
+            Some("on" | "this") if !next => lone_date(text, today, true)?,
+            None if next => lone_date(text, today, true)?,
+            _ => return None,
+        },
+        DateSpec::MonthDay { .. } if lead.is_none() || lead == Some("on") => {
+            this_years(text, today)?
+        }
+        DateSpec::MonthDay { .. } => return None,
+    };
+    Some(date.format("%A, %-d %B %Y").to_string())
 }
 
 /// Names offered by autocomplete.
@@ -353,27 +445,69 @@ fn instant(lhs: &str, now: DateTime<Utc>) -> Option<(DateTime<Utc>, Zone, Option
     Some((source.to_utc(day, time)?, source, date))
 }
 
-/// A length of time: "45 min", "2 hours", "1 hour 30 minutes", "3 days".
-fn duration(text: &str) -> Option<Duration> {
-    let mut seconds = 0.0;
+/// A length of time: "45 min", "2 hours", "1 hour 30 minutes", "3 days". Whole
+/// days and weeks are kept apart from the rest: they move along the calendar.
+struct Span {
+    days: i64,
+    rest: Duration,
+}
+
+fn duration(text: &str) -> Option<Span> {
+    let (mut days, mut seconds) = (0i64, 0.0);
     let mut rest = text.trim();
     while !rest.is_empty() {
         let c = DURATION_PART.captures(rest)?;
         let n: f64 = c[1].parse().ok()?;
         let unit = c[2].to_ascii_lowercase();
-        seconds += n * match unit.as_bytes()[0] {
-            b'w' => 7.0 * 86400.0,
-            b'd' => 86400.0,
-            b'h' => 3600.0,
-            _ => 60.0,
+        let per_day = match unit.as_bytes()[0] {
+            b'w' => 7.0,
+            b'd' => 1.0,
+            _ => 0.0,
         };
+        let whole = (n * per_day).trunc();
+        if per_day > 0.0 && whole.abs() < 1e9 {
+            days += whole as i64;
+            seconds += (n * per_day - whole) * 86400.0;
+        } else {
+            seconds += n * if unit.starts_with('h') {
+                3600.0
+            } else if per_day > 0.0 {
+                per_day * 86400.0
+            } else {
+                60.0
+            };
+        }
         rest = rest[c.get(0)?.end()..].trim_start();
     }
     // Spans past chrono's range (about 290,000 years) aren't times anyone means.
-    if !seconds.is_finite() || seconds.abs() > 1e13 {
+    if !seconds.is_finite() || seconds.abs() > 1e13 || days.abs() > 100_000_000 {
         return None;
     }
-    Duration::try_seconds(seconds.round() as i64)
+    Some(Span {
+        days,
+        rest: Duration::try_seconds(seconds.round() as i64)?,
+    })
+}
+
+/// `start` moved by `span` (back if `back`): the days on the calendar in `zone`
+/// (same clock time, even across a clock change), then the hours and minutes.
+fn shift(start: DateTime<Utc>, zone: Zone, span: &Span, back: bool) -> Option<DateTime<Utc>> {
+    let wall = zone.wall(start);
+    let days = Days::new(span.days.unsigned_abs());
+    let wall = if back == (span.days >= 0) {
+        wall.checked_sub_days(days)?
+    } else {
+        wall.checked_add_days(days)?
+    };
+    // A clock time skipped by a clock change: the same moment an hour on.
+    let moved = zone
+        .to_utc(wall.date(), wall.time())
+        .or_else(|| zone.to_utc(wall.date(), wall.time() + Duration::hours(1)))?;
+    if back {
+        moved.checked_sub_signed(span.rest)
+    } else {
+        moved.checked_add_signed(span.rest)
+    }
 }
 
 /// "Fri 23 Oct", with the year when it isn't this one.
@@ -394,7 +528,7 @@ fn eval_relative(line: &str, now: DateTime<Utc>) -> Option<String> {
             Some(z) => zone(z.as_str())?,
             None => Zone::Local,
         };
-        let then = now.checked_add_signed(span)?;
+        let then = shift(now, target, &span, false)?;
         let (today, _) = target.at(now);
         let (day, shown) = target.at(then);
         let shown = match target {
@@ -411,11 +545,7 @@ fn eval_relative(line: &str, now: DateTime<Utc>) -> Option<String> {
     let c = SHIFT.captures(line)?;
     let (start, source, _) = instant(&c[1], now)?;
     let span = duration(&c[3])?;
-    let then = if &c[2] == "-" {
-        start.checked_sub_signed(span)?
-    } else {
-        start.checked_add_signed(span)?
-    };
+    let then = shift(start, source, &span, &c[2] == "-")?;
     let target = match c.get(4) {
         Some(z) => zone(z.as_str())?,
         None => source,
@@ -693,8 +823,8 @@ fn eval_span(line: &str, today: NaiveDate) -> Option<String> {
         });
     }
     if let Some(c) = BETWEEN.captures(line) {
-        let a = lone_date(&c[2], today, true)?;
-        let b = lone_date(&c[3], today, true)?;
+        let a = span_date(&c[2], today, true)?;
+        let b = span_date(&c[3], today, true)?;
         let names_year = |t: &str| {
             t.split(|ch: char| !ch.is_ascii_digit())
                 .any(|n| n.len() == 4)
@@ -714,7 +844,7 @@ fn eval_span(line: &str, today: NaiveDate) -> Option<String> {
     }
     let c = SPAN.captures(line)?;
     let ahead = !c[2].eq_ignore_ascii_case("since");
-    let date = lone_date(&c[3], today, ahead)?;
+    let date = span_date(&c[3], today, ahead)?;
     let unit = count_unit(c.get(1).map(|m| m.as_str()));
     if date == today {
         return Some("today".into());
@@ -778,38 +908,46 @@ fn this_years(text: &str, today: NaiveDate) -> Option<NaiveDate> {
     )
 }
 
-fn eval_date(line: &str) -> Option<String> {
+/// "today + 3 weeks", "tomorrow", "now - 90 minutes". Days, weeks, months and
+/// years move along the calendar (the same clock time on another date, whatever
+/// a clock change in between does); minutes and hours are time that passes.
+fn eval_date<Z: TimeZone>(line: &str, now: DateTime<Z>) -> Option<String> {
     let c = DATE_EXPR.captures(line)?;
     let base = c[1].to_ascii_lowercase();
-    let now = Local::now();
+    let wall = now.naive_local();
     let mut t = match base.as_str() {
-        "tomorrow" => now.checked_add_signed(Duration::days(1))?,
-        "yesterday" => now.checked_sub_signed(Duration::days(1))?,
-        _ => now,
+        "tomorrow" => wall.checked_add_days(Days::new(1))?,
+        "yesterday" => wall.checked_sub_days(Days::new(1))?,
+        _ => wall,
     };
     let mut show_time = base == "now";
     if let (Some(sign), Some(n), Some(unit)) = (c.get(2), c.get(3), c.get(4)) {
         let n: i64 = n.as_str().parse().ok()?;
         let n = if sign.as_str() == "-" { -n } else { n };
         let unit = unit.as_str().to_ascii_lowercase();
-        let span = match unit.as_str() {
-            "minute" | "min" => Duration::try_minutes(n),
-            "hour" | "hr" => Duration::try_hours(n),
-            "day" => Duration::try_days(n),
-            "week" => Duration::try_weeks(n),
+        let calendar = |days: Option<u64>, months: Option<u32>| match (days, months) {
+            (Some(d), _) if n < 0 => t.checked_sub_days(Days::new(d)),
+            (Some(d), _) => t.checked_add_days(Days::new(d)),
+            (_, Some(m)) if n < 0 => t.checked_sub_months(Months::new(m)),
+            (_, Some(m)) => t.checked_add_months(Months::new(m)),
             _ => None,
         };
+        let size = n.unsigned_abs();
         t = match unit.as_str() {
-            "minute" | "min" | "hour" | "hr" | "day" | "week" => t.checked_add_signed(span?)?,
-            "month" | "year" => {
-                let per = if unit == "year" { 12 } else { 1 };
-                let months = u32::try_from(n.unsigned_abs() * per).ok()?;
-                if n < 0 {
-                    t.checked_sub_months(Months::new(months))?
+            "minute" | "min" | "hour" | "hr" => {
+                let span = if unit.starts_with('h') {
+                    Duration::try_hours(n)?
                 } else {
-                    t.checked_add_months(Months::new(months))?
-                }
+                    Duration::try_minutes(n)?
+                };
+                // Time passing: worked out on the instant, shown on the clock there.
+                let then = now.checked_add_signed(span)?;
+                then.naive_local()
             }
+            "day" => calendar(Some(size), None)?,
+            "week" => calendar(Some(size.checked_mul(7)?), None)?,
+            "month" => calendar(None, Some(u32::try_from(size).ok()?))?,
+            "year" => calendar(None, Some(u32::try_from(size.checked_mul(12)?).ok()?))?,
             _ => return None,
         };
         show_time |= matches!(unit.as_str(), "minute" | "min" | "hour" | "hr");
@@ -967,8 +1105,8 @@ mod tests {
         let rel = |line: &str| eval_relative(line, now());
         assert_eq!(rel("in 99999999999 h"), None);
         assert_eq!(rel("3pm UTC + 99999999999 hours"), None);
-        assert_eq!(eval_date("today + 99999999999999 days"), None);
-        assert_eq!(eval_date("now + 999999999999 hours"), None);
+        assert_eq!(eval_date("today + 99999999999999 days", Local::now()), None);
+        assert_eq!(eval_date("now + 999999999999 hours", Local::now()), None);
     }
 
     #[test]
@@ -1002,5 +1140,133 @@ mod tests {
         assert_eq!(conv("255 in hex"), None);
         assert_eq!(conv("15 in IST"), None);
         assert_eq!(conv("$30 in EUR"), None);
+    }
+
+    /// From the third review: "today + 3 weeks" just after midnight, across the
+    /// November clock change, showed the day before (21 days of hours, not dates).
+    #[test]
+    fn days_cross_clock_changes_on_the_calendar() {
+        let ny: Tz = "America/New_York".parse().unwrap();
+        let at = |y, mo, d, h, mi| ny.with_ymd_and_hms(y, mo, d, h, mi, 0).unwrap();
+        let date = |line: &str, now| eval_date(line, now).unwrap();
+        let before_fall = at(2026, 10, 18, 0, 30);
+        assert_eq!(
+            date("today + 3 weeks", before_fall),
+            "Sunday, 8 November 2026"
+        );
+        assert_eq!(
+            date("today + 21 days", before_fall),
+            "Sunday, 8 November 2026"
+        );
+        assert_eq!(
+            date("tomorrow + 2 weeks", before_fall),
+            "Monday, 2 November 2026"
+        );
+        assert_eq!(
+            date("today + 1 month", before_fall),
+            "Wednesday, 18 November 2026"
+        );
+        let late = at(2026, 10, 31, 23, 30);
+        assert_eq!(date("tomorrow", late), "Sunday, 1 November 2026");
+        assert_eq!(date("today + 1 day", late), "Sunday, 1 November 2026");
+        // Calendar days keep the clock time; hours are time that passes.
+        let afternoon = at(2026, 10, 30, 15, 0);
+        assert_eq!(date("now + 3 days", afternoon), "Mon, 2 Nov 2026, 3:00 PM");
+        assert_eq!(
+            date("now + 72 hours", afternoon),
+            "Mon, 2 Nov 2026, 2:00 PM"
+        );
+        assert_eq!(
+            date("now - 90 minutes", afternoon),
+            "Fri, 30 Oct 2026, 1:30 PM"
+        );
+        // Spring forward: back across it, and onto the skipped hour.
+        let spring = at(2026, 3, 9, 0, 30);
+        assert_eq!(date("today - 1 week", spring), "Monday, 2 March 2026");
+        assert_eq!(date("yesterday", spring), "Sunday, 8 March 2026");
+        assert_eq!(date("now - 24 hours", spring), "Sat, 7 Mar 2026, 11:30 PM");
+        // The same in other zones (Europe changes a week earlier, Sydney in April).
+        for zone in [
+            "Europe/London",
+            "Australia/Sydney",
+            "Asia/Kolkata",
+            "America/Los_Angeles",
+        ] {
+            let tz: Tz = zone.parse().unwrap();
+            for (m, d) in [(3, 20), (3, 30), (4, 1), (10, 20), (10, 27), (11, 1)] {
+                let now = tz.with_ymd_and_hms(2026, m, d, 0, 15, 0).unwrap();
+                for n in [1u64, 6, 7, 14, 21] {
+                    let want = now.date_naive().checked_add_days(Days::new(n)).unwrap();
+                    assert_eq!(
+                        date(&format!("today + {n} days"), now),
+                        want.format("%A, %-d %B %Y").to_string(),
+                        "{zone} {m}/{d} + {n}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn relative_days_cross_clock_changes_on_the_calendar() {
+        // 30 Oct 2026, 3pm in New York (EDT); the clocks go back on 1 November.
+        let now = Utc.with_ymd_and_hms(2026, 10, 30, 19, 0, 0).unwrap();
+        let rel = |line: &str| eval_relative(line, now).unwrap();
+        assert_eq!(rel("in 3 days in New York"), "3:00 PM EST, Mon 2 Nov");
+        assert_eq!(rel("in 72 hours in New York"), "2:00 PM EST, Mon 2 Nov");
+        assert_eq!(rel("in 1 week in New York"), "3:00 PM EST, Fri 6 Nov");
+        assert_eq!(
+            rel("in 2 days 3 hours in New York"),
+            "6:00 PM EST, Sun 1 Nov"
+        );
+    }
+
+    #[test]
+    fn dates_on_their_own() {
+        // Sunday 18 October 2026.
+        let today = NaiveDate::from_ymd_opt(2026, 10, 18).unwrap();
+        let lone = |l: &str| eval_lone(l, today);
+        assert_eq!(lone("Dec 25").as_deref(), Some("Friday, 25 December 2026"));
+        assert_eq!(lone("Jan 5").as_deref(), Some("Monday, 5 January 2026"));
+        assert_eq!(
+            lone("next friday").as_deref(),
+            Some("Friday, 23 October 2026")
+        );
+        assert_eq!(
+            lone("this Friday").as_deref(),
+            Some("Friday, 23 October 2026")
+        );
+        assert_eq!(
+            lone("last friday").as_deref(),
+            Some("Friday, 16 October 2026")
+        );
+        assert_eq!(
+            lone("last sunday").as_deref(),
+            Some("Sunday, 11 October 2026")
+        );
+        assert_eq!(
+            lone("next sunday").as_deref(),
+            Some("Sunday, 25 October 2026")
+        );
+        assert_eq!(
+            lone("on monday").as_deref(),
+            Some("Monday, 19 October 2026")
+        );
+        assert_eq!(lone("Friday"), None);
+        assert_eq!(lone("this Dec 25"), None);
+        assert_eq!(lone("Dec 25 $40"), None);
+        let span = |l: &str| eval_span(l, today);
+        assert_eq!(span("days until 12/25").as_deref(), Some("68 days"));
+        assert_eq!(span("days until 25/12").as_deref(), Some("68 days"));
+        assert_eq!(span("days until 3/3").as_deref(), Some("136 days"));
+        assert_eq!(span("days since 1/15/2026").as_deref(), Some("276 days"));
+        assert_eq!(span("days since 15/1/26").as_deref(), Some("276 days"));
+        assert_eq!(span("days until 2/3"), None);
+        assert_eq!(
+            note("days until 2/3"),
+            Some("Write the month: Feb 3 or 3 Feb")
+        );
+        assert_eq!(note("days until 12/25"), None);
+        assert_eq!(note("2/3"), None);
     }
 }

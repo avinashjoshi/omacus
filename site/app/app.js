@@ -3,13 +3,14 @@
 // Sheets live in this browser's localStorage; a share link carries a sheet in the
 // part after "#", which browsers never send to the server.
 
-import init, { Calc, suggest, shareEncode, shareDecode } from "./pkg/omacus_web.js";
+import init, { Calc, suggest, shareEncode, shareDecode, layoutAnswers } from "./pkg/omacus_web.js";
 import {
   EditorState, StateField, StateEffect, RangeSetBuilder, Prec, EditorView, Decoration, WidgetType, keymap,
   defaultKeymap, history as undoHistory, historyKeymap, autocompletion, acceptCompletion, closeCompletion, moveCompletionSelection,
 } from "./editor.js";
 
 const WASM = "/app/pkg/omacus_web_bg.wasm";
+const WORKER = new URL("./worker.js", import.meta.url).href;
 const PREFIX = "omacus:";
 const RATES_URL = "https://open.er-api.com/v6/latest/USD";
 const RATES_MAX_AGE = 12 * 60 * 60 * 1000;
@@ -59,6 +60,8 @@ const el = {
 
 let calc;
 let results = [];
+// The text `results` were worked out for (the editor may be ahead of it).
+let resultsText = "";
 const state = { order: [], active: null, texts: new Map(), shared: null };
 
 // ---------------------------------------------------------------------------------
@@ -178,6 +181,8 @@ let shownId = null;
 function showSheet() {
   if (shownId !== null) editorStates.set(shownId, view.state);
   shownId = state.active;
+  results = [];
+  resultsText = "";
   const text = currentText();
   let es = editorStates.get(state.active);
   if (!es || es.doc.toString() !== text) es = EditorState.create({ doc: text, extensions: editorExtensions });
@@ -307,11 +312,34 @@ function decorate(doc, answers) {
   return out.finish();
 }
 
+// Answers for one text moved to where their lines are in another, while the new
+// answers are on their way: lines unchanged from the top and from the bottom keep
+// theirs, and the lines that changed have none yet (by position alone, inserting a
+// line showed every answer below it one line off). The engine's `realign`, in JS.
+function realign(oldLines, answers, newLines) {
+  let top = 0;
+  while (top < oldLines.length && top < newLines.length && oldLines[top] === newLines[top]) top++;
+  let bottom = 0;
+  while (
+    bottom < oldLines.length - top &&
+    bottom < newLines.length - top &&
+    oldLines[oldLines.length - 1 - bottom] === newLines[newLines.length - 1 - bottom]
+  )
+    bottom++;
+  return newLines.map((_, i) =>
+    i < top ? answers[i] : i >= newLines.length - bottom ? answers[i + oldLines.length - newLines.length] : undefined,
+  );
+}
+
 const sheetField = StateField.define({
   create: (st) => ({ answers: [], deco: decorate(st.doc, []) }),
   update(value, tr) {
     let answers = value.answers;
+    const fresh = tr.effects.some((e) => e.is(setResults));
     for (const e of tr.effects) if (e.is(setResults)) answers = e.value;
+    if (!fresh && tr.docChanged) {
+      answers = realign(tr.startState.doc.toString().split("\n"), answers, tr.state.doc.toString().split("\n"));
+    }
     if (answers === value.answers && !tr.docChanged) return value;
     return { answers, deco: decorate(tr.state.doc, answers) };
   },
@@ -350,13 +378,104 @@ const editorExtensions = [
 
 const view = new EditorView({ parent: el.host, state: EditorState.create({ doc: "", extensions: editorExtensions }) });
 
+// The calculation runs in a worker (worker.js), so the page never waits on it. Only
+// the newest text matters: while one sheet is being worked out, later edits wait and
+// the latest is sent next. One that's taken long by the time newer text arrives is
+// abandoned: the worker is replaced and starts on the newest text (it can't be
+// interrupted mid-calculation). Without workers, the page calculates itself.
+const RESTART_MS = 1000;
+let worker = null;
+let workerReady = false;
+let ratesJson = null;
+let busy = null; // { seq, at } of what the worker is working on
+let waiting = null; // the newest text, not yet sent
+let seq = 0;
+const layouts = new Map(); // seq -> resolve, for copies worked out in the worker
+
+function startWorker() {
+  worker?.terminate();
+  workerReady = false;
+  busy = null;
+  for (const resolve of layouts.values()) resolve(null);
+  layouts.clear();
+  try {
+    worker = new Worker(WORKER, { type: "module" });
+  } catch {
+    worker = null;
+    return;
+  }
+  worker.onmessage = (e) => onWorker(e.data);
+  worker.onerror = () => {
+    // A worker that can't start (an old browser without module workers): calculate here.
+    worker?.terminate();
+    worker = null;
+    workerReady = false;
+    evaluate();
+  };
+  worker.postMessage({ type: "init", wasm: new URL(WASM, location.href).href, rates: ratesJson });
+}
+
+function onWorker(m) {
+  if (m.type === "ready") {
+    workerReady = true;
+    send();
+  } else if (m.type === "sheet") {
+    busy = null;
+    if (m.sheet === (state.active ?? "")) show(JSON.parse(m.results), m.text);
+    send();
+  } else if (m.type === "layout") {
+    layouts.get(m.seq)?.(m);
+    layouts.delete(m.seq);
+  } else if (m.type === "error") {
+    console.error("Omacus worker:", m.message);
+    busy = null;
+    send();
+  }
+}
+
+function send() {
+  if (!worker || !workerReady || busy || !waiting) return;
+  busy = { seq: waiting.seq, at: performance.now() };
+  worker.postMessage({ type: "sheet", ...waiting });
+  waiting = null;
+}
+
+// Answers worked out for `text`, lined up with what the editor shows now.
+function show(answers, text) {
+  const now = view.state.doc.toString();
+  results = text === now ? answers : realign(text.split("\n"), answers, now.split("\n"));
+  resultsText = text;
+  view.dispatch({ effects: setResults.of(results) });
+}
+
 let frame = 0;
 function evaluate() {
   cancelAnimationFrame(frame);
   frame = requestAnimationFrame(() => {
-    results = calc ? JSON.parse(calc.evaluateSheet(state.active ?? "", view.state.doc.toString())) : [];
-    view.dispatch({ effects: setResults.of(results) });
+    const text = view.state.doc.toString();
+    const sheet = state.active ?? "";
+    if (worker) {
+      waiting = { seq: ++seq, sheet, text };
+      if (busy && performance.now() - busy.at > RESTART_MS) startWorker();
+      else send();
+    } else if (calc) {
+      show(JSON.parse(calc.evaluateSheet(sheet, text)), text);
+    }
   });
+}
+
+// The sheet with its answers, for the clipboard: the answers on screen when they're
+// for this exact text, otherwise worked out (in the worker, if there is one).
+function laidOut(text, markdown) {
+  if (resultsText === text && results.length) return Promise.resolve(layoutAnswers(text, JSON.stringify(results), markdown));
+  if (!worker || !workerReady) {
+    return Promise.resolve(markdown ? calc.markdownTable(text) : calc.withAnswers(text));
+  }
+  const id = ++seq;
+  worker.postMessage({ type: "layout", seq: id, text });
+  return new Promise((resolve) => layouts.set(id, resolve)).then((m) =>
+    m ? layoutAnswers(text, m.results, markdown) : markdown ? calc.markdownTable(text) : calc.withAnswers(text),
+  );
 }
 
 function definedVars(lines) {
@@ -467,17 +586,25 @@ addEventListener("hashchange", openShared);
 // ---------------------------------------------------------------------------------
 // Exchange rates: the same source as the desktop app, cached for 12 hours.
 
+// Rates for both engines: the page's (for copies without a worker) and the worker's.
+function setRates(json) {
+  if (!calc.setRates(json)) return false;
+  ratesJson = json;
+  worker?.postMessage({ type: "rates", rates: json });
+  return true;
+}
+
 async function loadRates() {
   let cached = null;
   try {
     cached = JSON.parse(store.get("rates") ?? "null");
   } catch {}
-  if (cached?.rates) calc.setRates(JSON.stringify(cached.rates));
+  if (cached?.rates) setRates(JSON.stringify(cached.rates));
   if (cached && Date.now() - cached.at < RATES_MAX_AGE) return;
   try {
     const res = await fetch(RATES_URL);
     const { rates } = await res.json();
-    if (rates && calc.setRates(JSON.stringify(rates))) {
+    if (rates && setRates(JSON.stringify(rates))) {
       store.set("rates", JSON.stringify({ at: Date.now(), rates }));
       evaluate();
     }
@@ -493,10 +620,10 @@ async function action(name) {
   closeMenu();
   const text = currentText();
   if (name === "copy") {
-    await copy(calc.withAnswers(text));
+    await copyLater(laidOut(text, false));
     toast("Sheet copied with answers.");
   } else if (name === "markdown") {
-    await copy(calc.markdownTable(text));
+    await copyLater(laidOut(text, true));
     toast("Sheet copied as a Markdown table.");
   } else if (name === "new") {
     flushSave();
@@ -710,6 +837,19 @@ async function unzip(file) {
 // ---------------------------------------------------------------------------------
 // Small things.
 
+// Copy text that may still be on its way. Browsers (Safari above all) allow the
+// clipboard only within the click, so the write starts now with the text to come.
+async function copyLater(pending) {
+  if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+    try {
+      const blob = pending.then((t) => new Blob([t], { type: "text/plain" }));
+      await navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]);
+      return;
+    } catch {}
+  }
+  await copy(await pending);
+}
+
 async function copy(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -810,6 +950,7 @@ async function goOffline() {
     const urls = [
       ...new Set([
         `${location.origin}/app/`,
+        WORKER,
         ...performance
           .getEntriesByType("resource")
           .map((r) => r.name)
@@ -839,6 +980,7 @@ async function start() {
   }
   await init({ module_or_path: WASM });
   calc = new Calc();
+  if (typeof Worker !== "undefined") startWorker();
   el.loading.remove();
   await openShared();
   if (state.active !== "shared") showSheet();

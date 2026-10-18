@@ -160,6 +160,8 @@ impl Budget {
             Some("Can't divide by zero")
         } else if error.contains("are incompatible") {
             Some("Units don't match")
+        } else if error.contains("must lie in the interval") || error.contains("is undefined") {
+            Some("Not defined")
         } else {
             None
         }
@@ -250,6 +252,18 @@ re!(
     PREFIXED_DOLLAR,
     r"\b(US|CA|C|AU|A|NZ|HK|SG|S)\$\s*(\d[\d,]*(?:\.\d+)?)"
 );
+// European grouping: "1.234,56" is 1234.56 and "1.000.000" is a million (dots
+// in threes; anything else, like "1.5" or "1.000", keeps the dot as a decimal point).
+re!(
+    DOT_THOUSANDS,
+    r"(^|[^\d.,])(\d{1,3}(?:\.\d{3})+),(\d+)($|[^\d.,])"
+);
+re!(
+    DOT_MILLIONS,
+    r"(^|[^\d.,])(\d{1,3}(?:\.\d{3}){2,})($|[^\d.,])"
+);
+// "$-5" is minus five dollars (fend reads it as "$1 - 5").
+re!(SYMBOL_MINUS, r"(^|[^\w)])([$£€¥₹])\s*-\s*(\d)");
 // A decimal comma: thousands always come in threes, so "1,5", "12,50" and
 // "3,14159" can only mean 1.5, 12.50 and 3.14159 ("1,234" stays 1234).
 re!(
@@ -264,6 +278,21 @@ re!(MONEY_PREFIX, r"[$£]\s*\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?");
 re!(PREV, r"(?i)\bprev\b");
 // fend answers "version" with its own version number; in a sheet it's prose.
 re!(VERSION_WORD, r"(?i)\bversion\b");
+// "2 lakh" -> 200000, "1.5 crore" -> 15000000.
+re!(
+    LAKH_CRORE,
+    r"(?i)\b(\d[\d,]*(?:\.\d+)?)\s*(lakhs?|lacs?|crores?)\b"
+);
+// "11 in" is inches when nothing it could convert into follows: "5 ft 11 in",
+// "12 in in cm", "3 in + 2 in" (but "100 in hex" stays a conversion).
+re!(INCHES, r"(\d)\s*in(\s*(?:$|[+\-*/),]|(?:in|to|as)\b))");
+// "20%off" -> "20% off".
+re!(PCT_GLUED, r"(?i)%(off|on|of)\b");
+// "100 - 20% of 50": the share is worked out first (100 - 10).
+re!(
+    PLUS_MINUS_PCT_OF,
+    r"(?i)([+\-]\s*)(\d[\d,]*(?:\.\d+)?)\s*%\s+of\s+(\(?\$?\d[\d,]*(?:\.\d+)?\)?(?:\s+[A-Z]{3}\b)?)"
+);
 // "50 percent" -> "50%".
 re!(PERCENT_WORD, r"(?i)(\d)\s*(?:percent|per\s+cent)\b");
 // "half of 50", "twice $40", "a third of 90": quantities, not prose.
@@ -304,7 +333,8 @@ re!(
     r"(?i)\b(in|to|as)\s+(hex|hexadecimal|binary|bin|octal|oct|base\s*\d+)\b"
 );
 re!(WORD, r"\b[A-Za-z]{3}\b");
-re!(NUM_TOKEN, r"^(-?)([$£€¥₹]?)(\d+)(?:\.(\d+))?$");
+// fend writes negative money as "$-5".
+re!(NUM_TOKEN, r"^(-?)([$£€¥₹]?)(-?)(\d+)(?:\.(\d+))?$");
 
 const WORD_OPS: &[(&str, &str)] = &[
     (r"(?i)\bmultiplied\s+by\b", "*"),
@@ -590,7 +620,7 @@ impl Engine {
                 };
                 LineResult::value(display)
             }
-            None => LineResult::error(budget.note()),
+            None => LineResult::error(budget.note().or_else(|| crate::time::note(trimmed))),
         }
     }
 
@@ -690,6 +720,38 @@ impl Engine {
     }
 }
 
+/// Answers worked out for `old` text, moved to where their lines are in `new`, for
+/// showing while `new`'s own answers are on their way: lines unchanged from the top
+/// and from the bottom keep theirs, and the lines that changed have none yet. (By
+/// position alone, inserting a line showed every answer below it one line off.)
+pub fn realign(old: &str, results: &[LineResult], new: &str) -> Vec<LineResult> {
+    let (a, b): (Vec<&str>, Vec<&str>) = (old.split('\n').collect(), new.split('\n').collect());
+    let top = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    let bottom = a[top..]
+        .iter()
+        .rev()
+        .zip(b[top..].iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
+    let answer = |i: usize| {
+        results
+            .get(i)
+            .cloned()
+            .unwrap_or_else(|| LineResult::new(Kind::Empty))
+    };
+    (0..b.len())
+        .map(|i| {
+            if i < top {
+                answer(i)
+            } else if i >= b.len() - bottom {
+                answer(i + a.len() - b.len())
+            } else {
+                LineResult::new(Kind::Empty)
+            }
+        })
+        .collect()
+}
+
 /// The sheet as plain text with each answer lined up after its line, the way the
 /// app shows it, for pasting into a message or a document.
 pub fn with_answers(text: &str, results: &[LineResult]) -> String {
@@ -786,10 +848,21 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
     s = QUOTED.replace_all(&s, " ").into_owned();
     // Twice: "1,5 + 2,5" shares the space between two matches.
     for _ in 0..2 {
+        s = DOT_THOUSANDS
+            .replace_all(&s, |c: &regex::Captures| {
+                format!("{}{}.{}{}", &c[1], c[2].replace('.', ""), &c[3], &c[4])
+            })
+            .into_owned();
+        s = DOT_MILLIONS
+            .replace_all(&s, |c: &regex::Captures| {
+                format!("{}{}{}", &c[1], c[2].replace('.', ""), &c[3])
+            })
+            .into_owned();
         s = DECIMAL_COMMA
             .replace_all(&s, "${1}${2}.${3}${4}")
             .into_owned();
     }
+    s = SYMBOL_MINUS.replace_all(&s, "$1-$2$3").into_owned();
     s = PREFIXED_DOLLAR
         .replace_all(&s, |c: &regex::Captures| {
             let code = match &c[1] {
@@ -805,6 +878,18 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
         .into_owned();
     s = VERSION_WORD.replace_all(&s, " ").into_owned();
     s = PERCENT_WORD.replace_all(&s, "$1%").into_owned();
+    s = PCT_GLUED.replace_all(&s, "% $1").into_owned();
+    s = INCHES.replace_all(&s, "$1 inches$2").into_owned();
+    s = LAKH_CRORE
+        .replace_all(&s, |c: &regex::Captures| {
+            let zeros = if c[2].to_ascii_lowercase().starts_with('c') {
+                7
+            } else {
+                5
+            };
+            shift_point(&c[1].replace(',', ""), zeros)
+        })
+        .into_owned();
     s = HALF.replace_all(&s, "0.5 * ").into_owned();
     s = THIRD.replace_all(&s, "(1/3) * ").into_owned();
     s = QUARTER.replace_all(&s, "0.25 * ").into_owned();
@@ -894,6 +979,11 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
         rhs = re.replace_all(&rhs, *op).into_owned();
     }
 
+    rhs = PLUS_MINUS_PCT_OF
+        .replace_all(&rhs, |c: &regex::Captures| {
+            format!("{}(({} / 100) * {})", &c[1], c[2].replace(',', ""), &c[3])
+        })
+        .into_owned();
     rhs = if let Some(c) = IS_WHAT_PCT.captures(&rhs) {
         format!("(({}) / ({})) to %", &c[1], &c[2])
     } else if let Some(c) = IS_PCT_OF_WHAT.captures(&rhs) {
@@ -952,19 +1042,50 @@ fn drop_prose_words(s: &str, vars: &HashSet<String>) -> String {
     const PROSE: &[&str] = &[
         "I", "a", "A", "an", "An", "the", "The", "at", "At", "my", "My",
     ];
+    // Words that join a value to the rest of the line, like an operator.
+    const JOINS: &[&str] = &[
+        "times",
+        "plus",
+        "minus",
+        "multiplied",
+        "divided",
+        "by",
+        "mod",
+        "in",
+        "to",
+        "as",
+        "of",
+        "per",
+        "x",
+    ];
+    let joins = |t: &str| {
+        t.starts_with(['+', '-', '*', '/', '^', '=', '(', ')', '%', '×', '!'])
+            || t.ends_with(['+', '-', '*', '/', '^', '=', '(', '×'])
+            || JOINS.contains(&t.to_ascii_lowercase().as_str())
+    };
     let assigned = ASSIGN.captures(s).map(|c| c[1].to_string());
+    let toks: Vec<&str> = s.split(' ').collect();
     let mut out: Vec<&str> = Vec::new();
-    for tok in s.split(' ') {
-        if vars.contains(tok) || assigned.as_deref() == Some(tok) {
+    for (i, &tok) in toks.iter().enumerate() {
+        let prose = PROSE.contains(&tok);
+        let var = vars.contains(tok) || assigned.as_deref() == Some(tok);
+        // A short word that's also a variable is the variable only when it's on
+        // its own or next to an operator: after "I = 3", "I * 2" is 6 but
+        // "I spent $40" is still $40 (from the third review).
+        let before = out.iter().rev().find(|t| !t.is_empty()).copied();
+        let after = toks[i + 1..].iter().find(|t| !t.is_empty()).copied();
+        let used = !prose
+            || assigned.as_deref() == Some(tok)
+            || (before.is_none() && after.is_none())
+            || before.is_some_and(joins)
+            || after.is_some_and(joins);
+        if var && used {
             out.push(tok);
             continue;
         }
-        let after_number = out
-            .iter()
-            .rev()
-            .find(|t| !t.is_empty())
-            .is_some_and(|t| t.ends_with(|c: char| c.is_ascii_digit() || c == ')'));
-        if PROSE.contains(&tok) && !after_number {
+        let after_number =
+            before.is_some_and(|t| t.ends_with(|c: char| c.is_ascii_digit() || c == ')'));
+        if prose && !after_number {
             continue;
         }
         out.push(tok);
@@ -1236,14 +1357,17 @@ pub fn pretty(raw: &str) -> String {
                 "fahrenheit" => "°F",
                 _ => tok,
             };
-            let (body, pct) = match tok.strip_suffix('%') {
-                Some(b) => (b, "%"),
-                None => (tok, ""),
+            // "25%", and the imaginary part of a complex answer ("1.3643763538i").
+            let (body, pct) = match (tok.strip_suffix('%'), tok.strip_suffix('i')) {
+                (Some(b), _) => (b, "%"),
+                (_, Some(b)) if NUM_TOKEN.is_match(b) => (b, "i"),
+                _ => (tok, ""),
             };
             match NUM_TOKEN.captures(body) {
                 Some(c) => {
-                    let n = format_number(&c[3], c.get(4).map(|m| m.as_str()), is_money);
-                    format!("{}{}{n}{pct}", &c[1], &c[2])
+                    let n = format_number(&c[4], c.get(5).map(|m| m.as_str()), is_money);
+                    let sign = if c[1].is_empty() { &c[3] } else { &c[1] };
+                    format!("{sign}{}{n}{pct}", &c[2])
                 }
                 None => tok.to_string(),
             }
@@ -1312,40 +1436,87 @@ fn looks_like_date(s: &str) -> bool {
 }
 
 fn format_number(int: &str, frac: Option<&str>, money: bool) -> String {
-    // Beyond 15 digits an f64 can't hold the number exactly; group fend's digits as
-    // they are.
-    if int.trim_start_matches('0').len() > 15 {
-        return group_thousands(int);
+    // Rounded on the decimal digits themselves, half away from zero: an f64 would
+    // turn 2.675 into 2.67499… and show 2.67.
+    let int = int.trim_start_matches('0');
+    let frac = frac.unwrap_or("");
+    let leading = frac.chars().take_while(|&c| c == '0').count();
+    if int.is_empty() && leading == frac.len() {
+        return "0".to_string();
     }
-    let value: f64 = format!("{int}.{}", frac.unwrap_or("0"))
-        .parse()
-        .unwrap_or(0.0);
-    let leading = frac.map_or(0, |f| f.chars().take_while(|&c| c == '0').count());
-    if value != 0.0 && value < 1e-6 {
-        // Tiny: 1.6e-19, not 0.
-        let sci = format!("{value:.2e}");
-        let (m, e) = sci.split_once('e').unwrap_or((&sci, "0"));
-        let m = m.trim_end_matches('0').trim_end_matches('.');
-        return format!("{m}e{e}");
+    if int.is_empty() && leading >= 6 {
+        // Tiny: 1.6e-19, not 0. Three significant digits.
+        let (mut digits, carried) = round_digits(&frac[leading..], 3);
+        digits.truncate(3);
+        let exp = -(leading as i64) - 1 + carried as i64;
+        let (first, rest) = digits.split_at(1);
+        let rest = rest.trim_end_matches('0');
+        return match rest {
+            "" => format!("{first}e{exp}"),
+            _ => format!("{first}.{rest}e{exp}"),
+        };
     }
-    let decimals = if value >= 1.0 || (money && value >= 0.01) {
+    let decimals = if !int.is_empty() || (money && leading < 2) {
         2
     } else {
         // Two significant digits for small numbers: 0.000123 -> 0.00012
         leading + 2
     };
-    let rounded = format!("{value:.decimals$}");
-    let (i, f) = rounded.split_once('.').unwrap_or((&rounded, ""));
+    let (digits, _) = round_digits(&format!("{int}{frac}"), int.len() + decimals);
+    let (i, f) = digits.split_at(digits.len() - decimals);
+    let i = match i.trim_start_matches('0') {
+        "" => "0",
+        i => i,
+    };
     let f = if money && decimals == 2 && !f.trim_end_matches('0').is_empty() {
-        f.to_string() // $41.10, not $41.1
+        f // $41.10, not $41.1
     } else {
-        f.trim_end_matches('0').to_string()
+        f.trim_end_matches('0')
     };
     let grouped = group_thousands(i);
     if f.is_empty() {
         grouped
     } else {
         format!("{grouped}.{f}")
+    }
+}
+
+/// The first `keep` of `digits` (padded with zeros), rounded half up on the next
+/// one, and whether rounding carried into a new leading digit ("9995", 3 -> "1000").
+fn round_digits(digits: &str, keep: usize) -> (String, bool) {
+    let mut out: Vec<u8> = digits.bytes().take(keep).collect();
+    out.resize(keep, b'0');
+    if digits.as_bytes().get(keep).is_some_and(|&d| d >= b'5') {
+        for d in out.iter_mut().rev() {
+            if *d == b'9' {
+                *d = b'0';
+            } else {
+                *d += 1;
+                return (String::from_utf8(out).unwrap_or_default(), false);
+            }
+        }
+        out.insert(0, b'1');
+        return (String::from_utf8(out).unwrap_or_default(), true);
+    }
+    (String::from_utf8(out).unwrap_or_default(), false)
+}
+
+/// `num` times 10^`places`, worked out on the digits ("1.5", 5 -> "150000").
+fn shift_point(num: &str, places: usize) -> String {
+    let (int, frac) = num.split_once('.').unwrap_or((num, ""));
+    let mut frac = frac.to_string();
+    if frac.len() < places {
+        frac.push_str(&"0".repeat(places - frac.len()));
+    }
+    let (more, rest) = frac.split_at(places);
+    let int = format!("{int}{more}");
+    let int = match int.trim_start_matches('0') {
+        "" => "0",
+        i => i,
+    };
+    match rest {
+        "" => int.to_string(),
+        _ => format!("{int}.{rest}"),
     }
 }
 
@@ -1383,6 +1554,35 @@ mod tests {
 
     fn one(line: &str) -> String {
         eval(line).pop().unwrap()
+    }
+
+    #[test]
+    fn realigns_answers_to_edited_text() {
+        let old = "a = 1\nb = 2\nc = 3";
+        let results = eval_results(old);
+        let shown = |new: &str| -> Vec<String> {
+            realign(old, &results, new)
+                .into_iter()
+                .map(|r| r.display)
+                .collect()
+        };
+        // A line inserted: the answers below it move down with their lines.
+        assert_eq!(shown("a = 1\n\nb = 2\nc = 3"), ["1", "", "2", "3"]);
+        assert_eq!(shown("new\na = 1\nb = 2\nc = 3"), ["", "1", "2", "3"]);
+        // Removed, changed, appended.
+        assert_eq!(shown("a = 1\nc = 3"), ["1", "3"]);
+        assert_eq!(shown("a = 1\nb = 20\nc = 3"), ["1", "", "3"]);
+        assert_eq!(shown("a = 1\nb = 2\nc = 3\nd"), ["1", "2", "3", ""]);
+        assert_eq!(shown(""), [""]);
+        assert_eq!(shown(old), ["1", "2", "3"]);
+        // Repeated lines: the top match wins, never an answer from the wrong place.
+        let old = "x\nx\nx";
+        let results = eval_results("1\n2\n3");
+        let got: Vec<String> = realign(old, &results, "x\nx")
+            .into_iter()
+            .map(|r| r.display)
+            .collect();
+        assert_eq!(got, ["1", "2"]);
     }
 
     #[test]
