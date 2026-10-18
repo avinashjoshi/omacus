@@ -249,3 +249,24 @@ ln(0) => !Not defined
 # Complex answers round like any other
 log(-1) => 1.36i
 sqrt(-2) => 0 + 1.41i
+---
+# A date that can't be says so (2026-02-30 was 1,994, 2026-13-01 was 2,012)
+2026-02-30 => !Not a date
+2026-13-01 => !Not a date
+2026-02-30 + 3 days => !Not a date
+2026-04-31 - 2026-04-01 => !Not a date
+Feb 30 => !Not a date
+Jun 31 => !Not a date
+on Feb 31 2026 => !Not a date
+Feb 30 + 1 week => !Not a date
+days until Feb 30 => !Not a date
+2024-02-29 => Thursday, 29 February 2024
+2026-02-28 => Saturday, 28 February 2026
+# Written as subtraction, it's subtraction
+2026 - 2 - 30 => 1,994
+---
+# mod by zero, and mod where it can't be worked out, say so
+10 mod 0 => !Can't divide by zero
+7.5 mod 2 => !mod needs whole numbers, 0 or more
+-7 mod 3 => !mod needs whole numbers, 0 or more
+10 mod 3 => 1
