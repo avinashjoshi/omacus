@@ -16,15 +16,19 @@ release() { # release <dir> <file> <content> [tampered content]
 release good omacus-macos-arm64.dmg app
 release bad omacus-macos-arm64.dmg app swapped
 release old omacus-macos-universal.dmg universal
-try() { # install_macos's own download lines, run against a local release
+# install_macos's own download lines and the fetch function they call, taken from
+# install.sh by plain string matching (BSD and GNU sed read braces differently).
+FETCH="$(awk '$0 == "fetch() {" { f = 1 } f { print } f && $0 == "}" { exit }' install.sh)"
+CALLS="$(awk 'index($0, "fetch \"$dl\" \"omacus-macos-$arch.dmg\"") { f = 1 } f { print } f && index($0, "universal.dmg") { exit }' install.sh)"
+[[ -n "$FETCH" && -n "$CALLS" ]] || { echo "FAIL: download code not found in install.sh"; exit 1; }
+export FETCH CALLS
+try() { # those lines, run against a local release
   bash -c '
     set -euo pipefail
-    eval "$(sed -n "/^fetch() {/,/^}/p" install.sh)"
-    calls="$(sed -n "/fetch \"\$dl\" \"omacus-macos-\$arch.dmg\"/,/universal.dmg/p" install.sh)"
-    [[ -n "$calls" ]] || { echo "download lines not found in install.sh"; exit 1; }
+    eval "$FETCH"
     CURL=(curl -fsSL)
     dl="file://$1" arch=arm64 TMP_DIR="$2"
-    eval "$calls"
+    eval "$CALLS"
     cat "$2/omacus.dmg"' _ "$work/$1" "$(mktemp -d "$work/tmp.XXXX")" 2>&1
 }
 fail=0
