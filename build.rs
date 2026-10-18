@@ -1,5 +1,5 @@
 //! Compress the bundled fonts, so the binary carries them deflated (about 40% smaller);
-//! the app inflates them once at startup.
+//! the app inflates them once at startup. On Windows, also give omacus.exe its icon.
 
 use std::path::Path;
 
@@ -17,5 +17,15 @@ fn main() {
         let bytes = std::fs::read(&src).unwrap();
         let packed = miniz_oxide::deflate::compress_to_vec(&bytes, 10);
         std::fs::write(Path::new(&out).join(format!("{name}.deflate")), packed).unwrap();
+    }
+    #[cfg(windows)]
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        println!("cargo::rerun-if-changed=assets/icon.ico");
+        winresource::WindowsResource::new()
+            .set_icon("assets/icon.ico")
+            .set("FileDescription", "Omacus")
+            .set("ProductName", "Omacus")
+            .compile()
+            .expect("embed the Windows icon");
     }
 }

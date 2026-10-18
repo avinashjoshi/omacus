@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Download Omacus: free notepad calculator for Linux, macOS and Windows</title>
-  <meta name="description" content="Download Omacus, the free and open-source notepad calculator: a one-line installer for Omarchy, Linux and macOS, .dmg for Apple Silicon and Intel Macs, a portable Windows .exe, and .deb, .rpm and .tar.gz packages.">
+  <meta name="description" content="Download Omacus, the free and open-source notepad calculator: a one-line installer for Omarchy, Linux and macOS, .dmg for Apple Silicon and Intel Macs, a one-click Windows installer, and .deb, .rpm and .tar.gz packages.">
   <meta name="author" content="Avinash Joshi">
   <link rel="canonical" href="https://omacus.com/download/">
   <meta name="theme-color" content="#090909">
@@ -12,14 +12,14 @@
   <meta property="og:site_name" content="Omacus">
   <meta property="og:url" content="https://omacus.com/download/">
   <meta property="og:title" content="Download Omacus">
-  <meta property="og:description" content="Download Omacus, the free and open-source notepad calculator: a one-line installer for Omarchy, Linux and macOS, .dmg for Apple Silicon and Intel Macs, a portable Windows .exe, and .deb, .rpm and .tar.gz packages.">
+  <meta property="og:description" content="Download Omacus, the free and open-source notepad calculator: a one-line installer for Omarchy, Linux and macOS, .dmg for Apple Silicon and Intel Macs, a one-click Windows installer, and .deb, .rpm and .tar.gz packages.">
   <meta property="og:image" content="https://omacus.com/img/og.png?v=2">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Download Omacus">
-  <meta name="twitter:description" content="Download Omacus, the free and open-source notepad calculator: a one-line installer for Omarchy, Linux and macOS, .dmg for Apple Silicon and Intel Macs, a portable Windows .exe, and .deb, .rpm and .tar.gz packages.">
+  <meta name="twitter:description" content="Download Omacus, the free and open-source notepad calculator: a one-line installer for Omarchy, Linux and macOS, .dmg for Apple Silicon and Intel Macs, a one-click Windows installer, and .deb, .rpm and .tar.gz packages.">
   <meta name="twitter:image" content="https://omacus.com/img/og.png?v=2">
   <link rel="manifest" href="/site.webmanifest">
   <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
@@ -36,7 +36,7 @@
    "@type": "WebPage",
    "@id": "https://omacus.com/download/#page",
    "headline": "Download Omacus",
-   "description": "Download Omacus, the free and open-source notepad calculator: a one-line installer for Omarchy, Linux and macOS, .dmg for Apple Silicon and Intel Macs, a portable Windows .exe, and .deb, .rpm and .tar.gz packages.",
+   "description": "Download Omacus, the free and open-source notepad calculator: a one-line installer for Omarchy, Linux and macOS, .dmg for Apple Silicon and Intel Macs, a one-click Windows installer, and .deb, .rpm and .tar.gz packages.",
    "url": "https://omacus.com/download/",
    "inLanguage": "en",
    "dateModified": "{{lastmod}}",
@@ -137,9 +137,14 @@
 
     <article class="dl" id="windows">
       <header><svg aria-hidden="true"><use href="/img/sprite.svg#windows"/></svg><h3>Windows <small>64-bit</small></h3></header>
-      <p>A single portable <code>omacus.exe</code>. Unzip it anywhere and run it; pin it to Start if you like. It updates itself.</p>
-      <div class="links"><a class="btn primary" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64.zip"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download .zip</a></div>
-      <p class="note">If SmartScreen warns about an unknown publisher, choose <b>More info → Run anyway</b>.</p>
+      <p>The installer puts Omacus in Start and opens it, with no admin prompt. It updates itself.</p>
+      <div class="links">
+        <a class="btn primary" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64-setup.exe"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download installer</a>
+        <a class="btn" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64.zip"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Portable .zip</a>
+      </div>
+      <p class="or-ps">Or in PowerShell:</p>
+      <div class="cmd"><span class="prompt">PS&gt;</span><code>irm https://omacus.com/install.ps1 | iex</code><button class="copy" data-copy="irm https://omacus.com/install.ps1 | iex"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
+      <p class="note">Omacus isn't signed yet, so a downloaded installer may get a SmartScreen warning: choose <b>More info → Run anyway</b>. The PowerShell line doesn't get one. Uninstall from <b>Settings → Apps</b>; your sheets stay.</p>
     </article>
 
     <article class="dl" id="linux">

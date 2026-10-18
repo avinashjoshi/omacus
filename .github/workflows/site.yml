@@ -5,7 +5,7 @@ name: Site
 on:
   push:
     branches: [main]
-    paths: ["site/**", "engine/**", "web/**", "install.sh", "Cargo.toml", "Cargo.lock", ".github/workflows/site.yml"]
+    paths: ["site/**", "engine/**", "web/**", "install.sh", "install.ps1", "Cargo.toml", "Cargo.lock", ".github/workflows/site.yml"]
   workflow_dispatch:
   # The monthly refresh (freshen.yml) deploys through this after committing.
   workflow_call:
@@ -45,6 +45,7 @@ jobs:
           cp -r site/. _site/
           rm -rf _site/tools _site/app/pkg
           cp install.sh _site/install
+          cp install.ps1 _site/install.ps1
       - name: Build the engine for the browser (omacus.com/app)
         # The desktop app's own engine, compiled to WebAssembly. The CLI version must
         # match the wasm-bindgen crate pinned in web/Cargo.toml.
