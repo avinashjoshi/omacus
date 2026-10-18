@@ -1521,9 +1521,15 @@ impl OmacusApp {
             result.display.clone()
         };
 
+        // Stale: from before an edit above it, until its new answer arrives.
+        let color = if copied || result.stale {
+            theme.dim
+        } else {
+            theme.accent
+        };
         let galley = ui
             .ctx()
-            .fonts_mut(|f| f.layout_no_wrap(text, font.clone(), theme.accent));
+            .fonts_mut(|f| f.layout_no_wrap(text, font.clone(), color));
         let size = galley.size();
         // A colour answer gets a swatch of it, left of the text.
         let swatch = result.color.filter(|_| !copied);
@@ -1546,12 +1552,6 @@ impl OmacusApp {
             self.copied = Some((line, Instant::now()));
             ui.ctx().request_repaint_after(COPIED_FOR);
         }
-        // Stale: from before an edit above it, until its new answer arrives.
-        let color = if copied || result.stale {
-            theme.dim
-        } else {
-            theme.accent
-        };
         if let Some([r, g, b]) = swatch {
             let side = font.size * 0.8;
             let square = Rect::from_min_size(
