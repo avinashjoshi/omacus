@@ -72,17 +72,30 @@ fn cases() {
 /// took (from the second review: 50 slow lines got 36 answers and 14 "too big").
 #[test]
 fn same_line_same_answer_anywhere() {
-    for line in ["10000!", "1000!", "2^64"] {
-        let sheet = vec![line; 50].join("\n");
+    // Lines well inside the time limit, and one far past it, even in a debug build on
+    // a busy machine (one near the limit, like 10000! in debug, would vary with load,
+    // not with where it sits).
+    for (line, copies, want) in [
+        ("3000!", 50, None),
+        ("1000!", 50, None),
+        ("2^64", 50, Some("18,446,744,073,709,551,616")),
+        ("100000!", 12, Some("")),
+    ] {
+        let sheet = vec![line; copies].join("\n");
         let results = engine().eval_document(&sheet);
         let first = (&results[0].display, results[0].note);
+        if let Some(want) = want {
+            assert_eq!(results[0].display, want, "{line}");
+        } else {
+            assert!(!results[0].display.is_empty(), "{line} got no answer");
+        }
         let differ = results
             .iter()
             .filter(|r| (&r.display, r.note) != first)
             .count();
         assert_eq!(
             differ, 0,
-            "{differ} of 50 copies of {line:?} got a different answer"
+            "{differ} of {copies} copies of {line:?} got a different answer"
         );
     }
 }
