@@ -7,13 +7,12 @@ import glob
 import os.path
 
 app = defines["app"]  # noqa: F821 (dmgbuild provides it)
-here = os.path.dirname(os.path.abspath(settings_file))  # noqa: F821
 
 format = "UDZO"
 files = [app]
 symlinks = {"Applications": "/Applications"}
 icon = (glob.glob(os.path.join(app, "Contents", "Resources", "*.icns")) or [None])[0]
-background = os.path.join(here, "dmg-background.tiff")
+background = "installer/dmg-background.tiff"  # run from the repo
 
 window_rect = ((200, 140), (660, 400))
 default_view = "icon-view"
