@@ -1673,7 +1673,15 @@ impl eframe::App for OmacusApp {
         self.show_toast(&ctx);
     }
 
+    // glow's `on_exit` receives the GL context. Windows enables wgpu only
+    // (see Cargo.toml), and eframe's trait takes no context then.
+    #[cfg(not(windows))]
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.save();
+    }
+
+    #[cfg(windows)]
+    fn on_exit(&mut self) {
         self.save();
     }
 
