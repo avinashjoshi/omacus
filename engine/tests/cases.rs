@@ -72,17 +72,30 @@ fn cases() {
 /// took (from the second review: 50 slow lines got 36 answers and 14 "too big").
 #[test]
 fn same_line_same_answer_anywhere() {
-    for line in ["10000!", "1000!", "2^64"] {
-        let sheet = vec![line; 50].join("\n");
+    // Lines well inside the time limit, and one far past it, even in a debug build on
+    // a busy machine (one near the limit, like 10000! in debug, would vary with load,
+    // not with where it sits).
+    for (line, copies, want) in [
+        ("3000!", 50, None),
+        ("1000!", 50, None),
+        ("2^64", 50, Some("18,446,744,073,709,551,616")),
+        ("100000!", 12, Some("")),
+    ] {
+        let sheet = vec![line; copies].join("\n");
         let results = engine().eval_document(&sheet);
         let first = (&results[0].display, results[0].note);
+        if let Some(want) = want {
+            assert_eq!(results[0].display, want, "{line}");
+        } else {
+            assert!(!results[0].display.is_empty(), "{line} got no answer");
+        }
         let differ = results
             .iter()
             .filter(|r| (&r.display, r.note) != first)
             .count();
         assert_eq!(
             differ, 0,
-            "{differ} of 50 copies of {line:?} got a different answer"
+            "{differ} of {copies} copies of {line:?} got a different answer"
         );
     }
 }
@@ -168,6 +181,40 @@ fn reusing_work_matches_starting_over() {
                 same(&reused, &engine.eval_document(&text)),
                 "editing {text:?}"
             );
+        }
+    }
+}
+
+/// A calculation cut off between any two lines (newer text arrived) must leave the
+/// sheet's saved work right: finishing it later gives what starting over gives,
+/// even when the text changed in between.
+#[test]
+fn stopping_part_way_keeps_saved_work_right() {
+    use std::cell::Cell;
+    let engine = engine();
+    for sheet in sheets() {
+        let lines = sheet.lines().count();
+        let edited = sheet.replacen('\n', " + 1\n", 1);
+        for after in 0..=lines {
+            for next in [&sheet, &edited] {
+                let mut cache = Sheet::default();
+                let checks = Cell::new(0);
+                let stopped = engine.eval_sheet_until(&sheet, &mut cache, || {
+                    checks.set(checks.get() + 1);
+                    checks.get() > after
+                });
+                if after == 0 && lines > 1 {
+                    assert!(stopped.is_none(), "never stopped: {sheet:?}");
+                }
+                if let Some(done) = stopped {
+                    assert!(same(&done, &engine.eval_document(&sheet)), "{sheet:?}");
+                }
+                let finished = engine.eval_sheet(next, &mut cache);
+                assert!(
+                    same(&finished, &engine.eval_document(next)),
+                    "stopped after {after} lines, then {next:?}"
+                );
+            }
         }
     }
 }

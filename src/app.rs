@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use eframe::egui::text::{CCursor, CCursorRange};
@@ -163,15 +164,22 @@ fn find_sheets(titles: &[String], texts: &[&str], query: &str) -> Vec<usize> {
     ranked.into_iter().map(|(_, i)| i).collect()
 }
 
+/// A sheet laid out with its answers, ready for the clipboard, and what to say.
+type Copied = (String, &'static str);
+
 pub struct OmacusApp {
     store: Store,
     results: Vec<LineResult>,
-    /// The text `results` are the answers for (the sheet may be ahead of it).
+    /// The text `results` are lined up with, and whether they were worked out for
+    /// exactly that text (otherwise they're older answers moved to their lines while
+    /// the new ones are on their way).
     results_text: String,
+    results_exact: bool,
     vars: HashSet<String>,
-    /// For one-off answers (Copy with answers); the sheet itself is calculated by
-    /// `calc`, off this thread.
+    /// For one-off answers (Copy with answers), worked out on a thread of their own
+    /// and sent back through `copies`; the sheet itself is calculated by `calc`.
     engine: Engine,
+    copies: (Sender<Copied>, Receiver<Copied>),
     calc: Calculator,
     rates: Rates,
     rates_seen: u64,
@@ -226,8 +234,10 @@ impl OmacusApp {
             store: Store::load(WELCOME),
             results: Vec::new(),
             results_text: String::new(),
+            results_exact: false,
             vars: HashSet::new(),
             engine: Engine::new(rates.table()).with_clock(engine::monotonic_ms),
+            copies: channel(),
             calc: {
                 let repaint = cc.egui_ctx.clone();
                 Calculator::new(
@@ -288,28 +298,54 @@ impl OmacusApp {
     fn evaluate(&mut self) {
         let sheet = self.store.current();
         self.calc.request(&sheet.id, &sheet.text);
+        if self.results_text != sheet.text {
+            self.results = engine::realign(&self.results_text, &self.results, &sheet.text);
+            self.results_text = sheet.text.clone();
+            self.results_exact = false;
+        }
         self.vars = engine::defined_variables(&sheet.text);
         self.evaluated_at = Instant::now();
     }
 
-    /// Sheet `i`'s answers: the ones on screen when they're up to date, so copying
-    /// never waits on a slow line; otherwise worked out now.
-    fn answers_for(&self, i: usize) -> Vec<LineResult> {
-        let text = &self.store.sheets[i].text;
-        if i == self.store.active && self.results_text == *text {
-            return self.results.clone();
+    /// Copy sheet `i` with its answers, as `format` lays them out. The answers on
+    /// screen are used when they're up to date; otherwise they're worked out on
+    /// another thread, so the window never waits on a slow line.
+    fn copy_with(
+        &mut self,
+        i: usize,
+        format: fn(&str, &[LineResult]) -> String,
+        done: &'static str,
+    ) {
+        let text = self.store.sheets[i].text.clone();
+        if i == self.store.active && self.results_exact && self.results_text == text {
+            self.ctx.copy_text(format(&text, &self.results));
+            self.toast = Some(Toast::info(done));
+            return;
         }
-        self.engine.eval_document(text)
+        let (engine, sender, ctx) = (self.engine.clone(), self.copies.0.clone(), self.ctx.clone());
+        std::thread::spawn(move || {
+            let results = engine.eval_document(&text);
+            if sender.send((format(&text, &results), done)).is_ok() {
+                ctx.request_repaint();
+            }
+        });
     }
 
     /// Answers from the calculator, for the sheet on screen. While the newest are
-    /// on their way, the last ones stay (a line typed a moment ago has none yet).
+    /// on their way, the last ones stay, lined up with their lines (a line typed a
+    /// moment ago has none yet).
     fn take_answers(&mut self) {
         if let Some(done) = self.calc.take()
             && done.sheet == self.store.current().id
         {
-            self.results = done.results;
-            self.results_text = done.text;
+            let text = &self.store.current().text;
+            self.results_exact = done.text == *text;
+            self.results = if self.results_exact {
+                done.results
+            } else {
+                engine::realign(&done.text, &done.results, text)
+            };
+            self.results_text = text.clone();
         }
     }
 
@@ -323,6 +359,7 @@ impl OmacusApp {
         // Another sheet's answers mustn't show against this one's lines.
         self.results.clear();
         self.results_text.clear();
+        self.results_exact = false;
         self.focus_editor = true;
         self.evaluate();
         self.touched();
@@ -342,11 +379,7 @@ impl OmacusApp {
                 self.store.move_active(step);
             }
             SheetAction::Copy(i) => {
-                let results = self.answers_for(i);
-                let text = &self.store.sheets[i].text;
-                let ctx = self.ctx.clone();
-                ctx.copy_text(engine::with_answers(text, &results));
-                self.toast = Some(Toast::info("Sheet copied with answers"));
+                self.copy_with(i, engine::with_answers, "Sheet copied with answers");
                 return;
             }
             SheetAction::Share(i) => {
@@ -364,11 +397,11 @@ impl OmacusApp {
                 return;
             }
             SheetAction::CopyMarkdown(i) => {
-                let results = self.answers_for(i);
-                let text = &self.store.sheets[i].text;
-                let ctx = self.ctx.clone();
-                ctx.copy_text(engine::markdown_table(text, &results));
-                self.toast = Some(Toast::info("Sheet copied as a Markdown table"));
+                self.copy_with(
+                    i,
+                    engine::markdown_table,
+                    "Sheet copied as a Markdown table",
+                );
                 return;
             }
         }
@@ -388,6 +421,12 @@ impl OmacusApp {
             .refresh_if_stale(move || repaint.request_repaint());
         let repaint = ctx.clone();
         self.updates.check_if_due(move || repaint.request_repaint());
+
+        // Copies whose answers were worked out on another thread.
+        while let Ok((text, done)) = self.copies.1.try_recv() {
+            ctx.copy_text(text);
+            self.toast = Some(Toast::info(done));
+        }
 
         // Share links from the command line, macOS, or a paste.
         for text in crate::links::take() {

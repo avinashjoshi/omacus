@@ -1,2 +1,3 @@
 /target
 /site/app/pkg
+__pycache__/
