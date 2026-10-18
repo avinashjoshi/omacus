@@ -28,6 +28,10 @@ ureq = "3.4.2"
 [build-dependencies]
 miniz_oxide = "0.8"
 
+# The icon and version details in omacus.exe (Explorer, the taskbar, Start).
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
 # Share links clicked on macOS arrive as an Apple Event (see src/links.rs).
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

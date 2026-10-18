@@ -88,16 +88,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo build --release --locked
-      - name: Package .zip
+      # Builds the setup .exe and checks it (and the .exe) the way people use them.
+      - name: Installer, checked
+        shell: pwsh
+        run: tests/windows-installer.ps1 target/release/omacus.exe
+      - name: Package .zip and the installer
         shell: pwsh
         run: |
           New-Item -ItemType Directory dist | Out-Null
           Copy-Item target/release/omacus.exe, README.md dist/
           Compress-Archive -Path dist/* -DestinationPath omacus-windows-x86_64.zip
+          Copy-Item target/installer/omacus-windows-x86_64-setup.exe .
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: windows
-          path: omacus-windows-x86_64.zip
+          path: |
+            omacus-windows-x86_64.zip
+            omacus-windows-x86_64-setup.exe
 
   macos:
     needs: ci
@@ -118,6 +125,8 @@ jobs:
         # One .dmg per chip rather than a universal one: each download is half the size.
         run: |
           cargo install cargo-bundle --version 0.12.0 --locked
+          python3 -m pip install --break-system-packages dmgbuild==1.6.5
+          tiffutil -cathidpicheck installer/dmg-background.png installer/dmg-background@2x.png -out installer/dmg-background.tiff
           cargo bundle --release
           for arch in arm64:aarch64 x86_64:x86_64; do
             name="${arch%%:*}" target="${arch#*:}-apple-darwin"
@@ -125,8 +134,8 @@ jobs:
             cp -R target/release/bundle/osx/Omacus.app "dmg-$name/"
             cp "target/$target/release/omacus" "dmg-$name/Omacus.app/Contents/MacOS/omacus"
             codesign --force --deep --sign - "dmg-$name/Omacus.app"   # ad-hoc; not notarized
-            ln -s /Applications "dmg-$name/Applications"
-            hdiutil create -volname Omacus -srcfolder "dmg-$name" -ov -format UDZO "omacus-macos-$name.dmg"
+            # A window with the app, Applications and an arrow between (installer/dmg-settings.py).
+            dmgbuild -s installer/dmg-settings.py -D app="dmg-$name/Omacus.app" Omacus "omacus-macos-$name.dmg"
           done
       - name: Check each .dmg holds a working app for its chip
         # Before anything is published: right architecture, and it runs (Intel via Rosetta).

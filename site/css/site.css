@@ -1517,6 +1517,24 @@ kbd {
   gap: 14px;
 }
 
+/* The visitor's own system, first (site.js). */
+.dl.yours {
+  border-color: rgba(240, 161, 42, 0.45);
+  box-shadow: 0 0 0 1px rgba(240, 161, 42, 0.12), 0 18px 50px -30px var(--accent-glow);
+}
+
+.dl .or-ps {
+  margin: 2px 0 -6px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.dl .yours-tag {
+  margin-left: auto;
+  font: 500 12px/1 var(--mono, monospace);
+  color: var(--accent);
+}
+
 .dl header {
   display: flex;
   align-items: center;

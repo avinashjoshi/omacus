@@ -141,12 +141,20 @@ Applications; the app isn't notarized yet, so the first time, open it once, then
 
 ### Windows
 
-1. Download [`omacus-windows-x86_64.zip`](https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64.zip)
-   and unzip it anywhere (for example `%LOCALAPPDATA%\Programs\Omacus`).
-2. Run `omacus.exe`. If SmartScreen warns about an unknown publisher, choose
-   **More info → Run anyway**.
-3. Optional: right-click `omacus.exe` → **Pin to Start**. A pinned shortcut's **Properties** let
-   you set a shortcut key.
+In PowerShell:
+
+```powershell
+irm https://omacus.com/install.ps1 | iex
+```
+
+Or download [the installer](https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64-setup.exe)
+and open it. Omacus installs for your user (no admin prompt) into `%LOCALAPPDATA%\Programs\Omacus`,
+appears in Start and opens; `omacus 2+2` works in a new terminal. It isn't signed yet, so a
+downloaded installer may get a SmartScreen warning: choose **More info → Run anyway** (the
+PowerShell line doesn't get one). Uninstall from **Settings → Apps**; your sheets are kept.
+
+No installer: [`omacus-windows-x86_64.zip`](https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64.zip)
+holds a single portable `omacus.exe`.
 
 It works from a terminal too: `omacus.exe "$100 in EUR"`.
 
