@@ -159,4 +159,40 @@ mod tests {
             text.push('\n');
         }
     }
+
+    /// Switching sheets mid-calculation: the newest answers are the new sheet's, and
+    /// the sheet that was cut off still gets the right answers when it comes back
+    /// (its saved work mustn't keep a half-finished calculation).
+    #[test]
+    fn switching_sheets_mid_calculation() {
+        let calc = Calculator::new(engine(), || {});
+        let reference = engine();
+        let a = ["x = 2", "100000!", "x * 3", "100000!", "total", "x + 1"].join("\n");
+        for _ in 0..5 {
+            calc.request("a", &a);
+            std::thread::sleep(Duration::from_millis(20));
+            calc.request("b", "1 + 1");
+            let mut last = wait(&calc);
+            std::thread::sleep(Duration::from_millis(50));
+            while let Some(more) = calc.take() {
+                last = more;
+            }
+            assert_eq!(last.sheet, "b");
+            assert_eq!(last.results[0].display, "2");
+        }
+        calc.request("a", &a);
+        let done = wait(&calc);
+        assert_eq!(done.sheet, "a");
+        let got: Vec<_> = done
+            .results
+            .iter()
+            .map(|r| (r.display.clone(), r.note))
+            .collect();
+        let want: Vec<_> = reference
+            .eval_document(&a)
+            .iter()
+            .map(|r| (r.display.clone(), r.note))
+            .collect();
+        assert_eq!(got, want);
+    }
 }

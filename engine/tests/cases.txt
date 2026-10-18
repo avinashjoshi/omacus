@@ -101,8 +101,8 @@ C$100 in USD => $73.53
 A$50 => 50 AUD
 US$20 => $20
 ---
-# Date maths that doesn't start from today
-Jan 31 + 1 month => Saturday, 28 February 2026
+# Date maths that doesn't start from today (years given, so these never expire)
+Jan 31 2026 + 1 month => Saturday, 28 February 2026
 Dec 25 - Dec 1 => 24 days
 ---
 # Decimal commas (a comma followed by one or two digits)
@@ -143,3 +143,109 @@ $80 * 15% => $12
 $100 / 3 => $33.33
 sqrt(-1) => 0 + i
 (1 + 2i) / 3 => 1/3 + 2i/3
+---
+# Halves round away from zero, on the exact digits (an f64 showed 2.675 as 2.67)
+$1.005 => $1.01
+2.675 => 2.68
+0.125 => 0.13
+$1,000.555 => $1,000.56
+$1,000.565 => $1,000.57
+999.995 => 1,000
+1.255 km => 1.26 km
+9.995e-8 => 1e-7
+0.00125 * 1 => 0.0013
+12345678901234567.555 => 12,345,678,901,234,567.56
+---
+# Negative money is rounded and grouped like any other amount
+$5 - $10.123 => -$5.12
+-$2.675 => -$2.68
+$100 - $8,481,527 => -$8,481,427
+---
+# A minus after the currency sign ("$-5" was read as "$1 - 5" and showed -$4)
+$-5 => -$5
+$ -5 => -$5
+$10 - $-5 => $15
+$-5.50 + $10 => $4.50
+€-5 => -5 EUR
+---
+# European grouping: dots in threes, then a decimal comma (1.000,50 showed 2)
+1.000,50 + 1 => 1,001.5
+€1.000,50 + 1 => 1,001.50 EUR
+12.345,67 + 1 => 12,346.67
+1.000.000 => 1,000,000
+€1.234.567,89 => 1,234,567.89 EUR
+1.5 + 2.5 => 4
+192.168.1.1 =>
+---
+# Lakh and crore (they showed 1 and 2)
+1 lakh => 100,000
+2 crore => 20,000,000
+1.5 lakh => 150,000
+3 lakhs + 50,000 => 350,000
+2.5 crores / 12 => 2,083,333.33
+salary = 18 lakh => 1,800,000
+salary / 12 => 150,000
+₹2 lakh => 200,000 INR
+---
+# A percentage of something, added or taken away, is worked out first
+100 - 20% of 50 => 90
+$10 + 20% of $50 => $20
+20% of 340 => 68
+---
+# "in" after a number is inches when nothing follows to convert into
+5 ft + 11 in in cm => 180.34 cm
+5 ft 11 in in cm => 180.34 cm
+12 in => 12 inches
+3 in + 2 in => 5 inches
+100 in hex => 64
+50 in binary => 110010
+---
+# A percentage glued to its word
+20%off $100 => $80
+5%on $200 => $210
+---
+# A short word that's also a variable is still prose in a sentence (third review)
+I = 3 => 3
+I spent $40 => $40
+I * 2 => 6
+2 * I => 6
+I times 2 => 6
+I => 3
+---
+at = 7 => 7
+Coffee at Joe $4 => $4
+at * 2 => 14
+---
+a = 5 => 5
+I paid a guy $10 => $10
+a + 1 => 6
+b = a * 2 => 10
+---
+my = 2 => 2
+my rent $1000 => $1,000
+my + 1 => 3
+---
+# A date on its own is that date, not a number ("2026-12-25" was 1,989)
+Dec 25 2026 => Friday, 25 December 2026
+on Dec 25 2026 => Friday, 25 December 2026
+25 Dec 2026 => Friday, 25 December 2026
+2026-12-25 => Friday, 25 December 2026
+2026-12-25 - 2026-12-01 => 24 days
+Friday =>
+Monday =>
+---
+# Fractions stay fractions; slashes are dates only after until, since or between
+12/25 => 0.48
+12/25 - 1/4 => 0.23
+days until 2/3 => !Write the month: Feb 3 or 3 Feb
+days between 12/1 and 12/25 => !Write the month: Feb 3 or 3 Feb
+days until 13/13 =>
+---
+# Maths that has no answer says so
+log(0) => !Not defined
+ln(0) => !Not defined
+0^0 => !Not defined
+---
+# Complex answers round like any other
+log(-1) => 1.36i
+sqrt(-2) => 0 + 1.41i

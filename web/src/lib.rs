@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use omacus_engine::{Engine, Kind, Rates, Sheet, complete};
+use omacus_engine::{Engine, Kind, LineResult, Rates, Sheet, complete};
 use serde_json::json;
 use wasm_bindgen::prelude::*;
 
@@ -89,6 +89,35 @@ impl Calc {
     }
 }
 
+/// The sheet laid out with answers already worked out (`results` as `evaluate`
+/// gives them), as text with the answers lined up or (`markdown`) as a Markdown
+/// table. Nothing is calculated, so the page can copy within the click that asked.
+#[wasm_bindgen(js_name = layoutAnswers)]
+pub fn layout_answers(text: &str, results: &str, markdown: bool) -> String {
+    let parsed: Vec<serde_json::Value> = serde_json::from_str(results).unwrap_or_default();
+    let results: Vec<LineResult> = parsed
+        .iter()
+        .map(|r| LineResult {
+            kind: match r["kind"].as_str() {
+                Some("header") => Kind::Header,
+                Some("comment") => Kind::Comment,
+                Some("value") => Kind::Value,
+                Some("none") => Kind::Error,
+                _ => Kind::Empty,
+            },
+            display: r["display"].as_str().unwrap_or_default().to_string(),
+            color: None,
+            note: None,
+            clock: false,
+        })
+        .collect();
+    if markdown {
+        omacus_engine::markdown_table(text, &results)
+    } else {
+        omacus_engine::with_answers(text, &results)
+    }
+}
+
 fn kind(k: &Kind) -> &'static str {
     match k {
         Kind::Empty => "empty",
@@ -162,6 +191,23 @@ fn to_json(results: Vec<omacus_engine::LineResult>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Laying out answers already worked out matches working them out again.
+    #[test]
+    fn lays_out_answers_it_is_given() {
+        let calc = Calc::new();
+        assert!(calc.set_rates(r#"{"USD": 1, "EUR": 0.9}"#));
+        let text = "# Trip\nHotel $300\nFood $120\n\ntotal\n// note\n10 / 0";
+        let results = calc.evaluate(text);
+        assert_eq!(
+            layout_answers(text, &results, false),
+            calc.with_answers(text)
+        );
+        assert_eq!(
+            layout_answers(text, &results, true),
+            calc.markdown_table(text)
+        );
+    }
 
     #[test]
     fn evaluates_a_sheet_as_json() {

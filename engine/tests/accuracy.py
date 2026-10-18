@@ -3,8 +3,9 @@
 
     python3 engine/tests/accuracy.py target/debug/omacus [lines per seed]
 
-- Random arithmetic and percentage lines, and values near fend 1.5.8's rounding
-  carry bug, each compared with the exact value (in fractions) as Omacus rounds it.
+- Random arithmetic and percentage lines, values near fend 1.5.8's rounding carry
+  bug, and numbers written other ways ("1.234,56", "2 lakh", "$-5"), each compared
+  digit for digit with the exact value (in fractions) rounded half up.
 - Unit and temperature conversions compared with their exact definitions (NIST).
 
 Prints each wrong line and exits non-zero if there are any. CI runs it."""
@@ -75,9 +76,32 @@ def percentage():
     ])
 
 
+def written():
+    """A number written another way people write numbers, and its value."""
+    a, b = rng.randint(1, 999_999), rng.randint(0, 99)
+    v = F(a) + F(b, 100)
+    grouped = f"{a:,}".replace(",", ".")
+    return rng.choice([
+        (f"{grouped},{b:02d}", v),  # 1.234,56
+        (f"{a},{b:02d}" if a < 1000 else f"{a}", v if a < 1000 else F(a)),  # 12,50
+        (f"{a % 1000}.{b:02d} lakh", (F(a % 1000) + F(b, 100)) * 10**5),
+        (f"{a % 100}.{b % 10} crore", (F(a % 100) + F(b % 10, 10)) * 10**7),
+        (f"{a:,}.{b:02d}", v),
+    ])
+
+
 def line():
     r = rng.random()
+    if r < 0.05:
+        a_t, a = written()
+        b_t, b = written()
+        op = rng.choice("+-*")
+        return f"{a_t} {op} {b_t}", {"+": a + b, "-": a - b, "*": a * b}[op]
     if r < 0.1:
+        a_t, a = number()
+        k = rng.randint(0, 99)
+        return f"$-{a_t} + {k}", k - a
+    if r < 0.15:
         # Near fend's rounding carry: a value plus p/q * 10^-k.
         a_t, a = number()
         p, q, k = rng.randint(1, 9), rng.randint(2, 9), rng.randint(8, 14)
@@ -104,10 +128,29 @@ def shown(text):
     return -v if neg else v
 
 
-def close(got, want):
-    if want != 0 and abs(want) < F(1, 10**6):
-        return abs(got - want) <= abs(want) * F(5, 1000)  # three significant digits
-    return abs(got - want) <= max(F(1, 200), abs(want) * F(1, 10**9))
+def rounded(want, money):
+    """`want` as Omacus should show it: two decimals (or two significant digits
+    under 1), three significant digits under 10^-6, halves rounded away from zero."""
+    if want == 0:
+        return F(0)
+    size = abs(want)
+    if size < F(1, 10**6):
+        digits = 3 - len(str(int(1 / size)))  # first significant digit, then two more
+        while size * F(10) ** (digits - 1) >= 100 or size * F(10) ** (digits - 1) < 10:
+            digits += 1 if size * F(10) ** (digits - 1) < 10 else -1
+    elif size >= 1 or (money and size >= F(1, 100)):
+        digits = 2
+    else:
+        digits = 2
+        while size * 10**digits < 10:
+            digits += 1
+    scale = F(10) ** digits
+    whole = int(size * scale + F(1, 2))  # half up, on the size
+    return (whole / scale) * (1 if want > 0 else -1)
+
+
+def close(got, want, money=False):
+    return got == rounded(want, money)
 
 
 def check(name, cases):
@@ -115,7 +158,7 @@ def check(name, cases):
     bad = 0
     for (text, want), got in zip(cases, answers([t for t, _ in cases])):
         value = shown(got)
-        if value is None or not close(value, want):
+        if value is None or not close(value, want, got.lstrip("-").startswith("$")):
             bad += 1
             if bad <= 30:
                 print(f"  {text:48} got {got!r:24} want {float(want):.6g}")

@@ -69,15 +69,19 @@ jobs:
           hash=$(sha256sum _site/img/sprite.svg | cut -c1-10)
           grep -rl --include='*.html' --include='*.js' '/img/sprite.svg#' _site |
             xargs sed -i "s#/img/sprite.svg\##/img/sprite.svg?v=$hash\##g"
-          # The app's engine: its .wasm and JS glue, referenced from app.js.
+          # The app's engine: its .wasm and JS glue, referenced from app.js and from the
+          # worker that calculates (worker.js), which app.js then points at by its hash.
           for f in omacus_web_bg.wasm omacus_web.js; do
             hash=$(sha256sum "_site/app/pkg/$f" | cut -c1-10)
-            sed -i "s#pkg/$f\"#pkg/$f?v=$hash\"#g" _site/app/app.js
+            sed -i "s#pkg/$f\"#pkg/$f?v=$hash\"#g" _site/app/app.js _site/app/worker.js
           done
+          grep -o 'pkg/[a-z_]*\.[a-z]*?v=[0-9a-f]*' _site/app/worker.js
+          hash=$(sha256sum _site/app/worker.js | cut -c1-10)
+          sed -i "s#\"./worker.js\"#\"./worker.js?v=$hash\"#" _site/app/app.js
           # The editor (CodeMirror, bundled by site/tools/editor), imported by app.js.
           hash=$(sha256sum _site/app/editor.js | cut -c1-10)
           sed -i "s#\"./editor.js\"#\"./editor.js?v=$hash\"#" _site/app/app.js
-          grep -o 'pkg/[a-z_]*\.[a-z]*?v=[0-9a-f]*\|editor\.js?v=[0-9a-f]*' _site/app/app.js
+          grep -o 'pkg/[a-z_]*\.[a-z]*?v=[0-9a-f]*\|editor\.js?v=[0-9a-f]*\|worker\.js?v=[0-9a-f]*' _site/app/app.js
           for asset in css/site.css js/site.js js/demo-data.js app/app.css app/app.js; do
             hash=$(sha256sum "_site/$asset" | cut -c1-10)
             find _site -name '*.html' -exec sed -i "s#\"/$asset\"#\"/$asset?v=$hash\"#g" {} +

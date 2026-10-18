@@ -108,6 +108,7 @@ const SYNTAX: &[(&str, &[&str])] = &[
             "sqrt(144) + 10 mod 3",
             "5 x 3",
             "1.5k * 4",
+            "2.5 lakh / 12",
             "10 times 3 plus 2",
         ],
     ),
@@ -190,6 +191,7 @@ const SYNTAX: &[(&str, &[&str])] = &[
             "days since Jan 1",
             "Jan 31 + 1 month",
             "Dec 25 - Dec 1",
+            "next Friday",
         ],
     ),
     (

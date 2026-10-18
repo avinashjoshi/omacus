@@ -37,11 +37,17 @@ release_url() {
   fi
 }
 
-# fetch <base url> <file> <dest>: download a release file and check it against the
-# same release's SHA256SUMS.txt, so a damaged or swapped download is never installed.
+# fetch <base url> <file> <dest> [maybe]: download a release file and check it against
+# the same release's SHA256SUMS.txt, so a damaged or swapped download is never
+# installed. With "maybe", a file the release doesn't have fails quietly (the caller
+# tries another); a checksum that doesn't match always says so.
 fetch() {
-  local base=$1 name=$2 dest=$3 want got
-  "${CURL[@]}" "$base/$name" -o "$dest" || return 1
+  local base=$1 name=$2 dest=$3 maybe=${4:-} want got
+  if [[ -n "$maybe" ]]; then
+    "${CURL[@]}" "$base/$name" -o "$dest" 2>/dev/null || return 1
+  else
+    "${CURL[@]}" "$base/$name" -o "$dest" || return 1
+  fi
   "${CURL[@]}" "$base/SHA256SUMS.txt" -o "$dest.sums" || {
     echo "Couldn't download the release's checksums; not installing." >&2
     exit 1
@@ -80,7 +86,7 @@ install_macos() {
   dl="$(release_url)"
   echo "Downloading Omacus for macOS ($arch)…"
   # Up to 0.1.7 there was one universal .dmg for both chips.
-  fetch "$dl" "omacus-macos-$arch.dmg" "$TMP_DIR/omacus.dmg" 2>/dev/null ||
+  fetch "$dl" "omacus-macos-$arch.dmg" "$TMP_DIR/omacus.dmg" maybe ||
     fetch "$dl" "omacus-macos-universal.dmg" "$TMP_DIR/omacus.dmg"
   hdiutil attach -quiet -nobrowse -readonly -mountpoint "$MOUNT" "$TMP_DIR/omacus.dmg"
 

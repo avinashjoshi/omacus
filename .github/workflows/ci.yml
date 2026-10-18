@@ -34,6 +34,10 @@ jobs:
       - name: Accuracy
         if: runner.os == 'Linux'
         run: cargo build --locked && python3 engine/tests/accuracy.py target/debug/omacus
+      # install.sh refuses a download that doesn't match the release's checksum, and says so.
+      - name: Installer download check
+        if: runner.os != 'Windows'
+        run: tests/install-fetch.sh
 
   # The engine also runs in the browser (omacus.com/app), so it must build for
   # WebAssembly: no files, threads or network in it.
