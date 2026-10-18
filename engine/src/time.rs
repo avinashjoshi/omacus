@@ -61,6 +61,8 @@ re!(
     DATE_SHIFT,
     r"(?i)^(.+?)\s*([+-])\s*(\d+)\s*(day|week|month|year)s?$"
 );
+// "2026-12-25" anywhere on a line.
+re!(ISO_DATE, r"\b(\d{4})-(\d{2})-(\d{2})\b");
 // "12/25", "25/12/2026": only read as a date where a span needs one.
 re!(SLASH_DATE, r"^(\d{1,2})/(\d{1,2})(?:/(\d{4}|\d{2}))?$");
 // "Dec 25 - Dec 1": days between two dates.
@@ -352,8 +354,7 @@ fn eval_lone(line: &str, today: NaiveDate) -> Option<String> {
     let date = match spec? {
         DateSpec::Offset(_) => return None, // "today", "tomorrow": eval_date's
         DateSpec::Weekday { next, .. } => match lead {
-            Some("last") if !next => lone_date(text, today, false)?,
-            Some("on" | "this") if !next => lone_date(text, today, true)?,
+            Some(_) if !next => led_weekday(line, today)?,
             None if next => lone_date(text, today, true)?,
             _ => return None,
         },
@@ -363,6 +364,61 @@ fn eval_lone(line: &str, today: NaiveDate) -> Option<String> {
         DateSpec::MonthDay { .. } => return None,
     };
     Some(date.format("%A, %-d %B %Y").to_string())
+}
+
+/// "last Friday", "this Friday", "on Friday": a weekday with a word saying which.
+fn led_weekday(text: &str, today: NaiveDate) -> Option<NaiveDate> {
+    let text = text.trim();
+    let lower = text.to_ascii_lowercase();
+    let (lead, ahead) = [("last ", false), ("this ", true), ("on ", true)]
+        .into_iter()
+        .find(|(p, _)| lower.starts_with(p))?;
+    let day = text[lead.len()..].trim();
+    match take_date(day) {
+        (rest, Some(DateSpec::Weekday { next: false, .. })) if rest.is_empty() => {
+            lone_date(day, today, ahead)
+        }
+        _ => None,
+    }
+}
+
+/// A date that can't be: "2026-02-30", "Feb 30", "Jun 31". Written as a date
+/// anywhere on the line (2026-13-01 isn't 2,012), or with a month name as the line's
+/// date ("Feb 30 + 1 week"; "Feb 30" in a sentence is left alone).
+pub fn impossible_date(line: &str) -> bool {
+    let line = line.trim();
+    let iso = ISO_DATE.captures_iter(line).any(|c| {
+        let num = |i: usize| c[i].parse::<u32>().ok();
+        match (c[1].parse::<i32>().ok(), num(2), num(3)) {
+            (Some(y), Some(m), Some(d)) => NaiveDate::from_ymd_opt(y, m, d).is_none(),
+            _ => false,
+        }
+    });
+    let mut dates = vec![line.to_string()];
+    if let Some(c) = DATE_SHIFT.captures(line) {
+        dates.push(c[1].to_string());
+    }
+    if let Some(c) = DATE_DIFF.captures(line) {
+        dates.extend([c[1].to_string(), c[2].to_string()]);
+    }
+    if let Some(c) = SPAN.captures(line) {
+        dates.push(c[3].to_string());
+    }
+    if let Some(c) = BETWEEN.captures(line) {
+        dates.extend([c[2].to_string(), c[3].to_string()]);
+    }
+    iso || dates.iter().any(|d| {
+        let d = d.trim();
+        let d = d.strip_prefix("on ").unwrap_or(d);
+        match take_date(d) {
+            (rest, Some(DateSpec::MonthDay { month, day, year })) if rest.is_empty() => {
+                // Without a year, this year's: Feb 29 is a date in 2028, not in 2027.
+                let year = year.unwrap_or_else(|| Local::now().year());
+                NaiveDate::from_ymd_opt(year, month, day).is_none()
+            }
+            _ => false,
+        }
+    })
 }
 
 /// Names offered by autocomplete.
@@ -867,7 +923,7 @@ fn clock(t: NaiveTime) -> String {
 /// A date without a year is this year's.
 fn eval_date_math(line: &str, today: NaiveDate) -> Option<String> {
     if let Some(c) = DATE_SHIFT.captures(line) {
-        let date = this_years(&c[1], today)?;
+        let date = led_weekday(&c[1], today).or_else(|| this_years(&c[1], today))?;
         let n: i64 = c[3].parse().ok()?;
         let n = if &c[2] == "-" { -n } else { n };
         let moved = match c[4].to_ascii_lowercase().as_str() {
@@ -886,7 +942,8 @@ fn eval_date_math(line: &str, today: NaiveDate) -> Option<String> {
         return Some(moved.format("%A, %-d %B %Y").to_string());
     }
     let c = DATE_DIFF.captures(line)?;
-    let (a, b) = (this_years(&c[1], today)?, this_years(&c[2], today)?);
+    let date = |t: &str| led_weekday(t, today).or_else(|| this_years(t, today));
+    let (a, b) = (date(&c[1])?, date(&c[2])?);
     let days = (a - b).num_days();
     let shown = plural(days.abs(), "day", "days");
     Some(if days < 0 { format!("-{shown}") } else { shown })
@@ -1219,6 +1276,46 @@ mod tests {
             rel("in 2 days 3 hours in New York"),
             "6:00 PM EST, Sun 1 Nov"
         );
+    }
+
+    /// "last Friday + 1 week" was "1 week": date maths knew "next Friday" but not
+    /// "last", "this" or "on".
+    #[test]
+    fn weekday_with_a_word_in_date_maths() {
+        // Sunday 18 October 2026.
+        let today = NaiveDate::from_ymd_opt(2026, 10, 18).unwrap();
+        let math = |l: &str| eval_date_math(l, today);
+        assert_eq!(
+            math("last friday + 1 week").as_deref(),
+            Some("Friday, 23 October 2026")
+        );
+        assert_eq!(
+            math("last Friday - 2 days").as_deref(),
+            Some("Wednesday, 14 October 2026")
+        );
+        assert_eq!(
+            math("this Friday + 1 day").as_deref(),
+            Some("Saturday, 24 October 2026")
+        );
+        assert_eq!(
+            math("on Friday + 1 month").as_deref(),
+            Some("Monday, 23 November 2026")
+        );
+        assert_eq!(
+            math("Dec 25 2026 - last Friday").as_deref(),
+            Some("70 days")
+        );
+        // On a Friday, "last Friday" is a week ago and "this Friday" is today.
+        let friday = NaiveDate::from_ymd_opt(2026, 10, 23).unwrap();
+        assert_eq!(
+            eval_date_math("last friday + 1 day", friday).as_deref(),
+            Some("Saturday, 17 October 2026")
+        );
+        assert_eq!(
+            eval_date_math("this friday + 1 day", friday).as_deref(),
+            Some("Saturday, 24 October 2026")
+        );
+        assert_eq!(math("last week + 1 day"), None);
     }
 
     #[test]

@@ -41,6 +41,9 @@ pub struct LineResult {
     pub note: Option<&'static str>,
     /// Read from the clock ("today", "time in Tokyo"), so never reused as is.
     pub clock: bool,
+    /// An answer from before the latest edit, kept in place (and shown dimmed)
+    /// until the new one arrives: a line below an edit may depend on it.
+    pub stale: bool,
 }
 
 /// What the lines above leave for the next one: fend's variables, the block for
@@ -56,13 +59,21 @@ struct State {
 }
 
 /// A sheet's last calculation, kept between edits by `Engine::eval_sheet`.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Sheet {
     lines: Vec<String>,
     results: Vec<LineResult>,
     /// The state after each line.
     after: Vec<State>,
     rates_version: u64,
+}
+
+impl Sheet {
+    /// The answers worked out so far for the text last asked for: all of them, or
+    /// the first lines' when `Engine::eval_sheet_until` stopped part way.
+    pub fn done(&self) -> &[LineResult] {
+        &self.results
+    }
 }
 
 impl LineResult {
@@ -73,6 +84,7 @@ impl LineResult {
             color: None,
             note: None,
             clock: false,
+            stale: false,
         }
     }
 
@@ -83,6 +95,7 @@ impl LineResult {
             color: None,
             note: None,
             clock: false,
+            stale: false,
         }
     }
 
@@ -156,8 +169,10 @@ impl Budget {
         }
         let error = self.error.lock().unwrap();
         let error = error.as_deref()?;
-        if error.contains("division by zero") {
+        if error.contains("division by zero") || error.contains("modulo by zero") {
             Some("Can't divide by zero")
+        } else if error.contains("modulo is only supported for positive integers") {
+            Some("mod needs whole numbers, 0 or more")
         } else if error.contains("are incompatible") {
             Some("Units don't match")
         } else if error.contains("must lie in the interval") || error.contains("is undefined") {
@@ -529,6 +544,9 @@ impl Engine {
                 ..LineResult::value(date)
             };
         }
+        if crate::time::impossible_date(trimmed) {
+            return LineResult::error(Some("Not a date"));
+        }
         if let Some(extra) = crate::extras::eval(trimmed) {
             return LineResult {
                 color: extra.color,
@@ -720,11 +738,11 @@ impl Engine {
     }
 }
 
-/// Answers worked out for `old` text, moved to where their lines are in `new`, for
-/// showing while `new`'s own answers are on their way: lines unchanged from the top
-/// and from the bottom keep theirs, and the lines that changed have none yet. (By
-/// position alone, inserting a line showed every answer below it one line off.)
-pub fn realign(old: &str, results: &[LineResult], new: &str) -> Vec<LineResult> {
+/// Where each line of `new` text was in `old`, for moving answers along with their
+/// lines: lines unchanged from the top and from the bottom are found, the lines
+/// that changed (`None`) aren't. The flag is whether the line is below the edit,
+/// where its old answer may be out of date.
+pub fn realign_map(old: &str, new: &str) -> Vec<(Option<usize>, bool)> {
     let (a, b): (Vec<&str>, Vec<&str>) = (old.split('\n').collect(), new.split('\n').collect());
     let top = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
     let bottom = a[top..]
@@ -733,20 +751,51 @@ pub fn realign(old: &str, results: &[LineResult], new: &str) -> Vec<LineResult> 
         .zip(b[top..].iter().rev())
         .take_while(|(x, y)| x == y)
         .count();
-    let answer = |i: usize| {
-        results
-            .get(i)
-            .cloned()
-            .unwrap_or_else(|| LineResult::new(Kind::Empty))
-    };
+    let same = a.len() == b.len() && top == a.len();
     (0..b.len())
         .map(|i| {
             if i < top {
-                answer(i)
+                (Some(i), false)
             } else if i >= b.len() - bottom {
-                answer(i + a.len() - b.len())
+                (Some(i + a.len() - b.len()), !same)
             } else {
-                LineResult::new(Kind::Empty)
+                (None, false)
+            }
+        })
+        .collect()
+}
+
+/// Answers worked out for `old` text, moved to where their lines are in `new`, for
+/// showing while `new`'s own answers are on their way (by position alone, inserting
+/// a line showed every answer below it one line off). Answers below the edit are
+/// marked stale; the lines that changed have none yet.
+pub fn realign(old: &str, results: &[LineResult], new: &str) -> Vec<LineResult> {
+    realign_onto(old, results, new, &[])
+}
+
+/// `realign` for answers that may cover only the first lines of `old` so far (a
+/// calculation part way through): where `results` has no answer for a line, the one
+/// in `shown` (already lined up with `new`) stays, marked stale.
+pub fn realign_onto(
+    old: &str,
+    results: &[LineResult],
+    new: &str,
+    shown: &[LineResult],
+) -> Vec<LineResult> {
+    realign_map(old, new)
+        .into_iter()
+        .enumerate()
+        .map(|(i, (from, below))| {
+            let (r, stale) = match from.and_then(|j| results.get(j)) {
+                Some(r) => (r, below),
+                None => match shown.get(i) {
+                    Some(r) => (r, true),
+                    None => return LineResult::new(Kind::Empty),
+                },
+            };
+            LineResult {
+                stale: r.stale || stale,
+                ..r.clone()
             }
         })
         .collect()
@@ -1583,6 +1632,61 @@ mod tests {
             .map(|r| r.display)
             .collect();
         assert_eq!(got, ["1", "2"]);
+    }
+
+    #[test]
+    fn answers_part_way_through_fill_in_over_the_old_ones() {
+        let shown = eval_results("1\n2\n3");
+        let text = "a = 5\nb = 6\nc = 7";
+        let pairs = |rs: Vec<LineResult>| -> Vec<(String, bool)> {
+            rs.into_iter().map(|r| (r.display, r.stale)).collect()
+        };
+        // The first line's new answer has arrived; the others keep theirs, dimmed.
+        let part = &eval_results(text)[..1];
+        assert_eq!(
+            pairs(realign_onto(text, part, text, &shown)),
+            [("5".into(), false), ("2".into(), true), ("3".into(), true)]
+        );
+        // All of them: nothing old is left.
+        assert_eq!(
+            pairs(realign_onto(text, &eval_results(text), text, &shown)),
+            [
+                ("5".into(), false),
+                ("6".into(), false),
+                ("7".into(), false)
+            ]
+        );
+    }
+
+    #[test]
+    fn answers_below_an_edit_are_stale() {
+        let old = "a = 1\nb = a + 1\nc = b + 1";
+        let results = eval_results(old);
+        let stale = |new: &str| -> Vec<bool> {
+            realign(old, &results, new)
+                .into_iter()
+                .map(|r| r.stale)
+                .collect()
+        };
+        // Above the edit: still right. Below it: maybe not, until recalculated.
+        assert_eq!(stale("a = 1\nb = a + 2\nc = b + 1"), [false, false, true]);
+        assert_eq!(stale("a = 5\nb = a + 1\nc = b + 1"), [false, true, true]);
+        assert_eq!(
+            stale("a = 1\nb = a + 1\nc = b + 1\nd"),
+            [false, false, false, false]
+        );
+        assert_eq!(stale(old), [false, false, false]);
+        // Stale stays stale through a second edit before the answers arrive.
+        let moved = realign(old, &results, "a = 5\nb = a + 1\nc = b + 1");
+        let again = realign(
+            "a = 5\nb = a + 1\nc = b + 1",
+            &moved,
+            "a = 5\nb = a + 1\nc = b + 1\n",
+        );
+        assert_eq!(
+            again.iter().map(|r| r.stale).collect::<Vec<_>>(),
+            [false, true, true, false]
+        );
     }
 
     #[test]

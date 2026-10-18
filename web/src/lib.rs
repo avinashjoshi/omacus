@@ -76,6 +76,43 @@ impl Calc {
         to_json(self.engine.eval_sheet(text, sheet))
     }
 
+    /// `evaluateSheet` for at most about `ms` milliseconds (checked between lines, so
+    /// one slow line can take its own time limit beyond that), as `{"done": bool,
+    /// "results": [...]}`: every line's answer, or the first lines' when time ran out.
+    /// Nothing is lost by stopping: the next call carries on from there, so a worker
+    /// can answer messages (newer text) between slices.
+    #[wasm_bindgen(js_name = evaluateSheetFor)]
+    pub fn evaluate_sheet_for(&self, id: &str, text: &str, ms: f64) -> String {
+        let mut sheets = self.sheets.borrow_mut();
+        if sheets.len() > 32 && !sheets.contains_key(id) {
+            sheets.clear();
+        }
+        let sheet = sheets.entry(id.to_string()).or_default();
+        let deadline = clock() + ms;
+        let done = self
+            .engine
+            .eval_sheet_until(text, sheet, || clock() > deadline)
+            .is_some();
+        format!(
+            r#"{{"done":{done},"results":{}}}"#,
+            to_json(sheet.done().to_vec())
+        )
+    }
+
+    /// Start sheet `to` from sheet `from`'s saved work (for a copy of text that may
+    /// differ from what's being edited, without losing either's progress).
+    #[wasm_bindgen(js_name = forkSheet)]
+    pub fn fork_sheet(&self, from: &str, to: &str) {
+        let mut sheets = self.sheets.borrow_mut();
+        let sheet = sheets.get(from).cloned().unwrap_or_default();
+        sheets.insert(to.to_string(), sheet);
+    }
+
+    #[wasm_bindgen(js_name = dropSheet)]
+    pub fn drop_sheet(&self, id: &str) {
+        self.sheets.borrow_mut().remove(id);
+    }
+
     /// The sheet with each answer lined up after its line.
     #[wasm_bindgen(js_name = withAnswers)]
     pub fn with_answers(&self, text: &str) -> String {
@@ -87,6 +124,29 @@ impl Calc {
     pub fn markdown_table(&self, text: &str) -> String {
         omacus_engine::markdown_table(text, &self.engine.eval_document(text))
     }
+}
+
+/// Where each line of `new` was in `old` (the engine's `realign_map`), for moving
+/// answers along with their lines: the old line's index, -1 for a changed line, or
+/// -2 - index for a line below the edit, whose answer may be out of date.
+#[wasm_bindgen(js_name = realignMap)]
+pub fn realign_map(old: &str, new: &str) -> Vec<i32> {
+    omacus_engine::realign_map(old, new)
+        .into_iter()
+        .map(|(from, stale)| match from {
+            None => -1,
+            Some(i) if stale => -2 - i as i32,
+            Some(i) => i as i32,
+        })
+        .collect()
+}
+
+/// The browser's clock, or (in native tests) the engine's.
+fn clock() -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    return now();
+    #[cfg(not(target_arch = "wasm32"))]
+    return omacus_engine::monotonic_ms();
 }
 
 /// The sheet laid out with answers already worked out (`results` as `evaluate`
@@ -109,6 +169,7 @@ pub fn layout_answers(text: &str, results: &str, markdown: bool) -> String {
             color: None,
             note: None,
             clock: false,
+            stale: false,
         })
         .collect();
     if markdown {

@@ -448,6 +448,11 @@
   border-radius: 5px;
 }
 
+/* From before an edit above it, until its new answer arrives. */
+.res.stale {
+  opacity: 0.45;
+}
+
 .res b {
   min-width: 0;
   overflow: hidden;

@@ -3,7 +3,6 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use eframe::egui::text::{CCursor, CCursorRange};
@@ -86,6 +85,8 @@ struct Toast {
     /// Offers Undo for a deleted sheet.
     undo: bool,
     error: bool,
+    /// Stays until replaced ("Working out the answers to copy…").
+    working: bool,
 }
 
 impl Toast {
@@ -95,6 +96,13 @@ impl Toast {
             at: Instant::now(),
             undo: false,
             error: false,
+            working: false,
+        }
+    }
+    fn working(text: &str) -> Self {
+        Self {
+            working: true,
+            ..Self::info(text)
         }
     }
     fn undo(text: String) -> Self {
@@ -110,7 +118,9 @@ impl Toast {
         }
     }
     fn lasts(&self) -> Duration {
-        Duration::from_millis(if self.undo {
+        Duration::from_millis(if self.working {
+            120_000
+        } else if self.undo {
             6000
         } else if self.error {
             5000
@@ -164,8 +174,15 @@ fn find_sheets(titles: &[String], texts: &[&str], query: &str) -> Vec<usize> {
     ranked.into_iter().map(|(_, i)| i).collect()
 }
 
-/// A sheet laid out with its answers, ready for the clipboard, and what to say.
-type Copied = (String, &'static str);
+/// A copy waiting on its answers: the text as it was when asked, how to lay it out,
+/// what to say when it's done, and whether the window has kept focus since (a copy
+/// that lands after you've switched away could replace what you copied there).
+struct PendingCopy {
+    text: String,
+    format: fn(&str, &[LineResult]) -> String,
+    done: &'static str,
+    focused: bool,
+}
 
 pub struct OmacusApp {
     store: Store,
@@ -176,11 +193,14 @@ pub struct OmacusApp {
     results_text: String,
     results_exact: bool,
     vars: HashSet<String>,
-    /// For one-off answers (Copy with answers), worked out on a thread of their own
-    /// and sent back through `copies`; the sheet itself is calculated by `calc`.
+    /// For the help's examples.
     engine: Engine,
-    copies: (Sender<Copied>, Receiver<Copied>),
+    /// The sheet on screen is calculated by `calc`. Copies whose answers aren't on
+    /// screen yet are worked out by `copier`, one at a time: a newer copy replaces
+    /// the one waiting.
     calc: Calculator,
+    copier: Calculator,
+    copy: Option<PendingCopy>,
     rates: Rates,
     rates_seen: u64,
     theme: Theme,
@@ -237,7 +257,6 @@ impl OmacusApp {
             results_exact: false,
             vars: HashSet::new(),
             engine: Engine::new(rates.table()).with_clock(engine::monotonic_ms),
-            copies: channel(),
             calc: {
                 let repaint = cc.egui_ctx.clone();
                 Calculator::new(
@@ -245,6 +264,14 @@ impl OmacusApp {
                     move || repaint.request_repaint(),
                 )
             },
+            copier: {
+                let repaint = cc.egui_ctx.clone();
+                Calculator::new(
+                    Engine::new(rates.table()).with_clock(engine::monotonic_ms),
+                    move || repaint.request_repaint(),
+                )
+            },
+            copy: None,
             rates_seen: rates.version(),
             rates,
             theme,
@@ -308,27 +335,48 @@ impl OmacusApp {
     }
 
     /// Copy sheet `i` with its answers, as `format` lays them out. The answers on
-    /// screen are used when they're up to date; otherwise they're worked out on
-    /// another thread, so the window never waits on a slow line.
+    /// screen are used when they're up to date; otherwise they're worked out by
+    /// `copier`, so the window never waits on a slow line, and copied when they arrive.
     fn copy_with(
         &mut self,
         i: usize,
         format: fn(&str, &[LineResult]) -> String,
         done: &'static str,
     ) {
-        let text = self.store.sheets[i].text.clone();
+        let sheet = &self.store.sheets[i];
+        let text = sheet.text.clone();
         if i == self.store.active && self.results_exact && self.results_text == text {
+            self.copy = None;
             self.ctx.copy_text(format(&text, &self.results));
             self.toast = Some(Toast::info(done));
             return;
         }
-        let (engine, sender, ctx) = (self.engine.clone(), self.copies.0.clone(), self.ctx.clone());
-        std::thread::spawn(move || {
-            let results = engine.eval_document(&text);
-            if sender.send((format(&text, &results), done)).is_ok() {
-                ctx.request_repaint();
-            }
+        self.copier.request(&sheet.id, &text);
+        self.copy = Some(PendingCopy {
+            text,
+            format,
+            done,
+            focused: true,
         });
+        self.toast = Some(Toast::working("Working out the answers to copy\u{2026}"));
+    }
+
+    /// The waiting copy, once its answers are in.
+    fn take_copy(&mut self, ctx: &egui::Context) {
+        let Some(done) = self.copier.take().filter(|d| d.complete) else {
+            return;
+        };
+        let Some(copy) = self.copy.take_if(|c| c.text == done.text) else {
+            return;
+        };
+        if copy.focused {
+            ctx.copy_text((copy.format)(&copy.text, &done.results));
+            self.toast = Some(Toast::info(copy.done));
+        } else {
+            self.toast = Some(Toast::info(
+                "Answers ready, not copied: you switched away while they were worked out",
+            ));
+        }
     }
 
     /// Answers from the calculator, for the sheet on screen. While the newest are
@@ -339,11 +387,12 @@ impl OmacusApp {
             && done.sheet == self.store.current().id
         {
             let text = &self.store.current().text;
-            self.results_exact = done.text == *text;
+            self.results_exact = done.complete && done.text == *text;
             self.results = if self.results_exact {
                 done.results
             } else {
-                engine::realign(&done.text, &done.results, text)
+                // Some still on their way: those lines keep the answers they show, dimmed.
+                engine::realign_onto(&done.text, &done.results, text, &self.results)
             };
             self.results_text = text.clone();
         }
@@ -389,6 +438,7 @@ impl OmacusApp {
                     n if n > 2000 => " (fine for chat; some email and SMS may cut it)",
                     _ => "",
                 };
+                self.copy = None;
                 self.toast = Some(Toast::info(format!(
                     "Share link copied, {} characters{note}",
                     link.len()
@@ -422,11 +472,7 @@ impl OmacusApp {
         let repaint = ctx.clone();
         self.updates.check_if_due(move || repaint.request_repaint());
 
-        // Copies whose answers were worked out on another thread.
-        while let Ok((text, done)) = self.copies.1.try_recv() {
-            ctx.copy_text(text);
-            self.toast = Some(Toast::info(done));
-        }
+        self.take_copy(ctx);
 
         // Share links from the command line, macOS, or a paste.
         for text in crate::links::take() {
@@ -861,6 +907,9 @@ impl OmacusApp {
         let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
         let regained = focused && !self.focused;
         self.focused = focused;
+        if !focused && let Some(copy) = &mut self.copy {
+            copy.focused = false;
+        }
         if !regained && self.synced_at.elapsed() < EVERY {
             ctx.request_repaint_after(EVERY);
             return;
@@ -1313,7 +1362,7 @@ impl OmacusApp {
                 .map(|r| {
                     let text = match (&r.kind, r.note) {
                         (Kind::Value, _) if !r.display.is_empty() => r.display.clone(),
-                        (Kind::Error, Some(note)) => note.to_string(),
+                        (Kind::Error, Some(note)) if !r.stale => note.to_string(),
                         _ => return None,
                     };
                     let swatch = if r.color.is_some() {
@@ -1448,7 +1497,7 @@ impl OmacusApp {
         };
         let theme = &self.theme;
         // No answer, but a reason ("Can't divide by zero"): shown quietly, not copyable.
-        if let (Kind::Error, Some(note)) = (&result.kind, result.note) {
+        if let (Kind::Error, Some(note), false) = (&result.kind, result.note, result.stale) {
             let galley = ui
                 .ctx()
                 .fonts_mut(|f| f.layout_no_wrap(note.to_string(), font.clone(), theme.comment));
@@ -1497,7 +1546,12 @@ impl OmacusApp {
             self.copied = Some((line, Instant::now()));
             ui.ctx().request_repaint_after(COPIED_FOR);
         }
-        let color = if copied { theme.dim } else { theme.accent };
+        // Stale: from before an edit above it, until its new answer arrives.
+        let color = if copied || result.stale {
+            theme.dim
+        } else {
+            theme.accent
+        };
         if let Some([r, g, b]) = swatch {
             let side = font.size * 0.8;
             let square = Rect::from_min_size(
