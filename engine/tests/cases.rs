@@ -3,7 +3,15 @@
 
 use omacus_engine::{Engine, Kind, LineResult, Rates, Sheet};
 
+/// The engine for these tests. Each line's allowance counts fend's steps instead of
+/// timing it, so an answer never depends on how fast or busy the machine is: in a
+/// debug build on a loaded CI machine, even "r" (1 Rankine, about 80 ms) could pass
+/// the 150 ms limit, and two runs that should agree didn't.
 fn engine() -> Engine {
+    counted()
+}
+
+fn counted() -> Engine {
     Engine::new(Rates::fixed(&[
         ("USD", 1.0),
         ("EUR", 0.9),
@@ -15,7 +23,11 @@ fn engine() -> Engine {
         ("BOB", 6.9),
         ("AUD", 1.5),
     ]))
-    .with_clock(omacus_engine::monotonic_ms)
+}
+
+/// The engine as the apps run it, with a time limit per line.
+fn timed() -> Engine {
+    counted().with_clock(omacus_engine::monotonic_ms)
 }
 
 #[test]
@@ -76,12 +88,11 @@ fn same_line_same_answer_anywhere() {
     // depend only on where the line sits, never on the machine's speed or load. With
     // a clock, only lines far inside or far past the time limit, even in a debug build
     // on a slow, busy machine (Windows CI missed 150 ms on 3000!).
-    let counted = || Engine::new(Rates::fixed(&[("USD", 1.0)]));
     for (engine, line, copies, want) in [
         (counted(), "3000!", 30, None),
-        (engine(), "2^64", 50, Some("18,446,744,073,709,551,616")),
-        (engine(), "100!", 50, None),
-        (engine(), "100000!", 12, Some("")),
+        (timed(), "2^64", 50, Some("18,446,744,073,709,551,616")),
+        (timed(), "100!", 50, None),
+        (timed(), "100000!", 12, Some("")),
     ] {
         let sheet = vec![line; copies].join("\n");
         let results = engine.eval_document(&sheet);
