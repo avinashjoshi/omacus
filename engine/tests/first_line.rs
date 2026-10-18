@@ -6,9 +6,10 @@
 
 use omacus_engine::{Engine, Rates};
 
-/// A machine twenty times slower than this one.
+/// A machine five times slower than this one. Twenty times left each line only
+/// about 7.5 ms of the 150 ms budget, so a pause on a busy runner failed `2 + 2`.
 fn slow_clock() -> f64 {
-    omacus_engine::monotonic_ms() * 20.0
+    omacus_engine::monotonic_ms() * 5.0
 }
 
 #[test]
