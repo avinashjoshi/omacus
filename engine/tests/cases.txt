@@ -270,3 +270,22 @@ days until Feb 30 => !Not a date
 7.5 mod 2 => !mod needs whole numbers, 0 or more
 -7 mod 3 => !mod needs whole numbers, 0 or more
 10 mod 3 => 1
+---
+# The sheet the reuse test failed on in CI run 39148285077 (macOS, debug), when
+# a line ran out of time on a busy machine. The totals here aren't
+# checked: totals of dollars and plain numbers, and "total + 1", are open questions.
+$-5 + 1 => -$4
+x = 7 + 1 => 8
+x = 7 => 7
+total
+x = 7 => 7
+x = 7 => 7
+x = 7 => 7
+total
+x = 7 => 7
+$-5.50 + $10 + 1 + 1 + 1 => $7.50
+x = 7 => 7
+x = 7 => 7
+total + 1
+total
+x = 7 => 7

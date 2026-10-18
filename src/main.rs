@@ -67,9 +67,30 @@ fn run_app() {
     links::register();
     if let Err(e) = app::run() {
         eprintln!("omacus: {e}");
+        show_error(&format!("Omacus couldn't open its window.\n\n{e}"));
         std::process::exit(1);
     }
 }
+
+/// Started from Start or Explorer there's no terminal to print to, so say it in a box.
+#[cfg(windows)]
+fn show_error(text: &str) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
+    let wide = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
+    let (text, title) = (wide(text), wide("Omacus"));
+    // SAFETY: both strings are NUL-terminated UTF-16 that outlive the call.
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            text.as_ptr(),
+            title.as_ptr(),
+            MB_OK | MB_ICONERROR,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn show_error(_text: &str) {}
 
 fn cli_engine() -> omacus_engine::Engine {
     omacus_engine::Engine::new(rates::Rates::load_blocking().table())
