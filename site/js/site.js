@@ -25,6 +25,18 @@
     for (const a of chips) a.classList.toggle("primary", a.dataset.arch === arch);
   }
 
+  // Downloads: the visitor's system first, marked. (Linux: Omarchy's card is first.)
+  const downloads = $(".downloads");
+  const system = (navigator.userAgentData?.platform || navigator.platform || navigator.userAgent).toLowerCase();
+  const isPhone = /iphone|ipad|android/.test(navigator.userAgent.toLowerCase());
+  const yours = isPhone ? null : system.includes("mac") ? "mac" : system.includes("win") ? "windows" : null;
+  const card = yours && downloads && $(`#${yours}`, downloads);
+  if (card) {
+    downloads.prepend(card);
+    card.classList.add("yours");
+    $("header", card).insertAdjacentHTML("beforeend", '<span class="yours-tag">Your system</span>');
+  }
+
   // Phones: the menu button opens the site links under the header.
   const menu = $(".menu-toggle");
   if (menu && header) {
