@@ -9,7 +9,8 @@
 # 2. Builds target\installer\omacus-windows-x86_64-setup.exe with Inno Setup.
 # 3. Installs it with the one-liner (install.ps1, in Windows PowerShell 5.1, as
 #    `irm | iex` runs it) from a local server: Start menu entry, PATH, the right
-#    version. Then again over the top, as an update. Then uninstalls it.
+#    version. Then again over the top, as an update. The window opens. Then
+#    uninstalls it.
 
 param([Parameter(Mandatory)][string]$Exe)
 $ErrorActionPreference = 'Stop'
@@ -69,6 +70,20 @@ try {
   }
   $answer = (& $installed '2 hours + 30 min in minutes' | Out-String).Trim()
   Check ($answer -eq '150 minutes') "the installed app answers ($answer)"
+
+  # The window opens, on a machine with no GPU (GitHub's runners have none, like
+  # many virtual machines): OMACUS_SCREENSHOT saves it, then closes it. With
+  # OpenGL it used to quit at once, "egui_glow requires opengl 2.0+".
+  $shot = Join-Path $env:RUNNER_TEMP 'omacus-window.png'
+  $err = Join-Path $env:RUNNER_TEMP 'omacus-window.err'
+  $env:OMACUS_SCREENSHOT = $shot
+  $env:OMACUS_NO_UPDATE_CHECK = '1'
+  $p = Start-Process -PassThru -FilePath $installed -RedirectStandardError $err
+  $done = $p.WaitForExit(60000)
+  if (-not $done) { Stop-Process -Id $p.Id -ErrorAction SilentlyContinue }
+  Remove-Item Env:OMACUS_SCREENSHOT, Env:OMACUS_NO_UPDATE_CHECK
+  $said = (Get-Content -Raw $err -ErrorAction SilentlyContinue) -as [string]
+  Check ($done -and $p.ExitCode -eq 0 -and (Test-Path $shot)) "the window opens and draws ($($said.Trim()))"
 
   # A tampered download is refused.
   [IO.File]::WriteAllBytes((Join-Path $site 'omacus-windows-x86_64-setup.exe'), [byte[]](1, 2, 3))
