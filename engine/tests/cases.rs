@@ -5,8 +5,9 @@ use omacus_engine::{Engine, Kind, LineResult, Rates, Sheet};
 
 /// The engine for these tests. Each line's allowance counts fend's steps instead of
 /// timing it, so an answer never depends on how fast or busy the machine is: in a
-/// debug build on a loaded CI machine, even "r" (1 Rankine, about 80 ms) could pass
-/// the 150 ms limit, and two runs that should agree didn't.
+/// debug build on a loaded CI machine, two runs that should agree didn't. (The
+/// first line also used to pay for fend setting itself up, about 80 ms; the engine
+/// now does that before the clock starts, see first_line.rs.)
 fn engine() -> Engine {
     counted()
 }
@@ -25,7 +26,8 @@ fn counted() -> Engine {
     ]))
 }
 
-/// The engine as the apps run it, with a time limit per line.
+/// The engine as the apps run it, with a time limit per line. Only for lines far
+/// inside or far past the limit.
 fn timed() -> Engine {
     counted().with_clock(omacus_engine::monotonic_ms)
 }
@@ -37,9 +39,16 @@ fn cases() {
     let body = text
         .split_once("\n---\n")
         .map_or(text.as_str(), |(_, rest)| rest);
-    let engine = engine();
+    let (counted, timed) = (engine(), timed());
     let mut failures = Vec::new();
     for sheet in body.split("\n---\n") {
+        // Lines that run out of time stop at the time limit, rather than after
+        // the far longer step cap.
+        let engine = if sheet.contains("100000!") || sheet.contains("10^10^7") {
+            &timed
+        } else {
+            &counted
+        };
         let mut lines = Vec::new();
         let mut expected = Vec::new();
         for line in sheet.lines() {

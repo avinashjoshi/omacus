@@ -8,6 +8,7 @@
 use std::collections::HashSet;
 use std::sync::LazyLock;
 use std::sync::Mutex;
+use std::sync::Once;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use regex::Regex;
@@ -105,6 +106,23 @@ impl LineResult {
             ..Self::new(Kind::Error)
         }
     }
+}
+
+/// The first calculation in a process sets things up once (fend's units, the
+/// patterns here): about 80 ms in a debug build and 12 ms in release, where a line
+/// takes under 1. Done before the first line's clock starts, so it never counts
+/// against that line's time limit, which on a slow phone or a busy machine it could
+/// use up. Another thread arriving meanwhile waits here, also before its clock.
+fn warm_up() {
+    static WARM: Once = Once::new();
+    WARM.call_once(|| {
+        // No clock, so this doesn't come back here.
+        let engine = Engine {
+            rates: Rates::fixed(&[("USD", 1.0), ("EUR", 0.9)]),
+            clock: None,
+        };
+        engine.eval_document("x = 2 km in m\nr\n$5 + 10% in EUR\nx + 1\ntotal");
+    });
 }
 
 /// How long one line may calculate before it's stopped (`100000!` or `10^10^7`
@@ -564,6 +582,9 @@ impl Engine {
             return LineResult::new(Kind::Error);
         }
 
+        if self.clock.is_some() {
+            warm_up();
+        }
         let budget = Budget::new(self.clock, LINE_MS);
         let var = format!("_l{i}");
         // `sum`, or `subtotal = sum` to keep it in a variable.

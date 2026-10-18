@@ -38,7 +38,12 @@ objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSString", "objc2-core-services"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_System_Registry"] }
+# Direct3D 12 on Windows: OpenGL 2 is often missing there (virtual machines,
+# Remote Desktop, no GPU driver), and D3D falls back to Windows' own software
+# renderer when there's no GPU.
+eframe = { version = "0.37.0", default-features = false, features = ["wgpu_no_default_features"] }
+wgpu = { version = "30", default-features = false, features = ["dx12", "std", "wgsl"] }
+windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_System_Registry", "Win32_UI_WindowsAndMessaging"] }
 # Updates on Windows arrive as the release .zip.
 zip = { version = "9.0", default-features = false, features = ["deflate"] }
 

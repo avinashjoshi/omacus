@@ -1890,6 +1890,8 @@ pub fn run() -> eframe::Result {
             .with_inner_size(Vec2::new(980.0, 600.0))
             .with_min_inner_size(Vec2::new(420.0, 220.0))
             .with_icon(eframe::icon_data::from_png_bytes(ICON).unwrap_or_default()),
+        #[cfg(windows)]
+        renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
     eframe::run_native(
