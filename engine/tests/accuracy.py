@@ -70,7 +70,8 @@ def percentage():
         (f"{p}% off {a_t}", a * (1 - p / 100)),
         (f"{p}% on {a_t}", a * (1 + p / 100)),
         (f"{a_t} - {p}% - {q}%", a * (1 - p / 100) * (1 - q / 100)),
-        (f"{a_t} + {p}% * {k}", a * (1 + p * k / 100)),
+        (f"{a_t} + {p}% * {k}", a + p * k / 100),  # order of operations: the share first
+        (f"{a_t} + {p}% / {k}", a * (1 + p / k / 100)),  # still a percentage, then added on
         (f"{a_t} * {p}%", a * p / 100),
         (f"{q}% off {p}% off {a_t}", a * (1 - p / 100) * (1 - q / 100)),
     ])

@@ -311,9 +311,13 @@ re!(
     DECIMAL_COMMA,
     r"(^|[^\d,.])(\d+),(\d{1,2}|\d{4,})($|[^\d,])"
 );
-// A percentage times a plain number is a share of it: "10% * 200" is 20, not
-// 2,000%. Divided, it stays a percentage ("50% / 2" is 25%).
-re!(PCT_TIMES, r"(\d[\d.]*)\s*%(\s*\*\s*\(?\d)");
+// A percentage times anything is that share of it, worked out first as the
+// order of operations says: "10% * 200" is 20, not 2,000%, "100 + 10% * 50" is
+// 105 and "$120k + 0.5% * valuation" adds 0.5% of the valuation. Divided, it
+// stays a percentage ("50% / 2" is 25%; "100 + 10% / 2" is 105).
+re!(PCT_SHARE, r"(\d[\d.]*)\s*%(\s*\*)");
+// "%" between two numbers is mod ("7.5 % 2"); anywhere else it's a percentage.
+re!(MOD_WRITTEN, r"(?i)\bmod\b|\d\s*%\s*[\d(]");
 re!(TIMES_PCT, r"(\d\)?\s*[*/]\s*)(\d[\d.]*)\s*%");
 re!(MONEY_PREFIX, r"[$£]\s*\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?");
 re!(PREV, r"(?i)\bprev\b");
@@ -701,7 +705,12 @@ impl Engine {
                 };
                 LineResult::value(display)
             }
-            None => LineResult::error(budget.note().or_else(|| crate::time::note(trimmed))),
+            None => {
+                let note = budget
+                    .note()
+                    .filter(|n| !n.starts_with("mod ") || MOD_WRITTEN.is_match(trimmed));
+                LineResult::error(note.or_else(|| crate::time::note(trimmed)))
+            }
         }
     }
 
@@ -762,7 +771,7 @@ impl Engine {
             Some(c) => (Some(c[1].to_string()), c[2].to_string()),
             None => (None, expr.to_string()),
         };
-        let mut rhs = rhs;
+        let mut rhs = plain_terms_in(&rhs, &unit);
         loop {
             let next = BARE_NUMBER
                 .replace_all(&rhs, |c: &regex::Captures| {
@@ -1000,6 +1009,44 @@ fn totals_inside(expr: &str, vars: &HashSet<String>, i: usize) -> (String, [Opti
     (out, used)
 }
 
+/// Terms of a sum that are plain arithmetic ("$200 - 5% * 2" has "(5 / 100) * 2")
+/// given the currency, as a lone number already is.
+fn plain_terms_in(expr: &str, unit: &str) -> String {
+    let mut terms = Vec::new();
+    let (mut depth, mut start, mut last) = (0i32, 0, ' ');
+    for (at, ch) in expr.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            '+' | '-' if depth == 0 && (last.is_ascii_digit() || last == ')') => {
+                terms.push(&expr[start..at]);
+                terms.push(&expr[at..at + 1]);
+                start = at + 1;
+            }
+            _ => {}
+        }
+        if !ch.is_whitespace() {
+            last = ch;
+        }
+    }
+    terms.push(&expr[start..]);
+    terms
+        .into_iter()
+        .map(|t| {
+            let arithmetic = t.chars().any(|ch| "*/^".contains(ch))
+                && t.chars()
+                    .all(|ch| ch.is_ascii_digit() || " .,()*/^".contains(ch));
+            match arithmetic {
+                false => t.to_string(),
+                true if unit.chars().all(|ch| ch.is_ascii_alphabetic()) => {
+                    format!(" (({}) * 1 {unit}) ", t.trim())
+                }
+                true => format!(" (({}) * ({unit}1)) ", t.trim()),
+            }
+        })
+        .collect::<String>()
+}
+
 /// What fend's error says when dollars meet a plain number: the currency.
 fn currency_vs_plain(budget: &Budget) -> Option<String> {
     let error = budget.error.lock().unwrap().clone()?;
@@ -1165,6 +1212,7 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
             format!("{}(({} / 100) * {})", &c[1], c[2].replace(',', ""), &c[3])
         })
         .into_owned();
+    rhs = PCT_SHARE.replace_all(&rhs, "($1 / 100)$2").into_owned();
     rhs = if let Some(c) = IS_WHAT_PCT.captures(&rhs) {
         format!("(({}) / ({})) to %", &c[1], &c[2])
     } else if let Some(c) = IS_PCT_OF_WHAT.captures(&rhs) {
@@ -1181,7 +1229,7 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
         // One percentage at a time, each applied to the total so far.
         let mut out = rhs;
         while let Some(c) = PLUS_MINUS_PCT_STEP.captures(&out) {
-            // "100 + 10% * 2": the percentage term first (20%), as in ordinary
+            // "100 + 10% / 2": the percentage term first (5%), as in ordinary
             // precedence, then applied to the amount.
             let term = c[3].replace(',', "").replace('%', " / 100");
             let step = format!("(({}) * (1 {} ({term})))", &c[1], &c[2]);
@@ -1192,9 +1240,7 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
         rhs
     };
 
-    // Any percentage still multiplied by a number (the ones added or taken away
-    // were handled above) is that share of it.
-    rhs = PCT_TIMES.replace_all(&rhs, "($1 / 100)$2").into_owned();
+    // A number times a percentage is that share of it too ("200 * 10%").
     rhs = TIMES_PCT.replace_all(&rhs, "$1($2 / 100)").into_owned();
 
     match lhs {
@@ -1735,6 +1781,17 @@ mod tests {
 
     fn one(line: &str) -> String {
         eval(line).pop().unwrap()
+    }
+
+    /// "%" is mod only between two numbers; a sheet's prose with percentages in it
+    /// said "mod needs whole numbers, 0 or more".
+    #[test]
+    fn percentages_in_prose_are_not_mod() {
+        let prose = "Alex $90k, 0.5%, 1% share of sales + a bonus";
+        let r = eval_results(prose).pop().unwrap();
+        assert_eq!((r.display.as_str(), r.note), ("", None));
+        let r = eval_results("7.5 % 2").pop().unwrap();
+        assert_eq!(r.note, Some("mod needs whole numbers, 0 or more"));
     }
 
     #[test]
