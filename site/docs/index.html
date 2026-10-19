@@ -322,6 +322,7 @@ total</pre>
 
     <h2 id="totals">Totals &amp; prev</h2>
     <p><code>total</code> (or <code>sum</code>) adds up the lines above it, back to the last blank line or header, so a blank line starts a new block. <code>average</code> (or <code>avg</code>, <code>mean</code>) works the same way. <code>prev</code> is the result of the line just above. Either can go in a calculation too: <code>total * 1.08</code>, <code>total in EUR</code>. Plain numbers in a block of dollars count as dollars.</p>
+    <p>The same names also take arguments: <code>sum(1, 2, 3)</code> is 6, <code>avg(2, 4)</code> is 3, and <code>min</code> and <code>max</code> pick from the list. A comma inside the parentheses separates arguments (<code>sum($5, $10)</code> is $15). A thousands group stays one number, inside or outside a call: <code>sum(1,000, 2,000)</code> is 3,000, and <code>1,000 + 1</code> is 1,001. <code>total</code>, <code>average</code> and <code>mean</code> are the same functions.</p>
   <!-- ex:totals -->
   <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
@@ -478,11 +479,12 @@ total</pre>
       <thead><tr><th>Keys</th><th>Action</th></tr></thead>
       <tbody>
         <tr><td><kbd>Ctrl N</kbd></td><td>New sheet</td></tr>
-        <tr><td><kbd>Ctrl P</kbd></td><td>Go to a sheet by name (or by something written in it)</td></tr>
+        <tr><td><kbd>Ctrl J</kbd></td><td>Go to a sheet by name (or by something written in it)</td></tr>
+        <tr><td><kbd>Ctrl Alt ↑</kbd> / <kbd>Ctrl Alt ↓</kbd></td><td>Previous / next sheet</td></tr>
         <tr><td><kbd>Ctrl Tab</kbd> / <kbd>Ctrl Shift Tab</kbd></td><td>Next / previous sheet (also <kbd>Ctrl PgDn</kbd> / <kbd>Ctrl PgUp</kbd>)</td></tr>
         <tr><td><kbd>Ctrl 1</kbd> … <kbd>Ctrl 9</kbd></td><td>Jump to a sheet</td></tr>
         <tr><td><kbd>Alt ↑</kbd> / <kbd>Alt ↓</kbd></td><td>Move the sheet up / down</td></tr>
-        <tr><td><kbd>Ctrl Shift Delete</kbd></td><td>Delete the sheet (Undo appears for a few seconds; it's also kept in trash)</td></tr>
+        <tr><td><kbd>Ctrl Shift Delete</kbd></td><td>Delete the sheet (asks first; Undo appears, and it's kept in Recently deleted)</td></tr>
         <tr><td><kbd>Ctrl B</kbd></td><td>Show / hide the sidebar</td></tr>
         <tr><td>Click a result</td><td>Copy it</td></tr>
         <tr><td><kbd>Ctrl Shift C</kbd></td><td>Copy the last result</td></tr>
@@ -492,7 +494,8 @@ total</pre>
         <tr><td><kbd>Ctrl Z</kbd> / <kbd>Ctrl Shift Z</kbd></td><td>Undo / redo (each sheet has its own history)</td></tr>
         <tr><td><kbd>Ctrl +</kbd> / <kbd>Ctrl −</kbd> / <kbd>Ctrl 0</kbd></td><td>Zoom in / out / reset</td></tr>
         <tr><td><kbd>F1</kbd> or <kbd>Ctrl /</kbd></td><td>Help: shortcuts, live syntax examples, tips</td></tr>
-        <tr><td><kbd>Esc</kbd>, <kbd>Ctrl W</kbd> or <kbd>Ctrl Q</kbd></td><td>Close (everything is saved)</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Close the switcher, help, or a dialog</td></tr>
+        <tr><td><kbd>Ctrl W</kbd> or <kbd>Ctrl Q</kbd></td><td>Quit (everything is saved)</td></tr>
       </tbody>
     </table>
 
@@ -552,7 +555,7 @@ total</pre>
     <p>To set it up by hand, add to <code>~/.config/hypr/bindings.lua</code> and <code>~/.config/hypr/looknfeel.lua</code>:</p>
 <pre>o.bind("SUPER + CTRL + ALT + EQUAL", "Omacus calculator", { launch = "omacus", focus = "^omacus$" })
 o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
-    <p>The keybind launches Omacus, or focuses it if it's already open. <kbd>Esc</kbd> closes it again.</p>
+    <p>The keybind launches Omacus, or focuses it if it's already open. <kbd>Ctrl Q</kbd> quits it again.</p>
 
     <p class="guide-link">More examples in the guide: <a href="/guides/omarchy-calculator/">The calculator that fits Omarchy</a>.</p>
 

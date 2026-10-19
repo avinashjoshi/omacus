@@ -780,3 +780,67 @@ pre = $20,000,000 => $20,000,000
 post = raise + pre => $25,000,000
 raise / (pre + raise) in % => 20%
 raise at pre pre => $25,000,000 post, 20%
+---
+# sum(), avg(), min(), max(): commas inside the call separate arguments
+sum(1, 2, 3) => 6
+sum(1,2,3) => 6
+total(1, 2, 3) => 6
+avg(2, 4) => 3
+average(2, 4) => 3
+mean(2, 4) => 3
+max(1, 5, 3) => 5
+min(8, 3, 5) => 3
+sum($5, $10) => $15
+max($1, $5, $3) => $5
+avg($5, $10) => $7.50
+sum(1,000, 2,000) => 3,000
+sum($1,000, $2,000) => $3,000
+1,000 + 1 => 1,001
+sum(1, 000) => 1
+sum(5 kg, 3 kg) => 8 kg
+min(8 kg, 3 kg, 5 kg) => 3 kg
+sum(1, max(2, 3)) => 4
+sum(max(1, 4), min(2, 9)) => 6
+subtotal = sum(10, 20) => 30
+subtotal * 2 => 60
+---
+# A bare sum still adds the block, and a call does not
+$4
+$6
+sum => $10
+avg => $5
+---
+# An assignment's name is a variable even when it spells a currency or a unit
+Cad = 4 => 4
+Cad * 2 => 8
+Try = 5 => 5
+Try * 2 => 10
+TRY => !Did you mean Try?
+---
+TRY = 8 => 8
+TRY => 8
+kg = 4 => 4
+kg * 2 => 8
+3 kg => 12
+---
+# Before the assignment, the name points at the definition further down
+Try => !Try is defined below
+Try = 5 => 5
+Try => 5
+---
+# Lunch for Cad is still prose: Cad there is not the currency
+Lunch for Cad $40 => $40
+---
+# Name hints: case, a definition further down, an unknown name. Prose stays blank.
+a = 5 => 5
+A => !Did you mean a?
+y = z + 1 => !z is defined below
+z = 4 => 4
+nope => !Unknown name 'nope'
+hello world =>
+10 / 0 => !Can't divide by zero
+Cost => !Did you mean cost?
+cost = 3 => 3
+min =>
+USD =>
+kg =>

@@ -71,6 +71,14 @@ struct State {
     sidebar: Option<bool>,
 }
 
+/// A sheet sitting in `trash/`, ready to be put back.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Trashed {
+    pub id: String,
+    pub title: String,
+    pub text: String,
+}
+
 pub struct Store {
     dir: Option<PathBuf>,
     pub sheets: Vec<Sheet>,
@@ -328,6 +336,69 @@ impl Store {
         }
         self.active = self.sheets.iter().position(|s| s.id == active).unwrap_or(0);
         synced
+    }
+
+    fn trash_dir(&self) -> Option<PathBuf> {
+        self.dir.as_ref().map(|d| d.with_file_name("trash"))
+    }
+
+    /// Sheets in `trash/`, newest first. Reading the directory is the caller's
+    /// choice of how often; this does not cache.
+    pub fn trashed(&self) -> Vec<Trashed> {
+        let Some(dir) = self.trash_dir() else {
+            return Vec::new();
+        };
+        let mut items: Vec<(SystemTime, Trashed)> = std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().into_string().ok()?;
+                let id = name.strip_suffix(".txt")?.to_string();
+                let text = std::fs::read_to_string(e.path()).ok()?;
+                let modified = e
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .unwrap_or(UNIX_EPOCH);
+                let title = Sheet {
+                    id: id.clone(),
+                    text: text.clone(),
+                    cursor: 0,
+                    dirty: false,
+                    stamp: None,
+                }
+                .title();
+                Some((modified, Trashed { id, title, text }))
+            })
+            .collect();
+        items.sort_by_key(|item| std::cmp::Reverse(item.0));
+        items.into_iter().map(|(_, t)| t).collect()
+    }
+
+    /// Put a trashed sheet back at the top of the list. Works after a restart,
+    /// when the in-memory undo is gone. Returns its title.
+    pub fn restore(&mut self, id: &str) -> Option<String> {
+        let path = self.trash_dir()?.join(format!("{id}.txt"));
+        let text = std::fs::read_to_string(&path).ok()?;
+        let _ = std::fs::remove_file(&path);
+        if self.deleted.as_ref().is_some_and(|(_, s)| s.id == id) {
+            self.deleted = None;
+        }
+        if self.sheets.len() == 1 && self.sheets[0].text.is_empty() {
+            self.sheets.clear();
+        }
+        let sheet = Sheet {
+            id: id.to_string(),
+            text: text.clone(),
+            cursor: text.chars().count(),
+            dirty: true,
+            stamp: None,
+        };
+        let title = sheet.title();
+        self.sheets.insert(0, sheet);
+        self.active = 0;
+        self.state_dirty = true;
+        Some(title)
     }
 
     /// Put back the sheet deleted last, where it was. Returns its title.
@@ -654,6 +725,28 @@ mod tests {
         assert_eq!(store.sheets.len(), 1);
         assert_eq!(store.current().title(), "Old notes");
         assert!(!root.join("sheet.txt").exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_trashed_sheet_can_be_restored_after_reload() {
+        let root = temp_root("restore");
+        let mut store = Store::load_in(Some(root.clone()), "# Kept");
+        store.new_sheet("# Gone\nmilk $3");
+        store.save().unwrap();
+        let id = store.sheets[0].id.clone();
+        store.delete(0);
+        store.save().unwrap();
+
+        let mut again = Store::load_in(Some(root.clone()), "");
+        assert!(again.undo_delete().is_none());
+        let trash = again.trashed();
+        assert_eq!(trash.len(), 1);
+        assert_eq!(trash[0].id, id);
+        assert_eq!(trash[0].title, "Gone");
+        assert_eq!(again.restore(&id).as_deref(), Some("Gone"));
+        assert_eq!(again.sheets[0].text, "# Gone\nmilk $3");
+        assert!(again.trashed().is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
 }

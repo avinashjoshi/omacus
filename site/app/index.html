@@ -66,6 +66,7 @@
     <aside class="side" id="side">
       <div class="side-head"><span>Sheets</span><button class="icon-btn small" type="button" aria-label="New sheet" data-action="new">+</button></div>
       <nav class="sheet-list" data-sheets aria-label="Sheets"></nav>
+      <div class="deleted" hidden data-deleted></div>
       <details class="side-foot">
         <summary>Saved in this browser</summary>
         <p>Sheets stay on this device, in this browser; nothing is uploaded. Export them (⋯ menu) to keep a copy. On iPhone and iPad, Safari clears a site's data after a week without a visit, unless you add Omacus to your Home Screen.</p>
@@ -85,7 +86,15 @@
         <button class="icon-btn small" type="button" aria-label="Dismiss" data-action="dismiss-install">×</button>
       </div>
       <div class="editor" data-editor>
+        <p class="empty-hint" hidden data-empty>Sheets are in the sidebar. Open it from the sheets button, then pick one or start a new sheet.</p>
         <div class="cm-host" data-text></div>
+      </div>
+      <div class="confirm" hidden data-confirm role="dialog" aria-modal="true" aria-labelledby="confirm-text">
+        <p id="confirm-text" data-confirm-text></p>
+        <div>
+          <button class="btn small primary" type="button" data-confirm-yes>Delete</button>
+          <button class="btn small" type="button" data-confirm-no>Cancel</button>
+        </div>
       </div>
       <p class="loading" data-loading>Loading the engine…</p>
       <button class="drawer-scrim" type="button" data-scrim aria-label="Close sheets"></button>

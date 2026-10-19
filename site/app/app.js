@@ -14,8 +14,9 @@ const WORKER = new URL("./worker.js", import.meta.url).href;
 const PREFIX = "omacus:";
 const RATES_URL = "https://open.er-api.com/v6/latest/USD";
 const RATES_MAX_AGE = 12 * 60 * 60 * 1000;
-const KEYWORDS = new Set(["prev", "sum", "total", "avg", "average", "mean", "today", "now",
+const KEYWORDS = new Set(["prev", "sum", "total", "avg", "average", "mean", "min", "max", "today", "now",
   "tomorrow", "yesterday", "plus", "minus", "times", "mod"]);
+const HINT_IDLE = 600;
 
 const WELCOME = `# Welcome to Omacus
 // Write math the way you'd write a note. Answers appear on the right.
@@ -56,6 +57,10 @@ const el = {
   menuButton: $("[data-menu-button]"),
   importInput: $("[data-import]"),
   loading: $("[data-loading]"),
+  empty: $("[data-empty]"),
+  deleted: $("[data-deleted]"),
+  confirm: $("[data-confirm]"),
+  confirmText: $("[data-confirm-text]"),
 };
 
 let calc;
@@ -160,7 +165,33 @@ function currentText() {
 }
 
 let pendingSave = null;
+let editedAt = 0;
+let hintTimer = null;
+
+function armHintTimer() {
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => {
+    if (!view) return;
+    const answers = view.state.field(sheetField).answers;
+    view.dispatch({ effects: setResults.of(answers.slice()) });
+  }, HINT_IDLE);
+}
+
+function hintReady(lineNo) {
+  if (typeof view === "undefined" || !view) return true;
+  const head = view.state.selection.main.head;
+  if (view.state.doc.lineAt(head).number !== lineNo) return true;
+  return performance.now() - editedAt >= HINT_IDLE;
+}
+
+function syncEmpty() {
+  if (!el.empty || !view) return;
+  el.empty.hidden = view.state.doc.toString().trim() !== "";
+}
+
 function onInput() {
+  editedAt = performance.now();
+  armHintTimer();
   const text = view.state.doc.toString();
   if (state.active === "shared") {
     state.shared.text = text;
@@ -174,6 +205,7 @@ function onInput() {
   }
   evaluate();
   renderSidebar();
+  syncEmpty();
 }
 
 // Each sheet keeps its own editor state while the page is open, so undo stays per sheet.
@@ -194,6 +226,7 @@ function showSheet() {
   showInstall();
   evaluate();
   renderSidebar();
+  syncEmpty();
 }
 
 function select(id) {
@@ -240,6 +273,56 @@ function renderSidebar() {
   );
   el.title.textContent = title(currentText());
   document.title = `${title(currentText())} · Omacus`;
+  renderDeleted();
+}
+
+const TRASH_KEY = PREFIX + "trash";
+const TRASH_CAP = 30;
+
+function loadTrash() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TRASH_KEY) || "[]");
+    return Array.isArray(raw) ? raw.filter((t) => t && t.id && typeof t.text === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveTrash(items) {
+  localStorage.setItem(TRASH_KEY, JSON.stringify(items.slice(0, TRASH_CAP)));
+}
+
+function renderDeleted() {
+  if (!el.deleted) return;
+  const items = loadTrash();
+  el.deleted.hidden = items.length === 0;
+  el.deleted.replaceChildren();
+  if (!items.length) return;
+  const label = document.createElement("p");
+  label.className = "deleted-label";
+  label.textContent = "Recently deleted";
+  el.deleted.append(label);
+  for (const item of items) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = title(item.text);
+    b.addEventListener("click", () => restoreTrashed(item.id));
+    el.deleted.append(b);
+  }
+}
+
+function restoreTrashed(id) {
+  const items = loadTrash();
+  const item = items.find((t) => t.id === id);
+  if (!item) return;
+  saveTrash(items.filter((t) => t.id !== id));
+  state.texts.set(id, item.text);
+  state.order.unshift(id);
+  saveSheet(id);
+  state.active = id;
+  saveIndex();
+  showSheet();
+  toast(`Restored “${esc(title(item.text))}”.`);
 }
 
 // ---------------------------------------------------------------------------------
@@ -276,17 +359,19 @@ class Answer extends WidgetType {
 
 // Why a line has no answer ("Can't divide by zero"), shown quietly in its place.
 class Note extends WidgetType {
-  constructor(text) {
+  constructor(text, hint) {
     super();
     this.text = text;
+    this.hint = !!hint;
   }
   eq(other) {
-    return other.text === this.text;
+    return other.text === this.text && other.hint === this.hint;
   }
   toDOM() {
     const span = document.createElement("span");
-    span.className = "res note";
-    span.textContent = this.text;
+    span.className = this.hint ? "res note hint" : "res note";
+    if (this.hint) span.title = this.text;
+    else span.textContent = this.text;
     return span;
   }
 }
@@ -311,7 +396,9 @@ function decorate(doc, answers) {
       if (to > from) out.add(line.from + from, line.from + to, Decoration.mark({ class: cls }));
     }
     if (r?.display) out.add(line.to, line.to, Decoration.widget({ widget: new Answer(r), side: 1 }));
-    else if (r?.note && !r.stale) out.add(line.to, line.to, Decoration.widget({ widget: new Note(r.note), side: 1 }));
+    else if (r?.note && !r.stale && (!r.hint || hintReady(n))) {
+      out.add(line.to, line.to, Decoration.widget({ widget: new Note(r.note, r.hint), side: 1 }));
+    } else if (r?.hint && r.note && !r.stale) armHintTimer();
   }
   return out.finish();
 }
@@ -447,6 +534,7 @@ function show(answers, text, done) {
   resultsText = now;
   resultsExact = done && text === now;
   view.dispatch({ effects: setResults.of(results) });
+  syncEmpty();
 }
 
 let frame = 0;
@@ -669,6 +757,24 @@ function deleteSheet() {
   const id = state.active;
   const at = state.order.indexOf(id);
   const text = state.texts.get(id);
+  const name = title(text);
+  if (!el.confirm) return;
+  el.confirmText.textContent = `Delete “${name}”? You can restore it from Recently deleted.`;
+  el.confirm.hidden = false;
+  el.confirm.dataset.id = id;
+  el.confirm.dataset.at = String(at);
+}
+
+function commitDelete() {
+  const id = el.confirm?.dataset.id;
+  if (!id) return;
+  el.confirm.hidden = true;
+  const at = Number(el.confirm.dataset.at);
+  const text = state.texts.get(id);
+  if (text == null) return;
+  const trash = loadTrash().filter((t) => t.id !== id);
+  trash.unshift({ id, text });
+  saveTrash(trash);
   flushSave();
   state.order.splice(at, 1);
   state.texts.delete(id);
@@ -679,6 +785,7 @@ function deleteSheet() {
   toast(`Deleted “${esc(title(text))}”.`, {
     label: "Undo",
     run() {
+      saveTrash(loadTrash().filter((t) => t.id !== id));
       state.texts.set(id, text);
       state.order.splice(at, 0, id);
       saveSheet(id);
@@ -729,9 +836,17 @@ function closeMenu() {
 
 addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    if (el.confirm && !el.confirm.hidden) {
+      el.confirm.hidden = true;
+      return;
+    }
     closeMenu();
     setDrawer(false);
   }
+});
+$("[data-confirm-yes]")?.addEventListener("click", commitDelete);
+$("[data-confirm-no]")?.addEventListener("click", () => {
+  if (el.confirm) el.confirm.hidden = true;
 });
 
 // ---------------------------------------------------------------------------------

@@ -29,7 +29,7 @@ prev in EUR                   1,818.97 EUR
 | Downloads | `4 GB at 100 Mbps` → `5 min 20 s`, `700 MB @ 10 MB/s` |
 | Currency | `$30 in EUR`, `€50 + £20 in USD`, `£250 in USD` (live rates, cached 12h) |
 | Variables | `rent = $1200`, then `rent * 12` |
-| Sheet words | `prev`, `sum`/`total`, `avg`/`average` (over the lines since the last blank line or header) |
+| Sheet words | `prev`, `sum`/`total`, `avg`/`average` (over the lines since the last blank line or header). `sum(1, 2, 3)`, `avg(2, 4)`, `min(...)` and `max(...)` take arguments; a comma inside the call separates them, and `1,000` outside a call is still one thousand |
 | Dates | `today`, `now`, `tomorrow + 2 weeks`, `now - 90 minutes` |
 | Counting days | `days until Dec 25`, `weeks until Christmas`, `days since Jan 1`, `workdays in November`, `days between Mar 1 and Jun 30` |
 | Time zones | `6pm PST in Tokyo`, `time in Sydney`, `now in London`, `10:30 London to New York`, `3pm PST in IST` |
@@ -43,7 +43,7 @@ adds the notepad conventions on top.
 ## Using it
 
 - On Omarchy, `SUPER + CTRL + ALT + =` opens Omacus (or focuses it), floating and centered.
-- `Esc` or `Ctrl+Q` closes it. Nothing is ever lost: like Sublime Text, every sheet is saved as you
+- `Ctrl+Q` or `Ctrl+W` quits. `Esc` only closes the sheet switcher, help, or a dialog. Nothing is ever lost: like Sublime Text, every sheet is saved as you
   type and reopens exactly where you left it, cursor included.
 - Click a result to copy it; `Ctrl+Shift+C` copies the last result, and `Ctrl+Shift+S` copies
   the whole sheet with its answers lined up (`Ctrl+Shift+M` as a Markdown table).
@@ -55,11 +55,12 @@ adds the notepad conventions on top.
 | Key | |
 |---|---|
 | `Ctrl+N` | New sheet |
-| `Ctrl+P` | Go to a sheet by name |
+| `Ctrl+J` | Go to a sheet by name |
+| `Ctrl+Alt+↑` / `Ctrl+Alt+↓` | Previous / next sheet |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` (or `Ctrl+PgDn` / `PgUp`) | Next / previous sheet |
 | `Ctrl+1` … `Ctrl+9` | Jump to sheet |
 | `Alt+↑` / `Alt+↓` | Move sheet up / down |
-| `Ctrl+Shift+Delete` | Delete sheet (Undo appears; moved to `trash/`, not destroyed) |
+| `Ctrl+Shift+Delete` | Delete sheet (asks first; moved to `trash/`, restored from Recently deleted) |
 | `Ctrl+B` | Toggle the sidebar |
 | `Ctrl+Shift+L` | Copy a share link to the sheet |
 

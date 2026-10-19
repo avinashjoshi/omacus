@@ -15,7 +15,7 @@ use crate::calc::Calculator;
 use crate::help;
 use crate::highlight;
 use crate::rates::Rates;
-use crate::sheets::Store;
+use crate::sheets::{Store, Trashed};
 use crate::theme::{self, Theme};
 use crate::update::{self, Method, State, Updates};
 use omacus_engine::{self as engine, Engine, Kind, LineResult, complete};
@@ -26,11 +26,15 @@ const GAP: f32 = 32.0;
 const SCROLLBAR_ROOM: f32 = 12.0;
 const SAVE_DELAY: Duration = Duration::from_millis(400);
 const COPIED_FOR: Duration = Duration::from_millis(900);
+/// A name hint waits this long after the last keystroke on its line.
+const HINT_IDLE: Duration = Duration::from_millis(600);
+const TRASH_REFRESH: Duration = Duration::from_millis(500);
 
 const WELCOME: &str = "\
 # Welcome to Omacus
 // Type on the left, results appear on the right.
 // Click a result to copy it. Press F1 for help and shortcuts.
+// Sheets are listed in the sidebar. Ctrl+B shows or hides it, Ctrl+J jumps to one.
 
 Rent: $1,450
 Groceries $320 + $85
@@ -130,11 +134,34 @@ impl Toast {
     }
 }
 
-/// Ctrl+P: find a sheet by name (or by something written in it).
+/// Ctrl+J (Cmd+J on Mac): find a sheet by name (or by something written in it).
 #[derive(Default)]
 struct Switcher {
     query: String,
     selected: usize,
+}
+
+/// Where Enter goes in the switcher: an open sheet, or one in the trash.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Jump {
+    Sheet(usize),
+    Trash(String),
+}
+
+struct Hit {
+    title: String,
+    jump: Jump,
+    badge: &'static str,
+}
+
+/// A shortcut handled before the editor, so a held key can't type or flicker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Shortcut {
+    ToggleSwitcher,
+    PrevSheet,
+    NextSheet,
+    Quit,
+    Dismiss,
 }
 
 /// Sheets matching the switcher's query, best first: title starts with it, title
@@ -216,6 +243,15 @@ pub struct OmacusApp {
     synced_at: Instant,
     focused: bool,
     switcher: Option<Switcher>,
+    /// Sheet index waiting for a delete confirmation. Escape cancels.
+    pending_delete: Option<usize>,
+    /// `trash/` listing, refreshed at most every `TRASH_REFRESH`.
+    trash: Vec<Trashed>,
+    trash_at: Option<Instant>,
+    /// When the sheet text last changed, for holding name hints while typing.
+    edited_at: Instant,
+    /// Line the caret is on, if the editor reported a cursor.
+    cursor_line: Option<usize>,
     ctx: egui::Context,
     evaluated_at: Instant,
     popup: Option<Popup>,
@@ -311,6 +347,13 @@ impl OmacusApp {
                     query: "k".into(),
                     selected: 0,
                 }),
+            pending_delete: None,
+            trash: Vec::new(),
+            trash_at: None,
+            edited_at: Instant::now()
+                .checked_sub(HINT_IDLE)
+                .unwrap_or_else(Instant::now),
+            cursor_line: None,
             help: std::env::var("OMACUS_SCREENSHOT_HELP")
                 .ok()
                 .filter(|t| t != "update" && t != "switcher")
@@ -419,9 +462,12 @@ impl OmacusApp {
             SheetAction::Select(i) => self.store.select(i),
             SheetAction::New => self.store.new_sheet(""),
             SheetAction::Delete(i) => {
-                let title = self.store.sheets[i].title();
-                self.store.delete(i);
-                self.toast = Some(Toast::undo(format!("Deleted \u{201c}{title}\u{201d}")));
+                if i < self.store.sheets.len() {
+                    self.pending_delete = Some(i);
+                    self.switcher = None;
+                    self.popup = None;
+                }
+                return;
             }
             SheetAction::Move(i, step) => {
                 self.store.select(i);
@@ -512,36 +558,78 @@ impl OmacusApp {
 
     /// Keys are consumed here, before the editor sees them.
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        let chords = ctx.input_mut(|i| take_chords(&mut i.events));
+        let mut toggle_switcher = false;
+        let mut prev_sheet = false;
+        let mut next_sheet = false;
+        let mut quit = false;
+        let mut dismiss = false;
+        for chord in chords {
+            match chord {
+                Shortcut::ToggleSwitcher => toggle_switcher = true,
+                Shortcut::PrevSheet => prev_sheet = true,
+                Shortcut::NextSheet => next_sheet = true,
+                Shortcut::Quit => quit = true,
+                Shortcut::Dismiss => dismiss = true,
+            }
+        }
+        if quit {
+            self.save();
+            ctx.send_viewport_cmd(ViewportCommand::Close);
+            return;
+        }
+
         let toggle_help = ctx.input_mut(|i| {
             i.consume_key(Modifiers::NONE, Key::F1) || i.consume_key(Modifiers::COMMAND, Key::Slash)
         });
         if toggle_help {
             self.toggle_help();
         }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::P)) {
+        if toggle_switcher {
             self.switcher = match self.switcher {
                 Some(_) => None,
                 None => Some(Switcher::default()),
             };
             self.help = None;
             self.popup = None;
+            self.pending_delete = None;
             self.focus_editor = self.switcher.is_none();
         }
+        if prev_sheet {
+            self.apply(self.cycle_action(-1));
+        }
+        if next_sheet {
+            self.apply(self.cycle_action(1));
+        }
+        if dismiss && self.switcher.is_some() {
+            self.switcher = None;
+            self.focus_editor = true;
+            return;
+        }
         if self.switcher.is_some() {
+            self.refresh_trash(false);
             self.switcher_keys(ctx);
             return;
         }
+        if self.pending_delete.is_some() {
+            let confirm = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
+            if dismiss {
+                self.pending_delete = None;
+                self.focus_editor = true;
+            } else if confirm {
+                self.commit_delete();
+            }
+            return;
+        }
         if self.update_open {
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
-                && self.updates.state() != State::Installing
-            {
+            if dismiss && self.updates.state() != State::Installing {
                 self.update_open = false;
                 self.focus_editor = true;
             }
             return;
         }
         if self.help.is_some() {
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+            if dismiss {
                 self.help = None;
                 self.focus_editor = true;
             }
@@ -552,15 +640,15 @@ impl OmacusApp {
         let cmd_shift = Modifiers::COMMAND | Modifiers::SHIFT;
 
         if let Some(popup) = &mut self.popup {
-            let (accept, up, down, close) = ctx.input_mut(|i| {
+            let (accept, up, down) = ctx.input_mut(|i| {
                 (
                     // Enter stays a newline: `3 km in⏎` must not become `inch`.
                     i.consume_key(Modifiers::NONE, Key::Tab),
                     i.consume_key(Modifiers::NONE, Key::ArrowUp),
                     i.consume_key(Modifiers::NONE, Key::ArrowDown),
-                    i.consume_key(Modifiers::NONE, Key::Escape),
                 )
             });
+            let close = dismiss;
             let n = popup.items.len();
             if up {
                 popup.selected = (popup.selected + n - 1) % n;
@@ -577,7 +665,7 @@ impl OmacusApp {
         }
 
         let mut action = None;
-        let (quit, copy_last, sidebar) = ctx.input_mut(|i| {
+        let (copy_last, sidebar) = ctx.input_mut(|i| {
             if i.consume_key(cmd_shift, Key::S) {
                 action = Some(SheetAction::Copy(self.store.active));
             }
@@ -631,13 +719,7 @@ impl OmacusApp {
                     action = Some(SheetAction::Select(n));
                 }
             }
-            (
-                i.consume_key(Modifiers::NONE, Key::Escape)
-                    || i.consume_key(cmd, Key::Q)
-                    || i.consume_key(cmd, Key::W),
-                i.consume_key(cmd_shift, Key::C),
-                i.consume_key(cmd, Key::B),
-            )
+            (i.consume_key(cmd_shift, Key::C), i.consume_key(cmd, Key::B))
         });
 
         if let Some(a) = action {
@@ -658,9 +740,35 @@ impl OmacusApp {
             ctx.copy_text(r.display.clone());
             self.copied = Some((idx, Instant::now()));
         }
-        if quit {
-            self.save();
-            ctx.send_viewport_cmd(ViewportCommand::Close);
+    }
+
+    fn commit_delete(&mut self) {
+        let Some(i) = self.pending_delete.take() else {
+            return;
+        };
+        if i >= self.store.sheets.len() {
+            return;
+        }
+        let title = self.store.sheets[i].title();
+        self.store.delete(i);
+        self.trash_at = None;
+        self.toast = Some(Toast::undo(format!("Deleted \u{201c}{title}\u{201d}")));
+        self.sheet_switched();
+    }
+
+    fn restore_trashed(&mut self, id: &str) {
+        if let Some(title) = self.store.restore(id) {
+            self.trash_at = None;
+            self.toast = Some(Toast::info(format!("Restored \u{201c}{title}\u{201d}")));
+            self.sheet_switched();
+        }
+    }
+
+    fn refresh_trash(&mut self, force: bool) {
+        let stale = force || self.trash_at.is_none_or(|t| t.elapsed() >= TRASH_REFRESH);
+        if stale {
+            self.trash = self.store.trashed();
+            self.trash_at = Some(Instant::now());
         }
     }
 
@@ -760,9 +868,9 @@ impl OmacusApp {
                 i.consume_key(Modifiers::NONE, Key::Escape),
             )
         });
-        let matches = self.switcher_matches();
+        let hits = self.switcher_hits();
         let Some(sw) = &mut self.switcher else { return };
-        let n = matches.len().max(1);
+        let n = hits.len().max(1);
         if up {
             sw.selected = (sw.selected + n - 1) % n;
         }
@@ -772,31 +880,62 @@ impl OmacusApp {
         if esc {
             self.switcher = None;
             self.focus_editor = true;
-        } else if enter && let Some(&i) = matches.get(sw.selected) {
+        } else if enter && let Some(hit) = hits.get(sw.selected) {
+            let jump = hit.jump.clone();
             self.switcher = None;
             self.focus_editor = true;
-            self.apply(SheetAction::Select(i));
+            self.follow(jump);
         }
     }
 
-    fn switcher_matches(&self) -> Vec<usize> {
+    fn switcher_hits(&self) -> Vec<Hit> {
         let Some(sw) = &self.switcher else {
             return Vec::new();
         };
         let titles: Vec<String> = self.store.sheets.iter().map(|s| s.title()).collect();
         let texts: Vec<&str> = self.store.sheets.iter().map(|s| s.text.as_str()).collect();
-        find_sheets(&titles, &texts, &sw.query)
+        let mut hits: Vec<Hit> = find_sheets(&titles, &texts, &sw.query)
+            .into_iter()
+            .map(|i| Hit {
+                title: titles[i].clone(),
+                badge: if i == self.store.active {
+                    "current"
+                } else {
+                    ""
+                },
+                jump: Jump::Sheet(i),
+            })
+            .collect();
+        if !sw.query.trim().is_empty() {
+            let titles: Vec<String> = self.trash.iter().map(|t| t.title.clone()).collect();
+            let texts: Vec<&str> = self.trash.iter().map(|t| t.text.as_str()).collect();
+            for i in find_sheets(&titles, &texts, &sw.query) {
+                hits.push(Hit {
+                    title: titles[i].clone(),
+                    badge: "deleted",
+                    jump: Jump::Trash(self.trash[i].id.clone()),
+                });
+            }
+        }
+        hits
     }
 
-    /// The Ctrl+P box: a search field and the matching sheets.
+    fn follow(&mut self, jump: Jump) {
+        match jump {
+            Jump::Sheet(i) => self.apply(SheetAction::Select(i)),
+            Jump::Trash(id) => self.restore_trashed(&id),
+        }
+    }
+
+    /// The Ctrl+J box: a search field and the matching sheets.
     fn show_switcher(&mut self, ctx: &egui::Context) {
         if self.switcher.is_none() {
             return;
         }
+        self.refresh_trash(false);
         let theme = self.theme.clone();
-        let matches = self.switcher_matches();
-        let titles: Vec<String> = self.store.sheets.iter().map(|s| s.title()).collect();
-        let mut picked = None;
+        let hits = self.switcher_hits();
+        let mut picked: Option<Jump> = None;
         let mut close = false;
 
         let frame = Frame::NONE
@@ -829,12 +968,12 @@ impl OmacusApp {
                 }
                 let selected = sw.selected;
                 ui.add_space(4.0);
-                if matches.is_empty() {
+                if hits.is_empty() {
                     ui.add_space(4.0);
                     ui.label(egui::RichText::new("  No sheet matches").color(theme.comment));
                     ui.add_space(4.0);
                 }
-                for (row, &i) in matches.iter().take(9).enumerate() {
+                for (row, hit) in hits.iter().take(9).enumerate() {
                     let (rect, resp) =
                         ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
                     if row == selected {
@@ -852,31 +991,31 @@ impl OmacusApp {
                     ui.painter().text(
                         rect.left_center() + vec2(10.0, 0.0),
                         Align2::LEFT_CENTER,
-                        &titles[i],
+                        &hit.title,
                         FontId::proportional(14.0),
                         color,
                     );
-                    if i == self.store.active {
+                    if !hit.badge.is_empty() {
                         ui.painter().text(
                             rect.right_center() - vec2(10.0, 0.0),
                             Align2::RIGHT_CENTER,
-                            "current",
+                            hit.badge,
                             FontId::proportional(12.0),
                             theme.comment,
                         );
                     }
                     if resp.clicked() {
-                        picked = Some(i);
+                        picked = Some(hit.jump.clone());
                     }
                 }
             });
         if modal.should_close() {
             close = true;
         }
-        if let Some(i) = picked {
+        if let Some(jump) = picked {
             self.switcher = None;
             self.focus_editor = true;
-            self.apply(SheetAction::Select(i));
+            self.follow(jump);
         } else if close {
             self.switcher = None;
             self.focus_editor = true;
@@ -1269,6 +1408,8 @@ impl OmacusApp {
     fn sidebar(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme.clone();
         let mut action = None;
+        let mut restore = None;
+        self.refresh_trash(false);
 
         ui.horizontal(|ui| {
             ui.label(
@@ -1341,6 +1482,39 @@ impl OmacusApp {
                     }
                     resp.context_menu(|ui| sheet_menu(ui, i, count, &mut action));
                 }
+                if !self.trash.is_empty() {
+                    ui.add_space(14.0);
+                    ui.label(
+                        egui::RichText::new("RECENTLY DELETED")
+                            .size(11.0)
+                            .color(theme.comment),
+                    );
+                    ui.add_space(4.0);
+                    let trash = self.trash.clone();
+                    for item in trash {
+                        let (rect, resp) = ui
+                            .allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
+                        if resp.hovered() {
+                            ui.painter()
+                                .rect_filled(rect, CornerRadius::same(5), theme.hover);
+                        }
+                        let font = FontId::proportional(14.0);
+                        let galley = ui.painter().layout(
+                            item.title.clone(),
+                            font,
+                            theme.dim,
+                            rect.width() - 22.0,
+                        );
+                        ui.painter().galley(
+                            pos2(rect.left() + 12.0, rect.center().y - galley.size().y / 2.0),
+                            galley,
+                            theme.dim,
+                        );
+                        if resp.on_hover_text("Restore this sheet").clicked() {
+                            restore = Some(item.id);
+                        }
+                    }
+                }
             });
 
         ui.add_space(6.0);
@@ -1349,20 +1523,30 @@ impl OmacusApp {
         if let Some(a) = action {
             self.apply(a);
         }
+        if let Some(id) = restore {
+            self.restore_trashed(&id);
+        }
     }
 
     fn sheet(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme.clone();
         let font = FontId::monospace(FONT_SIZE);
         // Each line's answer width, swatch included, for placing it after the text.
+        let idle = self.edited_at.elapsed();
+        let cursor_line = self.cursor_line;
         let (row_height, answers) = ui.ctx().fonts_mut(|f| {
             let answers: Vec<Option<f32>> = self
                 .results
                 .iter()
-                .map(|r| {
-                    let text = match (&r.kind, r.note) {
+                .enumerate()
+                .map(|(line, r)| {
+                    if r.hint && !r.stale && r.note.is_some() {
+                        let editing = cursor_line == Some(line);
+                        return name_hint_visible(editing, idle).then_some(16.0);
+                    }
+                    let text = match (&r.kind, r.note.as_deref()) {
                         (Kind::Value, _) if !r.display.is_empty() => r.display.clone(),
-                        (Kind::Error, Some(note)) if !r.stale => note.to_string(),
+                        (Kind::Error, Some(note)) if !r.stale && !r.hint => note.to_string(),
                         _ => return None,
                     };
                     let swatch = if r.color.is_some() {
@@ -1427,6 +1611,7 @@ impl OmacusApp {
         let changed = response.changed();
         if changed {
             self.store.current().mark_dirty();
+            self.edited_at = Instant::now();
             self.evaluate();
             self.touched();
         }
@@ -1436,6 +1621,7 @@ impl OmacusApp {
             .filter(|r| r.primary == r.secondary)
             .map(|r| r.primary.index.0);
         if let Some(c) = output.cursor_range.map(|r| r.primary.index.0) {
+            self.cursor_line = Some(line_at(&self.store.current().text, c));
             self.store.set_cursor(c);
             if self.store.has_unsaved() {
                 self.touched();
@@ -1460,6 +1646,16 @@ impl OmacusApp {
             }
             Some(c) if self.popup.as_ref().is_some_and(|p| p.end == c) => {}
             _ => self.popup = None,
+        }
+
+        if self.store.current().text.trim().is_empty() {
+            ui.painter().text(
+                response.rect.left_top() + vec2(2.0, 2.0),
+                Align2::LEFT_TOP,
+                empty_sheet_hint(self.store.sidebar),
+                FontId::proportional(14.0),
+                theme.comment,
+            );
         }
 
         // Paint each answer at the end of its line, or on the row made for it below.
@@ -1497,7 +1693,28 @@ impl OmacusApp {
         };
         let theme = &self.theme;
         // No answer, but a reason ("Can't divide by zero"): shown quietly, not copyable.
-        if let (Kind::Error, Some(note), false) = (&result.kind, result.note, result.stale) {
+        if let (Kind::Error, Some(note), false) =
+            (&result.kind, result.note.as_deref(), result.stale)
+        {
+            if result.hint {
+                let editing = self.cursor_line == Some(line);
+                if !name_hint_visible(editing, self.edited_at.elapsed()) {
+                    if let Some(left) = HINT_IDLE.checked_sub(self.edited_at.elapsed()) {
+                        ui.ctx().request_repaint_after(left);
+                    }
+                    return;
+                }
+                let center = pos2(right - 8.0, y + h / 2.0);
+                ui.painter().circle_filled(center, 3.0, theme.comment);
+                let rect = Rect::from_center_size(center, vec2(16.0, h));
+                let resp = ui.interact(
+                    rect,
+                    ui.scope_id().with(("name-hint", line)),
+                    Sense::hover(),
+                );
+                resp.on_hover_text(note);
+                return;
+            }
             let galley = ui
                 .ctx()
                 .fonts_mut(|f| f.layout_no_wrap(note.to_string(), font.clone(), theme.comment));
@@ -1629,6 +1846,102 @@ impl OmacusApp {
             self.focus_editor = true;
         }
     }
+
+    /// A tab on the left edge when the sidebar is hidden, so an empty window
+    /// still shows where the sheets are.
+    fn sheets_tab(&mut self, ctx: &egui::Context) {
+        let theme = self.theme.clone();
+        egui::Area::new(egui::Id::unique("sheets-tab"))
+            .order(Order::Foreground)
+            .anchor(Align2::LEFT_CENTER, vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                let button = ui.add(
+                    egui::Button::new(egui::RichText::new("Sheets").size(12.0).color(theme.dim))
+                        .frame(true)
+                        .fill(theme.sidebar),
+                );
+                if button
+                    .on_hover_text(format!("Show sheets ({})", help::keys("Ctrl+B")))
+                    .clicked()
+                {
+                    self.store.toggle_sidebar();
+                    self.touched();
+                }
+            });
+    }
+
+    fn show_delete(&mut self, ctx: &egui::Context) {
+        let Some(i) = self.pending_delete else {
+            return;
+        };
+        if i >= self.store.sheets.len() {
+            self.pending_delete = None;
+            return;
+        }
+        let title = self.store.sheets[i].title();
+        let theme = self.theme.clone();
+        let mut delete = false;
+        let mut cancel = false;
+        let frame = Frame::NONE
+            .fill(theme.sidebar)
+            .stroke(egui::Stroke::new(1.0, theme.selection))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(Margin::symmetric(20, 16));
+        let modal = egui::Modal::new(egui::Id::unique("omacus-delete"))
+            .frame(frame)
+            .backdrop_color(Color32::from_black_alpha(140))
+            .show(ctx, |ui| {
+                ui.set_width(340.0);
+                ui.label(
+                    egui::RichText::new(format!("Delete \u{201c}{title}\u{201d}?"))
+                        .size(16.0)
+                        .color(theme.foreground),
+                );
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(
+                        "It's moved to Recently deleted, in the sidebar and the sheet switcher.",
+                    )
+                    .size(13.0)
+                    .color(theme.dim),
+                );
+                ui.add_space(14.0);
+                ui.horizontal(|ui| {
+                    delete = ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("Delete")
+                                    .size(13.5)
+                                    .color(theme.background),
+                            )
+                            .fill(theme.accent)
+                            .corner_radius(CornerRadius::same(6))
+                            .min_size(vec2(0.0, 30.0)),
+                        )
+                        .clicked();
+                    cancel = ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("Cancel")
+                                    .size(13.5)
+                                    .color(theme.foreground),
+                            )
+                            .corner_radius(CornerRadius::same(6))
+                            .min_size(vec2(0.0, 30.0)),
+                        )
+                        .clicked();
+                });
+            });
+        if modal.should_close() {
+            cancel = true;
+        }
+        if delete {
+            self.commit_delete();
+        } else if cancel {
+            self.pending_delete = None;
+            self.focus_editor = true;
+        }
+    }
 }
 
 impl eframe::App for OmacusApp {
@@ -1648,6 +1961,8 @@ impl eframe::App for OmacusApp {
                 .resizable(false)
                 .frame(frame)
                 .show(ui, |ui| self.sidebar(ui));
+        } else {
+            self.sheets_tab(&ctx);
         }
 
         let frame = Frame::NONE
@@ -1669,6 +1984,7 @@ impl eframe::App for OmacusApp {
         self.popup(&ctx);
         self.show_help(&ctx);
         self.show_update(&ctx);
+        self.show_delete(&ctx);
         self.show_switcher(&ctx);
         self.show_toast(&ctx);
     }
@@ -1909,9 +2225,95 @@ pub fn run() -> eframe::Result {
     )
 }
 
+/// Ctrl/Cmd+J toggles the switcher on the key press only. Ctrl/Cmd+Alt+Up/Down
+/// walks sheets and may repeat. Escape dismisses; it does not quit. Ctrl+P is
+/// left for a future preview.
+fn shortcut_for(command: bool, alt: bool, shift: bool, key: Key, repeat: bool) -> Option<Shortcut> {
+    match key {
+        Key::Escape if !command && !alt && !shift && !repeat => Some(Shortcut::Dismiss),
+        Key::J if command && !alt && !shift && !repeat => Some(Shortcut::ToggleSwitcher),
+        Key::ArrowUp if command && alt && !shift => Some(Shortcut::PrevSheet),
+        Key::ArrowDown if command && alt && !shift => Some(Shortcut::NextSheet),
+        Key::Q | Key::W if command && !alt && !shift && !repeat => Some(Shortcut::Quit),
+        _ => None,
+    }
+}
+
+/// True when this press belongs to one of those shortcuts, repeats included,
+/// so the editor never sees the key or the letter it would insert.
+fn owns_key(command: bool, alt: bool, shift: bool, key: Key) -> bool {
+    match key {
+        Key::J if command && !alt && !shift => true,
+        Key::Escape if !command && !alt && !shift => true,
+        Key::ArrowUp | Key::ArrowDown if command && alt && !shift => true,
+        Key::Q | Key::W if command && !alt && !shift => true,
+        _ => false,
+    }
+}
+
+fn take_chords(events: &mut Vec<egui::Event>) -> Vec<Shortcut> {
+    let mut swallow_text = false;
+    let mut actions = Vec::new();
+    for event in events.iter() {
+        if let egui::Event::Key {
+            key,
+            modifiers,
+            pressed: true,
+            repeat,
+            ..
+        } = event
+            && owns_key(modifiers.command, modifiers.alt, modifiers.shift, *key)
+        {
+            swallow_text = true;
+            if let Some(shortcut) = shortcut_for(
+                modifiers.command,
+                modifiers.alt,
+                modifiers.shift,
+                *key,
+                *repeat,
+            ) {
+                actions.push(shortcut);
+            }
+        }
+    }
+    events.retain(|event| match event {
+        egui::Event::Key {
+            key,
+            modifiers,
+            pressed: true,
+            ..
+        } if owns_key(modifiers.command, modifiers.alt, modifiers.shift, *key) => false,
+        egui::Event::Text(_) if swallow_text => false,
+        _ => true,
+    });
+    actions
+}
+
+fn name_hint_visible(editing_line: bool, idle_for: Duration) -> bool {
+    !editing_line || idle_for >= HINT_IDLE
+}
+
+fn empty_sheet_hint(sidebar_open: bool) -> &'static str {
+    if sidebar_open {
+        "Sheets are listed on the left. Ctrl+B hides them, and Ctrl+J jumps to one."
+    } else {
+        "Sheets are in the sidebar. Ctrl+B shows it, or click Sheets. Ctrl+J jumps to one."
+    }
+}
+
+fn line_at(text: &str, cursor: usize) -> usize {
+    text.chars().take(cursor).filter(|c| *c == '\n').count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::find_sheets;
+    use super::{
+        HINT_IDLE, Shortcut, empty_sheet_hint, line_at, name_hint_visible, owns_key, shortcut_for,
+        take_chords,
+    };
+    use eframe::egui::{Event, Key, Modifiers};
+    use std::time::Duration;
 
     #[test]
     fn finds_sheets_by_name_then_contents() {
@@ -1934,5 +2336,85 @@ mod tests {
         assert_eq!(find_sheets(&titles, &texts, "ryokan"), vec![0]);
         assert_eq!(find_sheets(&titles, &texts, ""), vec![0, 1, 2, 3]);
         assert!(find_sheets(&titles, &texts, "zzz").is_empty());
+    }
+
+    fn press(key: Key, modifiers: Modifiers, repeat: bool) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat,
+            modifiers,
+        }
+    }
+
+    #[test]
+    fn switcher_moves_to_ctrl_j_and_ignores_repeats() {
+        assert_eq!(
+            shortcut_for(true, false, false, Key::J, false),
+            Some(Shortcut::ToggleSwitcher)
+        );
+        assert_eq!(shortcut_for(true, false, false, Key::J, true), None);
+        assert!(owns_key(true, false, false, Key::J));
+        // Ctrl+P stays free for a later preview.
+        assert_eq!(shortcut_for(true, false, false, Key::P, false), None);
+        assert!(!owns_key(true, false, false, Key::P));
+        assert_eq!(
+            shortcut_for(true, true, false, Key::ArrowDown, true),
+            Some(Shortcut::NextSheet)
+        );
+        assert_eq!(
+            shortcut_for(true, true, false, Key::ArrowUp, false),
+            Some(Shortcut::PrevSheet)
+        );
+        // Alt+Up still moves a sheet; it is not the previous-sheet chord.
+        assert_eq!(shortcut_for(false, true, false, Key::ArrowUp, false), None);
+        assert_eq!(
+            shortcut_for(false, false, false, Key::Escape, false),
+            Some(Shortcut::Dismiss)
+        );
+        assert_eq!(shortcut_for(false, false, false, Key::Escape, true), None);
+        assert_eq!(
+            shortcut_for(true, false, false, Key::Q, false),
+            Some(Shortcut::Quit)
+        );
+        assert_eq!(shortcut_for(true, false, false, Key::W, true), None);
+
+        let mut held = vec![
+            press(Key::J, Modifiers::COMMAND, true),
+            Event::Text("j".into()),
+        ];
+        assert!(take_chords(&mut held).is_empty());
+        assert!(held.is_empty());
+
+        let mut once = vec![
+            press(Key::J, Modifiers::COMMAND, false),
+            Event::Text("j".into()),
+        ];
+        assert_eq!(take_chords(&mut once), vec![Shortcut::ToggleSwitcher]);
+        assert!(once.is_empty());
+
+        let mut preview = vec![
+            press(Key::P, Modifiers::COMMAND, false),
+            Event::Text("p".into()),
+        ];
+        assert!(take_chords(&mut preview).is_empty());
+        assert_eq!(preview.len(), 2);
+    }
+
+    #[test]
+    fn name_hints_wait_out_typing_on_that_line() {
+        assert!(!name_hint_visible(true, Duration::from_millis(100)));
+        assert!(name_hint_visible(true, HINT_IDLE));
+        assert!(name_hint_visible(false, Duration::ZERO));
+    }
+
+    #[test]
+    fn empty_sheet_mentions_the_sidebar() {
+        assert!(empty_sheet_hint(true).contains("Ctrl+B"));
+        assert!(empty_sheet_hint(true).contains("Ctrl+J"));
+        assert!(empty_sheet_hint(false).contains("Sheets"));
+        assert_eq!(line_at("a\nb\nc", 0), 0);
+        assert_eq!(line_at("a\nb\nc", 2), 1);
     }
 }
