@@ -226,7 +226,7 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "Blocks and totals",
-        "`sum`, `total` and `average` cover the lines above, back to the last blank line or header. Leave a blank line to start a new block.",
+        "`sum`, `total` and `average` cover the lines above, back to the last blank line or header, and work in a calculation too (`total * 1.08`). Leave a blank line to start a new block.",
     ),
     (
         "Chain with prev",
