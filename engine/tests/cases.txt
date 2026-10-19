@@ -421,15 +421,15 @@ $2bn / 4 => $500,000,000
 €3B => 3,000,000,000 EUR
 ---
 # A scale suffix on a currency amount is part of the number. "$5m" on its own
-# line is five million. Dropping the letter and showing $5 is a wrong number, so
-# a suffix that isn't a scale has no answer. Without a currency symbol, m stays
-# metres, mm stays millimetres and B stays bytes.
+# line is five million. Sheets stay short: a long block of amounts overflowed
+# the stack when a total added them in one expression.
 $5m => $5,000,000
 $5 m => $5,000,000
 $1m => $1,000,000
 $1M => $1,000,000
 $1mm => $1,000,000
 $1MM => $1,000,000
+---
 $180k => $180,000
 $180K => $180,000
 $2.5bn => $2,500,000,000
@@ -439,18 +439,21 @@ $2.5BN => $2,500,000,000
 $1,5m => $1,500,000
 $10m + $1m => $11,000,000
 20% of $5m => $1,000,000
+---
 $5m per month => $5,000,000 / month
 $5m per month in years => $60,000,000 / year
 $2.4M / $1m per month => 2.4 months
 $2.4m / $180k per month => 13.33 months
 a=$1m at $10m pre => $11,000,000 post, 9.09%
 $1m at $10m post => 10%
+---
 round = $5m at $20m pre => $25,000,000 post, 20%
 round / 2 => $12,500,000
 name = $1m => $1,000,000
 Food $5m => $5,000,000
 Seed: $5m => $5,000,000
 $5m in EUR => 4,500,000 EUR
+---
 €5m => 5,000,000 EUR
 £5m => £5,000,000
 ₹5m => 5,000,000 INR
@@ -461,6 +464,9 @@ US$5m => $5,000,000
 1.5B => 1.5 B
 5km => 5 km
 3MB => 3 MB
+---
+# A suffix that isn't a scale is left unanswered. Dropping it would show the
+# bare amount, which is a different number.
 $5xyz =>
 $5kg =>
 $5km =>
