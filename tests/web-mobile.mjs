@@ -1,6 +1,8 @@
 // Mobile web app: no zoom-on-focus, the sheet drawer reaches the screen edge
 // above the home indicator, and a tap outside it closes it without editing.
-// The browser half runs when Chrome is installed (it is not, on CI).
+// Layout checks run in Chrome when it is installed. Anything that needs the
+// running editor (the embed class, a tap on the sheet) waits for the built
+// wasm package, which CI does not produce.
 
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
@@ -233,35 +235,36 @@ check(/240px/.test(desktop.columns), `desktop columns are ${desktop.columns}`);
 
 if (shots) await shot(join(shots, "desktop.png"));
 
-// The homepage embeds the editor in an iframe. The shell still fills that frame.
-await page("Emulation.clearDeviceMetricsOverride");
-await page("Emulation.setEmulatedMedia", { media: "", features: [] });
-await page("Emulation.setDeviceMetricsOverride", {
-  width: 800,
-  height: 520,
-  deviceScaleFactor: 1,
-  mobile: false,
-});
-await page("Page.navigate", { url: `http://127.0.0.1:${port}/app/?embed` });
-await waitFor(`document.body.classList.contains("embed") && getComputedStyle(document.body).getPropertyValue("--bar").trim() === "0px"`);
-const embed = await evalJson(`(() => {
-  const page = document.body.getBoundingClientRect();
-  const editor = document.querySelector("[data-editor]").getBoundingClientRect();
-  return {
-    pageH: Math.round(page.height),
-    pageW: Math.round(page.width),
-    editorH: Math.round(editor.height),
-    side: getComputedStyle(document.querySelector(".side")).display,
-    scrim: getComputedStyle(document.querySelector("[data-scrim]")).display,
-  };
-})()`);
-check(Math.abs(embed.pageH - 520) <= 1 && Math.abs(embed.pageW - 800) <= 1, `embed shell is ${embed.pageW}x${embed.pageH}, want 800x520`);
-check(embed.editorH > 400, `embed editor height is ${embed.editorH}`);
-check(embed.side === "none", `embed sidebar display is ${embed.side}`);
-check(embed.scrim === "none", `embed scrim display is ${embed.scrim}`);
-
 const pkg = existsSync(join(site, "app/pkg/omacus_web.js"));
 if (pkg) {
+  // The homepage embeds the editor in an iframe. The shell still fills that frame.
+  // The embed class is added by app.js, which only loads once the wasm package exists.
+  await page("Emulation.clearDeviceMetricsOverride");
+  await page("Emulation.setEmulatedMedia", { media: "", features: [] });
+  await page("Emulation.setDeviceMetricsOverride", {
+    width: 800,
+    height: 520,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await page("Page.navigate", { url: `http://127.0.0.1:${port}/app/?embed` });
+  await waitFor(`document.body.classList.contains("embed") && getComputedStyle(document.body).getPropertyValue("--bar").trim() === "0px"`);
+  const embed = await evalJson(`(() => {
+    const page = document.body.getBoundingClientRect();
+    const editor = document.querySelector("[data-editor]").getBoundingClientRect();
+    return {
+      pageH: Math.round(page.height),
+      pageW: Math.round(page.width),
+      editorH: Math.round(editor.height),
+      side: getComputedStyle(document.querySelector(".side")).display,
+      scrim: getComputedStyle(document.querySelector("[data-scrim]")).display,
+    };
+  })()`);
+  check(Math.abs(embed.pageH - 520) <= 1 && Math.abs(embed.pageW - 800) <= 1, `embed shell is ${embed.pageW}x${embed.pageH}, want 800x520`);
+  check(embed.editorH > 400, `embed editor height is ${embed.editorH}`);
+  check(embed.side === "none", `embed sidebar display is ${embed.side}`);
+  check(embed.scrim === "none", `embed scrim display is ${embed.scrim}`);
+
   await openMobile();
   await waitFor(`document.querySelector(".cm-content")`, 15000);
   const contentFont = await evalJson(`parseFloat(getComputedStyle(document.querySelector(".cm-content")).fontSize)`);
@@ -324,7 +327,7 @@ if (pkg) {
     await shot(join(shots, "after-drawer-closed.png"));
   }
 } else {
-  console.log("interaction checks skipped (wasm pkg not built)");
+  console.log("editor checks skipped (wasm pkg not built)");
 }
 
 await page("Emulation.clearDeviceMetricsOverride").catch(() => {});
