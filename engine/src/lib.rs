@@ -292,7 +292,7 @@ re!(
 re!(TIMES_X, r"(\d+\)?)(\s*)([x×])(\s*)(\d|\()");
 re!(
     SYMBOL_NUM,
-    r"([€¥₹₩₽₺])\s*(\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?)"
+    r"([€¥₹₩₽₺])\s*(\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?)\b"
 );
 // Dollars with a country prefix: "C$100", "A$50", "US$20".
 re!(
@@ -328,10 +328,13 @@ re!(TIMES_PCT, r"(\d\)?\s*[*/]\s*)(\d[\d.]*)\s*%");
 re!(MONEY_PREFIX, r"[$£]\s*\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?");
 re!(PREV, r"(?i)\bprev\b");
 re!(LETTERS, r"[A-Za-z]+");
-// "$1.5B", "$2bn": billions after a currency symbol (alone, "1.5B" is bytes).
+// "$5m", "$1mm", "$2.5bn": a scale after a currency amount is part of the number
+// (k thousand, m/mm million, b/bn billion). Alone, "1m" is metres, "3mm" is
+// millimetres and "1.5B" is bytes. The letter is never dropped: an amount with a
+// suffix this doesn't know is left unanswered, not shown as the bare number.
 re!(
-    MONEY_BILLIONS,
-    r"([$£€¥₹]\s*\d[\d,]*(?:\.\d+)?)\s*(?:B|bn)\b"
+    MONEY_SCALE,
+    r"(?i)([$£€¥₹₩₽₺])\s*(\d[\d,]*(?:\.\d+)?)\s*(mm|bn|k|m|b)\b"
 );
 re!(TOTAL_WORD, r"(?i)\b(?:total|sum|average|avg|mean)\b");
 re!(CONVERSION_START, r"(?i)^(?:in|to|as)\b");
@@ -817,11 +820,16 @@ impl Engine {
         let rhs = LETTERS.replace_all(&rhs, |c: &regex::Captures| {
             let m = c.get(0).unwrap();
             let w = m.as_str();
-            let glued = rhs[..m.start()].ends_with(|ch: char| ch.is_ascii_digit() || ch == '_');
+            let before = &rhs[..m.start()];
+            let glued = before.ends_with(|ch: char| ch.is_ascii_digit() || ch == '_');
+            // A suffix stuck to the amount ("($5)m", "($5)kg"). Dropping it would
+            // show the bare amount, a different number. Leave it, so the line stays
+            // unanswered unless the suffix was a scale and already expanded.
             let keep = vars.contains(w)
                 || self.rates.knows(w)
                 || (glued && matches!(w, "k" | "K" | "M"))
-                || rhs[..m.start()].ends_with('_')
+                || before.ends_with('_')
+                || stuck_to_money(before)
                 || matches!(
                     w.to_ascii_lowercase().as_str(),
                     "in" | "to"
@@ -1269,7 +1277,23 @@ fn money_per(expr: &str, period: &str) -> String {
     }
 }
 
-/// "$180k" -> "$180000", so the thousand stays on the number.
+/// "$5m" -> "$5000000", "$2.5bn" -> "$2500000000". Only after a currency symbol.
+fn expand_money_scales(s: &str) -> String {
+    MONEY_SCALE
+        .replace_all(s, |c: &regex::Captures| {
+            let places = match c[3].to_ascii_lowercase().as_str() {
+                "k" => 3,
+                "m" | "mm" => 6,
+                "b" | "bn" => 9,
+                _ => return c[0].to_string(),
+            };
+            format!("{}{}", &c[1], shift_point(&c[2].replace(',', ""), places))
+        })
+        .into_owned()
+}
+
+/// "$180k" -> "$180000", so the thousand stays on the number. Lowercase "m" is
+/// metres here; a million only when a currency symbol marks it (see `MONEY_SCALE`).
 fn expand_scales(s: &str) -> String {
     SCALE_SUFFIX
         .replace_all(s, |c: &regex::Captures| {
@@ -1405,7 +1429,6 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
         None => line.to_string(),
     };
     s = QUOTED.replace_all(&s, " ").into_owned();
-    s = MONEY_BILLIONS.replace_all(&s, "${1}e9").into_owned();
     // Twice: "1,5 + 2,5" shares the space between two matches.
     for _ in 0..2 {
         s = DOT_THOUSANDS
@@ -1423,6 +1446,8 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
             .into_owned();
     }
     s = SYMBOL_MINUS.replace_all(&s, "$1-$2$3").into_owned();
+    // After "1,5" has become "1.5", and while "US$5m" still has its "$".
+    s = expand_money_scales(&s);
     s = PREFIXED_DOLLAR
         .replace_all(&s, |c: &regex::Captures| {
             let code = match &c[1] {
@@ -1764,6 +1789,11 @@ fn drop_unknown_words(
                     return None;
                 }
                 let at = find_word(&expr, &word)?;
+                // "$5xyz": the letters are a suffix of the amount. Dropping them
+                // would leave the bare number, which is a different amount.
+                if stuck_to_money(&expr[..at]) {
+                    return None;
+                }
                 if qualifies_unit(&expr[at + word.len()..]) {
                     return None;
                 }
@@ -1786,6 +1816,19 @@ fn drop_unknown_words(
         }
     }
     None
+}
+
+/// Letters with no space between them and a currency amount: "$5m", "($5)xyz".
+/// A separate word ("3 kg", "Nails $8") or a rate ("$85/hour") is not a suffix.
+fn stuck_to_money(before: &str) -> bool {
+    if !before.ends_with(|c: char| c.is_ascii_digit() || c == ')' || "$£€¥₹₩₽₺".contains(c))
+    {
+        return false;
+    }
+    match before.rfind(['$', '£', '€', '¥', '₹', '₩', '₽', '₺']) {
+        Some(i) => !before[i..].chars().any(char::is_whitespace),
+        None => false,
+    }
 }
 
 /// An approximate answer with every digit Omacus might show. fend rounds to ten
@@ -2296,6 +2339,48 @@ mod tests {
         assert_eq!(one("iPhone 15 $799"), "$799");
         assert_eq!(one("Item 2: $5"), "$5");
         assert_eq!(one("Movie tickets 2 * $14"), "$28");
+    }
+
+    #[test]
+    fn currency_scale_suffix_is_part_of_the_amount() {
+        // On its own line, and everywhere else a currency amount is written.
+        assert_eq!(one("$5m"), "$5,000,000");
+        assert_eq!(one("$5 m"), "$5,000,000");
+        assert_eq!(one("$1m"), "$1,000,000");
+        assert_eq!(one("$1M"), "$1,000,000");
+        assert_eq!(one("$1mm"), "$1,000,000");
+        assert_eq!(one("$1MM"), "$1,000,000");
+        assert_eq!(one("$180k"), "$180,000");
+        assert_eq!(one("$180K"), "$180,000");
+        assert_eq!(one("$2.5bn"), "$2,500,000,000");
+        assert_eq!(one("$2.5b"), "$2,500,000,000");
+        assert_eq!(one("$2.5B"), "$2,500,000,000");
+        assert_eq!(one("$2.5BN"), "$2,500,000,000");
+        assert_eq!(one("$10m + $1m"), "$11,000,000");
+        assert_eq!(one("20% of $5m"), "$1,000,000");
+        assert_eq!(one("$5m per month"), "$5,000,000 / month");
+        assert_eq!(one("$2.4M / $1m per month"), "2.4 months");
+        assert_eq!(one("$2.4m / $180k per month"), "13.33 months");
+        assert_eq!(one("a=$1m at $10m pre"), "$11,000,000 post, 9.09%");
+        assert_eq!(one("Food $5m"), "$5,000,000");
+        assert_eq!(one("Seed: $5m"), "$5,000,000");
+        assert_eq!(one("$5m in EUR"), "4,500,000 EUR");
+        assert_eq!(one("€5m"), "5,000,000 EUR");
+        assert_eq!(one("£5m"), "£5,000,000");
+        assert_eq!(one("₹5m"), "5,000,000 INR");
+        // No currency symbol: the letter stays a unit.
+        assert_eq!(one("1m"), "1 m");
+        assert_eq!(one("3mm"), "3 mm");
+        assert_eq!(one("1.5B"), "1.5 B");
+        assert_eq!(one("5km"), "5 km");
+        assert_eq!(one("3MB"), "3 MB");
+        // A suffix that isn't a scale is not thrown away to leave the bare amount.
+        assert_eq!(one("$5xyz"), "");
+        assert_eq!(one("$5kg"), "");
+        assert_eq!(one("$5km"), "");
+        assert_eq!(one("€5xyz"), "");
+        assert_ne!(one("$5m"), "$5");
+        assert_ne!(one("$5kg"), "$5");
     }
 
     #[test]
