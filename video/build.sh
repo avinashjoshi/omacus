@@ -5,6 +5,7 @@ cd "$(dirname "$0")"
 [[ -d node_modules ]] || npm ci --silent --no-audit --no-fund
 [[ -d .venv ]] || { python3 -m venv .venv && .venv/bin/pip install -q numpy==2.1.3; }
 (cd .. && cargo build --release -q)
+mkdir -p build
 node data.mjs >/dev/null                  # every answer, from the real engine
 if [[ -s ~/.config/elevenlabs/api_key ]]; then
   node voice.mjs                          # narration (cached; only changed lines cost credits)

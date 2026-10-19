@@ -18,10 +18,16 @@ await mkdir(`${BUILD}vo`, { recursive: true });
 
 // The script lives in composition.js; read the scene list from it.
 const src = await readFile(new URL("composition.js", import.meta.url), "utf8");
-const scenes = [...src.matchAll(/\{ id: "([\w-]+)",[^}]*?vo: "([^"]+)" \}/g)].map((m) => ({ id: m[1], vo: m[2] }));
+// A scene can set `say` (what's spoken, e.g. with audio tags) and `stab` (stability); captions keep `vo`.
+const scenes = [...src.matchAll(/\{ id: "([\w-]+)",([^}]*?)vo: "([^"]+)" \}/g)].map((m) => ({
+  id: m[1],
+  vo: m[3],
+  say: m[2].match(/say: "([^"]+)"/)?.[1],
+  stab: Number(m[2].match(/stab: ([\d.]+)/)?.[1] ?? NaN),
+}));
 
 // Names the voice gets wrong, spelled the way they're said. Captions keep the real spelling.
-const SAY = { Omarchy: "Oh-mah-chee", Omacus: "Oh-mah-kus" };
+const SAY = { Omarchy: "Omahchee", Omacus: "O-mah-cus" };
 const spoken = (text) => Object.entries(SAY).reduce((t, [w, say]) => t.replaceAll(w, say), text);
 const unspoken = (word) => Object.entries(SAY).reduce((w, [real, say]) => w.replaceAll(say, real), word);
 
@@ -33,18 +39,21 @@ const NARRATOR = { name: "Jessica Anne Bogart", voice_id: "lxYfHSkYm1EzQzGhdbfc"
 const named = process.env.VOICE && voices.find((v) => v.name.split(" ")[0].toLowerCase() === process.env.VOICE.toLowerCase());
 if (process.env.VOICE && !named) throw new Error(`no voice named ${process.env.VOICE}`);
 const voice = named ?? (process.env.VOICE_ID ? { name: process.env.VOICE_ID, voice_id: process.env.VOICE_ID } : NARRATOR);
-const MODEL = process.env.MODEL ?? "eleven_v3";
+const MODEL = process.env.MODEL ?? "eleven_v4";
 console.log(`voices: ${voices.map((v) => v.name.split(" ")[0]).join(", ")}`);
 console.log(`using: ${voice.name} (${voice.voice_id})`);
 
 // eleven_v3 takes only stability (0 creative, 0.5 natural, 1 robust).
-const settings = MODEL === "eleven_v3"
+const V3 = /^eleven_v[34]/.test(MODEL); // v3 and v4 take only stability, no context
+const base = V3
   ? { stability: 0.5 }
   : { stability: 0.42, similarity_boost: 0.8, style: 0.28, use_speaker_boost: true, speed: 1.0 };
 const timings = {};
 
 for (const [i, s] of scenes.entries()) {
-  const hash = createHash("sha1").update(JSON.stringify([spoken(s.vo), voice.voice_id, MODEL, settings])).digest("hex").slice(0, 10);
+  const settings = Number.isNaN(s.stab) ? base : { ...base, stability: s.stab };
+  const text = spoken(s.say ?? s.vo);
+  const hash = createHash("sha1").update(JSON.stringify([text, voice.voice_id, MODEL, settings])).digest("hex").slice(0, 10);
   const mp3 = `${BUILD}vo/${s.id}.mp3`;
   const meta = `${BUILD}vo/${s.id}.json`;
   let cached = null;
@@ -57,11 +66,11 @@ for (const [i, s] of scenes.entries()) {
       method: "POST",
       headers,
       body: JSON.stringify({
-        text: spoken(s.vo),
+        text,
         model_id: MODEL,
         voice_settings: settings,
         // Neighbouring lines keep the delivery continuous across clips (not on eleven_v3).
-        ...(MODEL !== "eleven_v3" && {
+        ...(!V3 && {
           previous_text: scenes[i - 1] && spoken(scenes[i - 1].vo),
           next_text: scenes[i + 1] && spoken(scenes[i + 1].vo),
         }),
@@ -70,7 +79,11 @@ for (const [i, s] of scenes.entries()) {
     if (!res.ok) throw new Error(`${s.id}: ${res.status} ${await res.text()}`);
     const out = await res.json();
     await writeFile(mp3, Buffer.from(out.audio_base64, "base64"));
-    cached = { hash, words: words(out.alignment).map((w) => ({ ...w, w: unspoken(w.w) })) };
+    let ws = words(out.alignment).map((w) => ({ ...w, w: unspoken(w.w) }));
+    // With `say`, show the caption's own words when they line up one to one.
+    const shown = s.vo.split(" ");
+    if (s.say && shown.length === ws.length) ws = ws.map((w, k) => ({ ...w, w: shown[k] }));
+    cached = { hash, words: ws };
     await writeFile(meta, JSON.stringify(cached));
     console.log(`generated ${s.id}`);
   } else {
@@ -82,11 +95,17 @@ for (const [i, s] of scenes.entries()) {
 await writeFile(`${BUILD}timings.json`, JSON.stringify(timings, null, 1));
 console.log("wrote build/timings.json");
 
-// Character timings to word timings.
+// Character timings to word timings. Audio tags like [warm] aren't words, so they're dropped.
 function words(a) {
   const out = [];
   let cur = null;
+  let tag = false;
   a.characters.forEach((ch, i) => {
+    if (ch === "[") tag = true;
+    if (tag) {
+      if (ch === "]") tag = false;
+      return;
+    }
     if (/\s/.test(ch)) {
       if (cur) out.push(cur);
       cur = null;
