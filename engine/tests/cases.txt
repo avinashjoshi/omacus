@@ -333,3 +333,14 @@ e => 2.72
 5 kg => 5 kg
 r = 3 => 3
 r => 3
+---
+# A percentage times an amount or a variable is that share of it (from a sheet:
+# "$120k + 0.5% * valuation" was a huge number in $^3)
+valuation = $50M
+revenue = $3.6M
+comp = $120k + 0.5% * valuation + 1% * revenue => $406,000
+offer = comp + comp => $812,000
+$120k + 0.5% * $50M => $370,000
+$100 + 10% * $50 => $105
+$120k + valuation * 0.5% => $370,000
+$1,000 - 2% * revenue => -$71,000

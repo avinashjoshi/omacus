@@ -314,6 +314,14 @@ re!(
 // A percentage times a plain number is a share of it: "10% * 200" is 20, not
 // 2,000%. Divided, it stays a percentage ("50% / 2" is 25%).
 re!(PCT_TIMES, r"(\d[\d.]*)\s*%(\s*\*\s*\(?\d)");
+// A percentage times an amount or a variable is that share of it, wherever it
+// sits: "$120k + 0.5% * valuation" adds 0.5% of the valuation to $120k.
+re!(
+    PCT_SHARE,
+    r"(\d[\d.]*)\s*%(\s*\*\s*)([^\d\s(]|\(\s*[$£€¥₹A-Za-z_])"
+);
+// "%" between two numbers is mod ("7.5 % 2"); anywhere else it's a percentage.
+re!(MOD_WRITTEN, r"(?i)\bmod\b|\d\s*%\s*[\d(]");
 re!(TIMES_PCT, r"(\d\)?\s*[*/]\s*)(\d[\d.]*)\s*%");
 re!(MONEY_PREFIX, r"[$£]\s*\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?");
 re!(PREV, r"(?i)\bprev\b");
@@ -701,7 +709,12 @@ impl Engine {
                 };
                 LineResult::value(display)
             }
-            None => LineResult::error(budget.note().or_else(|| crate::time::note(trimmed))),
+            None => {
+                let note = budget
+                    .note()
+                    .filter(|n| !n.starts_with("mod ") || MOD_WRITTEN.is_match(trimmed));
+                LineResult::error(note.or_else(|| crate::time::note(trimmed)))
+            }
         }
     }
 
@@ -1165,6 +1178,7 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
             format!("{}(({} / 100) * {})", &c[1], c[2].replace(',', ""), &c[3])
         })
         .into_owned();
+    rhs = PCT_SHARE.replace_all(&rhs, "($1 / 100)$2$3").into_owned();
     rhs = if let Some(c) = IS_WHAT_PCT.captures(&rhs) {
         format!("(({}) / ({})) to %", &c[1], &c[2])
     } else if let Some(c) = IS_PCT_OF_WHAT.captures(&rhs) {
@@ -1735,6 +1749,17 @@ mod tests {
 
     fn one(line: &str) -> String {
         eval(line).pop().unwrap()
+    }
+
+    /// "%" is mod only between two numbers; a sheet's prose with percentages in it
+    /// said "mod needs whole numbers, 0 or more".
+    #[test]
+    fn percentages_in_prose_are_not_mod() {
+        let prose = "Alex $90k, 0.5%, 1% share of sales + a bonus";
+        let r = eval_results(prose).pop().unwrap();
+        assert_eq!((r.display.as_str(), r.note), ("", None));
+        let r = eval_results("7.5 % 2").pop().unwrap();
+        assert_eq!(r.note, Some("mod needs whole numbers, 0 or more"));
     }
 
     #[test]
