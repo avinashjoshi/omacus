@@ -23,6 +23,8 @@ fn counted() -> Engine {
         ("CHF", 0.9),
         ("BOB", 6.9),
         ("AUD", 1.5),
+        // Present so a variable named Try collides with the Turkish lira.
+        ("TRY", 34.0),
     ]))
 }
 
@@ -66,7 +68,7 @@ fn cases() {
         let results = engine.eval_document(&lines.join("\n"));
         for ((line, want), got) in lines.iter().zip(&expected).zip(&results) {
             let Some(want) = want else { continue };
-            let got_text = match (&got.kind, got.note) {
+            let got_text = match (&got.kind, got.note.as_deref()) {
                 (Kind::Value, _) => got.display.clone(),
                 (_, Some(note)) => format!("!{note}"),
                 _ => String::new(),
@@ -105,7 +107,7 @@ fn same_line_same_answer_anywhere() {
     ] {
         let sheet = vec![line; copies].join("\n");
         let results = engine.eval_document(&sheet);
-        let first = (&results[0].display, results[0].note);
+        let first = (results[0].display.clone(), results[0].note.clone());
         if let Some(want) = want {
             assert_eq!(results[0].display, want, "{line}");
         } else {
@@ -113,7 +115,7 @@ fn same_line_same_answer_anywhere() {
         }
         let differ = results
             .iter()
-            .filter(|r| (&r.display, r.note) != first)
+            .filter(|r| (r.display.clone(), r.note.clone()) != first)
             .count();
         assert_eq!(
             differ, 0,

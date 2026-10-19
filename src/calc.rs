@@ -201,12 +201,12 @@ mod tests {
         let got: Vec<_> = done
             .results
             .iter()
-            .map(|r| (r.display.clone(), r.note))
+            .map(|r| (r.display.clone(), r.note.clone()))
             .collect();
         let want: Vec<_> = reference
             .eval_document(&a)
             .iter()
-            .map(|r| (r.display.clone(), r.note))
+            .map(|r| (r.display.clone(), r.note.clone()))
             .collect();
         assert_eq!(got, want);
     }

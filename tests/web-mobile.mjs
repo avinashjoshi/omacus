@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const site = join(root, "site");
 const css = readFileSync(join(site, "app/app.css"), "utf8");
+const siteCss = readFileSync(join(site, "css/site.css"), "utf8");
 const js = readFileSync(join(site, "app/app.js"), "utf8");
 const html = readFileSync(join(site, "app/index.html"), "utf8");
 
@@ -46,6 +47,12 @@ check(/closest\?\.\("\[data-scrim\]"\)\) setDrawer\(false\)/.test(js), "a scrim 
 check(/pointerdown[\s\S]*setDrawer\(false\)[\s\S]*preventDefault\(\)/.test(js), "the outside tap is cancelled before it edits");
 check(/closest\("\.side, \.sheets-toggle, \.bar"\)/.test(js), "taps on the drawer itself do not dismiss it");
 check(js.includes('setAttribute("aria-expanded", String(open))'), "the sheets button reflects the drawer");
+check(js.includes("Recently deleted"), "deleted sheets can be restored from Recently deleted");
+check(js.includes("r.hint"), "name hints are marked so they can wait out typing");
+check(
+  /@media \(max-width: 620px\)[\s\S]*?\.features \{[\s\S]*?overflow-x:\s*auto/.test(siteCss),
+  "example cards scroll sideways on a narrow screen",
+);
 
 if (failures.length) {
   console.error(failures.map((f) => "  - " + f).join("\n"));

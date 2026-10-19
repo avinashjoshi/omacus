@@ -22,6 +22,8 @@ const KEYWORDS: &[&str] = &[
     "avg",
     "average",
     "mean",
+    "min",
+    "max",
     "today",
     "now",
     "tomorrow",

@@ -49,14 +49,15 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
         "Sheets",
         &[
             ("Ctrl+N", "New sheet"),
-            ("Ctrl+P", "Go to a sheet by name"),
+            ("Ctrl+J", "Go to a sheet by name"),
+            ("Ctrl+Alt+↑  /  Ctrl+Alt+↓", "Previous / next sheet"),
             ("Ctrl+Tab  /  Ctrl+Shift+Tab", "Next / previous sheet"),
             ("Ctrl+PgDn  /  Ctrl+PgUp", "Next / previous sheet"),
             ("Ctrl+1 … Ctrl+9", "Jump to a sheet"),
             ("Alt+↑  /  Alt+↓", "Move the sheet up / down"),
             (
                 "Ctrl+Shift+Delete",
-                "Delete the sheet (Undo, and kept in trash)",
+                "Delete the sheet (asks first; kept in Recently deleted)",
             ),
             ("Ctrl+B", "Show / hide the sidebar"),
         ],
@@ -93,7 +94,8 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
         "Window",
         &[
             ("F1  /  Ctrl+/", "This help"),
-            ("Esc  /  Ctrl+W  /  Ctrl+Q", "Close (everything is saved)"),
+            ("Esc", "Close the switcher, help, or a dialog"),
+            ("Ctrl+W  /  Ctrl+Q", "Quit (everything is saved)"),
             ("Super+Ctrl+Alt+=", "Open Omacus from anywhere (Omarchy)"),
         ],
     ),
@@ -166,6 +168,8 @@ const SYNTAX: &[(&str, &[&str])] = &[
             "total",
             "average",
             "prev * 2",
+            "sum(10, 20, 30)",
+            "max($5, $12)",
         ],
     ),
     (
@@ -226,7 +230,7 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "Blocks and totals",
-        "`sum`, `total` and `average` cover the lines above, back to the last blank line or header, and work in a calculation too (`total * 1.08`). Leave a blank line to start a new block.",
+        "`sum`, `total` and `average` cover the lines above, back to the last blank line or header, and work in a calculation too (`total * 1.08`). `sum(1, 2, 3)`, `avg(2, 4)`, `min` and `max` take arguments. Leave a blank line to start a new block.",
     ),
     (
         "Chain with prev",
@@ -242,7 +246,7 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "Nothing to save",
-        "Sheets save as you type and reopen with your cursor where you left it. Close with Esc without a second thought.",
+        "Sheets save as you type and reopen with your cursor where you left it. Quit with Ctrl+Q or Ctrl+W. Esc only closes the switcher, help, or a dialog.",
     ),
     (
         "Deleted isn't gone",
@@ -254,7 +258,7 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "Jump between sheets",
-        "`Ctrl+P` and a few letters of a sheet's name (or something written in it), then Enter.",
+        "`Ctrl+J` and a few letters of a sheet's name (or something written in it), then Enter. `Ctrl+Alt+↑` and `Ctrl+Alt+↓` move to the previous or next sheet.",
     ),
     (
         "Copy fast",

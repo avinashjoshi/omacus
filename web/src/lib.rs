@@ -168,6 +168,7 @@ pub fn layout_answers(text: &str, results: &str, markdown: bool) -> String {
             display: r["display"].as_str().unwrap_or_default().to_string(),
             color: None,
             note: None,
+            hint: false,
             clock: false,
             stale: false,
         })
@@ -243,6 +244,7 @@ fn to_json(results: Vec<omacus_engine::LineResult>) -> String {
                 "display": r.display,
                 "color": r.color.map(|[r, g, b]| format!("#{r:02x}{g:02x}{b:02x}")),
                 "note": r.note,
+                "hint": r.hint,
             })
         })
         .collect();

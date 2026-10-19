@@ -1215,7 +1215,16 @@ section {
 
 @media (max-width: 620px) {
   .features {
-    grid-template-columns: minmax(0, 1fr);
+    display: flex;
+    grid-template-columns: none;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .features .feature {
+    flex: 0 0 min(85vw, 320px);
+    scroll-snap-align: start;
   }
 }
 
@@ -2621,17 +2630,18 @@ kbd {
     gap: 14px;
   }
 
-  /* Examples wrap their answer onto its own line instead of running off the card. */
+  /* Example cards scroll sideways; each example line scrolls instead of wrapping. */
   .feature {
     padding: 24px 20px 22px;
   }
 
   .feature .eg {
     font-size: 13px;
+    overflow-x: auto;
   }
 
   .feature .eg div {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 2px 12px;
   }
 

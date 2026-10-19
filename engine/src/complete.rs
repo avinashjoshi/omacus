@@ -7,6 +7,8 @@ const KEYWORDS: &[&str] = &[
     "sum",
     "total",
     "average",
+    "min",
+    "max",
     "today",
     "tomorrow",
     "yesterday",

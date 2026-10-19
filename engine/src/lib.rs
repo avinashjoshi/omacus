@@ -38,8 +38,13 @@ pub struct LineResult {
     /// A colour answer ("#ff8800 in rgb"), shown as a swatch beside it.
     pub color: Option<[u8; 3]>,
     /// Why a line that looks like math has no answer ("Can't divide by zero"),
-    /// shown quietly in place of one.
-    pub note: Option<&'static str>,
+    /// shown quietly in place of one. Owned, because a name hint names the
+    /// variable ("Did you mean rent?").
+    pub note: Option<String>,
+    /// `note` is a hint about a name (unknown, defined further down, or a
+    /// different case). The app shows it as a dim marker once the line is idle,
+    /// rather than while the letters are still being typed.
+    pub hint: bool,
     /// Read from the clock ("today", "time in Tokyo"), so never reused as is.
     pub clock: bool,
     /// An answer from before the latest edit, kept in place (and shown dimmed)
@@ -78,6 +83,10 @@ pub struct Sheet {
     /// The state after each line.
     after: Vec<State>,
     rates_version: u64,
+    /// Names assigned anywhere in the text last calculated. A hint on an earlier
+    /// line ("z is defined below") depends on them, so a new assignment can't
+    /// reuse those lines.
+    defs: HashSet<String>,
 }
 
 impl Sheet {
@@ -95,6 +104,7 @@ impl LineResult {
             display: String::new(),
             color: None,
             note: None,
+            hint: false,
             clock: false,
             stale: false,
         }
@@ -106,14 +116,24 @@ impl LineResult {
             display,
             color: None,
             note: None,
+            hint: false,
             clock: false,
             stale: false,
         }
     }
 
-    fn error(note: Option<&'static str>) -> Self {
+    fn error(note: Option<&str>) -> Self {
         Self {
-            note,
+            note: note.map(str::to_string),
+            ..Self::new(Kind::Error)
+        }
+    }
+
+    /// A missing answer with a name hint. `hint` tells the app to wait out typing.
+    fn hint(note: String) -> Self {
+        Self {
+            hint: true,
+            note: Some(note),
             ..Self::new(Kind::Error)
         }
     }
@@ -341,6 +361,7 @@ re!(CONVERSION_START, r"(?i)^(?:in|to|as)\b");
 // A line of one word, which is a calculation only as a variable or a constant:
 // "r" alone would be 1 Rankine, "kg" 1 kg.
 re!(LONE_WORD, r"^[A-Za-zπτφ]+$");
+re!(IDENT, r"\b[A-Za-z_][A-Za-z0-9_]*\b");
 // fend answers "version" with its own version number; in a sheet it's prose.
 re!(VERSION_WORD, r"(?i)\bversion\b");
 // "2 lakh" -> 200000, "1.5 crore" -> 15000000.
@@ -545,10 +566,11 @@ impl Engine {
     /// Evaluate every line of a sheet. Lines share one context, so variables
     /// defined above are visible below.
     pub fn eval_document(&self, text: &str) -> Vec<LineResult> {
+        let defs = defined_variables(text);
         let mut st = self.fresh();
         text.split('\n')
             .enumerate()
-            .map(|(i, line)| self.eval_in(&mut st, i, line))
+            .map(|(i, line)| self.eval_in(&mut st, i, line, &defs))
             .collect()
     }
 
@@ -570,8 +592,11 @@ impl Engine {
         stop: impl Fn() -> bool,
     ) -> Option<Vec<LineResult>> {
         let lines: Vec<&str> = text.split('\n').collect();
+        let defs = defined_variables(text);
+        let defs_changed = sheet.defs != defs;
+        sheet.defs = defs.clone();
         let version = self.rates.version();
-        let same = if sheet.rates_version == version {
+        let same = if sheet.rates_version == version && !defs_changed {
             lines
                 .iter()
                 .zip(&sheet.lines)
@@ -598,7 +623,7 @@ impl Engine {
             if stop() {
                 return None;
             }
-            let result = self.eval_in(&mut st, i, line);
+            let result = self.eval_in(&mut st, i, line, &defs);
             sheet.lines.push((*line).to_string());
             sheet.results.push(result);
             sheet.after.push(st.clone());
@@ -617,7 +642,7 @@ impl Engine {
     }
 
     /// Line `i` of a sheet, given the state the lines above it left.
-    fn eval_in(&self, st: &mut State, i: usize, line: &str) -> LineResult {
+    fn eval_in(&self, st: &mut State, i: usize, line: &str, defs: &HashSet<String>) -> LineResult {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             st.block.clear();
@@ -662,7 +687,14 @@ impl Engine {
             && !PREV.is_match(trimmed)
             && !matches!(trimmed, "pi" | "π" | "e" | "tau" | "τ" | "phi" | "φ")
         {
-            return LineResult::new(Kind::Error);
+            // "kg" or "USD" alone is a unit, not a missing variable. "nope" is.
+            return match self.name_hint(trimmed, &st.vars, defs) {
+                Some(h) if h.starts_with("Unknown name") && self.fend_knows_word(trimmed) => {
+                    LineResult::new(Kind::Error)
+                }
+                Some(h) => LineResult::hint(h),
+                None => LineResult::new(Kind::Error),
+            };
         }
 
         if self.clock.is_some() {
@@ -696,7 +728,7 @@ impl Engine {
                     vars.to_mut().insert(name.clone());
                 }
                 let expr = self.currency_first(&rewrite(&source, st.prev.as_deref(), &vars));
-                let expr = self.drop_name_collisions(&expr);
+                let expr = self.drop_name_collisions(&expr, &vars);
                 if expr.trim().is_empty() {
                     return LineResult::new(Kind::Comment);
                 }
@@ -790,10 +822,20 @@ impl Engine {
                 LineResult::value(display)
             }
             None => {
-                let note = budget
-                    .note()
-                    .filter(|n| !n.starts_with("mod ") || MOD_WRITTEN.is_match(trimmed));
-                LineResult::error(note.or_else(|| crate::time::note(trimmed)))
+                // A "mod" note that the line didn't actually write is suppressed on
+                // purpose. Don't replace that silence with a name hint.
+                let raw = budget.note();
+                let noted = raw
+                    .filter(|n| !n.starts_with("mod ") || MOD_WRITTEN.is_match(trimmed))
+                    .or_else(|| crate::time::note(trimmed));
+                match noted {
+                    Some(n) => LineResult::error(Some(n)),
+                    None if raw.is_some() => LineResult::error(None),
+                    None => match self.name_hint(trimmed, &st.vars, defs) {
+                        Some(h) => LineResult::hint(h),
+                        None => LineResult::error(None),
+                    },
+                }
             }
         }
     }
@@ -870,7 +912,8 @@ impl Engine {
         vars: &HashSet<String>,
     ) -> Option<String> {
         let expr = format!("(({raise}) / (({raise}) + ({pre}))) in %");
-        let expr = self.drop_name_collisions(&self.currency_first(&rewrite(&expr, prev, vars)));
+        let expr =
+            self.drop_name_collisions(&self.currency_first(&rewrite(&expr, prev, vars)), vars);
         let raw = budget.evaluate(&expr, ctx).ok()?;
         let shown = pretty(raw.get_main_result().trim());
         shown.ends_with('%').then_some(shown)
@@ -892,13 +935,29 @@ impl Engine {
     /// "Lunch with Bob $40", "Lunch for Cad $40": fend reads a title-case word that
     /// spells a currency code as that currency. It's prose unless it follows a
     /// number ("50 Cad") or names a conversion ("in Cad").
-    fn drop_name_collisions(&self, expr: &str) -> String {
+    ///
+    /// An assignment's left-hand side is always a variable, and so is a name
+    /// already defined (`Try = 5`, then `Try`). A lone `Try`, or `Try * 2` before
+    /// that, stays in the expression so the line can say it's unknown instead of
+    /// disappearing.
+    fn drop_name_collisions(&self, expr: &str, vars: &HashSet<String>) -> String {
+        let assigned = ASSIGN.captures(expr).map(|c| c[1].to_string());
         WORD.replace_all(expr, |c: &regex::Captures| {
             let w = &c[0];
+            if vars.contains(w) || assigned.as_deref() == Some(w) {
+                return w.to_string();
+            }
             let m = c.get(0).unwrap();
             let title = w.chars().next().is_some_and(char::is_uppercase)
                 && w.chars().skip(1).all(char::is_lowercase);
             let before = expr[..m.start()].trim_end();
+            let after = expr[m.end()..].trim_start();
+            let alone = before.is_empty() && after.is_empty();
+            let in_expr = before.ends_with(|ch: char| "+-*/^=(,".contains(ch))
+                || after.starts_with(|ch: char| "+-*/^=),".contains(ch));
+            if alone || in_expr {
+                return w.to_string();
+            }
             let after_amount = before.ends_with(|ch: char| ch.is_ascii_digit() || ch == ')');
             let after_conversion = before
                 .rsplit(|ch: char| !ch.is_alphabetic())
@@ -917,6 +976,80 @@ impl Engine {
             }
         })
         .into_owned()
+    }
+
+    /// A one-word line fend already understands as a unit or a constant ("kg",
+    /// "hour"). Those stay blank; a word it doesn't know is an undefined name.
+    fn fend_knows_word(&self, word: &str) -> bool {
+        let mut ctx = self.context();
+        let budget = Budget::new(None, LINE_MS);
+        budget.evaluate(word, &mut ctx).is_ok()
+    }
+
+    /// Why a line that didn't calculate mentions a name: a different case, a
+    /// definition further down the sheet, or a name that isn't defined at all.
+    fn name_hint(
+        &self,
+        line: &str,
+        above: &HashSet<String>,
+        defs: &HashSet<String>,
+    ) -> Option<String> {
+        let code = line.split("//").next().unwrap_or(line);
+        let lhs = ASSIGN
+            .captures(code)
+            .and_then(|c| c.get(1))
+            .map(|m| m.range());
+        let mut meant = None;
+        let mut below = None;
+        let mut unknown = None;
+        // A word that isn't part of the calculation ("bonus" in "sales + a bonus").
+        // One of those means the line is a sentence, not a missing name.
+        let mut loose = false;
+        for c in IDENT.captures_iter(code) {
+            let m = c.get(0).unwrap();
+            let w = m.as_str();
+            if lhs.as_ref().is_some_and(|r| r.contains(&m.start())) {
+                continue;
+            }
+            if above.contains(w) {
+                continue;
+            }
+            if unit_position(code, m.start()) || call_position(code, m.end()) {
+                continue;
+            }
+            if let Some(name) = case_suggestion(w, above, defs) {
+                meant.get_or_insert_with(|| format!("Did you mean {name}?"));
+                continue;
+            }
+            if defs.contains(w) {
+                below.get_or_insert_with(|| format!("{w} is defined below"));
+                continue;
+            }
+            if is_name_keyword(w) || self.bare_currency(w) {
+                continue;
+            }
+            // "Alex $90k ... + a bonus" mentions a plus sign, but Alex isn't in
+            // the calculation. Only a name sitting where a value would.
+            if code.trim() == w || expr_position(code, m.start(), m.end()) {
+                unknown.get_or_insert_with(|| format!("Unknown name '{w}'"));
+            } else {
+                loose = true;
+            }
+        }
+        if let Some(s) = meant {
+            return Some(s);
+        }
+        if let Some(s) = below {
+            return Some(s);
+        }
+        if unknown.is_some() && !loose && mentions_math(code) {
+            return unknown;
+        }
+        None
+    }
+
+    fn bare_currency(&self, w: &str) -> bool {
+        w.len() == 3 && w.bytes().all(|b| b.is_ascii_uppercase()) && self.rates.knows(w)
     }
 
     /// "rent + 5" where rent is $1,000: a plain number added to or taken from an
@@ -1421,6 +1554,307 @@ fn founder_line(s: &str, vars: &HashSet<String>) -> String {
     })
 }
 
+/// `sum(1, 2, 3)` and the same for `total`, `avg`, `average`, `mean`, `min`, `max`,
+/// turned into arithmetic fend can evaluate. A comma inside the parentheses
+/// separates arguments unless it groups thousands (`1,000`, `$1,000`). An
+/// unclosed call is left as written. Nested calls are expanded from the inside.
+fn expand_calls(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if let Some((name, paren)) = match_call(&chars, i) {
+            if let Some(end) = matching_paren(&chars, paren) {
+                let inside: String = chars[paren + 1..end].iter().collect();
+                let args: Vec<String> = split_args(&inside)
+                    .into_iter()
+                    .filter(|a| !a.is_empty())
+                    .map(|a| expand_calls(&a))
+                    .collect();
+                match render_call(name, &args) {
+                    Some(rendered) => out.push_str(&rendered),
+                    None => out.extend(chars[i..=end].iter()),
+                }
+                i = end + 1;
+                continue;
+            }
+            // No closing parenthesis: leave the rest of the line alone.
+            out.extend(chars[i..].iter());
+            break;
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
+}
+
+const CALLS: &[&str] = &["average", "total", "mean", "sum", "avg", "min", "max"];
+
+/// A function name at `i`, and the index of the `(` that opens it.
+fn match_call(chars: &[char], i: usize) -> Option<(&'static str, usize)> {
+    if i > 0 && is_ident_char(chars[i - 1]) {
+        return None;
+    }
+    for name in CALLS {
+        let n: Vec<char> = name.chars().collect();
+        if i + n.len() > chars.len() {
+            continue;
+        }
+        if !chars[i..i + n.len()]
+            .iter()
+            .zip(&n)
+            .all(|(a, b)| a.eq_ignore_ascii_case(b))
+        {
+            continue;
+        }
+        let after_name = i + n.len();
+        if chars.get(after_name).is_some_and(|c| is_ident_char(*c)) {
+            continue;
+        }
+        let mut p = after_name;
+        while chars.get(p).is_some_and(|c| c.is_whitespace()) {
+            p += 1;
+        }
+        if chars.get(p) == Some(&'(') {
+            return Some((*name, p));
+        }
+    }
+    None
+}
+
+fn is_ident_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
+}
+
+fn matching_paren(chars: &[char], open: usize) -> Option<usize> {
+    let mut depth = 0i32;
+    for (i, c) in chars.iter().enumerate().skip(open) {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Arguments of one call. A thousands comma (`1,000`) stays inside an argument;
+/// `sum(1, 000)` does not, because of the space.
+fn split_args(inside: &str) -> Vec<String> {
+    let chars: Vec<char> = inside.chars().collect();
+    let mut args = Vec::new();
+    let mut start = 0;
+    let mut depth = 0i32;
+    for (i, c) in chars.iter().enumerate() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 && !is_thousands_comma(&chars, i) => {
+                args.push(
+                    chars[start..i]
+                        .iter()
+                        .collect::<String>()
+                        .trim()
+                        .to_string(),
+                );
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    let last = chars[start..].iter().collect::<String>().trim().to_string();
+    if args.is_empty() && last.is_empty() {
+        return Vec::new();
+    }
+    args.push(last);
+    args
+}
+
+/// `1,000` and `1,000,000`: the comma has exactly three digits after it, and one
+/// to three before it (three when another comma sits just before those digits).
+fn is_thousands_comma(chars: &[char], i: usize) -> bool {
+    if chars.get(i + 1).is_some_and(|c| c.is_whitespace()) {
+        return false;
+    }
+    let mut right = 0;
+    let mut r = i + 1;
+    while chars.get(r).is_some_and(|c| c.is_ascii_digit()) {
+        right += 1;
+        r += 1;
+        if right > 3 {
+            return false;
+        }
+    }
+    if right != 3 {
+        return false;
+    }
+    let mut left = 0;
+    let mut l = i;
+    while l > 0 && chars[l - 1].is_ascii_digit() {
+        left += 1;
+        l -= 1;
+        if left > 3 {
+            return false;
+        }
+    }
+    if left == 0 || left > 3 {
+        return false;
+    }
+    if l > 0 && chars[l - 1] == ',' && left != 3 {
+        return false;
+    }
+    true
+}
+
+fn render_call(name: &str, args: &[String]) -> Option<String> {
+    let wrapped: Vec<String> = args.iter().map(|a| format!("({a})")).collect();
+    match name.to_ascii_lowercase().as_str() {
+        "sum" | "total" => {
+            if wrapped.is_empty() {
+                Some("0".to_string())
+            } else {
+                Some(format!("({})", wrapped.join("+")))
+            }
+        }
+        "avg" | "average" | "mean" => {
+            let n = wrapped.len();
+            (n > 0).then(|| format!("(({})/{n})", wrapped.join("+")))
+        }
+        "max" => (!wrapped.is_empty()).then(|| fold_extreme(true, &wrapped)),
+        "min" => (!wrapped.is_empty()).then(|| fold_extreme(false, &wrapped)),
+        _ => None,
+    }
+}
+
+/// `max(a, b) = (a + b + abs(a - b)) / 2`, folded. fend has `abs` and no `min`/`max`,
+/// and `abs` keeps a unit, so `max($1, $5)` stays in dollars.
+fn fold_extreme(max: bool, args: &[String]) -> String {
+    let mut acc = args[0].clone();
+    let sign = if max { "+" } else { "-" };
+    for arg in &args[1..] {
+        acc = format!("(({acc}+{arg}{sign}abs({acc}-{arg}))/2)");
+    }
+    acc
+}
+
+fn unit_position(code: &str, start: usize) -> bool {
+    let before = code[..start].trim_end();
+    if before.ends_with(|ch: char| ch.is_ascii_digit() || ch == ')') {
+        return true;
+    }
+    let prev = before
+        .rsplit(|ch: char| !ch.is_alphabetic())
+        .next()
+        .unwrap_or("");
+    matches!(
+        prev.to_ascii_lowercase().as_str(),
+        "in" | "to" | "as" | "per"
+    )
+}
+
+fn call_position(code: &str, end: usize) -> bool {
+    code[end..].trim_start().starts_with('(')
+}
+
+/// The word is an operand: `nope + 1`, `2 * nope`, `(nope)`.
+fn expr_position(code: &str, start: usize, end: usize) -> bool {
+    let before = code[..start].trim_end();
+    let after = code[end..].trim_start();
+    before.ends_with(|ch: char| "+-*/^=(,".contains(ch))
+        || after.starts_with(|ch: char| "+-*/^=),".contains(ch))
+}
+
+fn case_suggestion(word: &str, above: &HashSet<String>, defs: &HashSet<String>) -> Option<String> {
+    let pick = |set: &HashSet<String>| {
+        let mut hits: Vec<&String> = set
+            .iter()
+            .filter(|n| n.eq_ignore_ascii_case(word) && n.as_str() != word)
+            .collect();
+        hits.sort();
+        (hits.len() == 1).then(|| hits[0].clone())
+    };
+    pick(above).or_else(|| pick(defs))
+}
+
+fn mentions_math(code: &str) -> bool {
+    let t = code.trim();
+    if t.contains(['=', '+', '-', '*', '/', '^', '%', '(']) {
+        return true;
+    }
+    let starts_name = t
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
+    !t.is_empty()
+        && !t.contains(char::is_whitespace)
+        && starts_name
+        && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+fn is_name_keyword(w: &str) -> bool {
+    matches!(
+        w.to_ascii_lowercase().as_str(),
+        "in" | "to"
+            | "as"
+            | "of"
+            | "per"
+            | "mod"
+            | "on"
+            | "off"
+            | "is"
+            | "and"
+            | "or"
+            | "the"
+            | "a"
+            | "an"
+            | "at"
+            | "for"
+            | "with"
+            | "by"
+            | "from"
+            | "plus"
+            | "minus"
+            | "times"
+            | "prev"
+            | "sum"
+            | "total"
+            | "avg"
+            | "average"
+            | "mean"
+            | "min"
+            | "max"
+            | "today"
+            | "tomorrow"
+            | "yesterday"
+            | "now"
+            | "sqrt"
+            | "ln"
+            | "log"
+            | "abs"
+            | "round"
+            | "floor"
+            | "ceil"
+            | "sin"
+            | "cos"
+            | "tan"
+            | "pi"
+            | "e"
+            | "tau"
+            | "phi"
+            | "hex"
+            | "hexadecimal"
+            | "binary"
+            | "bin"
+            | "octal"
+            | "not"
+    )
+}
+
 /// Turn a notepad-style line into something fend understands.
 pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String {
     // Inline comments and quoted text are ignored.
@@ -1429,6 +1863,9 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
         None => line.to_string(),
     };
     s = QUOTED.replace_all(&s, " ").into_owned();
+    // Before commas become decimal points: inside sum()/avg()/min()/max() a comma
+    // separates arguments, except a thousands group ("sum(1,000, 2,000)").
+    s = expand_calls(&s);
     // Twice: "1,5 + 2,5" shares the space between two matches.
     for _ in 0..2 {
         s = DOT_THOUSANDS
@@ -2175,15 +2612,38 @@ mod tests {
         eval(line).pop().unwrap()
     }
 
+    /// A missing name is a hint. Prose and a bare currency code stay blank, and a
+    /// hard error (divide by zero) is not delayed as a hint.
+    #[test]
+    fn name_hints_mark_unknown_names_only() {
+        let rs = eval_results("a = 5\nA\ny = z + 1\nz = 4\nnope\nhello world\nUSD\n10 / 0");
+        assert!(rs[1].hint);
+        assert_eq!(rs[1].note.as_deref(), Some("Did you mean a?"));
+        assert!(rs[2].hint);
+        assert_eq!(rs[2].note.as_deref(), Some("z is defined below"));
+        assert_eq!(rs[3].display, "4");
+        assert!(rs[4].hint);
+        assert_eq!(rs[4].note.as_deref(), Some("Unknown name 'nope'"));
+        assert!(!rs[5].hint);
+        assert_eq!(rs[5].note, None);
+        assert!(!rs[6].hint);
+        assert_eq!(rs[6].note, None);
+        assert!(!rs[7].hint);
+        assert_eq!(rs[7].note.as_deref(), Some("Can't divide by zero"));
+    }
+
     /// "%" is mod only between two numbers; a sheet's prose with percentages in it
     /// said "mod needs whole numbers, 0 or more".
     #[test]
     fn percentages_in_prose_are_not_mod() {
         let prose = "Alex $90k, 0.5%, 1% share of sales + a bonus";
         let r = eval_results(prose).pop().unwrap();
-        assert_eq!((r.display.as_str(), r.note), ("", None));
+        assert_eq!((r.display.as_str(), r.note.as_deref()), ("", None));
         let r = eval_results("7.5 % 2").pop().unwrap();
-        assert_eq!(r.note, Some("mod needs whole numbers, 0 or more"));
+        assert_eq!(
+            r.note.as_deref(),
+            Some("mod needs whole numbers, 0 or more")
+        );
     }
 
     #[test]
