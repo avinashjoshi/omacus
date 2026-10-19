@@ -52,11 +52,19 @@ pub struct LineResult {
 #[derive(Clone)]
 struct State {
     ctx: fend_core::Context,
-    block: Vec<String>,
+    block: Vec<Term>,
     prev: Option<String>,
     vars: HashSet<String>,
     /// Variables holding a percentage ("tax = 8%"), for "$100 + tax".
     percents: Vec<(String, Regex, String)>,
+}
+
+/// A line in the block a `total` adds up: fend's variable for its answer, and
+/// whether that's a plain number (which a total of dollars counts as dollars).
+#[derive(Clone)]
+struct Term {
+    var: String,
+    plain: bool,
 }
 
 /// A sheet's last calculation, kept between edits by `Engine::eval_sheet`.
@@ -121,7 +129,7 @@ fn warm_up() {
             rates: Rates::fixed(&[("USD", 1.0), ("EUR", 0.9)]),
             clock: None,
         };
-        engine.eval_document("x = 2 km in m\nr\n$5 + 10% in EUR\nx + 1\ntotal");
+        engine.eval_document("x = 2 km in m\n3 ft in cm\n$5 + 10% in EUR\nx + 1\ntotal");
     });
 }
 
@@ -309,6 +317,11 @@ re!(PCT_TIMES, r"(\d[\d.]*)\s*%(\s*\*\s*\(?\d)");
 re!(TIMES_PCT, r"(\d\)?\s*[*/]\s*)(\d[\d.]*)\s*%");
 re!(MONEY_PREFIX, r"[$£]\s*\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?");
 re!(PREV, r"(?i)\bprev\b");
+re!(TOTAL_WORD, r"(?i)\b(?:total|sum|average|avg|mean)\b");
+re!(CONVERSION_START, r"(?i)^(?:in|to|as)\b");
+// A line of one word, which is a calculation only as a variable or a constant:
+// "r" alone would be 1 Rankine, "kg" 1 kg.
+re!(LONE_WORD, r"^[A-Za-zπτφ]+$");
 // fend answers "version" with its own version number; in a sheet it's prose.
 re!(VERSION_WORD, r"(?i)\bversion\b");
 // "2 lakh" -> 200000, "1.5 crore" -> 15000000.
@@ -581,6 +594,14 @@ impl Engine {
         if st.prev.is_none() && PREV.is_match(trimmed) && !ASSIGN.is_match(trimmed) {
             return LineResult::new(Kind::Error);
         }
+        if LONE_WORD.is_match(trimmed)
+            && !st.vars.contains(trimmed)
+            && aggregate(trimmed).is_none()
+            && !PREV.is_match(trimmed)
+            && !matches!(trimmed, "pi" | "π" | "e" | "tau" | "τ" | "phi" | "φ")
+        {
+            return LineResult::new(Kind::Error);
+        }
 
         if self.clock.is_some() {
             warm_up();
@@ -588,28 +609,46 @@ impl Engine {
         let budget = Budget::new(self.clock, LINE_MS);
         let var = format!("_l{i}");
         // `sum`, or `subtotal = sum` to keep it in a variable.
-        let total = match ASSIGN.captures(trimmed) {
-            Some(c) => aggregate(&c[2], &st.block).map(|e| format!("{} = {e}", &c[1])),
-            None => aggregate(trimmed, &st.block),
+        let whole = match ASSIGN.captures(trimmed) {
+            Some(c) => aggregate(&c[2]).map(|avg| (Some(c[1].to_string()), avg)),
+            None => aggregate(trimmed).map(|avg| (None, avg)),
         };
-        let is_total = total.is_some();
+        let mut is_total = whole.is_some();
         let target = imperial_target(trimmed);
         let source = target.as_ref().map_or(trimmed, |(expr, _)| expr.as_str());
-        let result = match total {
-            Some(expr) => eval_into(&mut st.ctx, &budget, &var, &expr),
+        let result = match whole {
+            Some((name, avg)) => {
+                total_into(&mut st.ctx, &budget, &var, &st.block, avg, name.as_deref())
+            }
             None => {
                 // "$100 + tax", where tax = 8%: the same as "$100 + 8%".
                 let mut source = source.to_string();
                 for (_, re, pct) in &st.percents {
                     source = re.replace_all(&source, format!("${{1}}{pct}")).into_owned();
                 }
-                let expr = self.currency_first(&rewrite(&source, st.prev.as_deref(), &st.vars));
+                // "total * 1.08": the total goes in a variable of its own first.
+                let (source, used) = totals_inside(&source, &st.vars, i);
+                is_total |= used.iter().any(Option::is_some);
+                let mut vars = std::borrow::Cow::Borrowed(&st.vars);
+                for name in used.iter().flatten() {
+                    vars.to_mut().insert(name.clone());
+                }
+                let expr = self.currency_first(&rewrite(&source, st.prev.as_deref(), &vars));
                 let expr = self.drop_name_collisions(&expr);
                 if expr.trim().is_empty() {
                     return LineResult::new(Kind::Comment);
                 }
-                eval_forgiving(&mut st.ctx, &budget, &var, &expr)
-                    .or_else(|| self.with_currency(&mut st.ctx, &budget, &var, &expr))
+                let totals_ok = used.iter().zip([false, true]).all(|(name, avg)| {
+                    name.as_ref().is_none_or(|name| {
+                        total_into(&mut st.ctx, &budget, name, &st.block, avg, None).is_some()
+                    })
+                });
+                if totals_ok {
+                    eval_forgiving(&mut st.ctx, &budget, &var, &expr)
+                        .or_else(|| self.with_currency(&mut st.ctx, &budget, &var, &expr))
+                } else {
+                    None
+                }
             }
         };
 
@@ -643,7 +682,10 @@ impl Engine {
             Some(raw) => {
                 // A total shouldn't count itself in the next total or average.
                 if !is_total {
-                    st.block.push(var.clone());
+                    st.block.push(Term {
+                        var: var.clone(),
+                        plain: is_plain_number(&raw),
+                    });
                 }
                 st.prev = Some(var);
                 let display = if BASE_CONV.is_match(trimmed) {
@@ -715,13 +757,7 @@ impl Engine {
         var: &str,
         expr: &str,
     ) -> Option<String> {
-        let error = budget.error.lock().unwrap().clone()?;
-        let c = CURRENCY_VS_PLAIN.captures(&error)?;
-        let unit = match (&c[3], &c[4]) {
-            ("unitless", "BASE_CURRENCY") => c[2].to_string(),
-            ("BASE_CURRENCY", "unitless") => c[1].to_string(),
-            _ => return None,
-        };
+        let unit = currency_vs_plain(budget)?;
         let (lhs, rhs) = match ASSIGN.captures(expr) {
             Some(c) => (Some(c[1].to_string()), c[2].to_string()),
             None => (None, expr.to_string()),
@@ -889,23 +925,98 @@ pub fn defined_variables(text: &str) -> std::collections::HashSet<String> {
 }
 
 /// `sum`, `total`, `avg`, `average` over the values since the last blank line or header.
-fn aggregate(line: &str, block: &[String]) -> Option<String> {
+/// A line that's just `total` or `average`: whether it's an average.
+fn aggregate(line: &str) -> Option<bool> {
     let lower = line.to_ascii_lowercase();
-    let lower = lower.trim_end_matches(':').trim();
-    let is_sum = matches!(lower, "sum" | "total");
-    let is_avg = matches!(lower, "avg" | "average" | "mean");
-    if !(is_sum || is_avg) {
-        return None;
+    match lower.trim_end_matches(':').trim() {
+        "sum" | "total" => Some(false),
+        "avg" | "average" | "mean" => Some(true),
+        _ => None,
     }
-    if block.is_empty() {
-        return Some("0".into());
-    }
-    let sum = block.join(" + ");
-    Some(if is_avg {
-        format!("({sum}) / {}", block.len())
-    } else {
-        sum
+}
+
+/// The lines above, added up (or averaged) into `var`, and kept in `name` too
+/// when given. Plain numbers among dollars count as dollars, as on one line.
+fn total_into(
+    ctx: &mut fend_core::Context,
+    budget: &Budget,
+    var: &str,
+    block: &[Term],
+    avg: bool,
+    name: Option<&str>,
+) -> Option<String> {
+    let expr = |unit: Option<&str>| {
+        let terms: Vec<String> = block
+            .iter()
+            .map(|t| match unit {
+                Some(u) if t.plain && u.chars().all(|ch| ch.is_ascii_alphabetic()) => {
+                    format!("({} * 1 {u})", t.var)
+                }
+                Some(u) if t.plain => format!("({} * ({u}1))", t.var),
+                _ => t.var.clone(),
+            })
+            .collect();
+        let sum = match (terms.is_empty(), avg) {
+            (true, _) => "0".to_string(),
+            (false, false) => terms.join(" + "),
+            (false, true) => format!("({}) / {}", terms.join(" + "), terms.len()),
+        };
+        match name {
+            Some(name) => format!("{name} = {sum}"),
+            None => sum,
+        }
+    };
+    eval_into(ctx, budget, var, &expr(None)).or_else(|| {
+        let unit = currency_vs_plain(budget)?;
+        eval_into(ctx, budget, var, &expr(Some(&unit)))
     })
+}
+
+/// `total` and `average` used in a calculation ("total * 1.08", "100 - total"),
+/// replaced with variables `_t{i}` and `_a{i}` for the caller to fill in: returned
+/// beside the expression, as Some when used. Only next to an operator, a bracket or
+/// a conversion: "rent + total vibes" is prose. A variable of that name wins.
+fn totals_inside(expr: &str, vars: &HashSet<String>, i: usize) -> (String, [Option<String>; 2]) {
+    let mut used = [None, None];
+    let out = TOTAL_WORD
+        .replace_all(expr, |c: &regex::Captures| {
+            let m = c.get(0).unwrap();
+            let before = expr[..m.start()].trim_end();
+            let after = expr[m.end()..].trim_start();
+            let ok_before =
+                before.is_empty() || before.ends_with(|ch: char| "+-*/×÷^(=,".contains(ch));
+            let ok_after = after.is_empty()
+                || after.starts_with(|ch: char| "+-*/×÷^)".contains(ch))
+                || CONVERSION_START.is_match(after);
+            if vars.contains(m.as_str()) || !ok_before || !ok_after {
+                return m.as_str().to_string();
+            }
+            let avg = !matches!(m.as_str().to_ascii_lowercase().as_str(), "total" | "sum");
+            let name = format!("{}{i}", if avg { "_a" } else { "_t" });
+            used[usize::from(avg)] = Some(name.clone());
+            name
+        })
+        .into_owned();
+    (out, used)
+}
+
+/// What fend's error says when dollars meet a plain number: the currency.
+fn currency_vs_plain(budget: &Budget) -> Option<String> {
+    let error = budget.error.lock().unwrap().clone()?;
+    let c = CURRENCY_VS_PLAIN.captures(&error)?;
+    match (&c[3], &c[4]) {
+        ("unitless", "BASE_CURRENCY") => Some(c[2].to_string()),
+        ("BASE_CURRENCY", "unitless") => Some(c[1].to_string()),
+        _ => None,
+    }
+}
+
+/// fend's answer is a number with no unit: "8", "-1,234.5", "approx. 3.33".
+fn is_plain_number(raw: &str) -> bool {
+    raw.trim_start_matches("approx. ")
+        .replace(',', "")
+        .parse::<f64>()
+        .is_ok()
 }
 
 /// Turn a notepad-style line into something fend understands.
