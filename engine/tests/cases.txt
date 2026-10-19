@@ -272,20 +272,64 @@ days until Feb 30 => !Not a date
 10 mod 3 => 1
 ---
 # The sheet the reuse test failed on in CI run 39148285077 (macOS, debug), when
-# a line ran out of time on a busy machine. The totals here aren't
-# checked: totals of dollars and plain numbers, and "total + 1", are open questions.
+# a line ran out of time on a busy machine.
 $-5 + 1 => -$4
 x = 7 + 1 => 8
 x = 7 => 7
-total
+total => $11
 x = 7 => 7
 x = 7 => 7
 x = 7 => 7
-total
+total => $32
 x = 7 => 7
 $-5.50 + $10 + 1 + 1 + 1 => $7.50
 x = 7 => 7
 x = 7 => 7
-total + 1
-total
+total + 1 => $61.50
+total => $60.50
 x = 7 => 7
+---
+# total in a calculation, not only on a line of its own ("total + 1" was 1)
+5
+6
+total + 1 => 12
+total * 2 => 22
+100 - total => 89
+(total) / 2 => 5.5
+tipped = total * 1.2 => 13.2
+average + 1 => 6.5
+total => 11
+---
+# A total of dollars and plain numbers is in dollars, as "$5 + 6" is on one line
+$5
+6 => 6
+total => $11
+average => $5.50
+total in EUR => 9.90 EUR
+total - 10% => $9.90
+-total => -$11
+---
+# total as a word in prose, or as a label, stays prose
+Total: $5 => $5
+Total cost $40 => $40
+$6
+total => $51
+---
+# A total of things that don't add up still says so
+$5
+3 kg
+total => !Units don't match
+---
+# A word that only names a unit isn't a calculation ("r" was "1 R", Rankine)
+r =>
+kg =>
+m =>
+hour =>
+k =>
+USD =>
+c =>
+pi => 3.14
+e => 2.72
+5 kg => 5 kg
+r = 3 => 3
+r => 3
