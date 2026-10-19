@@ -47,6 +47,10 @@ impl Calculator {
         let newest = latest.clone();
         std::thread::Builder::new()
             .name("omacus-calc".into())
+            // fend looks variables up by walking a linked list, one link per
+            // line. A long sheet overflows the 2 MiB default thread stack on
+            // macOS, which aborts the process.
+            .stack_size(8 * 1024 * 1024)
             .spawn(move || {
                 let mut sheets: HashMap<String, Sheet> = HashMap::new();
                 while let Ok(mut job) = inbox.recv() {
