@@ -155,13 +155,49 @@ body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: ant
 #platforms .free { font: 500 30px var(--sans); color: var(--muted); }
 
 /* End card */
-#end { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 34px; }
+#end { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px; padding-bottom: 110px; }
 #end .mark { display: flex; align-items: center; gap: 30px; }
 #end img { width: 128px; height: 128px; }
 #end .word { font: 600 128px/1 var(--display); letter-spacing: -0.045em; }
 #end .tag { font: 500 58px/1.2 var(--display); letter-spacing: -0.02em; }
 #end .url { margin-top: 18px; font: 600 40px var(--sans); color: var(--accent-hi); letter-spacing: .01em; }
-#end .sub { font: 500 26px var(--sans); color: var(--muted); }
+#end .sub { font: 500 28px var(--sans); color: var(--muted); }
+#end .cmd { font: 500 32px var(--mono); padding: 18px 32px; border-radius: 14px; background: linear-gradient(180deg, #151515, #0f0f0f); border: 1px solid #2e2e2e; white-space: pre; color: var(--text); }
+#end .cmd .p { color: var(--accent); }
+
+/* Montage of one-liners */
+#montage { display: grid; place-items: center; }
+#montage > div { display: flex; flex-direction: column; align-items: center; }
+#montage .line { font: 500 88px/1.1 var(--mono); letter-spacing: -0.02em; color: var(--text); white-space: pre; text-align: left; }
+#montage .ans { margin-top: 34px; font: 600 72px/1.1 var(--mono); color: var(--accent); white-space: pre; }
+#montage .dots { display: flex; gap: 14px; margin-top: 70px; }
+#montage .dots i { width: 12px; height: 12px; border-radius: 50%; background: #2c2c2c; }
+#montage .dots i.on { background: var(--accent); box-shadow: 0 0 18px rgba(240,161,42,.7); }
+
+/* Keys for the hotkey */
+#keys { display: flex; align-items: center; justify-content: center; gap: 22px; padding-bottom: 0; }
+#keys .key { min-width: 130px; padding: 0 34px; height: 130px; display: grid; place-items: center; border-radius: 22px; background: linear-gradient(180deg, #232323, #191919);
+  border: 1px solid #333; font: 600 46px var(--sans); color: var(--text); }
+#keys .omarchy { position: absolute; left: 50%; top: calc(50% + 110px); padding: 12px 26px; border-radius: 999px; background: rgba(240,161,42,.12);
+  border: 1px solid rgba(240,161,42,.45); font: 600 30px var(--sans); color: var(--accent-hi); letter-spacing: .01em; white-space: nowrap; }
+#keys .plus { font: 500 46px var(--sans); color: var(--muted); align-self: center; margin: 0; }
+
+/* Click to copy */
+#cursor { position: absolute; width: 38px; height: 38px; z-index: 5; filter: drop-shadow(0 4px 8px rgba(0,0,0,.6)); transform-origin: 20% 10%; }
+#copyhl { position: absolute; right: 36px; top: 402px; width: 200px; height: 46px; border-radius: 8px; background: rgba(230,142,13,.32); opacity: 0; }
+#toast b { color: var(--accent-hi); }
+
+/* Terminal */
+#term { display: grid; place-items: center; }
+#term .win { width: 1560px; min-height: 560px; border-radius: 18px; background: #0c0c0c; border: 1px solid #2c2c2c;
+  box-shadow: 0 80px 160px -40px rgba(0,0,0,.95), 0 40px 120px -50px rgba(240,161,42,.4); overflow: hidden; }
+#term .bar { display: flex; align-items: center; gap: 10px; padding: 16px 20px; background: #141414; border-bottom: 1px solid #222; }
+#term .bar i { width: 14px; height: 14px; border-radius: 50%; background: #333; }
+#term .bar span { margin-left: 16px; font: 500 18px var(--sans); color: #6a6a6a; }
+#term .body { padding: 34px 40px; font: 500 34px/1.6 var(--mono); color: var(--text); white-space: pre; }
+#term .p { color: #7aa2f7; }
+#term .o { color: var(--accent); }
+#term .caret { width: 0.5em; background: var(--text); opacity: .8; }
 
 /* Captions */
 #captions { display: flex; align-items: flex-end; justify-content: center; padding-bottom: 54px; pointer-events: none; }
@@ -218,6 +254,8 @@ body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: ant
         <div id="winbar"><span class="share"><svg viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 12v7h14v-7"/></svg>Share</span><span class="dots"><i></i><i></i><i></i></span></div>
         <ul id="lines"></ul>
         <div id="toast">Link copied. <span>Anyone with it can open this sheet.</span></div>
+        <div id="copyhl"></div>
+        <svg id="cursor" viewBox="0 0 24 24"><path d="M4 2l15 11-6.5 1.2L9 21z" fill="#fff" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/></svg>
         <div id="scrim"></div>
         <div id="switcher"><div class="q"></div><div class="rows"></div></div>
       </div>
@@ -226,6 +264,8 @@ body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: ant
 </div>
 
 <div id="keys" class="layer"></div>
+<div id="montage" class="layer"><div><div class="line"></div><div class="ans"></div><div class="dots"></div></div></div>
+<div id="term" class="layer"><div class="win"><div class="bar"><i></i><i></i><i></i><span>~ — bash</span></div><div class="body"></div></div></div>
 <div id="phone" class="layer">
   <div class="device">
     <div class="island"></div>
@@ -242,7 +282,8 @@ body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: ant
   <div class="mark"><div class="logo-svg"></div><span class="word">omacus</span></div>
   <div class="tag">Math, the way you <span class="serif">write</span> it.</div>
   <div class="url">omacus.com</div>
-  <div class="sub">Free and open source · Linux · macOS · Windows · Web</div>
+  <div class="cmd"></div>
+  <div class="sub">Free · open source · no account</div>
 </div>
 
 <div id="wipe" class="layer"><div class="bar"></div></div>

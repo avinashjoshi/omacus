@@ -6,20 +6,28 @@
 
 const FPS = 60;
 const LEAD = 0.3; // narration starts this long into its scene (unless the scene sets `lead`)
-const HOOK_IN = 1.0; // a quiet beat on the caret before the first line types
+const HOOK_IN = 0.3; // a short beat on the caret before the first line types
+// The music's tempo (audio.py uses the same). Every scene is a whole number of beats,
+// so cuts land on the beat, and answers pop on half-beats.
+const BPM = 116;
+const BEAT = 60 / BPM;
+const onBeat = (t, step = BEAT) => Math.ceil(t / step - 1e-6) * step;
+// A calm lead-in before the hook: fade up from black on a blinking caret, as the music swells.
+const PRE = 4 * BEAT;
 
+// `say` is what's spoken when it differs from the caption (audio tags), `stab` its stability.
 const SCENES = [
-  { id: "hook", min: 3.6, lead: 1.3, hold: 0.9, vo: "You think in sentences. Your calculator doesn't." },
-  { id: "intro", min: 8.2, vo: "Meet Omacus, a notepad calculator. Write math the way you'd write a note, and every answer lines up as you type." },
-  { id: "currency", min: 4.8, vo: "Split a trip in yen, dollars and euros. Rates stay fresh, and work offline." },
-  { id: "zones", min: 4.4, vo: "Time zones, with daylight saving, even on a date next month." },
-  { id: "percent", min: 5.4, vo: "Percentages, the way you'd say them. And hundreds of units." },
-  { id: "invoice", min: 5.8, vo: "Name a number once. Change it, and everything below updates." },
-  { id: "switch", min: 4.8, vo: "Every sheet saves as you type. Jump to any of them in a keystroke." },
-  { id: "share", min: 6.6, vo: "Share any sheet as a link. It opens live in any browser, even on your phone." },
-  { id: "themes", min: 5.4, vo: "On Omarchy, it wears your theme, and switches when you do." },
-  { id: "platforms", min: 5.0, vo: "Free and open source. Linux, macOS, Windows, and your browser." },
-  { id: "end", min: 5.2, vo: "Omacus. Math, the way you write it." },
+  { id: "hook", min: 3.6, lead: 0.5, tail: 0.3, vo: "You think in sentences. Your calculator doesn't." },
+  { id: "intro", min: 5.6, vo: "Meet Omacus. Write math like a note, and every answer appears as you type." },
+  { id: "currency", min: 4.8, vo: "Split a trip in yen, dollars and euros. Live rates, even offline." },
+  { id: "montage", min: 6.4, lead: 0.3, tail: 0.2, vo: "Time zones. Tips. Splits. Runway. Countdowns. Hex. Just say it the way you'd say it." },
+  { id: "invoice", min: 5.4, vo: "Name a number once. Change it, and everything below updates." },
+  { id: "keys", min: 5.6, vo: "On Omarchy, one hotkey opens it. Click any answer to copy. Every sheet saves itself." },
+  { id: "cli", min: 5.0, vo: "Live in the terminal? Pipe a whole sheet straight in." },
+  { id: "share", min: 6.0, vo: "Share any sheet as a link. It opens live, even on your phone." },
+  { id: "themes", min: 5.0, vo: "It wears your Omarchy theme, and switches when you do." },
+  { id: "platforms", min: 5.0, vo: "Free, open source, no account. Linux, macOS, Windows, and the web." },
+  { id: "end", min: 5.6, hold: 2.8, stab: 0.3, say: "[confident] Omacus. [warm] Math... the way YOU write it.", vo: "Omacus. Math, the way you write it." },
 ];
 
 const THEMES = [
@@ -69,17 +77,17 @@ async function load() {
 }
 
 function buildTimeline(timings) {
-  let t = 0;
+  let t = PRE;
   const scenes = {};
   for (const s of SCENES) {
     const vo = timings[s.id];
     const lead = s.lead ?? LEAD;
-    const dur = Math.max(s.min + (s.hold ?? 0), vo ? lead + vo.duration + 0.55 + (s.hold ?? 0) : 0);
+    const dur = onBeat(Math.max(s.min + (s.hold ?? 0), vo ? lead + vo.duration + (s.tail ?? 0.55) + (s.hold ?? 0) : 0));
     const words = vo?.words ?? fakeWords(s.vo, dur - lead - 0.6 - (s.hold ?? 0));
     scenes[s.id] = { ...s, start: t, dur, words: words.map((w) => ({ ...w, t0: w.t0 + t + lead, t1: w.t1 + t + lead })) };
     t += dur;
   }
-  const tl = { scenes, total: t, typing: [], events: [] };
+  const tl = { scenes, total: onBeat(t), typing: [], events: [] };
   scheduleTyping(tl);
   return tl;
 }
@@ -105,9 +113,10 @@ function type(tl, sheet, line, a, b) {
     acc += g;
     times.push(a + ((b - a) * acc) / total);
   }
-  tl.typing.push({ sheet, line, times, done: b });
+  const done = onBeat(b, BEAT / 2);
+  tl.typing.push({ sheet, line, times, done });
   times.forEach((ct) => tl.events.push({ t: ct, kind: "key" }));
-  if (DATA[sheet].results[line]) tl.events.push({ t: b + 0.06, kind: "pop" });
+  if (DATA[sheet].results[line]) tl.events.push({ t: done, kind: "pop" });
 }
 
 // Type a run of lines evenly across [a, b], with a short pause between lines.
@@ -127,65 +136,115 @@ function typeLines(tl, sheet, from, to, a, b) {
   });
 }
 
+// The hook types this fast, and its answer lands this long after HOOK_IN.
+const HOOK_KEY = 0.045;
+let HOOK_ANS = 1.2;
+
 function scheduleTyping(tl) {
   const sc = tl.scenes;
   const at = (id, s) => sc[id].start + s;
   // Hook: one big line, typed by the hook layer itself (see renderHook).
   const hook = DATA.hook.lines[0];
   hookTimes = [];
-  for (let i = 0; i < hook.length; i++) hookTimes.push(at("hook", HOOK_IN + 0.35 + i * 0.065 + (hook[i] === " " ? 0.03 : 0)));
+  for (let i = 0; i < hook.length; i++) hookTimes.push(at("hook", HOOK_IN + 0.2 + i * HOOK_KEY + (hook[i] === " " ? 0.02 : 0)));
+  HOOK_ANS = onBeat(hookTimes.at(-1) + 0.08, BEAT / 2) - HOOK_IN;
   hookTimes.forEach((ct) => tl.events.push({ t: ct, kind: "key", big: true }));
-  tl.events.push({ t: at("hook", HOOK_IN + 1.75), kind: "pop", big: true });
+  tl.events.push({ t: at("hook", HOOK_IN + HOOK_ANS), kind: "pop", big: true });
 
+  // The window flies straight in; Kyoto types, fast.
   tl.events.push({ t: at("intro", -0.12), kind: "whoosh" });
-  logoBeads(0).forEach((b) => tl.events.push({ t: at("intro", b.land), kind: "bead" }));
-  tl.events.push({ t: at("intro", 2.2), kind: "whoosh" });
-  // Kyoto: header through `each = prev / 4` during the intro.
-  typeLines(tl, "kyoto", 0, 7, at("intro", 3.25), at("intro", sc.intro.dur - 0.15));
+  typeLines(tl, "kyoto", 0, 7, at("intro", 0.75), at("intro", Math.min(3.9, sc.intro.dur - 0.3)));
   // The currency lines, then the times back home.
-  typeLines(tl, "kyoto", 8, 10, at("currency", 0.2), at("currency", 2.2));
-  typeLines(tl, "kyoto", 11, 13, at("currency", 2.35), at("currency", sc.currency.dur - 0.15));
-  // Quick math: time zones, then percentages and units.
-  tl.events.push({ t: at("zones", 0.0), kind: "tick" });
-  typeLines(tl, "quick", 0, 2, at("zones", 0.25), at("zones", Math.min(3.6, sc.zones.dur - 0.3)));
-  typeLines(tl, "quick", 3, 6, at("percent", 0.1), at("percent", 2.5));
-  typeLines(tl, "quick", 7, 10, at("percent", 2.65), at("percent", sc.percent.dur - 0.2));
+  typeLines(tl, "kyoto", 8, 10, at("currency", 0.15), at("currency", 1.3));
+  typeLines(tl, "kyoto", 11, 13, at("currency", 1.45), at("currency", 2.7));
+
+  // Montage: each one-liner lands on its word in the narration ("Time zones. Tips. ... Runway. ...").
+  const words = sc.montage.words;
+  const keyWords = [0, 2, 3, 4, 5, 6].map((i) => words[Math.min(i, words.length - 1)].t0);
+  const restFrom = words[Math.min(7, words.length - 1)].t0;
+  const restTo = sc.montage.start + sc.montage.dur - 0.35;
+  const n = DATA.montage.lines.length;
+  const extra = n - keyWords.length;
+  const starts = [...keyWords.map((t) => t - 0.4), ...Array.from({ length: extra }, (_, k) => restFrom - 0.2 + (k * (restTo - restFrom)) / extra)];
+  montage = DATA.montage.lines.map((line, i) => {
+    const t0 = Math.max(sc.montage.start + 0.05, starts[i]);
+    const typeEnd = t0 + Math.min(0.32, line.length * 0.014);
+    const ans = onBeat(typeEnd + 0.04, BEAT / 2);
+    return { line, res: DATA.montage.results[i], t0, typeEnd, ans };
+  });
+  montage.forEach((m, i) => {
+    m.t1 = montage[i + 1]?.t0 ?? sc.montage.start + sc.montage.dur;
+    tl.events.push({ t: m.t0, kind: "swish" });
+    tl.events.push({ t: m.ans, kind: "pop", big: true });
+  });
+
   // Invoice: select 150, type 175, everything ripples.
-  tl.events.push({ t: at("invoice", 0.0), kind: "tick" });
+  tl.events.push({ t: at("invoice", 0.0), kind: "whoosh" });
   [1.45, 1.6, 1.75].forEach((s) => tl.events.push({ t: at("invoice", s), kind: "key" }));
   for (let i = 0; i < 10; i++) tl.events.push({ t: at("invoice", 2.0 + i * 0.07), kind: "roll" });
-  // Switcher: Ctrl+P, "kyo", Enter.
-  tl.events.push({ t: at("switch", 0.35), kind: "thock" });
-  tl.events.push({ t: at("switch", 0.42), kind: "thock" });
-  [1.0, 1.17, 1.32].forEach((s) => tl.events.push({ t: at("switch", s), kind: "key" }));
-  tl.events.push({ t: at("switch", 2.15), kind: "thock" });
+
+  // Keys: Super+Ctrl+Alt+= and the window pops up; click an answer to copy; hop between sheets.
+  // The click and the hops follow the narration ("... hotkey opens it. Click ... Every sheet ...").
+  const kw = (w, fallback) => {
+    const hit = sc.keys.words.find((x) => x.w.replace(/\W/g, "").toLowerCase() === w);
+    return hit ? hit.t0 - sc.keys.start : fallback;
+  };
+  const hot = kw("hotkey", 0.8);
+  KEYS.press = [0, 0.07, 0.14, 0.21].map((d) => hot - 0.25 + d);
+  KEYS.pop = kw("opens", 1.3) + 0.05;
+  KEYS.click = kw("click", 2.3);
+  KEYS.cursorIn = KEYS.click - 0.7;
+  KEYS.jumps = [kw("every", 4.3) + 0.05, kw("every", 4.3) + 0.7];
+  KEYS.press.forEach((s) => tl.events.push({ t: at("keys", s), kind: "thock" }));
+  tl.events.push({ t: at("keys", KEYS.pop - 0.1), kind: "whoosh" });
+  tl.events.push({ t: at("keys", KEYS.click), kind: "thock" });
+  tl.events.push({ t: at("keys", KEYS.click + 0.08), kind: "pop" });
+  KEYS.jumps.forEach((s) => tl.events.push({ t: at("keys", s), kind: "swish" }));
+
+  // Terminal: type a command, the answer prints; then a whole sheet, piped.
+  cliTimes = [];
+  const cmdKeys = (cmd, a, per) => Array.from(cmd, (_, i) => a + i * per);
+  cliTimes.push(cmdKeys(DATA.cli.one.cmd, at("cli", CLI.one), 0.028));
+  cliTimes.push(cmdKeys(DATA.cli.pipe.cmd, at("cli", CLI.pipe), 0.019));
+  CLI.outAt = cliTimes.map((ts) => onBeat(ts.at(-1) + 0.12, BEAT / 2));
+  cliTimes.flat().forEach((ct) => tl.events.push({ t: ct, kind: "key" }));
+  CLI.outAt.forEach((ct) => tl.events.push({ t: ct, kind: "pop" }));
+  tl.events.push({ t: at("cli", -0.1), kind: "whoosh" });
+
   // Share: click Share, the link is copied, a phone opens it and adds a line.
+  tl.events.push({ t: at("share", -0.05), kind: "whoosh" });
   tl.events.push({ t: at("share", SHARE.click), kind: "thock" });
   tl.events.push({ t: at("share", SHARE.click + 0.12), kind: "pop" });
   tl.events.push({ t: at("share", SHARE.phoneIn - 0.1), kind: "whoosh" });
-  const extra = DATA.phone.lines.at(-1);
+  const extraLine = DATA.phone.lines.at(-1);
   phoneTimes = [];
-  for (let i = 0; i < extra.length; i++) phoneTimes.push(at("share", SHARE.typeAt + i * 0.075));
+  for (let i = 0; i < extraLine.length; i++) phoneTimes.push(at("share", SHARE.typeAt + i * 0.05));
   phoneTimes.forEach((ct) => tl.events.push({ t: ct, kind: "key" }));
   tl.events.push({ t: phoneTimes.at(-1) + 0.12, kind: "pop" });
   // Themes: a whoosh per theme.
   for (let i = 0; i < THEMES.length; i++) tl.events.push({ t: at("themes", themeTime(i)), kind: "swish" });
   // Install command.
-  const cmd = "curl -fsSL https://omacus.com/install | bash";
   cmdTimes = [];
-  for (let i = 0; i < cmd.length; i++) cmdTimes.push(at("platforms", 1.25 + i * 0.038));
+  for (let i = 0; i < INSTALL.length; i++) cmdTimes.push(at("platforms", 1.0 + i * 0.026));
   cmdTimes.forEach((ct) => tl.events.push({ t: ct, kind: "key" }));
   [0.15, 0.32, 0.49].forEach((s) => tl.events.push({ t: at("platforms", s), kind: "tick" }));
   [at("platforms", -0.15), at("end", -0.1)].forEach((w) => tl.events.push({ t: w, kind: "whoosh" }));
   logoBeads(0.25).forEach((b) => tl.events.push({ t: at("end", b.land), kind: "bead" }));
   tl.events.push({ t: at("end", 1.55), kind: "chime" });
 }
+const INSTALL = "curl -fsSL https://omacus.com/install | bash";
 let hookTimes = [];
 let cmdTimes = [];
 let phoneTimes = [];
+let cliTimes = [];
+let montage = [];
 // The share scene's beats, in seconds from its start.
-const SHARE = { click: 1.0, phoneIn: 2.0, typeAt: 3.7 };
-const themeTime = (i) => 0.55 + i * 0.58;
+const SHARE = { click: 0.9, phoneIn: 1.8, typeAt: 3.3 };
+// The keys scene: the hotkey, the window popping up, a click on an answer, two sheet hops.
+const KEYS = { press: [0.35, 0.42, 0.49, 0.56], pop: 1.05, cursorIn: 1.6, click: 2.3, jumps: [4.3, 4.95] }; // set from the narration
+// The terminal scene: when each command starts typing.
+const CLI = { one: 0.45, pipe: 1.75, outAt: [] };
+const themeTime = (i) => 0.45 + i * BEAT;
 
 // ------------------------------------------------------------------------------------
 // Syntax colors, as in the app (src/highlight.rs), simplified.
@@ -311,11 +370,15 @@ function setupStatic() {
       <div class="os"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg><span>Web</span></div>
     </div>
     <div class="cmd"><span class="p">$ </span><span class="c"></span></div>
-    <div class="free">Free and open source · MIT</div>`;
+    <div class="free">Free · open source · no account</div>`;
   $("#themes").innerHTML =
     THEMES.map(([id]) => `<div class="card"><img src="/site/img/screens/${id}.webp" alt=""></div>`).join("") +
     `<div class="label"><i><b></b><b></b></i><span></span></div>`;
-  $("#keys").innerHTML = `<div class="key k1">Ctrl</div><div class="plus">+</div><div class="key k2">P</div><div class="key k3" style="margin-left:60px">Enter ↵</div>`;
+  $("#keys").innerHTML =
+    ["Super", "Ctrl", "Alt", "="].map((k, i) => `${i ? '<div class="plus">+</div>' : ""}<div class="key">${k}</div>`).join("") +
+    `<div class="omarchy">On Omarchy</div>`;
+  $("#term .body").innerHTML = "";
+  $("#end .cmd").innerHTML = `<span class="p">$ </span>${esc(INSTALL)}`;
 }
 
 // ------------------------------------------------------------------------------------
@@ -337,9 +400,11 @@ function render(t) {
   $("#glow").style.setProperty("--gy", `${62 + 8 * Math.cos(t * 0.17)}%`);
 
   renderHook(t, local("hook"), sc.hook.dur);
-  renderLogo(local("intro"));
+  renderLogo(-1);
   renderWindow(t);
-  renderKeys(local("switch"), sc.switch.dur);
+  renderKeys(local("keys"));
+  renderMontage(t, local("montage"), sc.montage.dur);
+  renderTerm(t, local("cli"), sc.cli.dur);
   renderPhone(t, local("share"), sc.share.dur);
   renderThemes(local("themes"), sc.themes.dur);
   renderPlatforms(t, local("platforms"), sc.platforms.dur);
@@ -348,32 +413,41 @@ function render(t) {
   renderCaptions(t);
 
   // Fade in from black, and out at the very end.
-  const fadeIn = 1 - prog(t, 0, 0.8);
-  const fadeOut = prog(t, TL.total - 0.7, TL.total);
+  const fadeIn = 1 - easeInOut(prog(t, 0, PRE * 0.8));
+  const fadeOut = prog(t, TL.total - 1.4, TL.total);
   $("#fade").style.opacity = Math.max(fadeIn, easeIn(fadeOut));
   void inScene;
 }
 
 function renderHook(t, s, dur) {
   const el = $("#hook");
-  if (s < 0 || s > dur + 0.1) return show(el, 0);
+  if (s < -PRE || s > dur + 0.1) return show(el, 0);
   const text = DATA.hook.lines[0];
   const n = hookTimes.filter((ct) => ct <= t).length;
   // Reserve the full width so the line stays centred while it types.
   el.querySelector(".line").style.width = `${text.length + 0.6}ch`;
   const typed = s - HOOK_IN;
-  const caret = typed < 1.7 && Math.floor(s * 2.4) % 2 === 0 ? '<span class="caret"></span>' : "";
-  el.querySelector(".line").innerHTML = esc(text.slice(0, n)) + (n < text.length || typed < 1.7 ? caret : "");
-  const a = prog(typed, 1.75, 2.15);
+  if (s < 0) {
+    // The lead-in: just the caret, blinking, as the frame fades up.
+    el.querySelector(".line").innerHTML = Math.floor((s + PRE) * 1.9) % 2 === 0 ? '<span class="caret"></span>' : "";
+    el.querySelector(".ans").style.opacity = 0;
+    el.style.filter = "";
+    return show(el, 1, `scale(${lerp(0.985, 1, easeOut(prog(s, -PRE, 0)))})`);
+  }
+  const caret = typed < HOOK_ANS && (n < text.length || Math.floor(s * 2.4) % 2 === 0) ? '<span class="caret"></span>' : "";
+  el.querySelector(".line").innerHTML = esc(text.slice(0, n)) + caret;
+  const a = prog(typed, HOOK_ANS, HOOK_ANS + 0.25);
   const ans = el.querySelector(".ans");
   ans.textContent = DATA.hook.results[0];
   ans.style.opacity = easeOut(a);
   ans.style.transform = `translateY(${lerp(26, 0, easeOutExpo(a))}px)`;
   ans.style.filter = `blur(${lerp(10, 0, easeOut(a))}px)`;
-  ans.style.textShadow = `0 0 ${lerp(40, 0, prog(typed, 1.8, 2.8))}px rgba(240,161,42,.8)`;
+  ans.style.textShadow = `0 0 ${lerp(40, 0, prog(typed, HOOK_ANS, HOOK_ANS + 1))}px rgba(240,161,42,.8)`;
+  // A punch on the answer.
+  const punch = Math.sin(Math.PI * prog(typed, HOOK_ANS, HOOK_ANS + 0.22)) * 0.035;
   // Push in slowly, then zoom through into the next scene.
   const out = prog(s, dur - 0.45, dur);
-  show(el, 1 - easeIn(out), `scale(${lerp(1, 1.04, s / dur) * lerp(1, 1.6, easeIn(out))})`);
+  show(el, 1 - easeIn(out), `scale(${(lerp(1, 1.04, s / dur) + punch) * lerp(1, 1.6, easeIn(out))})`);
   el.style.filter = `blur(${lerp(0, 14, easeIn(out))}px)`;
 }
 
@@ -396,9 +470,10 @@ function renderLogo(s) {
 function sheetView(t) {
   const sc = TL.scenes;
   const at = (id, s = 0) => sc[id].start + s;
-  if (t >= at("switch", 2.3)) return { key: "kyoto", active: 0, prev: 2, since: at("switch", 2.3), full: true };
-  if (t >= at("invoice")) return { key: "invoice", active: 2, prev: 1, since: at("invoice"), full: true };
-  if (t >= at("zones")) return { key: "quick", active: 1, prev: 0, since: at("zones") };
+  if (t >= at("share")) return { key: "kyoto", active: 0, prev: 0, since: -1, full: true };
+  if (t >= at("keys", KEYS.jumps[1])) return { key: "kyoto", active: 0, prev: 1, since: at("keys", KEYS.jumps[1]), full: true };
+  if (t >= at("keys", KEYS.jumps[0])) return { key: "quick", active: 1, prev: 2, since: at("keys", KEYS.jumps[0]), full: true };
+  if (t >= at("invoice")) return { key: "invoice", active: 2, prev: 2, since: -1, full: true };
   return { key: "kyoto", active: 0, prev: 0, since: -1 };
 }
 
@@ -413,21 +488,37 @@ function renderWindow(t) {
   const stage = $("#stage");
   const sIntro = t - sc.intro.start;
   const sThemes = t - sc.themes.start;
-  if (sIntro < 2.15 || sThemes > 0.8) return show(stage, 0);
+  if (sIntro < -0.05 || sThemes > 0.8) return show(stage, 0);
 
   // Fly in from below with a tilt; fly back as the themes take over.
-  const pIn = prog(sIntro, 2.2, 3.3);
+  const pIn = prog(sIntro, 0, 0.75);
   const pOut = prog(sThemes, 0, 0.7);
+  // Away for the montage, the hotkey and the terminal; back with a spring.
+  const gaps = [
+    [sc.montage.start - 0.05, sc.invoice.start],
+    [sc.keys.start, sc.keys.start + KEYS.pop],
+    [sc.cli.start - 0.05, sc.share.start],
+  ];
+  let gone = 0;
+  let back = 1;
+  for (const [a, b] of gaps) {
+    if (t >= a - 0.01 && t < b + 0.6) {
+      gone = t < b ? easeIn(prog(t, a, a + 0.22)) : 0;
+      back = t < b ? 1 : spring(prog(t, b, b + 0.55));
+    }
+  }
+  if (gone >= 0.999) return show(stage, 0);
   const rx = lerp(24, 0, easeOutExpo(pIn)) + lerp(0, -10, easeIn(pOut));
   const ty = lerp(420, 0, easeOutExpo(pIn)) + lerp(0, -60, easeIn(pOut));
   const sc0 = lerp(0.86, 1, easeOutExpo(pIn)) * lerp(1, 0.78, easeIn(pOut));
   // Step aside for the phone during the share scene.
   const sShare = t - sc.share.start;
   const aside = easeInOut(prog(sShare, SHARE.phoneIn - 0.3, SHARE.phoneIn + 0.6));
+  const popIn = clamp(back, 0, 2);
   show(
     stage,
-    easeOut(prog(sIntro, 2.2, 2.65)) * (1 - easeIn(pOut)),
-    `perspective(2400px) translateX(${lerp(0, -330, aside)}px) translateY(${ty}px) rotateX(${rx}deg) rotateY(${lerp(0, 8, aside)}deg) scale(${sc0 * lerp(1, 0.72, aside)})`,
+    easeOut(prog(sIntro, 0, 0.35)) * (1 - easeIn(pOut)) * (1 - gone) * clamp(popIn * 2),
+    `perspective(2400px) translateX(${lerp(0, -330, aside)}px) translateY(${ty}px) rotateX(${rx}deg) rotateY(${lerp(0, 8, aside)}deg) scale(${sc0 * lerp(1, 0.72, aside) * lerp(1, 0.9, gone) * lerp(0.86, 1, popIn)})`,
   );
   stage.style.filter = `brightness(${lerp(1, 0.62, aside)})`;
 
@@ -439,9 +530,15 @@ function renderWindow(t) {
   bar.style.color = hover > 0.5 ? "var(--app-fg)" : "";
   bar.style.transform = `scale(${1 - 0.06 * press})`;
   const toast = $("#toast");
-  const tIn = prog(sShare, SHARE.click + 0.1, SHARE.click + 0.4);
-  const tOut = prog(sShare, SHARE.click + 2.4, SHARE.click + 2.7);
+  const sKeys = t - sc.keys.start;
+  const copying = sKeys >= 0 && sKeys < KEYS.jumps[0];
+  const toastAt = copying ? KEYS.click : SHARE.click;
+  const sToast = copying ? sKeys : sShare;
+  toast.innerHTML = copying ? `Copied <b>${esc(DATA.invoice175.results[8])}</b>` : "Link copied. <span>Anyone with it can open this sheet.</span>";
+  const tIn = prog(sToast, toastAt + 0.1, toastAt + 0.4);
+  const tOut = prog(sToast, toastAt + (copying ? 1.0 : 2.4), toastAt + (copying ? 1.25 : 2.7));
   show(toast, easeOut(tIn) * (1 - tOut), `translateY(${lerp(-10, 0, easeOutExpo(tIn))}px)`);
+  renderCursor(sKeys);
   stage.style.transformOrigin = "50% 60%";
 
   const view = sheetView(t);
@@ -479,7 +576,8 @@ function renderWindow(t) {
   }
   $("#lines").innerHTML = html;
 
-  renderSwitcher(t - sc.switch.start);
+  show($("#switcher"), 0);
+  $("#scrim").style.opacity = 0;
   renderCamera(t);
 }
 
@@ -541,26 +639,32 @@ function cameraAt(t) {
   const L = (i) => ({ x: 980, y: 96 + 34 + 46 * i + 23 }); // a line's centre
   const full = { x: 960, y: 526, z: 1 };
   const keys = [];
-  const k = (id, s, pos, z) => keys.push({ t: sc[id].start + s, x: pos.x, y: pos.y, z });
+  // `e` is the easing into that key: punches use easeOutExpo.
+  const k = (id, s, pos, z, e = easeInOut) => keys.push({ t: sc[id].start + s, x: pos.x, y: pos.y, z, e });
+  const punch = (p) => easeOutExpo(p) + Math.sin(Math.PI * clamp(p * 1.4)) * 0.04;
   k("intro", 0, full, 1);
-  k("intro", sc.intro.dur - 0.6, full, 1);
-  k("currency", 0.5, { x: 1060, y: L(9.5).y }, 1.42);
-  k("currency", 2.2, { x: 1060, y: L(9.5).y }, 1.42);
-  k("currency", sc.currency.dur - 0.2, { x: 1040, y: L(11).y }, 1.18);
-  k("zones", 0.45, { x: 1060, y: L(1.5).y }, 1.38);
-  k("zones", sc.zones.dur - 0.2, { x: 1060, y: L(1.8).y }, 1.38);
-  k("percent", 0.5, { x: 1040, y: L(5).y }, 1.3);
-  k("percent", 2.4, { x: 1040, y: L(5.5).y }, 1.3);
-  k("percent", sc.percent.dur - 0.3, { x: 1040, y: L(9).y }, 1.3);
-  // Close enough to read, wide enough that the rate and every answer it changes are in shot.
-  k("invoice", 0.7, { x: 1180, y: L(4).y }, 1.32);
-  k("invoice", 2.0, { x: 1180, y: L(4).y }, 1.34);
-  k("invoice", 3.4, { x: 1120, y: L(4.5).y }, 1.18);
-  k("invoice", sc.invoice.dur, { x: 1100, y: L(4.5).y }, 1.14);
-  k("switch", 0.4, full, 1);
+  k("intro", sc.intro.dur - 0.2, full, 1);
+  // Currency: punch in on the totals, then drift to the times back home.
+  k("currency", 0.15, { x: 1080, y: L(9).y }, 1.5, punch);
+  k("currency", 1.4, { x: 1080, y: L(9.5).y }, 1.5);
+  k("currency", 1.7, { x: 1040, y: L(12).y }, 1.3, punch);
+  k("currency", sc.currency.dur, { x: 1040, y: L(12).y }, 1.34);
+  k("montage", 0, full, 1);
+  // Invoice: wide enough for the rate and every answer it changes; a punch on the ripple.
+  k("invoice", 0.5, { x: 1180, y: L(4).y }, 1.3);
+  k("invoice", 1.95, { x: 1180, y: L(4).y }, 1.3);
+  k("invoice", 2.25, { x: 1200, y: L(5).y }, 1.48, punch);
+  k("invoice", 3.3, { x: 1200, y: L(5).y }, 1.48);
+  k("invoice", sc.invoice.dur, { x: 1120, y: L(4.5).y }, 1.14);
+  k("keys", 0.01, full, 1, () => 1);
+  // Click to copy: lean in on the answer.
+  k("keys", KEYS.cursorIn, full, 1);
+  k("keys", KEYS.click - 0.15, { x: 1380, y: L(8).y }, 1.35, punch);
+  k("keys", KEYS.click + 0.9, { x: 1380, y: L(8).y }, 1.35);
+  k("keys", KEYS.jumps[0] - 0.1, full, 1);
   k("share", 0.15, full, 1);
-  k("share", 0.8, { x: 1420, y: 230 }, 1.55);
-  k("share", SHARE.click + 0.45, { x: 1420, y: 230 }, 1.55);
+  k("share", 0.6, { x: 1420, y: 230 }, 1.55, punch);
+  k("share", SHARE.click + 0.4, { x: 1420, y: 230 }, 1.55);
   k("share", SHARE.phoneIn - 0.1, full, 1);
   k("themes", 0, full, 1);
   if (t <= keys[0].t) return keys[0];
@@ -568,7 +672,7 @@ function cameraAt(t) {
     if (t <= keys[i].t) {
       const a = keys[i - 1];
       const b = keys[i];
-      const p = easeInOut(prog(t, a.t, b.t));
+      const p = b.e(prog(t, a.t, b.t));
       return { x: lerp(a.x, b.x, p), y: lerp(a.y, b.y, p), z: lerp(a.z, b.z, p) };
     }
   }
@@ -615,26 +719,95 @@ function renderPhone(t, s, dur) {
     .join("");
 }
 
-function renderKeys(s, dur) {
+// The hotkey: Super + Ctrl + Alt + =, pressed and held, then the window pops up.
+function renderKeys(s) {
   const el = $("#keys");
-  if (s < 0.2 || s > 2.8) return show(el, 0);
-  show(el, easeOut(prog(s, 0.2, 0.35)) * (1 - easeIn(prog(s, 2.45, 2.8))));
-  const press = (key, at) => {
-    const p = prog(s, at, at + 0.06) * (1 - prog(s, at + 0.16, at + 0.28));
-    key.style.transform = `translateY(${4 * p}px)`;
-    key.style.boxShadow = `0 ${6 - 4 * p}px 0 #0c0c0c, 0 20px 40px -10px rgba(0,0,0,.8)${p > 0.2 ? ", 0 0 0 2px rgba(240,161,42,.6)" : ""}`;
-  };
-  const k1 = el.querySelector(".k1");
-  const k2 = el.querySelector(".k2");
-  const k3 = el.querySelector(".k3");
-  press(k1, 0.35);
-  press(k2, 0.42);
-  press(k3, 2.15);
-  const enter = prog(s, 1.9, 2.05);
-  k3.style.opacity = easeOut(enter);
-  el.querySelector(".plus").style.opacity = 1 - easeOut(enter) * 0.6;
-  k1.style.opacity = k2.style.opacity = 1 - easeOut(enter) * 0.6;
-  void dur;
+  if (s < 0 || s > KEYS.pop + 0.35) return show(el, 0);
+  const vis = easeOut(prog(s, 0.0, 0.12)) * (1 - easeIn(prog(s, KEYS.pop - 0.05, KEYS.pop + 0.3)));
+  show(el, vis, `scale(${lerp(1, 1.25, easeIn(prog(s, KEYS.pop - 0.05, KEYS.pop + 0.3)))})`);
+  const badge = el.querySelector(".omarchy");
+  const pb = prog(s, 0.0, 0.35);
+  badge.style.opacity = easeOut(pb);
+  badge.style.transform = `translate(-50%, ${lerp(16, 0, easeOutExpo(pb))}px)`;
+  el.querySelectorAll(".key").forEach((key, i) => {
+    const at = KEYS.press[i];
+    const p = prog(s, at, at + 0.05) * (1 - prog(s, KEYS.pop - 0.1, KEYS.pop));
+    key.style.transform = `translateY(${5 * p}px)`;
+    key.style.boxShadow = `0 ${6 - 5 * p}px 0 #0c0c0c, 0 20px 40px -10px rgba(0,0,0,.8)${p > 0.2 ? ", 0 0 0 2px rgba(240,161,42,.7)" : ""}`;
+  });
+}
+
+// A pointer that glides to the total and clicks it.
+function renderCursor(s) {
+  const cur = $("#cursor");
+  const hl = $("#copyhl");
+  const on = s >= KEYS.cursorIn - 0.1 && s < KEYS.click + 1.2;
+  show(cur, on ? easeOut(prog(s, KEYS.cursorIn - 0.1, KEYS.cursorIn + 0.15)) * (1 - prog(s, KEYS.click + 0.9, KEYS.click + 1.2)) : 0);
+  const p = easeInOut(prog(s, KEYS.cursorIn, KEYS.click - 0.1));
+  const press = prog(s, KEYS.click, KEYS.click + 0.05) * (1 - prog(s, KEYS.click + 0.12, KEYS.click + 0.22));
+  cur.style.left = `${lerp(760, 1080, p)}px`;
+  cur.style.top = `${lerp(620, 34 + 46 * 8 + 14, p)}px`;
+  cur.style.transform = `scale(${1 - 0.15 * press})`;
+  const flash = s >= KEYS.click ? Math.exp(-(s - KEYS.click) * 3) : 0;
+  hl.style.opacity = flash;
+}
+
+// The montage: one big line at a time, the answer slams in under it.
+function renderMontage(t, s, dur) {
+  const el = $("#montage");
+  if (s < 0 || s > dur) return show(el, 0);
+  const m = montage.find((x) => t >= x.t0 && t < x.t1) ?? (t < montage[0].t0 ? null : montage.at(-1));
+  if (!m) return show(el, 0);
+  const sIn = t - m.t0;
+  const exit = prog(t, m.t1 - 0.12, m.t1);
+  const last = m === montage.at(-1);
+  const out = last ? prog(s, dur - 0.3, dur) : 0;
+  const n = Math.round(m.line.length * clamp(sIn / Math.max(0.01, m.typeEnd - m.t0)));
+  const typing = t < m.typeEnd;
+  el.querySelector(".line").innerHTML = esc(m.line.slice(0, n)) + (typing || t < m.ans ? '<span class="caret"></span>' : "");
+  el.querySelector(".line").style.width = `${m.line.length + 0.6}ch`;
+  const a = prog(t, m.ans, m.ans + 0.18);
+  const ans = el.querySelector(".ans");
+  ans.textContent = m.res;
+  ans.style.opacity = easeOut(a);
+  ans.style.transform = `translateY(${lerp(30, 0, easeOutExpo(a))}px) scale(${lerp(1.25, 1, easeOutExpo(a))})`;
+  ans.style.textShadow = `0 0 ${lerp(46, 0, prog(t, m.ans, m.ans + 0.8))}px rgba(240,161,42,.85)`;
+  const punch = Math.sin(Math.PI * prog(t, m.ans, m.ans + 0.2)) * 0.04;
+  show(el, (1 - exit) * (1 - out) * easeOut(prog(sIn, 0, 0.08)), `translateY(${lerp(0, -40, easeIn(exit))}px) scale(${lerp(0.94, 1, easeOutExpo(prog(sIn, 0, 0.25))) + punch})`);
+  el.style.filter = `blur(${lerp(0, 10, easeIn(exit))}px)`;
+  // A row of dots: which one-liner this is.
+  el.querySelector(".dots").innerHTML = montage.map((x) => `<i class="${x === m ? "on" : ""}"></i>`).join("");
+}
+
+// A terminal: `omacus '$100 in EUR'`, then a sheet piped through `omacus -`.
+function renderTerm(t, s, dur) {
+  const el = $("#term");
+  if (s < -0.1 || s > dur) return show(el, 0);
+  const pIn = prog(s, -0.05, 0.4);
+  const out = prog(s, dur - 0.3, dur);
+  show(el, easeOut(prog(s, -0.05, 0.15)) * (1 - easeIn(out)), `translateY(${lerp(80, 0, easeOutExpo(pIn))}px) scale(${lerp(0.94, 1, easeOutExpo(pIn)) * lerp(1, 0.96, easeIn(out))})`);
+  const cmds = [DATA.cli.one, DATA.cli.pipe];
+  let html = "";
+  cmds.forEach((c, i) => {
+    const ts = cliTimes[i];
+    if (t < ts[0] - 0.4) return;
+    const n = ts.filter((ct) => ct <= t).length;
+    const typing = n < c.cmd.length;
+    const showCaret = t < CLI.outAt[i] && (typing || Math.floor(s * 2.4) % 2 === 0);
+    html += `<div><span class="p">~ $ </span>${esc(c.cmd.slice(0, n))}${showCaret ? '<span class="caret"></span>' : ""}</div>`;
+    if (t >= CLI.outAt[i]) {
+      c.out.forEach((o, j) => {
+        const at = CLI.outAt[i] + j * 0.07;
+        if (t < at) return;
+        const p = prog(t, at, at + 0.2);
+        html += `<div class="o" style="opacity:${easeOut(p)};text-shadow:0 0 ${lerp(24, 0, prog(t, at, at + 0.8))}px rgba(240,161,42,.8)">${esc(o)}</div>`;
+      });
+    }
+  });
+  const last = cliTimes.at(-1);
+  if (t >= CLI.outAt[1] + 0.3) html += `<div><span class="p">~ $ </span>${Math.floor(s * 2.4) % 2 === 0 ? '<span class="caret"></span>' : ""}</div>`;
+  void last;
+  el.querySelector(".body").innerHTML = html;
 }
 
 function renderThemes(s, dur) {
@@ -675,14 +848,14 @@ function renderPlatforms(t, s, dur) {
     os.style.opacity = easeOut(prog(s, 0.12 + i * 0.17, 0.12 + i * 0.17 + 0.25));
     os.style.transform = `translateY(${lerp(60, 0, spring(p))}px)`;
   });
-  const cmd = "curl -fsSL https://omacus.com/install | bash";
+  const cmd = INSTALL;
   const n = cmdTimes.filter((ct) => ct <= t).length;
   const box = el.querySelector(".cmd");
-  box.style.opacity = easeOut(prog(s, 0.9, 1.2));
-  box.style.transform = `translateY(${lerp(20, 0, easeOutExpo(prog(s, 0.9, 1.4)))}px)`;
+  box.style.opacity = easeOut(prog(s, 0.7, 0.95));
+  box.style.transform = `translateY(${lerp(20, 0, easeOutExpo(prog(s, 0.7, 1.15)))}px)`;
   const blink = Math.floor(s * 2.4) % 2 === 0 || n < cmd.length;
   box.querySelector(".c").innerHTML = esc(cmd.slice(0, n)) + (blink ? '<span class="caret"></span>' : "");
-  el.querySelector(".free").style.opacity = easeOut(prog(s, 2.8, 3.3));
+  el.querySelector(".free").style.opacity = easeOut(prog(s, 2.3, 2.7));
 }
 
 function renderEnd(s, dur) {
@@ -691,8 +864,8 @@ function renderEnd(s, dur) {
   show(el, 1);
   animateLogo(el.querySelector(".logo-svg"), s, 0.25);
   animateWord(el.querySelector(".word"), s, 0.85);
-  [el.querySelector(".tag"), el.querySelector(".url"), el.querySelector(".sub")].forEach((p, i) => {
-    const at = 1.35 + i * 0.3;
+  [el.querySelector(".tag"), el.querySelector(".url"), el.querySelector(".cmd"), el.querySelector(".sub")].forEach((p, i) => {
+    const at = 1.2 + i * 0.25;
     const q = prog(s, at, at + 0.9);
     p.style.opacity = easeOut(prog(s, at, at + 0.35));
     p.style.transform = `translateY(${lerp(26, 0, easeOutExpo(q))}px)`;
@@ -710,7 +883,7 @@ function renderEnd(s, dur) {
 // A streak of light across the frame, covering a cut between sections.
 function renderWipe(t) {
   const sc = TL.scenes;
-  const cuts = [sc.intro.start - 0.05, sc.platforms.start - 0.1, sc.end.start - 0.05];
+  const cuts = [sc.intro.start - 0.05, sc.montage.start - 0.05, sc.cli.start - 0.05, sc.platforms.start - 0.1, sc.end.start - 0.05];
   const bar = $("#wipe .bar");
   const cut = cuts.find((c) => t >= c - 0.35 && t <= c + 0.35);
   if (cut === undefined) return (bar.style.opacity = 0);
