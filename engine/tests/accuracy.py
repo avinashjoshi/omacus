@@ -196,12 +196,84 @@ def conversions():
     return cases
 
 
+# A suffix on a currency amount. k/K thousand, m/M/mm million, b/B/bn billion.
+# "$5m" is the line that used to show "$5".
+SCALES = (
+    ("k", 3), ("K", 3),
+    ("m", 6), ("M", 6), ("mm", 6), ("MM", 6),
+    ("b", 9), ("B", 9), ("bn", 9), ("BN", 9),
+)
+
+
+def money_amount():
+    whole = rng.randint(0, 9_999)
+    frac = rng.randint(0, 99)
+    if rng.random() < 0.5:
+        return f"{whole}.{frac:02d}", F(whole) + F(frac, 100)
+    if whole >= 1000 and rng.random() < 0.5:
+        return f"{whole:,}", F(whole)
+    return str(whole), F(whole)
+
+
+def money_suffixes():
+    """Currency amounts with a scale suffix, against the scaled exact value."""
+    cases = [("$5m", F(5_000_000)), ("$5 m", F(5_000_000))]
+    for suffix, places in SCALES:
+        factor = F(10) ** places
+        for _ in range(40):
+            text, value = money_amount()
+            scaled = value * factor
+            gap = " " if rng.random() < 0.2 else ""
+            cases.append((f"${text}{gap}{suffix}", scaled))
+            other, other_value = money_amount()
+            op = rng.choice("+-*")
+            expr = f"${text}{suffix} {op} {other}"
+            got = {"+": scaled + other_value, "-": scaled - other_value, "*": scaled * other_value}[op]
+            cases.append((expr, got))
+        # Two scaled amounts, so neither suffix can be dropped unnoticed.
+        a_t, a = money_amount()
+        b_t, b = money_amount()
+        cases.append((f"${a_t}{suffix} + ${b_t}{suffix}", (a + b) * factor))
+    return cases
+
+
+def bare_units_stay_units():
+    """No currency symbol: the letter is a unit, not a scale, and not dropped."""
+    lines = ["1m", "3mm", "3 mm", "1.5B", "5km", "3MB", "$5xyz", "$5kg", "€5xyz"]
+    got = answers(lines)
+    want = {
+        "1m": "1 m",
+        "3mm": "3 mm",
+        "3 mm": "3 mm",
+        "1.5B": "1.5 B",
+        "5km": "5 km",
+        "3MB": "3 MB",
+        "$5xyz": "",
+        "$5kg": "",
+        "€5xyz": "",
+    }
+    bad = 0
+    for line, answer in zip(lines, got):
+        if answer.strip() != want[line]:
+            bad += 1
+            print(f"  {line:48} got {answer!r:24} want {want[line]!r}")
+    # The failure this guards: a suffix deleted so the line shows a smaller number.
+    for line, answer in zip(lines, got):
+        if answer.strip() in {"$5", "5", "€5", "5 EUR"}:
+            bad += 1
+            print(f"  {line:48} dropped its suffix and showed {answer!r}")
+    print(f"bare units: {len(lines)} lines, {bad} wrong")
+    return bad
+
+
 if __name__ == "__main__":
     wrong = 0
     for seed in (1, 2, 3):
         rng.seed(seed)
         wrong += check(f"maths, seed {seed}", [line() for _ in range(N)])
     rng.seed(7)
+    wrong += check("money suffixes", money_suffixes())
+    wrong += bare_units_stay_units()
     # Conversion answers carry a unit ("1.61 km"); compare the number part.
     shown_number = shown
     shown = lambda text: shown_number(text.split(" ")[0]) if text else None  # noqa: E731
