@@ -380,6 +380,49 @@ re!(
 );
 // "3 pizzas at $12" -> "3 pizzas * $12".
 re!(AT_PRICE, r"(?i)(\d.*?)\s+at\s+([$£€¥₹(]|\d)");
+// "$2.4M / $180k per month" is cash divided by a rate. fend would divide first and
+// apply "per month" to the result (a huge number per month). The rate stays together.
+// A bare count does not ("$5,000 / 12 per month" is a monthly amount).
+re!(
+    RATE_DIVISOR,
+    r"/\s*([$£€¥₹]\s*\d[\d,]*(?:\.\d+)?[kKM]?|\d[\d,]*(?:\.\d+)?[kKM])\s*(?:(?i:per)|/)\s*((?i)months?|years?|weeks?|days?|hours?|minutes?|nights?|people|persons?|heads?|mo|yr)\b"
+);
+// "$180k per month in years": the same money over a year, not a conversion into time.
+re!(
+    RATE_IN_TIME,
+    r"(?i)((?:per|/)\s*(?:months?|years?|weeks?|days?|mo|yr))\s+(?:in|to|as)\s+(years?|months?|weeks?|days?|yr|mo|annually)\b"
+);
+// "k" and "M" after a number are thousand and million ("$180k", "2.4M"), not a
+// separate factor fend can slide past a division. Not "5km" or "3MB".
+re!(SCALE_SUFFIX, r"(^|[^\w])(\d[\d,]*(?:\.\d+)?)([kKM])\b");
+// "$5M at $20M pre" is a round: the raise and the pre-money valuation.
+re!(
+    AT_PRE,
+    r"(?i)^\s*(.+?)\s+at\s+(?:an?\s+)?(.+?)\s+pre(?:-?money|\s+money)?\s*$"
+);
+// "$5M at $25M post" and "$5M post at $25M": the dilution of that round.
+re!(
+    AT_POST,
+    r"(?i)^\s*(.+?)\s+at\s+(?:an?\s+)?(.+?)\s+post(?:-?money|\s+money)?\s*$"
+);
+re!(
+    POST_AT,
+    r"(?i)^\s*(.+?)\s+post(?:-?money|\s+money)?\s+at\s+(?:an?\s+)?(.+?)\s*$"
+);
+// "MRR", "monthly" and "annually" name the period of an amount. "in ARR" names
+// the period to convert into.
+re!(
+    PERIOD_OF_RATE,
+    r"(?i)((?:per|/)\s*(?:months?|years?|weeks?|days?|mo|yr))\s+(monthly|annually)\b"
+);
+re!(
+    PERIOD_TARGET,
+    r"(?i)\b(in|to|as)\s+(monthly|annually|MRR|ARR)\b"
+);
+re!(
+    PERIOD_WORD,
+    r"(?i)(\d[\d,.]*\)?(?:\s+[A-Z]{3})?|\)(?:\s+[A-Z]{3})?)\s+(monthly|annually|MRR|ARR)\b"
+);
 // A time of day the time module didn't claim ("Movie at 7pm"): not math.
 re!(CLOCK_WORD, r"(?i)\b\d{1,2}(?::\d{2})?\s?[ap]\.?m\b");
 // A label ending in a number, then the amount: "Day 3 $50", "iPhone 15 $799".
@@ -723,6 +766,24 @@ impl Engine {
                     Some((_, name)) => format!("{display} {name}"),
                     None => display,
                 };
+                // "$5M at $20M pre" is the post-money sum. Say the dilution too.
+                let display = match pre_money_terms(trimmed) {
+                    Some((raise, pre)) => {
+                        let share = self.round_share(
+                            &mut st.ctx,
+                            &budget,
+                            &raise,
+                            &pre,
+                            st.prev.as_deref(),
+                            &st.vars,
+                        );
+                        match share {
+                            Some(pct) => format!("{display} post, {pct}"),
+                            None => format!("{display} post"),
+                        }
+                    }
+                    None => display,
+                };
                 LineResult::value(display)
             }
             None => {
@@ -788,6 +849,23 @@ impl Engine {
             }
         });
         format!("{lhs}{rhs}")
+    }
+
+    /// The dilution of a round, "20%", from the raise and the pre-money amount.
+    fn round_share(
+        &self,
+        ctx: &mut fend_core::Context,
+        budget: &Budget,
+        raise: &str,
+        pre: &str,
+        prev: Option<&str>,
+        vars: &HashSet<String>,
+    ) -> Option<String> {
+        let expr = format!("(({raise}) / (({raise}) + ({pre}))) in %");
+        let expr = self.drop_name_collisions(&self.currency_first(&rewrite(&expr, prev, vars)));
+        let raw = budget.evaluate(&expr, ctx).ok()?;
+        let shown = pretty(raw.get_main_result().trim());
+        shown.ends_with('%').then_some(shown)
     }
 
     /// "CHF 300" -> "300 CHF", for codes fend has a rate for.
@@ -1161,6 +1239,164 @@ fn is_plain_number(raw: &str) -> bool {
         .is_ok()
 }
 
+/// "year", "years", "yr" and "annually" are one period, and the same for months.
+fn canonical_period(word: &str) -> &'static str {
+    match word.to_ascii_lowercase().as_str() {
+        "year" | "years" | "yr" | "annually" | "arr" => "year",
+        "month" | "months" | "mo" | "monthly" | "mrr" => "month",
+        "week" | "weeks" => "week",
+        "day" | "days" => "day",
+        _ => "year",
+    }
+}
+
+/// The currency already written on the line, as the unit of a rate ("$/year").
+fn money_per(expr: &str, period: &str) -> String {
+    let period = canonical_period(period);
+    if expr.contains('£') || expr.contains("GBP") {
+        // "GBP/year" prints as "1,080,000 GBP / year". "£/year" prints as "1080000£ / year".
+        format!("GBP/{period}")
+    } else if expr.contains('€') || expr.contains("EUR") {
+        format!("EUR/{period}")
+    } else if expr.contains('₹') || expr.contains("INR") {
+        format!("INR/{period}")
+    } else if expr.contains('¥') || expr.contains("JPY") {
+        format!("JPY/{period}")
+    } else if expr.contains('$') || expr.contains("USD") {
+        format!("$/{period}")
+    } else {
+        format!("1/{period}")
+    }
+}
+
+/// "$180k" -> "$180000", so the thousand stays on the number.
+fn expand_scales(s: &str) -> String {
+    SCALE_SUFFIX
+        .replace_all(s, |c: &regex::Captures| {
+            let places = if &c[3] == "M" { 6 } else { 3 };
+            format!("{}{}", &c[1], shift_point(&c[2].replace(',', ""), places))
+        })
+        .into_owned()
+}
+
+/// "/ $180k per month" -> "/ ($180k / month)", before the suffix is expanded.
+fn group_rate_divisors(s: &str) -> String {
+    RATE_DIVISOR
+        .replace_all(s, |c: &regex::Captures| {
+            format!("/ ({} / {})", c[1].trim(), c[2].to_ascii_lowercase())
+        })
+        .into_owned()
+}
+
+/// "per month in years" -> "per month in $/year", when this rate is the whole line.
+/// A slash further left is a duration ("cash / burn in years"); fend converts that.
+fn rescale_rates(s: &str) -> String {
+    RATE_IN_TIME
+        .replace_all(s, |c: &regex::Captures| {
+            let at = c.get(0).unwrap().start();
+            if s[..at].contains('/') {
+                return c[0].to_string();
+            }
+            format!("{} in {}", &c[1], money_per(s, &c[2]))
+        })
+        .into_owned()
+}
+
+fn period_rate(word: &str) -> &'static str {
+    match word.to_ascii_lowercase().as_str() {
+        "annually" | "arr" => "per year",
+        _ => "per month",
+    }
+}
+
+/// A round written out: pre-money gives the post-money sum, post-money the dilution.
+fn valuation(rhs: &str) -> Option<String> {
+    let rhs = rhs.trim();
+    if let Some(c) = AT_PRE.captures(rhs) {
+        return Some(format!("({}) + ({})", c[1].trim(), c[2].trim()));
+    }
+    if let Some(c) = AT_POST.captures(rhs) {
+        return Some(format!("(({}) / ({})) in %", c[1].trim(), c[2].trim()));
+    }
+    if let Some(c) = POST_AT.captures(rhs) {
+        return Some(format!("(({}) / ({})) in %", c[1].trim(), c[2].trim()));
+    }
+    None
+}
+
+/// The part of a line a calculation sees: no comment, no label, and the right of `=`.
+fn calc_rhs(line: &str) -> String {
+    let line = match line.find("//") {
+        Some(i) => &line[..i],
+        None => line,
+    };
+    let line = line.trim();
+    let owned;
+    let line = match LABEL.captures(line) {
+        Some(c) => {
+            owned = c[2].trim().to_string();
+            owned.as_str()
+        }
+        None => line,
+    };
+    match ASSIGN.captures(line) {
+        Some(c) => c[2].trim().to_string(),
+        None => line.to_string(),
+    }
+}
+
+/// "$5M at $20M pre", if this line is that round. The two amounts, as written.
+fn pre_money_terms(line: &str) -> Option<(String, String)> {
+    let rhs = calc_rhs(line);
+    let c = AT_PRE.captures(&rhs)?;
+    Some((c[1].trim().to_string(), c[2].trim().to_string()))
+}
+
+fn map_rhs(s: &str, f: impl FnOnce(&str) -> String) -> String {
+    match ASSIGN.captures(s) {
+        Some(c) => format!("{} = {}", &c[1], f(c[2].trim())),
+        None => f(s),
+    }
+}
+
+/// Rounds, and words for a period ("MRR", "annually"), on the right of `=`.
+fn founder_line(s: &str, vars: &HashSet<String>) -> String {
+    map_rhs(s, |rhs| {
+        if let Some(done) = valuation(rhs) {
+            return done;
+        }
+        let kept = |word: &str| vars.contains(word);
+        let s = PERIOD_OF_RATE
+            .replace_all(rhs, |c: &regex::Captures| {
+                let into = if c[2].eq_ignore_ascii_case("monthly") {
+                    "months"
+                } else {
+                    "years"
+                };
+                format!("{} in {into}", &c[1])
+            })
+            .into_owned();
+        let s = PERIOD_TARGET
+            .replace_all(&s, |c: &regex::Captures| {
+                if kept(&c[2]) {
+                    c[0].to_string()
+                } else {
+                    format!("{} {}", &c[1], canonical_period(&c[2]))
+                }
+            })
+            .into_owned();
+        PERIOD_WORD
+            .replace_all(&s, |c: &regex::Captures| {
+                if kept(&c[2]) {
+                    c[0].to_string()
+                } else {
+                    format!("{} {}", &c[1], period_rate(&c[2]))
+                }
+            })
+            .into_owned()
+    })
+}
+
 /// Turn a notepad-style line into something fend understands.
 pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String {
     // Inline comments and quoted text are ignored.
@@ -1234,6 +1470,12 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
         s = format!("({}) / ({})", &c[1], &c[2]);
     }
 
+    // While "k" and "M" are still on the number, so "$180k per month" can be kept
+    // on the right of a division. Expanding them first would hide which number
+    // was a rate.
+    s = group_rate_divisors(&s);
+    s = expand_scales(&s);
+
     // Currency symbols fend doesn't know: "€20" -> "20 EUR", "in €" -> "in EUR".
     s = SYMBOL_NUM
         .replace_all(&s, |c: &regex::Captures| {
@@ -1273,6 +1515,7 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
         }
         s = next;
     }
+    s = founder_line(&s, vars);
     s = A_DAY.replace_all(&s, "$1 / $2").into_owned();
     s = AT_PRICE.replace_all(&s, "$1 * $2").into_owned();
     s = drop_prose_words(&s, vars);
@@ -1292,6 +1535,7 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
             }
         })
         .into_owned();
+    s = rescale_rates(&s);
 
     // Keep the variable name out of the percentage rewrites.
     let (lhs, mut rhs) = match ASSIGN.captures(&s) {

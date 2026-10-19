@@ -34,7 +34,8 @@ Key facts:
 - [Percentages, the way you'd say them](https://omacus.com/guides/percentages/): of, on, off, + 8% tax, X is what % of Y
 - [Convert units by just writing them](https://omacus.com/guides/unit-conversion/): length, weight, temperature, cooking, data, math with units
 - [The calculator that fits Omarchy](https://omacus.com/guides/omarchy-calculator/): install, Hyprland keybind, floating window, themes
-- [Use cases](https://omacus.com/use-cases/): seven complete sheets (group trip, invoice, budget, recipe, meeting, road trip, purchase)
+- [For founders](https://omacus.com/guides/founders/): runway, burn, MRR to ARR, a loaded hire, dilution on a round
+- [Use cases](https://omacus.com/use-cases/): eight complete sheets (group trip, invoice, budget, recipe, meeting, road trip, purchase, a founder's runway)
 
 ## Project
 

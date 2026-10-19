@@ -140,6 +140,8 @@ Write `name = value` to remember something for the rest of the sheet. Variable n
 | `rate = $85/hour` | $85 / hour |
 | `rate * 30 hours` | $2,550 |
 
+Runway, burn, MRR and a round: [For founders](https://omacus.com/guides/founders/).
+
 ## Totals & prev
 
 `total` (or `sum`) adds up the lines above it, back to the last blank line or header, so a blank line starts a new block. `average` (or `avg`, `mean`) works the same way. `prev` is the result of the line just above.

@@ -673,3 +673,58 @@ tax = 8.25% => 8.25%
 $100 + tax => $108.25
 $100 * tax => $8.25
 tax * 2 => 16.5%
+---
+# A rate on the right of a division stays with that amount. "$2.4M / $180k per month"
+# was 13,333,333.33 per month: "k" and "per month" bound to the result.
+$2.4M / $180k per month => 13.33 months
+$2.4M / $180k/month => 13.33 months
+$2.4M / $180k/mo => 13.33 mo
+2.4M / 180k per month => 13.33 months
+cash = $2,400,000 => $2,400,000
+burn = $180k per month => $180,000 / month
+cash / burn => 13.33 months
+$1,450 / 4 weeks => $362.50 / week
+60 km / 2 hours => 30 km / hour
+10 / 4 inches => 2.5 inches
+$1,200 / 12 in EUR => 90 EUR
+$5,000 / 12 per month => $416.67 / month
+---
+# "in years" on a monthly rate is that money per year, which had no answer
+$180k per month in years => $2,160,000 / year
+$180k per month in year => $2,160,000 / year
+$180k/month in years => $2,160,000 / year
+$42k MRR in ARR => $504,000 / year
+$42k MRR => $42,000 / month
+$180k annually => $180,000 / year
+$180k per year => $180,000 / year
+$180k/yr => $180,000 / yr
+€180k annually => 180,000 EUR / year
+€180k MRR => 180,000 EUR / month
+€180k MRR in ARR => 2,160,000 EUR / year
+£90k per month in years => 1,080,000 GBP / year
+₹2.4M per month in years => 28,800,000 INR / year
+mrr = $42,000 => $42,000
+arr = mrr * 12 => $504,000
+salary = $180,000 => $180,000
+salary * 1.25 / 12 => $18,750
+120 hours at $250/hour => $30,000
+20% of $5M => $1,000,000
+5 nights at $189 => $945
+3 pizzas at $12 => $36
+1.5k * 4 => 6,000
+5 km in m => 5,000 m
+---
+# "$5M at $20M pre" was dollars cubed. It is the post-money valuation, and the
+# dilution. "at $25M post" is the dilution, since the post-money is already there.
+$5M at $20M pre => $25,000,000 post, 20%
+$5M at a $20M pre => $25,000,000 post, 20%
+$5M at $20M pre-money => $25,000,000 post, 20%
+round = $5M at $20M pre => $25,000,000 post, 20%
+round / 2 => $12,500,000
+$5M at $25M post => 20%
+$5M post at $25M => 20%
+raise = $5,000,000 => $5,000,000
+pre = $20,000,000 => $20,000,000
+post = raise + pre => $25,000,000
+raise / (pre + raise) in % => 20%
+raise at pre pre => $25,000,000 post, 20%
