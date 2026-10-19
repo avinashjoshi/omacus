@@ -203,7 +203,7 @@ function select(id) {
   if (id !== "shared") saveIndex();
   showSheet();
   view.focus();
-  el.page.classList.remove("drawer");
+  setDrawer(false);
 }
 
 function flushSave() {
@@ -689,6 +689,11 @@ function deleteSheet() {
   });
 }
 
+function setDrawer(open) {
+  el.page.classList.toggle("drawer", open);
+  $(".sheets-toggle")?.setAttribute("aria-expanded", String(open));
+}
+
 document.addEventListener("click", (e) => {
   const button = e.target.closest?.("[data-action]");
   if (button) action(button.dataset.action);
@@ -697,8 +702,25 @@ document.addEventListener("click", (e) => {
     el.menu.hidden = !el.menu.hidden;
     el.menuButton.setAttribute("aria-expanded", String(!el.menu.hidden));
   } else if (!e.target.closest?.("[data-menu]")) closeMenu();
-  if (e.target.closest?.(".sheets-toggle")) el.page.classList.toggle("drawer");
+  if (e.target.closest?.(".sheets-toggle")) setDrawer(!el.page.classList.contains("drawer"));
+  else if (e.target.closest?.("[data-scrim]")) setDrawer(false);
 });
+
+// A tap on the sheet while the phone drawer is open dismisses it, and does not
+// also move the cursor in the editor underneath.
+document.addEventListener(
+  "pointerdown",
+  (e) => {
+    if (!el.page.classList.contains("drawer")) return;
+    if (!matchMedia("(max-width: 760px)").matches) return;
+    const target = e.target instanceof Element ? e.target : e.target.parentElement;
+    if (target?.closest(".side, .sheets-toggle, .bar")) return;
+    setDrawer(false);
+    e.preventDefault();
+    e.stopPropagation();
+  },
+  { capture: true, passive: false },
+);
 
 function closeMenu() {
   el.menu.hidden = true;
@@ -708,7 +730,7 @@ function closeMenu() {
 addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     closeMenu();
-    el.page.classList.remove("drawer");
+    setDrawer(false);
   }
 });
 

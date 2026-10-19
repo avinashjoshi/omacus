@@ -6,16 +6,32 @@
   display: none !important;
 }
 
+/* The installed app draws edge to edge (viewport-fit=cover). Paint the same
+   colour behind it so a gap by the home indicator isn't a different black. */
+html:has(body.app-page) {
+  height: 100%;
+  overflow: hidden;
+  background: var(--app-bg);
+}
+
 .app-page {
   --bar: 56px;
-  /* Room for the iPhone's status bar and notch when installed to the Home Screen
-     (the status bar is translucent and the page runs under it). Zero elsewhere. */
+  /* Room for the notch and the home indicator when the page runs under them
+     (installed, or Safari with viewport-fit=cover). Zero on a desktop window. */
   --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
   --side-w: 240px;
   --line-h: 1.7;
   --font-size: 15px;
   --res-w: 12ch;
-  height: 100dvh;
+  /* Fixed to the viewport, not 100dvh. On an installed iPhone, 100dvh and the
+     visual screen disagree by the home-indicator inset and the shell clips. */
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   background: var(--app-bg);
   color: var(--app-fg);
@@ -25,10 +41,11 @@
 
 .bar {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 12px;
   height: calc(var(--bar) + var(--safe-top));
-  padding: var(--safe-top) max(14px, env(safe-area-inset-right, 0px)) 0 max(14px, env(safe-area-inset-left, 0px));
+  padding: var(--safe-top) max(14px, var(--safe-right)) 0 max(14px, var(--safe-left));
   border-bottom: 1px solid var(--line);
   background: var(--app-side);
 }
@@ -197,13 +214,18 @@
 .workspace {
   display: grid;
   grid-template-columns: var(--side-w) minmax(0, 1fr);
-  height: calc(100dvh - var(--bar) - var(--safe-top));
+  flex: 1;
+  min-height: 0;
 }
 
 .side {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* The panel reaches the physical bottom edge; this keeps its footer above
+     the home indicator instead of sliced by it. */
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
   border-right: 1px solid var(--line);
   background: var(--app-side);
 }
@@ -402,7 +424,7 @@
 }
 
 .cm-editor .cm-scroller {
-  padding: 22px 28px 40vh;
+  padding: 22px max(28px, var(--safe-right)) calc(40vh + var(--safe-bottom)) max(28px, var(--safe-left));
   font: inherit;
   line-height: inherit;
 }
@@ -536,7 +558,7 @@
 .toast {
   position: fixed;
   left: 50%;
-  bottom: max(24px, env(safe-area-inset-bottom));
+  bottom: max(24px, var(--safe-bottom));
   z-index: 60;
   display: flex;
   align-items: center;
@@ -569,6 +591,9 @@
 .app-page.embed {
   --bar: 0px;
   --safe-top: 0px;
+  --safe-bottom: 0px;
+  --safe-left: 0px;
+  --safe-right: 0px;
 }
 
 .app-page.embed .bar,
@@ -618,7 +643,9 @@
 
 @media (max-width: 760px) {
   .app-page {
-    --font-size: 14px;
+    /* iOS Safari zooms the page when the focused editor is under 16px.
+       16px keeps the layout at 1:1 while typing; pinch-zoom stays on. */
+    --font-size: 16px;
   }
 
   .sheets-toggle {
@@ -636,6 +663,7 @@
   .side {
     position: fixed;
     top: calc(var(--bar) + var(--safe-top));
+    right: auto;
     bottom: 0;
     left: 0;
     z-index: 40;
@@ -650,7 +678,30 @@
   }
 
   .cm-editor .cm-scroller {
-    padding: 16px 16px 40vh;
+    padding: 16px max(16px, var(--safe-right)) calc(40vh + var(--safe-bottom)) max(16px, var(--safe-left));
+  }
+
+  /* Tap the sheet beside the drawer to dismiss it. Above the editor, below the drawer. */
+  .drawer-scrim {
+    position: absolute;
+    z-index: 5;
+    inset: 0;
+    border: 0;
+    padding: 0;
+    appearance: none;
+    background: rgba(0, 0, 0, 0.45);
+    color: transparent;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .app-page.drawer .drawer-scrim {
+    display: block;
+  }
+
+  .drawer-scrim:focus,
+  .drawer-scrim:focus-visible {
+    outline: none;
   }
 
   /* The top bar keeps the sheet's name; Share and Private move into the ⋯ menu. */
@@ -680,5 +731,23 @@
     align-items: flex-start;
     padding: 12px 8px 12px 16px;
     font-size: 13.5px;
+  }
+}
+
+.drawer-scrim {
+  display: none;
+}
+
+/* Tablets use the wide layout, but iPad still zooms a focused field under 16px. */
+@media (pointer: coarse) {
+  .app-page {
+    --font-size: 16px;
+  }
+}
+
+/* The focused surface is CodeMirror's contenteditable. iOS zooms if it is under 16px. */
+@media (pointer: coarse), (max-width: 760px) {
+  .app-page .cm-editor .cm-content {
+    font-size: max(16px, 1em);
   }
 }
