@@ -156,6 +156,18 @@ fn sheets() -> Vec<String> {
 /// time, then edited in the middle.
 #[test]
 fn reusing_work_matches_starting_over() {
+    // fend looks variables up by walking a linked list. Every line of the
+    // combined cases sheet is one link, and that walk overflows the 2 MiB
+    // default thread stack on macOS. The desktop worker uses the same 8 MiB.
+    let run = std::thread::Builder::new()
+        .name("reusing-work".into())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(reusing_work_matches_starting_over_body)
+        .expect("thread");
+    run.join().unwrap_or_else(|e| std::panic::resume_unwind(e));
+}
+
+fn reusing_work_matches_starting_over_body() {
     let engine = engine();
     let mut seed = 0x2545_f491_u64;
     let mut rand = |n: usize| {
