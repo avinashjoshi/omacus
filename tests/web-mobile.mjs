@@ -205,7 +205,7 @@ await page("Emulation.setDeviceMetricsOverride", {
   deviceScaleFactor: 1,
   mobile: false,
 });
-await page("Page.navigate", { url: `http://127.0.0.1:${port}/app/` });
+await navigate(`http://127.0.0.1:${port}/app/`);
 await waitFor(`getComputedStyle(document.body).getPropertyValue("--bar").trim() === "56px" && matchMedia("(min-width: 761px)").matches`);
 const media = await evalJson(`({
   w: innerWidth,
@@ -247,7 +247,7 @@ if (pkg) {
     deviceScaleFactor: 1,
     mobile: false,
   });
-  await page("Page.navigate", { url: `http://127.0.0.1:${port}/app/?embed` });
+  await navigate(`http://127.0.0.1:${port}/app/?embed`);
   await waitFor(`document.body.classList.contains("embed") && getComputedStyle(document.body).getPropertyValue("--bar").trim() === "0px"`);
   const embed = await evalJson(`(() => {
     const page = document.body.getBoundingClientRect();
@@ -362,6 +362,15 @@ async function waitFor(expression, timeout = 5000) {
   throw new Error("timed out waiting for " + expression);
 }
 
+// Page.navigate returns before the new page loads, and the old one can already
+// pass the next waitFor: mark the old page, then wait for a loaded one without
+// the mark. (Checks once ran against a half-parsed page in CI.)
+async function navigate(url) {
+  await evalJson("window.__leaving = true").catch(() => {});
+  await page("Page.navigate", { url });
+  await waitFor(`!window.__leaving && document.readyState === "complete"`, 10000);
+}
+
 async function openMobile() {
   await page("Emulation.setDeviceMetricsOverride", {
     width: 390,
@@ -376,7 +385,7 @@ async function openMobile() {
       { name: "hover", value: "none" },
     ],
   });
-  await page("Page.navigate", { url: `http://127.0.0.1:${port}/app/` });
+  await navigate(`http://127.0.0.1:${port}/app/`);
 }
 
 async function tap(x, y) {
