@@ -165,14 +165,15 @@ fn reusing_work_matches_starting_over() {
     let all = sheets().join("\n\n");
     for sheet in sheets().iter().chain(std::iter::once(&all)) {
         let mut cache = Sheet::default();
-        // Typed from the start (each sheet; the long combined one a line at a time).
+        // Typed from the start: each sheet a character at a time, and the long
+        // combined one at about 80 line ends (each check redoes it from scratch).
         let chars: Vec<char> = sheet.chars().collect();
         let steps: Vec<usize> = if std::ptr::eq(sheet, &all) {
-            chars
-                .iter()
-                .enumerate()
-                .filter(|(_, c)| **c == '\n')
-                .map(|(i, _)| i)
+            let ends: Vec<usize> = (0..chars.len()).filter(|&i| chars[i] == '\n').collect();
+            let every = ends.len().div_ceil(80);
+            ends.into_iter()
+                .step_by(every)
+                .chain([chars.len()])
                 .collect()
         } else {
             (0..=chars.len()).collect()

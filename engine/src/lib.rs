@@ -65,6 +65,9 @@ struct State {
 struct Term {
     var: String,
     plain: bool,
+    /// A percentage ("discount = 10%") or a rate ("$85 / hour"): not an amount,
+    /// so left out of a total that doesn't add up with it.
+    aside: bool,
 }
 
 /// A sheet's last calculation, kept between edits by `Engine::eval_sheet`.
@@ -129,7 +132,7 @@ fn warm_up() {
             rates: Rates::fixed(&[("USD", 1.0), ("EUR", 0.9)]),
             clock: None,
         };
-        engine.eval_document("x = 2 km in m\n3 ft in cm\n$5 + 10% in EUR\nx + 1\ntotal");
+        engine.eval_document("x = 2 km in m\n3 ft in cm\n$5 + 10% in EUR\nx * 2\ntotal");
     });
 }
 
@@ -287,7 +290,10 @@ re!(
     r"([A-Za-z)]\s*)/\s*(\(?\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?\)?\s*)([A-Za-df-zA-DF-Z_][A-Za-z_]*(?:\^\d+)?(?:/[A-Za-z][A-Za-z_]*(?:\^\d+)?)*)"
 );
 re!(TIMES_X, r"(\d+\)?)(\s*)([x×])(\s*)(\d|\()");
-re!(SYMBOL_NUM, r"([€¥₹₩₽₺])\s*(\d[\d,]*(?:\.\d+)?)");
+re!(
+    SYMBOL_NUM,
+    r"([€¥₹₩₽₺])\s*(\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?)"
+);
 // Dollars with a country prefix: "C$100", "A$50", "US$20".
 re!(
     PREFIXED_DOLLAR,
@@ -321,6 +327,12 @@ re!(MOD_WRITTEN, r"(?i)\bmod\b|\d\s*%\s*[\d(]");
 re!(TIMES_PCT, r"(\d\)?\s*[*/]\s*)(\d[\d.]*)\s*%");
 re!(MONEY_PREFIX, r"[$£]\s*\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?");
 re!(PREV, r"(?i)\bprev\b");
+re!(LETTERS, r"[A-Za-z]+");
+// "$1.5B", "$2bn": billions after a currency symbol (alone, "1.5B" is bytes).
+re!(
+    MONEY_BILLIONS,
+    r"([$£€¥₹]\s*\d[\d,]*(?:\.\d+)?)\s*(?:B|bn)\b"
+);
 re!(TOTAL_WORD, r"(?i)\b(?:total|sum|average|avg|mean)\b");
 re!(CONVERSION_START, r"(?i)^(?:in|to|as)\b");
 // A line of one word, which is a calculation only as a variable or a constant:
@@ -647,11 +659,18 @@ impl Engine {
                         total_into(&mut st.ctx, &budget, name, &st.block, avg, None).is_some()
                     })
                 });
-                if totals_ok {
-                    eval_forgiving(&mut st.ctx, &budget, &var, &expr)
-                        .or_else(|| self.with_currency(&mut st.ctx, &budget, &var, &expr))
-                } else {
-                    None
+                let mut eval = |expr: &str| {
+                    eval_forgiving(&mut st.ctx, &budget, &var, expr)
+                        .or_else(|| self.with_currency(&mut st.ctx, &budget, &var, expr))
+                };
+                match totals_ok.then(|| eval(&expr)).flatten() {
+                    // "Nails $8" is 8 nail $ to fend, "Food 6 days * $80" 480 day $:
+                    // money times a unit means a label's words were read as units.
+                    Some(raw) if self.money_times_unit(&raw) => {
+                        let prose = self.units_as_prose(&expr, &vars);
+                        eval(&prose).filter(|raw| !self.money_times_unit(raw))
+                    }
+                    raw => raw,
                 }
             }
         };
@@ -689,6 +708,7 @@ impl Engine {
                     st.block.push(Term {
                         var: var.clone(),
                         plain: is_plain_number(&raw),
+                        aside: raw.ends_with('%') || raw.contains(" / "),
                     });
                 }
                 st.prev = Some(var);
@@ -712,6 +732,62 @@ impl Engine {
                 LineResult::error(note.or_else(|| crate::time::note(trimmed)))
             }
         }
+    }
+
+    /// An answer in money times some other unit ("480 day $"), which nobody means.
+    fn money_times_unit(&self, raw: &str) -> bool {
+        let tokens: Vec<&str> = raw.trim_start_matches("approx. ").split(' ').collect();
+        let money = |t: &str| t.contains(['$', '£', '€', '¥', '₹']) || self.rates.knows(t);
+        !tokens.contains(&"/")
+            && tokens.iter().any(|t| money(t))
+            && tokens
+                .iter()
+                .any(|t| t.chars().all(char::is_alphabetic) && !money(t))
+    }
+
+    /// `expr` with the words fend would read as units made unknown, so they're
+    /// dropped as a label's words are: variables, currencies and a few words that
+    /// do something stay.
+    fn units_as_prose(&self, expr: &str, vars: &HashSet<String>) -> String {
+        let (lhs, rhs) = match ASSIGN.captures(expr) {
+            Some(c) => (format!("{} = ", &c[1]), c[2].to_string()),
+            None => (String::new(), expr.to_string()),
+        };
+        let rhs = LETTERS.replace_all(&rhs, |c: &regex::Captures| {
+            let m = c.get(0).unwrap();
+            let w = m.as_str();
+            let glued = rhs[..m.start()].ends_with(|ch: char| ch.is_ascii_digit() || ch == '_');
+            let keep = vars.contains(w)
+                || self.rates.knows(w)
+                || (glued && matches!(w, "k" | "K" | "M"))
+                || rhs[..m.start()].ends_with('_')
+                || matches!(
+                    w.to_ascii_lowercase().as_str(),
+                    "in" | "to"
+                        | "as"
+                        | "of"
+                        | "per"
+                        | "mod"
+                        | "pi"
+                        | "e"
+                        | "sqrt"
+                        | "ln"
+                        | "log"
+                        | "abs"
+                        | "round"
+                        | "floor"
+                        | "ceil"
+                        | "sin"
+                        | "cos"
+                        | "tan"
+                );
+            if keep {
+                w.to_string()
+            } else {
+                format!(" _w{w}")
+            }
+        });
+        format!("{lhs}{rhs}")
     }
 
     /// "CHF 300" -> "300 CHF", for codes fend has a rate for.
@@ -945,8 +1021,27 @@ fn aggregate(line: &str) -> Option<bool> {
 }
 
 /// The lines above, added up (or averaged) into `var`, and kept in `name` too
-/// when given. Plain numbers among dollars count as dollars, as on one line.
+/// when given. Plain numbers among dollars count as dollars, as on one line, and
+/// percentages and rates are left out when the amounts don't add up with them.
 fn total_into(
+    ctx: &mut fend_core::Context,
+    budget: &Budget,
+    var: &str,
+    block: &[Term],
+    avg: bool,
+    name: Option<&str>,
+) -> Option<String> {
+    let amounts: Vec<Term> = block.iter().filter(|t| !t.aside).cloned().collect();
+    let mut tries = vec![block];
+    if amounts.len() < block.len() {
+        tries.push(&amounts);
+    }
+    tries
+        .into_iter()
+        .find_map(|block| sum_into(ctx, budget, var, block, avg, name))
+}
+
+fn sum_into(
     ctx: &mut fend_core::Context,
     budget: &Budget,
     var: &str,
@@ -1074,6 +1169,7 @@ pub fn rewrite(line: &str, prev: Option<&str>, vars: &HashSet<String>) -> String
         None => line.to_string(),
     };
     s = QUOTED.replace_all(&s, " ").into_owned();
+    s = MONEY_BILLIONS.replace_all(&s, "${1}e9").into_owned();
     // Twice: "1,5 + 2,5" shares the space between two matches.
     for _ in 0..2 {
         s = DOT_THOUSANDS
@@ -1425,6 +1521,15 @@ fn drop_unknown_words(
                 }
                 let at = find_word(&expr, &word)?;
                 if qualifies_unit(&expr[at + word.len()..]) {
+                    return None;
+                }
+                // A word in front of an operator is what it works on: dropping
+                // "Income" from "Income - total" would leave minus the total.
+                let before = expr[..at].trim_end();
+                let after = expr[at + word.len()..].trim_start();
+                if (before.is_empty() || before.ends_with(|c: char| "+-*/^×÷(=".contains(c)))
+                    && after.starts_with(|c: char| "+-*/^×÷".contains(c))
+                {
                     return None;
                 }
                 let next = format!("{} {}", &expr[..at], &expr[at + word.len()..]);
