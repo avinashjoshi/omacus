@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>For founders: runway, burn, MRR, ARR and dilution · Omacus</title>
+  <meta name="description" content="Runway, monthly burn, MRR to ARR, a loaded hire and a funding round, typed the way you&#x27;d say them. Example numbers for a fictional company, with every answer calculated by Omacus.">
+  <meta name="author" content="Avinash Joshi">
+  <link rel="canonical" href="https://omacus.com/guides/founders/">
+  <meta name="theme-color" content="#090909">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Omacus">
+  <meta property="og:url" content="https://omacus.com/guides/founders/">
+  <meta property="og:title" content="For founders">
+  <meta property="og:description" content="Runway, monthly burn, MRR to ARR, a loaded hire and a funding round, typed the way you&#x27;d say them. Example numbers for a fictional company, with every answer calculated by Omacus.">
+  <meta property="og:image" content="https://omacus.com/img/og.png?v=2">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="For founders">
+  <meta name="twitter:description" content="Runway, monthly burn, MRR to ARR, a loaded hire and a funding round, typed the way you&#x27;d say them. Example numbers for a fictional company, with every answer calculated by Omacus.">
+  <meta name="twitter:image" content="https://omacus.com/img/og.png?v=2">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/img/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/inter-tight-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/site.css">
+  <script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://omacus.com/guides/founders/#page",
+   "headline": "For founders",
+   "description": "Runway, monthly burn, MRR to ARR, a loaded hire and a funding round, typed the way you'd say them. Example numbers for a fictional company, with every answer calculated by Omacus.",
+   "url": "https://omacus.com/guides/founders/",
+   "inLanguage": "en",
+   "dateModified": "{{lastmod}}",
+   "author": {
+    "@type": "Person",
+    "@id": "https://omacus.com/#author",
+    "name": "Avinash Joshi",
+    "url": "https://github.com/avinashjoshi"
+   },
+   "publisher": {
+    "@type": "Person",
+    "@id": "https://omacus.com/#author",
+    "name": "Avinash Joshi",
+    "url": "https://github.com/avinashjoshi"
+   },
+   "about": {
+    "@type": "SoftwareApplication",
+    "@id": "https://omacus.com/#app",
+    "name": "Omacus"
+   },
+   "image": "https://omacus.com/img/og.png?v=2"
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Omacus",
+     "item": "https://omacus.com/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Guides",
+     "item": "https://omacus.com/guides/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 3,
+     "name": "For founders",
+     "item": "https://omacus.com/guides/founders/"
+    }
+   ]
+  },
+  {
+   "@type": "FAQPage",
+   "@id": "https://omacus.com/guides/founders/#questions",
+   "mainEntity": [
+    {
+     "@type": "Question",
+     "name": "Why does $2.4M / $180k per month give months?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Because the thing on the right is a rate: $180k each month. Dividing cash by that rate is how many months the cash covers, 13.33. The same line with the rate stored first, cash / burn, is the same answer."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "What does $5M at $20M pre mean?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "A $5,000,000 raise on a $20,000,000 pre-money valuation. Omacus shows the post-money valuation, $25,000,000, and the dilution, 20%."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "How do I turn MRR into ARR?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Write $42k MRR in ARR, or set mrr = $42k and then arr = mrr * 12. Both give $504,000 a year."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Are these a real company's numbers?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "No. Cash, burn, salary and the round are an example, so the sheet has something to calculate."
+     }
+    }
+   ]
+  }
+ ]
+}
+  </script>
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="28" height="28">omacus</a>
+    <nav class="nav" aria-label="Main">
+      <div class="nav-links" id="site-nav">
+        <a href="/#features">Features</a>
+        <a href="/use-cases/">Use cases</a>
+        <a href="/guides/" aria-current="page">Guides</a>
+        <a href="/docs/">Docs</a>
+        <a href="/app">Web app</a>
+        <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+      </div>
+      <a class="btn primary" href="/download/"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>
+      <button class="menu-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="Menu"><span></span><span></span><span></span></button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap page has-toc">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="/">Omacus</a> <span>/</span> <a href="/guides/">Guides</a></nav>
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <a href="#runway">Runway and burn</a>
+    <a href="#revenue">MRR and ARR</a>
+    <a href="#hiring">What a hire costs</a>
+    <a href="#round">A round</a>
+    <a href="#sheet">One sheet</a>
+    <a href="#questions">Questions</a>
+  </nav>
+  <article class="prose page-body">
+    <span class="kicker">// guide</span>
+    <h1>For founders</h1>
+    <p class="lead">Runway, burn, revenue and a round are the same notepad math as a budget. <code>$2.4M / $180k per month</code> is 13.33 months, and <code>$5M at $20M pre</code> is the post-money valuation with the dilution beside it.</p>
+<p>Omacus is a free notepad calculator for Linux, macOS and Windows. The numbers on this page are an example for a fictional company, so you can see the shape of the sheet and change any line.</p>
+
+    <h2 id="runway">Runway and burn</h2>
+    <p>A pile of cash divided by a monthly burn is months of runway. Write the rate on the right, with <code>per month</code> or <code>/month</code>:</p>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>$2.4M / $180k per month</code></td><td class="ans">13.33 months</td></tr>
+      <tr><td><code>$2.4M / $180k/month</code></td><td class="ans">13.33 months</td></tr>
+      <tr><td><code>cash = $2,400,000</code></td><td class="ans">$2,400,000</td></tr>
+      <tr><td><code>burn = $180k per month</code></td><td class="ans">$180,000 / month</td></tr>
+      <tr><td><code>cash / burn</code></td><td class="ans">13.33 months</td></tr>
+    </tbody>
+  </table>
+    <p>The same monthly spend over a year is <code>in years</code>. <code>annually</code> names a yearly rate on its own:</p>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>$180k per month in years</code></td><td class="ans">$2,160,000 / year</td></tr>
+      <tr><td><code>$180k annually</code></td><td class="ans">$180,000 / year</td></tr>
+      <tr><td><code>$180k/yr</code></td><td class="ans">$180,000 / yr</td></tr>
+    </tbody>
+  </table>
+    <p>The date the cash runs out is today plus those months. Runway here is 13.33 months, so the nearest month is 13:</p>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>today + 13 months</code></td><td class="ans">Friday, 19 November 2027</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="revenue">MRR and ARR</h2>
+    <p><code>MRR</code> is per month and <code>ARR</code> is per year, so you can say the conversion the way you'd say it in a conversation. Naming the monthly figure and multiplying by 12 is the same answer, kept in a variable:</p>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>$42k MRR</code></td><td class="ans">$42,000 / month</td></tr>
+      <tr><td><code>$42k MRR in ARR</code></td><td class="ans">$504,000 / year</td></tr>
+      <tr><td><code>mrr = $42k</code></td><td class="ans">$42,000</td></tr>
+      <tr><td><code>arr = mrr * 12</code></td><td class="ans">$504,000</td></tr>
+      <tr><td><code>growth = 8%</code></td><td class="ans">8%</td></tr>
+      <tr><td><code>mrr + growth</code></td><td class="ans">$45,360</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="hiring">What a hire costs</h2>
+    <p>A loaded cost is the salary plus the extra on top (benefits, tax, equipment), then split across the year. <code>1.25</code> here is an example load, not a rule:</p>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>salary = $160k</code></td><td class="ans">$160,000</td></tr>
+      <tr><td><code>loaded = salary * 1.25</code></td><td class="ans">$200,000</td></tr>
+      <tr><td><code>loaded / 12</code></td><td class="ans">$16,666.67</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="round">A round</h2>
+    <p><code>at … pre</code> adds the raise to the pre-money valuation. The answer is the post-money figure, with the dilution of that round after it. The value itself is the post-money sum, so you can keep using it:</p>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>$5M at $20M pre</code></td><td class="ans">$25,000,000 post, 20%</td></tr>
+      <tr><td><code>$5M at a $20M pre-money</code></td><td class="ans">$25,000,000 post, 20%</td></tr>
+      <tr><td><code>round = $5M at $20M pre</code></td><td class="ans">$25,000,000 post, 20%</td></tr>
+      <tr><td><code>round / 2</code></td><td class="ans">$12,500,000</td></tr>
+    </tbody>
+  </table>
+    <p>When you already know the post-money valuation, <code>at … post</code> is just the dilution. Writing the sum and the percentage yourself works the same way:</p>
+<table class="ex">
+    <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>$5M at $25M post</code></td><td class="ans">20%</td></tr>
+      <tr><td><code>$5M post at $25M</code></td><td class="ans">20%</td></tr>
+      <tr><td><code>raise = $5M</code></td><td class="ans">$5,000,000</td></tr>
+      <tr><td><code>pre = $20M</code></td><td class="ans">$20,000,000</td></tr>
+      <tr><td><code>post = raise + pre</code></td><td class="ans">$25,000,000</td></tr>
+      <tr><td><code>raise / post in %</code></td><td class="ans">20%</td></tr>
+    </tbody>
+  </table>
+
+    <h2 id="sheet">One sheet</h2>
+    <p>Cash, burn, the month it runs out, revenue, a hire and the round, then the cash in euros. Change any number and the lines under it follow.</p>
+<figure class="sheet-card">
+  <figcaption><i></i><i></i><i></i><span>Example seed round</span><a class="open-sheet" href="/app#v1.PZDBboMwEETv-xUjtbk0NBiSVLn00EOOuSD1AzbBCQiw0doo4e9rG9TbeuaNZ7VvOL94GHsNp3UNsZOpKc8xcK0_pxFmGq5aHO5WwLi3N99awz1udhjZzEQ3dg2-8V5mB6UypRRdJzFRKU6qw6gFgzW-IZnMk-dgpESOiMWmYr_b7xfGwd6xcBm8hW80jGbRzq-feFuHP7YhtCaIBpHYdig74jRG4QNFSVHDparQGvxUFT3EPn1c9rQho19-ZbdYDCLHPcucdv9SHfU2HKEOz1UPn-7KI6XiPmIrkMcyEm6djtnjhUZJU6nCaF0sWtwtgkN120_xjP9yjkSFNTcU4mCfsgleDhys82_1Bw" target="_blank" rel="noopener">Open in the web app <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a></figcaption>
+  <ol class="sheet-lines">
+    <li><span class="src"><span class="t-head"># Example seed round</span></span><span class="res"></span></li>
+    <li><span class="src"><span class="t-com">// made-up numbers for a fictional company</span></span><span class="res"></span></li>
+    <li><span class="src"> </span><span class="res"></span></li>
+    <li><span class="src"><span class="t-var">cash</span> <span class="t-op">=</span> <span class="t-num">$</span><span class="t-num">2,400,000</span></span><span class="res">$2,400,000</span></li>
+    <li><span class="src"><span class="t-var">burn</span> <span class="t-op">=</span> <span class="t-num">$</span><span class="t-num">180k</span> per month</span><span class="res">$180,000 / month</span></li>
+    <li><span class="src"><span class="t-var">runway</span> <span class="t-op">=</span> <span class="t-var">cash</span> <span class="t-op">/</span> <span class="t-var">burn</span></span><span class="res">13.33 months</span></li>
+    <li><span class="src"><span class="t-com">// 13.33 months of runway, to the nearest month</span></span><span class="res"></span></li>
+    <li><span class="src"><span class="t-kw">today</span> <span class="t-op">+</span> <span class="t-num">13</span> months</span><span class="res">Friday, 19 November 2027</span></li>
+    <li><span class="src"> </span><span class="res"></span></li>
+    <li><span class="src"><span class="t-var">mrr</span> <span class="t-op">=</span> <span class="t-num">$</span><span class="t-num">42k</span></span><span class="res">$42,000</span></li>
+    <li><span class="src"><span class="t-var">arr</span> <span class="t-op">=</span> <span class="t-var">mrr</span> <span class="t-op">*</span> <span class="t-num">12</span></span><span class="res">$504,000</span></li>
+    <li><span class="src"><span class="t-num">$</span><span class="t-num">42k</span> MRR <span class="t-kw">in</span> ARR</span><span class="res">$504,000 / year</span></li>
+    <li><span class="src"><span class="t-var">growth</span> <span class="t-op">=</span> <span class="t-num">8</span><span class="t-num">%</span></span><span class="res">8%</span></li>
+    <li><span class="src"><span class="t-var">next</span> <span class="t-op">=</span> <span class="t-var">mrr</span> <span class="t-op">+</span> <span class="t-var">growth</span></span><span class="res">$45,360</span></li>
+    <li><span class="src"> </span><span class="res"></span></li>
+    <li><span class="src"><span class="t-var">salary</span> <span class="t-op">=</span> <span class="t-num">$</span><span class="t-num">160k</span></span><span class="res">$160,000</span></li>
+    <li><span class="src"><span class="t-var">loaded</span> <span class="t-op">=</span> <span class="t-var">salary</span> <span class="t-op">*</span> <span class="t-num">1.25</span></span><span class="res">$200,000</span></li>
+    <li><span class="src"><span class="t-var">monthly</span> <span class="t-op">=</span> <span class="t-var">loaded</span> <span class="t-op">/</span> <span class="t-num">12</span></span><span class="res">$16,666.67</span></li>
+    <li><span class="src"> </span><span class="res"></span></li>
+    <li><span class="src"><span class="t-var">raise</span> <span class="t-op">=</span> <span class="t-num">$</span><span class="t-num">5M</span></span><span class="res">$5,000,000</span></li>
+    <li><span class="src"><span class="t-var">pre</span> <span class="t-op">=</span> <span class="t-num">$</span><span class="t-num">20M</span></span><span class="res">$20,000,000</span></li>
+    <li><span class="src"><span class="t-var">post</span> <span class="t-op">=</span> <span class="t-var">raise</span> <span class="t-op">+</span> <span class="t-var">pre</span></span><span class="res">$25,000,000</span></li>
+    <li><span class="src"><span class="t-var">dilution</span> <span class="t-op">=</span> <span class="t-var">raise</span> <span class="t-op">/</span> <span class="t-var">post</span> <span class="t-kw">in</span> <span class="t-num">%</span></span><span class="res">20%</span></li>
+    <li><span class="src"><span class="t-num">$</span><span class="t-num">5M</span> at <span class="t-num">$</span><span class="t-num">20M</span> <span class="t-var">pre</span></span><span class="res">$25,000,000 post, 20%</span></li>
+    <li><span class="src"> </span><span class="res"></span></li>
+    <li><span class="src"><span class="t-var">cash</span> <span class="t-kw">in</span> EUR</span><span class="res">2,138,066.40 EUR</span></li>
+  </ol>
+</figure>
+    <p class="note-line">The euro line uses rates as of 19 October 2026. In the app you get the latest rates. Every other number on this page is made up.</p>
+
+    <h2 id="questions">Questions</h2>
+    <h3>Why does $2.4M / $180k per month give months?</h3>
+    <p>Because the thing on the right is a rate: $180k each month. Dividing cash by that rate is how many months the cash covers, 13.33. The same line with the rate stored first, <code>cash / burn</code>, is the same answer.</p>
+    <h3>What does $5M at $20M pre mean?</h3>
+    <p>A $5,000,000 raise on a $20,000,000 pre-money valuation. Omacus shows the post-money valuation, $25,000,000, and the dilution, 20%.</p>
+    <h3>How do I turn MRR into ARR?</h3>
+    <p>Write <code>$42k MRR in ARR</code>, or set <code>mrr = $42k</code> and then <code>arr = mrr * 12</code>. Both give $504,000 a year.</p>
+    <h3>Are these a real company's numbers?</h3>
+    <p>No. Cash, burn, salary and the round are an example, so the sheet has something to calculate.</p>
+  </article>
+
+  <section class="related" aria-labelledby="related">
+    <h2 id="related">Keep reading</h2>
+    <div class="guide-cards">
+      <a class="guide-card" href="/use-cases/"><b>Use cases</b><span>Eight real sheets: trips, invoices, budgets, a startup and more.</span></a>
+      <a class="guide-card" href="/guides/percentages/"><b>Percentages</b><span>15% off, + 8% tax, X is what % of Y, and every other phrasing.</span></a>
+      <a class="guide-card" href="/guides/currency/"><b>Currency</b><span>$30 in EUR, mixed currencies, symbols or codes, offline.</span></a>
+      <a class="guide-card" href="/docs/"><b>Docs</b><span>Every rule, shortcut and setting on one page.</span></a>
+    </div>
+  </section>
+
+  <div class="cta">
+    <h2>Try it on your own <em class="serif">numbers</em>.</h2>
+    <p>Free for Linux, macOS and Windows. One command, and Omacus is a keystroke away.</p>
+    <div class="cmd"><span class="prompt">$</span><code>curl -fsSL https://omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL https://omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
+    <div class="dl-row"><a class="btn" href="/#download"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>All downloads</a><a class="btn" href="/docs/"><svg aria-hidden="true"><use href="/img/sprite.svg#book"/></svg>Read the docs</a></div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="24" height="24">omacus</a>
+    <span>MIT licensed · made for Omarchy, at home everywhere</span>
+    <nav aria-label="Footer">
+      <a href="/docs/">Docs</a>
+      <a href="/guides/">Guides</a>
+      <a href="/use-cases/">Use cases</a>
+      <a href="/privacy/">Privacy</a>
+      <a href="https://github.com/avinashjoshi/omacus/releases">Releases</a>
+      <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">Report an issue</a>
+      <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="/js/site.js"></script>
+</body>
+</html>

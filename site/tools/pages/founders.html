@@ -1,0 +1,85 @@
+<!--
+order: 6
+path: /guides/founders/
+title: For founders: runway, burn, MRR, ARR and dilution · Omacus
+description: Runway, monthly burn, MRR to ARR, a loaded hire and a funding round, typed the way you'd say them. Example numbers for a fictional company, with every answer calculated by Omacus.
+kicker: guide
+h1: For founders
+lede: Runway, burn, revenue and a round are the same notepad math as a budget. <code>$2.4M / $180k per month</code> is 13.33 months, and <code>$5M at $20M pre</code> is the post-money valuation with the dilution beside it.
+card: For founders
+blurb: Runway, burn, MRR to ARR, a loaded hire and dilution.
+related: /use-cases/, /guides/percentages/, /guides/currency/, /docs/
+-->
+    <p>Omacus is a free notepad calculator for Linux, macOS and Windows. The numbers on this page are an example for a fictional company, so you can see the shape of the sheet and change any line.</p>
+
+    <h2 id="runway">Runway and burn</h2>
+    <p>A pile of cash divided by a monthly burn is months of runway. Write the rate on the right, with <code>per month</code> or <code>/month</code>:</p>
+<!-- ex
+$2.4M / $180k per month
+$2.4M / $180k/month
+cash = $2,400,000
+burn = $180k per month
+cash / burn
+-->
+    <p>The same monthly spend over a year is <code>in years</code>. <code>annually</code> names a yearly rate on its own:</p>
+<!-- ex
+$180k per month in years
+$180k annually
+$180k/yr
+-->
+    <p>The date the cash runs out is today plus those months. Runway here is 13.33 months, so the nearest month is 13:</p>
+<!-- ex
+today + 13 months
+-->
+
+    <h2 id="revenue">MRR and ARR</h2>
+    <p><code>MRR</code> is per month and <code>ARR</code> is per year, so you can say the conversion the way you'd say it in a conversation. Naming the monthly figure and multiplying by 12 is the same answer, kept in a variable:</p>
+<!-- ex
+$42k MRR
+$42k MRR in ARR
+mrr = $42k
+arr = mrr * 12
+growth = 8%
+mrr + growth
+-->
+
+    <h2 id="hiring">What a hire costs</h2>
+    <p>A loaded cost is the salary plus the extra on top (benefits, tax, equipment), then split across the year. <code>1.25</code> here is an example load, not a rule:</p>
+<!-- ex
+salary = $160k
+loaded = salary * 1.25
+loaded / 12
+-->
+
+    <h2 id="round">A round</h2>
+    <p><code>at … pre</code> adds the raise to the pre-money valuation. The answer is the post-money figure, with the dilution of that round after it. The value itself is the post-money sum, so you can keep using it:</p>
+<!-- ex
+$5M at $20M pre
+$5M at a $20M pre-money
+round = $5M at $20M pre
+round / 2
+-->
+    <p>When you already know the post-money valuation, <code>at … post</code> is just the dilution. Writing the sum and the percentage yourself works the same way:</p>
+<!-- ex
+$5M at $25M post
+$5M post at $25M
+raise = $5M
+pre = $20M
+post = raise + pre
+raise / post in %
+-->
+
+    <h2 id="sheet">One sheet</h2>
+    <p>Cash, burn, the month it runs out, revenue, a hire and the round, then the cash in euros. Change any number and the lines under it follow.</p>
+<!-- sheet founders -->
+    <p class="note-line">The euro line uses rates as of {{calculated_on}}. In the app you get the latest rates. Every other number on this page is made up.</p>
+
+    <h2 id="questions">Questions</h2>
+    <h3>Why does $2.4M / $180k per month give months?</h3>
+    <p>Because the thing on the right is a rate: $180k each month. Dividing cash by that rate is how many months the cash covers, 13.33. The same line with the rate stored first, <code>cash / burn</code>, is the same answer.</p>
+    <h3>What does $5M at $20M pre mean?</h3>
+    <p>A $5,000,000 raise on a $20,000,000 pre-money valuation. Omacus shows the post-money valuation, $25,000,000, and the dilution, 20%.</p>
+    <h3>How do I turn MRR into ARR?</h3>
+    <p>Write <code>$42k MRR in ARR</code>, or set <code>mrr = $42k</code> and then <code>arr = mrr * 12</code>. Both give $504,000 a year.</p>
+    <h3>Are these a real company's numbers?</h3>
+    <p>No. Cash, burn, salary and the round are an example, so the sheet has something to calculate.</p>

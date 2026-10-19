@@ -1,0 +1,26 @@
+# Example seed round
+// made-up numbers for a fictional company
+
+cash = $2,400,000
+burn = $180k per month
+runway = cash / burn
+// 13.33 months of runway, to the nearest month
+today + 13 months
+
+mrr = $42k
+arr = mrr * 12
+$42k MRR in ARR
+growth = 8%
+next = mrr + growth
+
+salary = $160k
+loaded = salary * 1.25
+monthly = loaded / 12
+
+raise = $5M
+pre = $20M
+post = raise + pre
+dilution = raise / post in %
+$5M at $20M pre
+
+cash in EUR
