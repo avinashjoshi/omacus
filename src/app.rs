@@ -593,7 +593,10 @@ impl OmacusApp {
             self.help = None;
             self.popup = None;
             self.pending_delete = None;
-            self.focus_editor = self.switcher.is_none();
+            // Opening or closing must not call `request_focus`. That interrupts
+            // IME, and on Wayland the compositor then drops the key release, so
+            // winit's repeat timer never stops.
+            self.focus_editor = false;
         }
         if prev_sheet {
             self.apply(self.cycle_action(-1));
@@ -601,13 +604,15 @@ impl OmacusApp {
         if next_sheet {
             self.apply(self.cycle_action(1));
         }
-        if dismiss && self.switcher.is_some() {
+        let closed_switcher = dismiss && self.switcher.is_some();
+        if closed_switcher {
             self.switcher = None;
-            self.focus_editor = true;
-            return;
+            self.focus_editor = false;
         }
-        if self.switcher.is_some() {
-            self.refresh_trash(false);
+        if self.switcher.is_some() || toggle_switcher || closed_switcher {
+            if self.switcher.is_some() {
+                self.refresh_trash(false);
+            }
             self.switcher_keys(ctx);
             return;
         }
@@ -858,34 +863,59 @@ impl OmacusApp {
         }
     }
 
-    /// Arrows, Enter and Esc for the switcher, before its text box sees them.
+    /// Switcher keystrokes, taken out of the event list before the sheet editor
+    /// sees them. The sheet keeps keyboard focus, so the IME cursor stays put.
     fn switcher_keys(&mut self, ctx: &egui::Context) {
-        let (up, down, enter, esc) = ctx.input_mut(|i| {
-            (
-                i.consume_key(Modifiers::NONE, Key::ArrowUp),
-                i.consume_key(Modifiers::NONE, Key::ArrowDown),
-                i.consume_key(Modifiers::NONE, Key::Enter),
-                i.consume_key(Modifiers::NONE, Key::Escape),
-            )
-        });
-        let hits = self.switcher_hits();
-        let Some(sw) = &mut self.switcher else { return };
-        let n = hits.len().max(1);
-        if up {
-            sw.selected = (sw.selected + n - 1) % n;
+        let edits = ctx.input_mut(|i| take_switcher_edits(&mut i.events));
+        if self.switcher.is_none() {
+            return;
         }
-        if down {
-            sw.selected = (sw.selected + 1) % n;
+        // The hit list is only needed to move or confirm, and only for the
+        // query those keys apply to. Typing does not search.
+        let mut hits: Option<Vec<Hit>> = None;
+        for edit in edits {
+            let outcome = {
+                let Some(sw) = &mut self.switcher else { return };
+                match &edit {
+                    SwitcherEdit::Type(_) | SwitcherEdit::Backspace => {
+                        apply_switcher_query(&mut sw.query, &mut sw.selected, &edit);
+                        SwitcherOutcome::Stay
+                    }
+                    SwitcherEdit::Up => SwitcherOutcome::Move(-1),
+                    SwitcherEdit::Down => SwitcherOutcome::Move(1),
+                    SwitcherEdit::Confirm => SwitcherOutcome::Confirm,
+                    SwitcherEdit::Close => SwitcherOutcome::Close,
+                }
+            };
+            match outcome {
+                SwitcherOutcome::Stay => hits = None,
+                SwitcherOutcome::Close => {
+                    self.switcher = None;
+                    self.focus_editor = false;
+                    return;
+                }
+                SwitcherOutcome::Move(step) => {
+                    let n = self.switcher_hits_cached(&mut hits).len().max(1);
+                    if let Some(sw) = &mut self.switcher {
+                        sw.selected = (sw.selected as isize + step).rem_euclid(n as isize) as usize;
+                    }
+                }
+                SwitcherOutcome::Confirm => {
+                    let selected = self.switcher.as_ref().map(|s| s.selected).unwrap_or(0);
+                    if let Some(hit) = self.switcher_hits_cached(&mut hits).get(selected) {
+                        let jump = hit.jump.clone();
+                        self.switcher = None;
+                        self.focus_editor = false;
+                        self.follow(jump);
+                    }
+                    return;
+                }
+            }
         }
-        if esc {
-            self.switcher = None;
-            self.focus_editor = true;
-        } else if enter && let Some(hit) = hits.get(sw.selected) {
-            let jump = hit.jump.clone();
-            self.switcher = None;
-            self.focus_editor = true;
-            self.follow(jump);
-        }
+    }
+
+    fn switcher_hits_cached<'a>(&self, hits: &'a mut Option<Vec<Hit>>) -> &'a [Hit] {
+        hits.get_or_insert_with(|| self.switcher_hits())
     }
 
     fn switcher_hits(&self) -> Vec<Hit> {
@@ -954,17 +984,21 @@ impl OmacusApp {
             .show(ctx, |ui| {
                 ui.set_width(width);
                 let sw = self.switcher.as_mut().unwrap();
-                let before = sw.query.clone();
+                // Display only. A focused field here would move the IME cursor
+                // on every keystroke; the sheet keeps focus and `switcher_keys`
+                // applies the characters.
+                let mut shown = sw.query.clone();
                 let field = ui.add(
-                    TextEdit::singleline(&mut sw.query)
+                    TextEdit::singleline(&mut shown)
+                        .interactive(false)
                         .hint_text("Go to sheet…")
                         .font(FontId::proportional(15.0))
+                        .text_color(theme.foreground)
                         .frame(egui::Frame::NONE.inner_margin(Margin::symmetric(8, 6)))
                         .desired_width(f32::INFINITY),
                 );
-                field.request_focus();
-                if sw.query != before {
-                    sw.selected = 0;
+                if switcher_takes_focus() {
+                    field.request_focus();
                 }
                 let selected = sw.selected;
                 ui.add_space(4.0);
@@ -1014,11 +1048,11 @@ impl OmacusApp {
         }
         if let Some(jump) = picked {
             self.switcher = None;
-            self.focus_editor = true;
+            self.focus_editor = false;
             self.follow(jump);
         } else if close {
             self.switcher = None;
-            self.focus_editor = true;
+            self.focus_editor = false;
         }
     }
 
@@ -1586,7 +1620,7 @@ impl OmacusApp {
             .frame(Frame::NONE)
             .desired_width(editor_width)
             .desired_rows(min_rows)
-            .lock_focus(true)
+            .event_filter(sheet_event_filter(self.switcher.is_some()))
             .layouter(&mut layouter)
             .show(ui);
         let response = &output.response.response;
@@ -1604,7 +1638,9 @@ impl OmacusApp {
             response.scroll_to_me(None);
             ui.ctx().request_repaint();
         }
-        if std::mem::take(&mut self.focus_editor) {
+        if self.switcher.is_some() {
+            self.focus_editor = false;
+        } else if std::mem::take(&mut self.focus_editor) {
             response.request_focus();
         }
 
@@ -2289,6 +2325,122 @@ fn take_chords(events: &mut Vec<egui::Event>) -> Vec<Shortcut> {
     actions
 }
 
+/// One switcher keystroke after it has been taken out of the event list.
+/// A key release is never one of these: only a press, text, or paste is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SwitcherEdit {
+    Type(String),
+    Backspace,
+    Up,
+    Down,
+    Confirm,
+    Close,
+}
+
+enum SwitcherOutcome {
+    Stay,
+    Move(isize),
+    Confirm,
+    Close,
+}
+
+/// The switcher must not take keyboard focus. `request_focus` interrupts IME,
+/// which on Wayland drops the release of whatever key is held.
+fn switcher_takes_focus() -> bool {
+    false
+}
+
+/// What the sheet editor captures. Escape is included only while the switcher
+/// is open, so egui does not clear focus (and move the IME cursor) on Esc.
+fn sheet_event_filter(switcher_open: bool) -> egui::EventFilter {
+    egui::EventFilter {
+        tab: true,
+        horizontal_arrows: true,
+        vertical_arrows: true,
+        escape: switcher_open,
+    }
+}
+
+fn switcher_insertable(text: &str) -> bool {
+    !text.is_empty() && text != "\n" && text != "\r"
+}
+
+/// Remove switcher input from `events` so the focused sheet cannot apply it too.
+/// Releases are removed and produce no edit. An IME commit is used only when
+/// the same batch has no plain text, so a character delivered both ways is typed once.
+fn take_switcher_edits(events: &mut Vec<egui::Event>) -> Vec<SwitcherEdit> {
+    let saw_text = events.iter().any(|event| match event {
+        egui::Event::Text(text) => switcher_insertable(text),
+        egui::Event::Paste(text) => !text.is_empty(),
+        _ => false,
+    });
+    let mut edits = Vec::new();
+    events.retain(|event| match event {
+        egui::Event::Text(text) => {
+            if switcher_insertable(text) {
+                edits.push(SwitcherEdit::Type(text.clone()));
+            }
+            false
+        }
+        egui::Event::Paste(text) => {
+            let flat = text.replace(['\r', '\n'], " ");
+            if !flat.is_empty() {
+                edits.push(SwitcherEdit::Type(flat));
+            }
+            false
+        }
+        egui::Event::Ime(egui::ImeEvent::Commit(text)) => {
+            if !saw_text && switcher_insertable(text) {
+                edits.push(SwitcherEdit::Type(text.clone()));
+            }
+            false
+        }
+        egui::Event::Ime(_) | egui::Event::Copy | egui::Event::Cut | egui::Event::PasteImage(_) => {
+            false
+        }
+        egui::Event::MiddleClickPaste { .. } => false,
+        egui::Event::Key {
+            key,
+            pressed: true,
+            modifiers,
+            ..
+        } => {
+            match key {
+                Key::Backspace if !modifiers.command && !modifiers.alt && !modifiers.mac_cmd => {
+                    edits.push(SwitcherEdit::Backspace);
+                }
+                Key::ArrowUp if modifiers.is_none() => edits.push(SwitcherEdit::Up),
+                Key::ArrowDown if modifiers.is_none() => edits.push(SwitcherEdit::Down),
+                Key::Enter if !modifiers.command && !modifiers.alt => {
+                    edits.push(SwitcherEdit::Confirm);
+                }
+                Key::Escape if modifiers.is_none() => edits.push(SwitcherEdit::Close),
+                _ => {}
+            }
+            false
+        }
+        egui::Event::Key { pressed: false, .. } => false,
+        _ => true,
+    });
+    edits
+}
+
+/// Apply a typing edit to the switcher query. Arrows, Enter, and Esc do not
+/// change the text; the caller handles those once it knows the hit list.
+fn apply_switcher_query(query: &mut String, selected: &mut usize, edit: &SwitcherEdit) {
+    match edit {
+        SwitcherEdit::Type(text) => {
+            query.push_str(text);
+            *selected = 0;
+        }
+        SwitcherEdit::Backspace => {
+            query.pop();
+            *selected = 0;
+        }
+        SwitcherEdit::Up | SwitcherEdit::Down | SwitcherEdit::Confirm | SwitcherEdit::Close => {}
+    }
+}
+
 fn name_hint_visible(editing_line: bool, idle_for: Duration) -> bool {
     !editing_line || idle_for >= HINT_IDLE
 }
@@ -2309,10 +2461,11 @@ fn line_at(text: &str, cursor: usize) -> usize {
 mod tests {
     use super::find_sheets;
     use super::{
-        HINT_IDLE, Shortcut, empty_sheet_hint, line_at, name_hint_visible, owns_key, shortcut_for,
-        take_chords,
+        HINT_IDLE, Shortcut, SwitcherEdit, apply_switcher_query, empty_sheet_hint, line_at,
+        name_hint_visible, owns_key, sheet_event_filter, shortcut_for, switcher_takes_focus,
+        take_chords, take_switcher_edits,
     };
-    use eframe::egui::{Event, Key, Modifiers};
+    use eframe::egui::{Event, ImeEvent, Key, Modifiers};
     use std::time::Duration;
 
     #[test]
@@ -2345,6 +2498,16 @@ mod tests {
             pressed: true,
             repeat,
             modifiers,
+        }
+    }
+
+    fn release(key: Key) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers: Modifiers::NONE,
         }
     }
 
@@ -2400,6 +2563,116 @@ mod tests {
         ];
         assert!(take_chords(&mut preview).is_empty());
         assert_eq!(preview.len(), 2);
+    }
+
+    #[test]
+    fn switcher_types_from_text_events_and_drops_the_release() {
+        assert!(!switcher_takes_focus());
+        let mut events = vec![
+            Event::Text("j".into()),
+            press(Key::J, Modifiers::NONE, false),
+            press(Key::J, Modifiers::NONE, true),
+            Event::Text("j".into()),
+            release(Key::J),
+            Event::PointerMoved(eframe::egui::pos2(1.0, 2.0)),
+        ];
+        let edits = take_switcher_edits(&mut events);
+        assert_eq!(
+            edits,
+            vec![
+                SwitcherEdit::Type("j".into()),
+                SwitcherEdit::Type("j".into()),
+            ]
+        );
+        assert_eq!(events.len(), 1, "pointer events stay; keys do not");
+        let mut query = String::new();
+        let mut selected = 4;
+        for edit in &edits {
+            apply_switcher_query(&mut query, &mut selected, edit);
+        }
+        assert_eq!(query, "jj");
+        assert_eq!(selected, 0);
+    }
+
+    #[test]
+    fn switcher_backspace_ignores_the_key_release() {
+        let mut events = vec![
+            press(Key::Backspace, Modifiers::NONE, false),
+            release(Key::Backspace),
+            press(Key::Backspace, Modifiers::NONE, true),
+        ];
+        let edits = take_switcher_edits(&mut events);
+        assert!(events.is_empty());
+        assert_eq!(
+            edits,
+            vec![SwitcherEdit::Backspace, SwitcherEdit::Backspace]
+        );
+        let mut query = "caf\u{e9}".to_string();
+        let mut selected = 2;
+        for edit in &edits {
+            apply_switcher_query(&mut query, &mut selected, edit);
+        }
+        assert_eq!(query, "ca");
+        assert_eq!(selected, 0);
+
+        let mut arrows = vec![
+            press(Key::ArrowDown, Modifiers::NONE, true),
+            release(Key::ArrowDown),
+            press(Key::ArrowUp, Modifiers::NONE, false),
+            release(Key::ArrowUp),
+            press(Key::Enter, Modifiers::NONE, false),
+            release(Key::Enter),
+            press(Key::Escape, Modifiers::NONE, false),
+            release(Key::Escape),
+        ];
+        assert_eq!(
+            take_switcher_edits(&mut arrows),
+            vec![
+                SwitcherEdit::Down,
+                SwitcherEdit::Up,
+                SwitcherEdit::Confirm,
+                SwitcherEdit::Close,
+            ]
+        );
+        assert!(arrows.is_empty());
+    }
+
+    #[test]
+    fn switcher_does_not_type_a_character_twice_from_ime() {
+        let mut both = vec![
+            Event::Text("a".into()),
+            Event::Ime(ImeEvent::Commit("a".into())),
+            Event::Ime(ImeEvent::Preedit {
+                text: String::new(),
+                active_range_chars: None,
+            }),
+        ];
+        assert_eq!(
+            take_switcher_edits(&mut both),
+            vec![SwitcherEdit::Type("a".into())]
+        );
+        assert!(both.is_empty());
+
+        let mut composed = vec![Event::Ime(ImeEvent::Commit("\u{3042}".into()))];
+        assert_eq!(
+            take_switcher_edits(&mut composed),
+            vec![SwitcherEdit::Type("\u{3042}".into())]
+        );
+    }
+
+    #[test]
+    fn sheet_keeps_escape_while_the_switcher_is_open() {
+        let open = sheet_event_filter(true);
+        let closed = sheet_event_filter(false);
+        let escape = press(Key::Escape, Modifiers::NONE, false);
+        assert!(open.matches(&escape));
+        assert!(open.matches(&press(Key::ArrowUp, Modifiers::NONE, false)));
+        assert!(open.matches(&press(Key::ArrowDown, Modifiers::NONE, false)));
+        assert!(open.matches(&press(Key::ArrowLeft, Modifiers::NONE, false)));
+        assert!(open.matches(&press(Key::Tab, Modifiers::NONE, false)));
+        assert!(!closed.matches(&escape));
+        assert!(closed.matches(&press(Key::ArrowDown, Modifiers::NONE, true)));
+        assert!(closed.tab && closed.horizontal_arrows && closed.vertical_arrows);
     }
 
     #[test]
