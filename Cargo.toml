@@ -3,7 +3,7 @@ members = ["engine", "web"]
 
 [package]
 name = "omacus"
-version = "0.1.26"
+version = "0.1.27"
 edition = "2024"
 license = "MIT"
 authors = ["Avinash Joshi <avinash@hey.com>"]
