@@ -113,7 +113,7 @@ browser.stderr.on("data", (chunk) => {
   if (found) devtoolsUrl = found[1];
 });
 const started = Date.now();
-while (!devtoolsUrl && Date.now() - started < 10000) await new Promise((r) => setTimeout(r, 50));
+while (!devtoolsUrl && Date.now() - started < 20000) await new Promise((r) => setTimeout(r, 50));
 if (!devtoolsUrl) {
   browser.kill();
   server.close();
@@ -232,13 +232,30 @@ const desktop = await evalJson(`(() => {
     scrim: getComputedStyle(scrim).display,
     columns: getComputedStyle(document.querySelector(".workspace")).gridTemplateColumns,
     paddingBottom: parseFloat(getComputedStyle(side).paddingBottom),
+    rail: getComputedStyle(document.querySelector(".rail")).display,
+    resize: getComputedStyle(document.querySelector("[data-resize]")).display,
   };
 })()`);
 check(desktop.font === 15, `desktop editor font is ${desktop.font}px, want 15`);
-check(desktop.position === "static", `desktop sidebar position is ${desktop.position}`);
+// Relative, so the resize handle anchors to the sidebar. Fixed is the phone drawer.
+check(desktop.position === "relative", `desktop sidebar position is ${desktop.position}`);
 check(desktop.scrim === "none", `desktop scrim display is ${desktop.scrim}`);
 check(desktop.paddingBottom === 0, `desktop sidebar padding-bottom is ${desktop.paddingBottom}`);
 check(/240px/.test(desktop.columns), `desktop columns are ${desktop.columns}`);
+check(desktop.rail === "none", `desktop rail display is ${desktop.rail}`);
+check(desktop.resize !== "none", `desktop resize handle display is ${desktop.resize}`);
+const collapsed = await evalJson(`(() => {
+  const workspace = document.querySelector(".workspace");
+  workspace.classList.add("collapsed");
+  const cols = getComputedStyle(workspace).gridTemplateColumns;
+  const rail = getComputedStyle(document.querySelector(".rail")).display;
+  const body = getComputedStyle(document.querySelector(".side-body")).display;
+  workspace.classList.remove("collapsed");
+  return { cols, rail, body };
+})()`);
+check(/^52px/.test(collapsed.cols), `collapsed columns are ${collapsed.cols}`);
+check(collapsed.rail === "flex", `collapsed rail display is ${collapsed.rail}`);
+check(collapsed.body === "none", `collapsed sheet list display is ${collapsed.body}`);
 
 if (shots) await shot(join(shots, "desktop.png"));
 
