@@ -59,7 +59,7 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
                 "Ctrl+Shift+Delete",
                 "Delete the sheet (asks first; kept in Recently deleted)",
             ),
-            ("Ctrl+B", "Show / hide the sidebar"),
+            ("Ctrl+B", "Expand / collapse the sidebar"),
         ],
     ),
     (
