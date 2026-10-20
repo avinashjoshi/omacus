@@ -1961,7 +1961,7 @@ dependencies = [
 
 [[package]]
 name = "omacus"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "dirs",
  "eframe",
