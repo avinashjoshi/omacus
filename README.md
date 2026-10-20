@@ -61,12 +61,13 @@ adds the notepad conventions on top.
 | `Ctrl+1` … `Ctrl+9` | Jump to sheet |
 | `Alt+↑` / `Alt+↓` | Move sheet up / down |
 | `Ctrl+Shift+Delete` | Delete sheet (asks first; moved to `trash/`, restored from Recently deleted) |
-| `Ctrl+B` | Toggle the sidebar |
+| `Ctrl+B` | Expand or collapse the sidebar |
 | `Ctrl+Shift+L` | Copy a share link to the sheet |
 
 The ⋯ above a sheet (or on its row in the sidebar, or a right-click) has the same actions. A sheet's title is its first line.
-Sheets are plain text in `~/.local/share/omacus/sheets/`; order, cursors and the sidebar
-state are in `~/.local/share/omacus/state.json`.
+Sheets are plain text in `~/.local/share/omacus/sheets/`; order, cursors, and whether the
+sidebar is expanded (and how wide) are in `~/.local/share/omacus/state.json`.
+A deleted sheet opens read-only from Recently deleted; Restore and Delete forever are explicit.
 
 ### Sharing and the web app
 

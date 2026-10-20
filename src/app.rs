@@ -15,14 +15,17 @@ use crate::calc::Calculator;
 use crate::help;
 use crate::highlight;
 use crate::rates::Rates;
-use crate::sheets::{Store, Trashed};
+use crate::sheets::{SIDEBAR_MAX, SIDEBAR_MIN, Store, Trashed, heading_of};
 use crate::theme::{self, Theme};
 use crate::update::{self, Method, State, Updates};
 use omacus_engine::{self as engine, Engine, Kind, LineResult, complete};
 
 const FONT_SIZE: f32 = 16.0;
-const SIDEBAR_WIDTH: f32 = 210.0;
 const GAP: f32 = 32.0;
+/// Collapsed sidebar: logo and an expand button, not an overlay tab.
+const SIDEBAR_RAIL: f32 = 52.0;
+/// Every sheet row is this tall, so a long name cannot wrap into the next one.
+const SIDEBAR_ROW: f32 = 32.0;
 const SCROLLBAR_ROOM: f32 = 12.0;
 const SAVE_DELAY: Duration = Duration::from_millis(400);
 const COPIED_FOR: Duration = Duration::from_millis(900);
@@ -34,7 +37,7 @@ const WELCOME: &str = "\
 # Welcome to Omacus
 // Type on the left, results appear on the right.
 // Click a result to copy it. Press F1 for help and shortcuts.
-// Sheets are listed in the sidebar. Ctrl+B shows or hides it, Ctrl+J jumps to one.
+// Sheets are listed in the sidebar. Ctrl+B collapses it, Ctrl+J jumps to one.
 
 Rent: $1,450
 Groceries $320 + $85
@@ -245,6 +248,10 @@ pub struct OmacusApp {
     switcher: Option<Switcher>,
     /// Sheet index waiting for a delete confirmation. Escape cancels.
     pending_delete: Option<usize>,
+    /// Trash id shown read-only. Clicking a deleted sheet opens this; it does not restore.
+    preview: Option<String>,
+    /// Trash id waiting for a "delete forever" confirmation.
+    purge_id: Option<String>,
     /// `trash/` listing, refreshed at most every `TRASH_REFRESH`.
     trash: Vec<Trashed>,
     trash_at: Option<Instant>,
@@ -348,6 +355,8 @@ impl OmacusApp {
                     selected: 0,
                 }),
             pending_delete: None,
+            preview: None,
+            purge_id: None,
             trash: Vec::new(),
             trash_at: None,
             edited_at: Instant::now()
@@ -446,6 +455,7 @@ impl OmacusApp {
     }
 
     fn sheet_switched(&mut self) {
+        self.preview = None;
         self.popup = None;
         self.copied = None;
         // Another sheet's answers mustn't show against this one's lines.
@@ -548,7 +558,13 @@ impl OmacusApp {
                 ctx.request_repaint_after(SAVE_DELAY);
             }
         }
-        let title = format!("Omacus — {}", self.store.sheets[self.store.active].title());
+        let name = self
+            .preview
+            .as_ref()
+            .and_then(|id| self.trash.iter().find(|t| &t.id == id))
+            .map(|t| t.title.clone())
+            .unwrap_or_else(|| self.store.sheets[self.store.active].title());
+        let title = format!("Omacus — {name}");
         if title != self.title {
             ctx.send_viewport_cmd(ViewportCommand::Title(title.clone()));
             self.title = title;
@@ -614,6 +630,12 @@ impl OmacusApp {
                 self.refresh_trash(false);
             }
             self.switcher_keys(ctx);
+            return;
+        }
+        if self.purge_id.is_some() {
+            if dismiss {
+                self.purge_id = None;
+            }
             return;
         }
         if self.pending_delete.is_some() {
@@ -766,6 +788,50 @@ impl OmacusApp {
             self.trash_at = None;
             self.toast = Some(Toast::info(format!("Restored \u{201c}{title}\u{201d}")));
             self.sheet_switched();
+        }
+    }
+
+    /// Open a deleted sheet to read. Restoring is a separate button.
+    fn open_preview(&mut self, id: String) {
+        self.refresh_trash(true);
+        if self.trash.iter().any(|t| t.id == id) {
+            self.preview = Some(id);
+            self.popup = None;
+            self.focus_editor = false;
+        }
+    }
+
+    fn current_preview(&mut self) -> Option<Trashed> {
+        let id = self.preview.clone()?;
+        self.refresh_trash(false);
+        match self.trash.iter().find(|t| t.id == id).cloned() {
+            Some(item) => Some(item),
+            None => {
+                self.preview = None;
+                None
+            }
+        }
+    }
+
+    fn purge_trashed(&mut self, id: &str) {
+        let title = self
+            .trash
+            .iter()
+            .find(|t| t.id == id)
+            .map(|t| t.title.clone());
+        if self.store.purge(id) {
+            self.trash_at = None;
+            self.refresh_trash(true);
+            if self.preview.as_deref() == Some(id) {
+                self.preview = None;
+                self.focus_editor = true;
+            }
+            self.purge_id = None;
+            if let Some(title) = title {
+                self.toast = Some(Toast::info(format!(
+                    "Deleted \u{201c}{title}\u{201d} forever"
+                )));
+            }
         }
     }
 
@@ -953,7 +1019,7 @@ impl OmacusApp {
     fn follow(&mut self, jump: Jump) {
         match jump {
             Jump::Sheet(i) => self.apply(SheetAction::Select(i)),
-            Jump::Trash(id) => self.restore_trashed(&id),
+            Jump::Trash(id) => self.open_preview(id),
         }
     }
 
@@ -1442,7 +1508,9 @@ impl OmacusApp {
     fn sidebar(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme.clone();
         let mut action = None;
+        let mut preview = None;
         let mut restore = None;
+        let mut purge = None;
         self.refresh_trash(false);
 
         ui.horizontal(|ui| {
@@ -1462,56 +1530,47 @@ impl OmacusApp {
                 {
                     action = Some(SheetAction::New);
                 }
+                let collapse = ui.add(
+                    egui::Button::new(egui::RichText::new("\u{2039}").size(18.0).color(theme.dim))
+                        .frame(false),
+                );
+                if collapse
+                    .on_hover_text(format!("Collapse sidebar ({})", help::keys("Ctrl+B")))
+                    .clicked()
+                {
+                    self.store.toggle_sidebar();
+                    self.touched();
+                }
             });
         });
         ui.add_space(6.0);
 
-        let titles: Vec<String> = self.store.sheets.iter().map(|s| s.title()).collect();
-        let count = titles.len();
+        let rows: Vec<(usize, String)> = self
+            .store
+            .sheets
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (i, s.heading()))
+            .collect();
+        let count = rows.len();
+        let viewing = self.preview.clone();
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .max_height(ui.available_height() - 38.0)
             .show(ui, |ui| {
-                for (i, title) in titles.into_iter().enumerate() {
-                    let active = i == self.store.active;
-                    let (rect, resp) =
-                        ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
-                    let painter = ui.painter();
-                    if active {
-                        painter.rect_filled(rect, CornerRadius::same(5), theme.selection);
-                        let bar = Rect::from_min_size(rect.min + vec2(0.0, 7.0), vec2(3.0, 16.0));
-                        painter.rect_filled(bar, CornerRadius::same(2), theme.accent);
-                    } else if resp.hovered() {
-                        painter.rect_filled(rect, CornerRadius::same(5), theme.hover);
-                    }
-                    let color = if active { theme.foreground } else { theme.dim };
-                    let font = FontId::proportional(14.0);
-                    let galley = painter.layout(title, font, color, rect.width() - 22.0);
-                    painter.galley(
-                        pos2(rect.left() + 12.0, rect.center().y - galley.size().y / 2.0),
-                        galley,
-                        color,
-                    );
-
-                    // A ⋯ on the selected or hovered row opens the same menu as a right-click.
-                    let dots_rect = Rect::from_center_size(
-                        pos2(rect.right() - 15.0, rect.center().y),
-                        vec2(24.0, 24.0),
-                    );
-                    let dots = ui.interact(
-                        dots_rect,
-                        ui.scope_id().with(("sheet-dots", i)),
-                        Sense::click(),
-                    );
+                for (i, heading) in rows {
+                    let active = i == self.store.active && viewing.is_none();
+                    let resp = sidebar_row(ui, &theme, &heading, active, true);
+                    let dots = sidebar_dots(ui, &resp.rect, ui.scope_id().with(("sheet-dots", i)));
                     let menu = egui::Popup::menu(&dots);
                     let open = menu.is_open();
                     if active || resp.hovered() || dots.hovered() || open {
                         dots_button(ui, &dots, &theme, open);
                     }
                     menu.show(|ui| sheet_menu(ui, i, count, &mut action));
+                    let pick = resp.clicked() && !dots.clicked();
                     dots.on_hover_text("Share, copy and more");
-
-                    if resp.clicked() {
+                    if pick {
                         action = Some(SheetAction::Select(i));
                     }
                     resp.context_menu(|ui| sheet_menu(ui, i, count, &mut action));
@@ -1526,26 +1585,31 @@ impl OmacusApp {
                     ui.add_space(4.0);
                     let trash = self.trash.clone();
                     for item in trash {
-                        let (rect, resp) = ui
-                            .allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
-                        if resp.hovered() {
-                            ui.painter()
-                                .rect_filled(rect, CornerRadius::same(5), theme.hover);
+                        let heading = heading_of(&item.text);
+                        let selected = viewing.as_deref() == Some(item.id.as_str());
+                        let resp = sidebar_row(ui, &theme, &heading, selected, false);
+                        let dots = sidebar_dots(
+                            ui,
+                            &resp.rect,
+                            ui.scope_id().with(("trash-dots", item.id.clone())),
+                        );
+                        let menu = egui::Popup::menu(&dots);
+                        let open = menu.is_open();
+                        let mut choice = None;
+                        if selected || resp.hovered() || dots.hovered() || open {
+                            dots_button(ui, &dots, &theme, open);
                         }
-                        let font = FontId::proportional(14.0);
-                        let galley = ui.painter().layout(
-                            item.title.clone(),
-                            font,
-                            theme.dim,
-                            rect.width() - 22.0,
-                        );
-                        ui.painter().galley(
-                            pos2(rect.left() + 12.0, rect.center().y - galley.size().y / 2.0),
-                            galley,
-                            theme.dim,
-                        );
-                        if resp.on_hover_text("Restore this sheet").clicked() {
-                            restore = Some(item.id);
+                        menu.show(|ui| trash_menu(ui, &mut choice));
+                        let pick = resp.clicked() && !dots.clicked();
+                        dots.on_hover_text("Restore or delete forever");
+                        resp.context_menu(|ui| trash_menu(ui, &mut choice));
+                        if pick {
+                            preview = Some(item.id.clone());
+                        }
+                        match choice {
+                            Some(TrashChoice::Restore) => restore = Some(item.id),
+                            Some(TrashChoice::Forever) => purge = Some(item.id),
+                            None => {}
                         }
                     }
                 }
@@ -1557,8 +1621,14 @@ impl OmacusApp {
         if let Some(a) = action {
             self.apply(a);
         }
+        if let Some(id) = preview {
+            self.open_preview(id);
+        }
         if let Some(id) = restore {
             self.restore_trashed(&id);
+        }
+        if let Some(id) = purge {
+            self.purge_id = Some(id);
         }
     }
 
@@ -1883,26 +1953,96 @@ impl OmacusApp {
         }
     }
 
-    /// A tab on the left edge when the sidebar is hidden, so an empty window
-    /// still shows where the sheets are.
-    fn sheets_tab(&mut self, ctx: &egui::Context) {
+    /// A narrow strip when the sidebar is collapsed: the logo, and a control to open it.
+    fn sidebar_rail(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme.clone();
-        egui::Area::new(egui::Id::unique("sheets-tab"))
-            .order(Order::Foreground)
-            .anchor(Align2::LEFT_CENTER, vec2(0.0, 0.0))
-            .show(ctx, |ui| {
-                let button = ui.add(
-                    egui::Button::new(egui::RichText::new("Sheets").size(12.0).color(theme.dim))
-                        .frame(true)
-                        .fill(theme.sidebar),
+        let rail = ui.interact(
+            ui.max_rect(),
+            ui.scope_id().with("sidebar-rail"),
+            Sense::click(),
+        );
+        let painter = ui.painter();
+        let logo = Rect::from_center_size(
+            pos2(ui.max_rect().center().x, ui.max_rect().top() + 22.0),
+            vec2(22.0, 22.0),
+        );
+        painter.image(
+            self.logo.small.id(),
+            logo,
+            Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+            Color32::WHITE,
+        );
+        let expand = Rect::from_center_size(logo.center() + vec2(0.0, 36.0), vec2(28.0, 28.0));
+        if rail.hovered() {
+            painter.rect_filled(expand, CornerRadius::same(6), theme.hover);
+        }
+        painter.text(
+            expand.center(),
+            Align2::CENTER_CENTER,
+            "\u{203a}",
+            FontId::proportional(22.0),
+            theme.foreground,
+        );
+        let rail = rail.on_hover_text(format!("Expand sidebar ({})", help::keys("Ctrl+B")));
+        if rail.clicked() {
+            self.store.toggle_sidebar();
+            self.touched();
+        }
+    }
+
+    fn preview_sheet(&mut self, ui: &mut egui::Ui, item: &Trashed) {
+        let theme = self.theme.clone();
+        let heading = heading_of(&item.text);
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(heading)
+                    .size(16.0)
+                    .color(theme.foreground),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let forever = ui.add(
+                    egui::Button::new(
+                        egui::RichText::new("Delete forever")
+                            .size(13.0)
+                            .color(theme.dim),
+                    )
+                    .frame(false),
                 );
-                if button
-                    .on_hover_text(format!("Show sheets ({})", help::keys("Ctrl+B")))
-                    .clicked()
-                {
-                    self.store.toggle_sidebar();
-                    self.touched();
+                let restore = ui.add(
+                    egui::Button::new(
+                        egui::RichText::new("Restore")
+                            .size(13.5)
+                            .color(theme.background),
+                    )
+                    .fill(theme.accent)
+                    .corner_radius(CornerRadius::same(6))
+                    .min_size(vec2(0.0, 28.0)),
+                );
+                if forever.clicked() {
+                    self.purge_id = Some(item.id.clone());
                 }
+                if restore.clicked() {
+                    let id = item.id.clone();
+                    self.restore_trashed(&id);
+                }
+            });
+        });
+        ui.label(
+            egui::RichText::new("Recently deleted. This copy is read-only.")
+                .size(12.5)
+                .color(theme.comment),
+        );
+        ui.add_space(8.0);
+        let mut text = item.text.clone();
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                TextEdit::multiline(&mut text)
+                    .interactive(false)
+                    .font(FontId::monospace(FONT_SIZE))
+                    .desired_width(ui.available_width())
+                    .frame(Frame::NONE)
+                    .show(ui);
             });
     }
 
@@ -1978,6 +2118,79 @@ impl OmacusApp {
             self.focus_editor = true;
         }
     }
+
+    fn show_purge(&mut self, ctx: &egui::Context) {
+        let Some(id) = self.purge_id.clone() else {
+            return;
+        };
+        let title = self
+            .trash
+            .iter()
+            .find(|t| t.id == id)
+            .map(|t| heading_of(&t.text))
+            .unwrap_or_else(|| "this sheet".into());
+        let theme = self.theme.clone();
+        let mut purge = false;
+        let mut cancel = false;
+        let frame = Frame::NONE
+            .fill(theme.sidebar)
+            .stroke(egui::Stroke::new(1.0, theme.selection))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(Margin::symmetric(20, 16));
+        let modal = egui::Modal::new(egui::Id::unique("omacus-purge"))
+            .frame(frame)
+            .backdrop_color(Color32::from_black_alpha(140))
+            .show(ctx, |ui| {
+                ui.set_width(340.0);
+                ui.label(
+                    egui::RichText::new(format!("Delete \u{201c}{title}\u{201d} forever?"))
+                        .size(16.0)
+                        .color(theme.foreground),
+                );
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(
+                        "This removes it from Recently deleted. It can't be restored.",
+                    )
+                    .size(13.0)
+                    .color(theme.dim),
+                );
+                ui.add_space(14.0);
+                ui.horizontal(|ui| {
+                    purge = ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("Delete forever")
+                                    .size(13.5)
+                                    .color(theme.background),
+                            )
+                            .fill(theme.accent)
+                            .corner_radius(CornerRadius::same(6))
+                            .min_size(vec2(0.0, 30.0)),
+                        )
+                        .clicked();
+                    cancel = ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("Cancel")
+                                    .size(13.5)
+                                    .color(theme.foreground),
+                            )
+                            .corner_radius(CornerRadius::same(6))
+                            .min_size(vec2(0.0, 30.0)),
+                        )
+                        .clicked();
+                });
+            });
+        if modal.should_close() {
+            cancel = true;
+        }
+        if purge {
+            self.purge_trashed(&id);
+        } else if cancel {
+            self.purge_id = None;
+        }
+    }
 }
 
 impl eframe::App for OmacusApp {
@@ -1992,13 +2205,25 @@ impl eframe::App for OmacusApp {
             let frame = Frame::NONE
                 .fill(self.theme.sidebar)
                 .inner_margin(Margin::symmetric(10, 14));
-            egui::Panel::left("sheets")
-                .exact_size(SIDEBAR_WIDTH)
-                .resizable(false)
+            let panel = egui::Panel::left("sheets")
+                .resizable(true)
+                .default_size(self.store.sidebar_width)
+                .min_size(SIDEBAR_MIN)
+                .max_size(SIDEBAR_MAX)
+                .show_separator_line(false)
                 .frame(frame)
                 .show(ui, |ui| self.sidebar(ui));
+            self.store.set_sidebar_width(panel.response.rect.width());
         } else {
-            self.sheets_tab(&ctx);
+            let frame = Frame::NONE
+                .fill(self.theme.sidebar)
+                .inner_margin(Margin::symmetric(4, 14));
+            egui::Panel::left("sheets-rail")
+                .resizable(false)
+                .exact_size(SIDEBAR_RAIL)
+                .show_separator_line(false)
+                .frame(frame)
+                .show(ui, |ui| self.sidebar_rail(ui));
         }
 
         let frame = Frame::NONE
@@ -2010,17 +2235,22 @@ impl eframe::App for OmacusApp {
                 bottom: 20,
             });
         egui::CentralPanel::default().frame(frame).show(ui, |ui| {
-            self.sheet_bar(ui);
-            egui::ScrollArea::vertical()
-                .id_salt(("scroll", &self.store.sheets[self.store.active].id))
-                .auto_shrink([false, false])
-                .show(ui, |ui| self.sheet(ui));
+            if let Some(item) = self.current_preview() {
+                self.preview_sheet(ui, &item);
+            } else {
+                self.sheet_bar(ui);
+                egui::ScrollArea::vertical()
+                    .id_salt(("scroll", &self.store.sheets[self.store.active].id))
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| self.sheet(ui));
+            }
         });
 
         self.popup(&ctx);
         self.show_help(&ctx);
         self.show_update(&ctx);
         self.show_delete(&ctx);
+        self.show_purge(&ctx);
         self.show_switcher(&ctx);
         self.show_toast(&ctx);
     }
@@ -2447,9 +2677,96 @@ fn name_hint_visible(editing_line: bool, idle_for: Duration) -> bool {
 
 fn empty_sheet_hint(sidebar_open: bool) -> &'static str {
     if sidebar_open {
-        "Sheets are listed on the left. Ctrl+B hides them, and Ctrl+J jumps to one."
+        "Sheets are listed on the left. Ctrl+B collapses them, and Ctrl+J jumps to one."
     } else {
-        "Sheets are in the sidebar. Ctrl+B shows it, or click Sheets. Ctrl+J jumps to one."
+        "Sheets are in the sidebar. Ctrl+B expands it, or click the logo. Ctrl+J jumps to one."
+    }
+}
+
+/// One line, cut with … once it runs out of room. A wrapping galley is what made
+/// a long name spill into the next row.
+fn sidebar_label_job(
+    text: &str,
+    font: FontId,
+    color: Color32,
+    max_width: f32,
+) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::simple_singleline(text.to_owned(), font, color);
+    job.wrap = egui::text::TextWrapping {
+        max_width,
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('\u{2026}'),
+    };
+    job
+}
+
+/// The orange mark on the open sheet, centered on the row.
+fn sidebar_accent(row: Rect) -> Rect {
+    Rect::from_center_size(pos2(row.left() + 1.5, row.center().y), vec2(3.0, 16.0))
+}
+
+enum TrashChoice {
+    Restore,
+    Forever,
+}
+
+fn sidebar_row(
+    ui: &mut egui::Ui,
+    theme: &Theme,
+    heading: &str,
+    selected: bool,
+    accent: bool,
+) -> egui::Response {
+    let (rect, resp) =
+        ui.allocate_exact_size(vec2(ui.available_width(), SIDEBAR_ROW), Sense::click());
+    let painter = ui.painter();
+    if selected {
+        painter.rect_filled(rect, CornerRadius::same(5), theme.selection);
+        if accent {
+            painter.rect_filled(sidebar_accent(rect), CornerRadius::same(2), theme.accent);
+        }
+    } else if resp.hovered() {
+        painter.rect_filled(rect, CornerRadius::same(5), theme.hover);
+    }
+    let color = if selected {
+        theme.foreground
+    } else {
+        theme.dim
+    };
+    let text_width = (rect.width() - 14.0 - 30.0).max(24.0);
+    let galley = ui.ctx().fonts_mut(|f| {
+        f.layout_job(sidebar_label_job(
+            heading,
+            FontId::proportional(14.0),
+            color,
+            text_width,
+        ))
+    });
+    let elided = galley.elided;
+    painter.galley(
+        pos2(rect.left() + 14.0, rect.center().y - galley.size().y / 2.0),
+        galley,
+        color,
+    );
+    if elided {
+        resp.clone().on_hover_text(heading.to_owned());
+    }
+    resp
+}
+
+fn sidebar_dots(ui: &mut egui::Ui, row: &Rect, id: egui::Id) -> egui::Response {
+    let dots_rect =
+        Rect::from_center_size(pos2(row.right() - 15.0, row.center().y), vec2(24.0, 24.0));
+    ui.interact(dots_rect, id, Sense::click())
+}
+
+fn trash_menu(ui: &mut egui::Ui, action: &mut Option<TrashChoice>) {
+    if ui.add(egui::Button::new("Restore")).clicked() {
+        *action = Some(TrashChoice::Restore);
+    }
+    if ui.add(egui::Button::new("Delete forever")).clicked() {
+        *action = Some(TrashChoice::Forever);
     }
 }
 
@@ -2461,11 +2778,11 @@ fn line_at(text: &str, cursor: usize) -> usize {
 mod tests {
     use super::find_sheets;
     use super::{
-        HINT_IDLE, Shortcut, SwitcherEdit, apply_switcher_query, empty_sheet_hint, line_at,
-        name_hint_visible, owns_key, sheet_event_filter, shortcut_for, switcher_takes_focus,
-        take_chords, take_switcher_edits,
+        HINT_IDLE, SIDEBAR_ROW, Shortcut, SwitcherEdit, apply_switcher_query, empty_sheet_hint,
+        line_at, name_hint_visible, owns_key, sheet_event_filter, shortcut_for, sidebar_accent,
+        sidebar_label_job, switcher_takes_focus, take_chords, take_switcher_edits,
     };
-    use eframe::egui::{Event, ImeEvent, Key, Modifiers};
+    use eframe::egui::{Color32, Event, FontId, ImeEvent, Key, Modifiers, Rect, pos2, vec2};
     use std::time::Duration;
 
     #[test]
@@ -2686,8 +3003,28 @@ mod tests {
     fn empty_sheet_mentions_the_sidebar() {
         assert!(empty_sheet_hint(true).contains("Ctrl+B"));
         assert!(empty_sheet_hint(true).contains("Ctrl+J"));
-        assert!(empty_sheet_hint(false).contains("Sheets"));
+        assert!(empty_sheet_hint(false).contains("logo"));
+        assert!(!empty_sheet_hint(false).contains("click Sheets"));
         assert_eq!(line_at("a\nb\nc", 0), 0);
         assert_eq!(line_at("a\nb\nc", 2), 1);
+    }
+
+    #[test]
+    fn a_long_sheet_name_stays_on_one_row() {
+        let row = Rect::from_min_size(pos2(8.0, 40.0), vec2(180.0, SIDEBAR_ROW));
+        let bar = sidebar_accent(row);
+        assert!((bar.center().y - row.center().y).abs() < 0.01);
+        assert!((bar.height() - 16.0).abs() < 0.01);
+        assert!(bar.top() >= row.top() && bar.bottom() <= row.bottom());
+        let job = sidebar_label_job(
+            "Weekend Plans",
+            FontId::proportional(14.0),
+            Color32::WHITE,
+            80.0,
+        );
+        assert_eq!(job.wrap.max_rows, 1);
+        assert!(job.wrap.break_anywhere);
+        assert_eq!(job.wrap.overflow_character, Some('\u{2026}'));
+        assert_eq!(job.text, "Weekend Plans");
     }
 }

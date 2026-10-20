@@ -62,18 +62,31 @@
     </div>
   </header>
 
-  <div class="workspace">
+  <div class="workspace" data-workspace>
     <aside class="side" id="side">
-      <div class="side-head"><span>Sheets</span><button class="icon-btn small" type="button" aria-label="New sheet" data-action="new">+</button></div>
-      <nav class="sheet-list" data-sheets aria-label="Sheets"></nav>
-      <div class="deleted" hidden data-deleted></div>
-      <details class="side-foot">
-        <summary>Saved in this browser</summary>
-        <p>Sheets stay on this device, in this browser; nothing is uploaded. Export them (⋯ menu) to keep a copy. On iPhone and iPad, Safari clears a site's data after a week without a visit, unless you add Omacus to your Home Screen.</p>
-      </details>
+      <button class="rail" type="button" data-action="expand-side" aria-label="Expand sidebar">
+        <img src="/img/icon.svg" alt="" width="22" height="22">
+        <span aria-hidden="true">›</span>
+      </button>
+      <div class="side-body">
+        <div class="side-head"><span>Sheets</span><span class="side-head-actions"><button class="icon-btn small" type="button" aria-label="Collapse sidebar" data-action="collapse-side">‹</button><button class="icon-btn small" type="button" aria-label="New sheet" data-action="new">+</button></span></div>
+        <nav class="sheet-list" data-sheets aria-label="Sheets"></nav>
+        <div class="deleted" hidden data-deleted></div>
+        <details class="side-foot">
+          <summary>Saved in this browser</summary>
+          <p>Sheets stay on this device, in this browser; nothing is uploaded. Export them (⋯ menu) to keep a copy. On iPhone and iPad, Safari clears a site's data after a week without a visit, unless you add Omacus to your Home Screen.</p>
+        </details>
+      </div>
+      <div class="side-resize" data-resize role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
     </aside>
 
     <main class="sheet">
+      <div class="shared-banner preview-banner" hidden data-preview>
+        <span><b data-preview-title></b> Recently deleted. This copy is read-only.</span>
+        <button class="btn small primary" type="button" data-action="restore-trash">Restore</button>
+        <button class="btn small" type="button" data-action="purge-trash">Delete forever</button>
+      </div>
+      <pre class="preview-body" hidden data-preview-body></pre>
       <div class="shared-banner" hidden data-shared>
         <span><b>Shared sheet.</b> Edits stay here until you save it.</span>
         <button class="btn small" type="button" data-action="open-app">Open in Omacus</button>

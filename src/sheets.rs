@@ -40,17 +40,13 @@ pub struct Synced {
 }
 
 impl Sheet {
+    /// The first line, with a `#` or `//` stripped off. Not shortened.
+    pub fn heading(&self) -> String {
+        heading_of(&self.text)
+    }
+
     pub fn title(&self) -> String {
-        let line = self
-            .text
-            .lines()
-            .map(str::trim)
-            .find(|l| !l.is_empty())
-            .unwrap_or("");
-        let title = line.trim_start_matches(['#', '/', ' ']).trim();
-        if title.is_empty() {
-            return "Untitled".into();
-        }
+        let title = self.heading();
         let mut t: String = title.chars().take(32).collect();
         if title.chars().count() > 32 {
             t.push('…');
@@ -63,13 +59,38 @@ impl Sheet {
     }
 }
 
+/// A sheet's name: its first non-empty line, without a leading `#` or `//`.
+pub fn heading_of(text: &str) -> String {
+    let line = text
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("");
+    let title = line.trim_start_matches(['#', '/', ' ']).trim();
+    if title.is_empty() {
+        "Untitled".into()
+    } else {
+        title.to_string()
+    }
+}
+
+/// Missing fields keep their defaults, so a `state.json` from an older version
+/// (no `sidebar_width`, for example) still loads the sheet order and cursors.
 #[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
 struct State {
     order: Vec<String>,
     active: String,
     cursors: HashMap<String, usize>,
     sidebar: Option<bool>,
+    /// Width of the expanded sidebar, in points. Absent in older `state.json`.
+    sidebar_width: Option<f32>,
 }
+
+/// Expanded sidebar width, and the range a drag is allowed to land in.
+pub const SIDEBAR_WIDTH: f32 = 210.0;
+pub const SIDEBAR_MIN: f32 = 168.0;
+pub const SIDEBAR_MAX: f32 = 480.0;
 
 /// A sheet sitting in `trash/`, ready to be put back.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,6 +105,7 @@ pub struct Store {
     pub sheets: Vec<Sheet>,
     pub active: usize,
     pub sidebar: bool,
+    pub sidebar_width: f32,
     state_dirty: bool,
     /// The last deleted sheet and where it was, so it can be put back.
     deleted: Option<(usize, Sheet)>,
@@ -146,6 +168,10 @@ impl Store {
             dir,
             active: 0,
             sidebar: state.sidebar.unwrap_or(true),
+            sidebar_width: state
+                .sidebar_width
+                .unwrap_or(SIDEBAR_WIDTH)
+                .clamp(SIDEBAR_MIN, SIDEBAR_MAX),
             sheets,
             state_dirty: false,
             deleted: None,
@@ -257,6 +283,14 @@ impl Store {
     pub fn toggle_sidebar(&mut self) {
         self.sidebar = !self.sidebar;
         self.state_dirty = true;
+    }
+
+    pub fn set_sidebar_width(&mut self, width: f32) {
+        let width = width.clamp(SIDEBAR_MIN, SIDEBAR_MAX);
+        if (self.sidebar_width - width).abs() > 1.0 {
+            self.sidebar_width = width;
+            self.state_dirty = true;
+        }
     }
 
     pub fn set_cursor(&mut self, cursor: usize) {
@@ -401,6 +435,20 @@ impl Store {
         Some(title)
     }
 
+    /// Remove a trashed sheet for good. Undo can no longer bring it back.
+    pub fn purge(&mut self, id: &str) -> bool {
+        let Some(path) = self.trash_dir().map(|d| d.join(format!("{id}.txt"))) else {
+            return false;
+        };
+        if std::fs::remove_file(&path).is_err() {
+            return false;
+        }
+        if self.deleted.as_ref().is_some_and(|(_, s)| s.id == id) {
+            self.deleted = None;
+        }
+        true
+    }
+
     /// Put back the sheet deleted last, where it was. Returns its title.
     pub fn undo_delete(&mut self) -> Option<String> {
         let (idx, mut sheet) = self.deleted.take()?;
@@ -470,6 +518,7 @@ impl Store {
                 .map(|s| (s.id.clone(), s.cursor))
                 .collect(),
             sidebar: Some(self.sidebar),
+            sidebar_width: Some(self.sidebar_width),
         };
         if let Ok(json) = serde_json::to_vec_pretty(&state)
             && let Err(e) = write_atomic(&dir.with_file_name("state.json"), &json)
@@ -571,6 +620,63 @@ mod tests {
         assert_eq!(again.current().cursor, 5);
         assert!(!again.sidebar);
         assert_eq!(again.sheets[1].title(), "Welcome");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn sidebar_width_comes_back_and_stays_in_range() {
+        let root = temp_root("width");
+        let mut store = Store::load_in(Some(root.clone()), "# Welcome");
+        assert_eq!(store.sidebar_width, SIDEBAR_WIDTH);
+        store.set_sidebar_width(10.0);
+        assert_eq!(store.sidebar_width, SIDEBAR_MIN);
+        store.set_sidebar_width(900.0);
+        assert_eq!(store.sidebar_width, SIDEBAR_MAX);
+        store.set_sidebar_width(280.0);
+        store.toggle_sidebar();
+        store.save().unwrap();
+
+        let again = Store::load_in(Some(root.clone()), "# Welcome");
+        assert!(!again.sidebar);
+        assert_eq!(again.sidebar_width, 280.0);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn old_state_without_a_sidebar_width_still_loads() {
+        let root = temp_root("old-state");
+        let sheets = root.join("sheets");
+        std::fs::create_dir_all(&sheets).unwrap();
+        std::fs::write(sheets.join("abc.txt"), "# Weekend Plans\n1+1").unwrap();
+        std::fs::write(sheets.join("def.txt"), "# Other\n2").unwrap();
+        // The shape written before the sidebar could be resized.
+        std::fs::write(
+            root.join("state.json"),
+            r#"{"order":["def","abc"],"active":"def","cursors":{"def":3},"sidebar":false}"#,
+        )
+        .unwrap();
+        let store = Store::load_in(Some(root.clone()), "# Welcome");
+        assert_eq!(
+            store.sheets.iter().map(Sheet::heading).collect::<Vec<_>>(),
+            ["Other", "Weekend Plans"]
+        );
+        assert!(!store.sidebar);
+        assert_eq!(store.sidebar_width, SIDEBAR_WIDTH);
+        assert_eq!(store.sheets[0].cursor, 3);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn deleting_forever_leaves_nothing_to_restore() {
+        let root = temp_root("purge");
+        let mut store = Store::load_in(Some(root.clone()), "# Weekend Plans");
+        store.delete(0);
+        store.save().unwrap();
+        let id = store.trashed()[0].id.clone();
+        assert!(store.purge(&id));
+        assert!(store.trashed().is_empty());
+        assert!(store.restore(&id).is_none());
+        assert!(store.undo_delete().is_none());
         let _ = std::fs::remove_dir_all(root);
     }
 

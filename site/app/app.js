@@ -61,6 +61,11 @@ const el = {
   deleted: $("[data-deleted]"),
   confirm: $("[data-confirm]"),
   confirmText: $("[data-confirm-text]"),
+  workspace: $("[data-workspace]"),
+  editor: $("[data-editor]"),
+  preview: $("[data-preview]"),
+  previewTitle: $("[data-preview-title]"),
+  previewBody: $("[data-preview-body]"),
 };
 
 let calc;
@@ -137,10 +142,14 @@ function addSheet(text, { select = true } = {}) {
   return id;
 }
 
-function title(text) {
+function heading(text) {
   const line = (text ?? "").split("\n").map((l) => l.trim()).find((l) => l) ?? "";
   const t = line.replace(/^[#/\s]+/, "").trim();
-  if (!t) return "Untitled";
+  return t || "Untitled";
+}
+
+function title(text) {
+  const t = heading(text);
   return t.length > 32 ? t.slice(0, 32) + "…" : t;
 }
 
@@ -213,6 +222,7 @@ const editorStates = new Map();
 let shownId = null;
 
 function showSheet() {
+  clearPreview();
   if (shownId !== null) editorStates.set(shownId, view.state);
   shownId = state.active;
   results = [];
@@ -230,7 +240,13 @@ function showSheet() {
 }
 
 function select(id) {
-  if (id === state.active) return;
+  clearPreview();
+  if (id === state.active) {
+    showSheet();
+    view.focus();
+    setDrawer(false);
+    return;
+  }
   flushSave();
   state.active = id;
   if (id !== "shared") saveIndex();
@@ -257,9 +273,10 @@ function renderSidebar() {
       const b = document.createElement("button");
       b.type = "button";
       b.dataset.id = id;
-      if (id === state.active) b.setAttribute("aria-current", "true");
       const name = document.createElement("span");
-      name.textContent = title(text);
+      name.textContent = heading(text);
+      b.title = heading(text);
+      if (id === state.active && !preview) b.setAttribute("aria-current", "true");
       b.append(name);
       if (shared) {
         const tag = document.createElement("i");
@@ -271,8 +288,10 @@ function renderSidebar() {
       return b;
     }),
   );
-  el.title.textContent = title(currentText());
-  document.title = `${title(currentText())} · Omacus`;
+  if (!preview) {
+    el.title.textContent = title(currentText());
+    document.title = `${title(currentText())} · Omacus`;
+  }
   renderDeleted();
 }
 
@@ -305,16 +324,45 @@ function renderDeleted() {
   for (const item of items) {
     const b = document.createElement("button");
     b.type = "button";
-    b.textContent = title(item.text);
-    b.addEventListener("click", () => restoreTrashed(item.id));
+    b.textContent = heading(item.text);
+    b.title = heading(item.text);
+    if (preview?.id === item.id) b.setAttribute("aria-current", "true");
+    b.addEventListener("click", () => showPreview(item));
     el.deleted.append(b);
   }
+}
+
+let preview = null;
+
+function showPreview(item) {
+  preview = item;
+  if (el.preview) el.preview.hidden = false;
+  if (el.previewTitle) el.previewTitle.textContent = heading(item.text);
+  if (el.previewBody) {
+    el.previewBody.hidden = false;
+    el.previewBody.textContent = item.text;
+  }
+  if (el.editor) el.editor.hidden = true;
+  if (el.title) el.title.textContent = heading(item.text);
+  document.title = `${title(item.text)} · Omacus`;
+  renderSidebar();
+}
+
+function clearPreview() {
+  if (!preview) return;
+  preview = null;
+  if (el.preview) el.preview.hidden = true;
+  if (el.previewBody) el.previewBody.hidden = true;
+  if (el.editor) el.editor.hidden = false;
+  renderSidebar();
+  syncEmpty();
 }
 
 function restoreTrashed(id) {
   const items = loadTrash();
   const item = items.find((t) => t.id === id);
   if (!item) return;
+  clearPreview();
   saveTrash(items.filter((t) => t.id !== id));
   state.texts.set(id, item.text);
   state.order.unshift(id);
@@ -737,6 +785,21 @@ async function action(name) {
     installPrompt?.prompt();
   } else if (name === "dismiss-install") {
     dismissInstall();
+  } else if (name === "restore-trash") {
+    if (preview) restoreTrashed(preview.id);
+  } else if (name === "purge-trash") {
+    if (!preview || !el.confirm) return;
+  el.confirmText.textContent = `Delete “${heading(preview.text)}” forever? This can't be undone.`;
+  el.confirm.hidden = false;
+  const yes = $("[data-confirm-yes]");
+  if (yes) yes.textContent = "Delete forever";
+  el.confirm.dataset.mode = "purge";
+    el.confirm.dataset.id = preview.id;
+  } else if (name === "collapse-side") {
+    setSide(false);
+    setDrawer(false);
+  } else if (name === "expand-side") {
+    setSide(true);
   } else if (name === "privacy") {
     toast(
       "<b>Private.</b> Sheets are saved in this browser, on this device, and never uploaded. " +
@@ -761,6 +824,9 @@ function deleteSheet() {
   if (!el.confirm) return;
   el.confirmText.textContent = `Delete “${name}”? You can restore it from Recently deleted.`;
   el.confirm.hidden = false;
+  const yes = $("[data-confirm-yes]");
+  if (yes) yes.textContent = "Delete";
+  el.confirm.dataset.mode = "sheet";
   el.confirm.dataset.id = id;
   el.confirm.dataset.at = String(at);
 }
@@ -768,6 +834,16 @@ function deleteSheet() {
 function commitDelete() {
   const id = el.confirm?.dataset.id;
   if (!id) return;
+  if (el.confirm.dataset.mode === "purge") {
+    el.confirm.hidden = true;
+    const items = loadTrash();
+    const item = items.find((t) => t.id === id);
+    saveTrash(items.filter((t) => t.id !== id));
+    if (preview?.id === id) clearPreview();
+    renderDeleted();
+    if (item) toast(`Deleted “${esc(heading(item.text))}” forever.`);
+    return;
+  }
   el.confirm.hidden = true;
   const at = Number(el.confirm.dataset.at);
   const text = state.texts.get(id);
@@ -799,6 +875,60 @@ function commitDelete() {
 function setDrawer(open) {
   el.page.classList.toggle("drawer", open);
   $(".sheets-toggle")?.setAttribute("aria-expanded", String(open));
+}
+
+const SIDE_MIN = 168;
+const SIDE_MAX = 480;
+
+function setSide(open) {
+  store.set("side", open ? "1" : "0");
+  applySide();
+}
+
+function applySide() {
+  if (!el.workspace) return;
+  const open = store.get("side") !== "0";
+  el.workspace.classList.toggle("collapsed", !open);
+  // An inline width beats the collapsed rail's 52px, so drop it while closed.
+  if (!open) {
+    el.workspace.style.removeProperty("--side-w");
+    return;
+  }
+  const width = Number(store.get("sidew"));
+  if (width >= SIDE_MIN && width <= SIDE_MAX) {
+    el.workspace.style.setProperty("--side-w", `${width}px`);
+  } else {
+    el.workspace.style.removeProperty("--side-w");
+  }
+}
+
+applySide();
+
+const resize = $("[data-resize]");
+if (resize) {
+  resize.addEventListener("pointerdown", (e) => {
+    if (!el.workspace || el.workspace.classList.contains("collapsed")) return;
+    if (matchMedia("(max-width: 760px)").matches) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = el.workspace.getBoundingClientRect
+      ? document.getElementById("side").getBoundingClientRect().width
+      : SIDE_MIN;
+    const move = (ev) => {
+      const next = Math.min(SIDE_MAX, Math.max(SIDE_MIN, startW + ev.clientX - startX));
+      el.workspace.style.setProperty("--side-w", `${next}px`);
+    };
+    const up = (ev) => {
+      resize.releasePointerCapture?.(ev.pointerId);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      const next = Math.round(document.getElementById("side").getBoundingClientRect().width);
+      store.set("sidew", String(Math.min(SIDE_MAX, Math.max(SIDE_MIN, next))));
+    };
+    resize.setPointerCapture?.(e.pointerId);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  });
 }
 
 document.addEventListener("click", (e) => {
@@ -834,6 +964,20 @@ function closeMenu() {
   el.menuButton.setAttribute("aria-expanded", "false");
 }
 
+addEventListener(
+  "keydown",
+  (e) => {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "b") {
+      e.preventDefault();
+      if (matchMedia("(max-width: 760px)").matches) {
+        setDrawer(!el.page.classList.contains("drawer"));
+      } else if (el.workspace) {
+        setSide(el.workspace.classList.contains("collapsed"));
+      }
+    }
+  },
+  true,
+);
 addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (el.confirm && !el.confirm.hidden) {

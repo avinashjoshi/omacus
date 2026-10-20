@@ -219,6 +219,7 @@ html:has(body.app-page) {
 }
 
 .side {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -228,6 +229,13 @@ html:has(body.app-page) {
   padding-left: var(--safe-left);
   border-right: 1px solid var(--line);
   background: var(--app-side);
+}
+
+.side-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .side-head {
@@ -241,6 +249,49 @@ html:has(body.app-page) {
   text-transform: uppercase;
 }
 
+.side-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.side-resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  z-index: 2;
+  width: 6px;
+  cursor: col-resize;
+}
+
+.rail {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 0 0;
+  border: 0;
+  background: none;
+  color: var(--app-dim);
+  font: 18px/1 var(--sans);
+  cursor: pointer;
+}
+
+.workspace.collapsed {
+  --side-w: 52px;
+}
+
+.workspace.collapsed .side-body,
+.workspace.collapsed .side-resize {
+  display: none;
+}
+
+.workspace.collapsed .rail {
+  display: flex;
+}
+
 .sheet-list {
   flex: 1;
   overflow-y: auto;
@@ -252,7 +303,10 @@ html:has(body.app-page) {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 8px 10px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  overflow: hidden;
   border: 0;
   border-radius: 8px;
   background: none;
@@ -263,6 +317,7 @@ html:has(body.app-page) {
 }
 
 .sheet-list button span {
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -529,13 +584,36 @@ html:has(body.app-page) {
 }
 
 .deleted button {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   text-align: left;
   color: var(--app-dim);
   background: none;
   border: 0;
-  padding: 6px 8px;
+  padding: 0 8px;
   border-radius: 6px;
   cursor: pointer;
+}
+
+.deleted button[aria-current="true"] {
+  background: var(--app-sel);
+  color: var(--app-fg);
+}
+
+.preview-body {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 16px 24px 40px;
+  overflow: auto;
+  color: var(--app-fg);
+  font: var(--font-size) / var(--line-h) var(--mono);
+  white-space: pre-wrap;
 }
 
 .confirm {
@@ -716,6 +794,16 @@ html:has(body.app-page) {
 
   .sheets-toggle {
     display: grid;
+  }
+
+  .rail,
+  .side-resize,
+  [data-action="collapse-side"] {
+    display: none !important;
+  }
+
+  .workspace.collapsed .side-body {
+    display: flex;
   }
 
   .bar .brand {
