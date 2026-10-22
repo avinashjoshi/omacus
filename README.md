@@ -43,12 +43,12 @@ adds the notepad conventions on top.
 ## Using it
 
 - On Omarchy, `SUPER + CTRL + ALT + =` opens Omacus (or focuses it), floating and centered.
-- `Ctrl+Q` or `Ctrl+W` quits. `Esc` only closes the page switcher, help, or a dialog. Nothing is ever lost: like Sublime Text, every page is saved as you
+- `Ctrl+Q` or `Ctrl+W` quits. `Esc` only closes the page switcher, help, settings, or a dialog. Nothing is ever lost: like Sublime Text, every page is saved as you
   type and reopens exactly where you left it, cursor included.
 - Click a result to copy it; `Ctrl+Shift+C` copies the last result, and `Ctrl+Shift+S` copies
   the whole page with its answers lined up (`Ctrl+Shift+M` as a Markdown table).
-- `Ctrl` `+` / `-` zooms.
-- Colors follow the active Omarchy theme (`colors.toml`) and update live on `omarchy theme set`.
+- `Ctrl` `+` / `-` zooms. `Ctrl+,` opens Settings. `Ctrl+\` hides the answers column, so each answer sits after its line.
+- Settings picks the theme. Auto follows your `theme.toml`, then the active Omarchy theme (live on `omarchy theme set`), then the system's light or dark mode. Light, Dark, Paper and Dusk are built in.
 
 ### Pages
 
@@ -63,8 +63,10 @@ adds the notepad conventions on top.
 | `Ctrl+Shift+Delete` | Delete page (asks first; moved to `trash/`, restored from Recently deleted) |
 | `Ctrl+B` | Expand or collapse the sidebar |
 | `Ctrl+Shift+L` | Copy a share link to the page |
+| `Ctrl+,` | Settings: theme, answers column, update checks |
+| `Ctrl+\` | Hide the answers column |
 
-The ⋯ above a page (or on its row in the sidebar, or a right-click) has the same actions. A page's title is its first line.
+The ⋯ above a page (or on its row in the sidebar, or a right-click) has the same actions, and Settings. A page's title is its first line.
 Pages are plain text in `~/.local/share/omacus/pages/`; order, cursors, and whether the
 sidebar is expanded (and how wide) are in `~/.local/share/omacus/state.json`.
 A folder named `sheets` from an older version is renamed to `pages` the first time this version opens.
@@ -215,15 +217,14 @@ On other desktops, bind a global shortcut to `omacus` in your keyboard settings.
 | Custom theme | `~/.config/omacus/theme.toml` | `~/Library/Application Support/omacus/theme.toml` | `%APPDATA%\omacus\theme.toml` |
 | Settings | `~/.config/omacus/settings.toml` | `~/Library/Application Support/omacus/settings.toml` | `%APPDATA%\omacus\settings.toml` |
 
-Colors: your `theme.toml` if present (Omarchy `colors.toml` format), else the active Omarchy theme,
-else the system's light or dark mode. On macOS, shortcuts use ⌘ wherever this README says Ctrl.
+Colors: Settings (`Ctrl+,`) chooses the theme. Auto uses your `theme.toml` if present (Omarchy `colors.toml` format), else the active Omarchy theme, else the system's light or dark mode. Light, Dark, Paper and Dusk ignore those files. Omarchy and Custom use only that one source. `Ctrl+\` hides the answers column. On macOS, shortcuts use ⌘ wherever this README says Ctrl.
 
 ### Updating
 
 The version sits at the bottom of the sidebar, with a dot when a new one is out; click it to update
 and restart. About (F1) has a Check for updates button, or run `omacus update`. Omacus checks GitHub for the latest version when it starts (at most once an hour) and every
 4 hours while open;
-`check_for_updates = false` in `settings.toml` turns that off. On Windows it swaps in the new `omacus.exe`
+`check_for_updates = false` in `settings.toml`, or the switch in Settings, turns that off. On Windows it swaps in the new `omacus.exe`
 where it is. Installed from a .deb or .rpm, the notice links to the download instead.
 
 ## Feedback and issues
