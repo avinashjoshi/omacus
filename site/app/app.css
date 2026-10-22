@@ -764,8 +764,191 @@ body.answers-inline .res {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
 }
 
-.t-head {
+.t-head,
+.t-h1,
+.t-h2,
+.t-h3,
+.t-h4,
+.t-h5,
+.t-h6 {
   color: var(--app-accent);
+  font-weight: 600;
+}
+
+.t-h1 { font-size: 1.5em; }
+.t-h2 { font-size: 1.25em; }
+.t-h3 { font-size: 1.125em; }
+.t-h4,
+.t-h5,
+.t-h6 { font-size: 1.06em; }
+
+.t-bold { font-weight: 600; }
+.t-em { font-style: italic; }
+
+/* Ctrl+P: rendered notes. Answers sit in a pill after their line. */
+.page-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--app-bg);
+  color: var(--app-fg);
+}
+
+.page-preview-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.page-preview-hint {
+  color: var(--app-comment);
+  font: 12px var(--mono);
+}
+
+.page-preview-spacer { flex: 1; }
+
+.page-preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 28px 36px 64px;
+}
+
+.md {
+  max-width: 42rem;
+  font: 16.5px/1.55 var(--sans);
+}
+
+.md h1,
+.md h2,
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  margin: 1.1em 0 0.35em;
+  line-height: 1.25;
+  font-weight: 650;
+}
+
+.md h1 { font-size: 1.7em; }
+.md h2 { font-size: 1.35em; }
+.md h3,
+.md h4,
+.md h5,
+.md h6 { font-size: 1.12em; }
+
+.md > :first-child { margin-top: 0; }
+
+.md p.line { margin: 0 0 0.35em; }
+
+.md ul,
+.md ol {
+  margin: 0 0 0.8em;
+  padding-left: 1.4em;
+}
+
+.md li { margin: 0.15em 0; }
+
+.md li.task { list-style: none; margin-left: -1.2em; }
+
+.md li.task input { margin-right: 0.4em; }
+
+.md blockquote {
+  margin: 0 0 0.8em;
+  padding-left: 12px;
+  border-left: 3px solid var(--app-accent);
+  color: var(--app-dim);
+}
+
+.md table {
+  margin: 0 0 1em;
+  border-collapse: collapse;
+}
+
+.md th,
+.md td {
+  padding: 4px 16px 4px 0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.md th { font-weight: 650; }
+
+.md code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--app-hover);
+  font: 0.92em var(--mono);
+}
+
+.md a { color: var(--app-accent); }
+
+.pill {
+  display: inline-block;
+  margin-left: 0.5em;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--app-accent);
+  color: var(--app-bg);
+  font: 600 12.5px/1.7 var(--sans);
+  vertical-align: 1px;
+  cursor: pointer;
+}
+
+.pill:hover { filter: brightness(1.08); }
+
+@media print {
+  html:has(body.app-page),
+  body.app-page {
+    position: static;
+    overflow: visible;
+    height: auto;
+    background: #fff;
+    color: #111;
+  }
+
+  body.app-page .bar,
+  body.app-page .side,
+  body.app-page:has(.page-preview:not([hidden])) .editor,
+  body.app-page .shared-banner,
+  body.app-page .install-banner,
+  body.app-page .confirm,
+  body.app-page .loading,
+  body.app-page .toast,
+  body.app-page .settings,
+  body.app-page .page-preview-bar,
+  body.app-page [data-preview-body] {
+    display: none !important;
+  }
+
+  body.app-page .workspace,
+  body.app-page .sheet,
+  body.app-page .page-preview {
+    display: block !important;
+    position: static;
+    overflow: visible;
+    height: auto;
+    background: #fff;
+    color: #111;
+  }
+
+  body.app-page .page-preview[hidden] { display: none !important; }
+
+  body.app-page .md,
+  body.app-page .md blockquote { color: #111; }
+
+  body.app-page .pill {
+    background: #111;
+    color: #fff;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
 }
 
 /* ---------- Autocomplete ---------- */

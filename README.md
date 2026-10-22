@@ -35,7 +35,7 @@ prev in EUR                   1,818.97 EUR
 | Time zones | `6pm PST in Tokyo`, `time in Sydney`, `now in London`, `10:30 London to New York`, `3pm PST in IST` |
 | Bases | `255 in hex`, `0xff in decimal`, `255 in binary` |
 | CSS & colours | `16px in rem`, `12pt in px`, `#ff8800 in rgb`, `rgb(51, 102, 153) in hex`, `hsl(150, 60%, 45%)` (with a swatch) |
-| Notes | `# Header`, `// comment`, `"quoted text"`, `Label: 40`, stray prose is ignored |
+| Notes | `# Header`, `// comment`, `#` later on a line is a comment, `"quoted text"`, `Label: 40`, stray prose is ignored. A list prefix comes off first: `- hotel = 3 nights * $180` |
 
 Math, units and currency come from [fend-core](https://github.com/printfn/fend); `src/engine.rs`
 adds the notepad conventions on top.
@@ -43,11 +43,11 @@ adds the notepad conventions on top.
 ## Using it
 
 - On Omarchy, `SUPER + CTRL + ALT + =` opens Omacus (or focuses it), floating and centered.
-- `Ctrl+Q` or `Ctrl+W` quits. `Esc` only closes the page switcher, help, settings, or a dialog. Nothing is ever lost: like Sublime Text, every page is saved as you
+- `Ctrl+Q` or `Ctrl+W` quits. `Esc` only closes the page switcher, the preview, help, settings, or a dialog. Nothing is ever lost: like Sublime Text, every page is saved as you
   type and reopens exactly where you left it, cursor included.
 - Click a result to copy it; `Ctrl+Shift+C` copies the last result, and `Ctrl+Shift+S` copies
   the whole page with its answers lined up (`Ctrl+Shift+M` as a Markdown table).
-- `Ctrl` `+` / `-` zooms. `Ctrl+,` opens Settings. `Ctrl+\` hides the answers column, so each answer sits after its line.
+- `Ctrl` `+` / `-` zooms. `Ctrl+,` opens Settings. `Ctrl+\` hides the answers column, so each answer sits after its line. `Ctrl+P` previews the page as rendered notes, with each answer in a pill; Print and Export PDF use that view.
 - Settings picks the theme. Auto follows your `theme.toml`, then the active Omarchy theme (live on `omarchy theme set`), then the system's light or dark mode. Light, Dark, Paper and Dusk are built in.
 
 ### Pages
@@ -65,6 +65,7 @@ adds the notepad conventions on top.
 | `Ctrl+Shift+L` | Copy a share link to the page |
 | `Ctrl+,` | Settings: theme, answers column, update checks |
 | `Ctrl+\` | Hide the answers column |
+| `Ctrl+P` | Preview the page (print and export PDF from there) |
 
 The ⋯ above a page (or on its row in the sidebar, or a right-click) has the same actions, and Settings. A page's title is its first line.
 Pages are plain text in `~/.local/share/omacus/pages/`; order, cursors, and whether the

@@ -6,6 +6,8 @@ mod calc;
 mod help;
 mod highlight;
 mod links;
+mod pdf;
+mod preview;
 mod rates;
 mod settings;
 mod sheets;

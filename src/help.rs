@@ -74,6 +74,10 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
             ("Ctrl+Shift+S", "Copy the page with its answers"),
             ("Ctrl+Shift+M", "Copy the page as a Markdown table"),
             ("Ctrl+Shift+L", "Copy a share link to the page"),
+            (
+                "Ctrl+P",
+                "Preview the page. Print and Export PDF use that view",
+            ),
         ],
     ),
     (
@@ -99,7 +103,10 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("F1  /  Ctrl+/", "This help"),
             ("Ctrl+,", "Settings: theme, answers column, update checks"),
-            ("Esc", "Close the switcher, help, settings, or a dialog"),
+            (
+                "Esc",
+                "Close the switcher, preview, help, settings, or a dialog",
+            ),
             ("Ctrl+W  /  Ctrl+Q", "Quit (everything is saved)"),
             ("Super+Ctrl+Alt+=", "Open Omacus from anywhere (Omarchy)"),
         ],
@@ -224,6 +231,9 @@ const SYNTAX: &[(&str, &[&str])] = &[
             "// a comment line",
             "Rent: $1,450",
             "\"quoted text\" 40 + 2",
+            "- hotel = 3 nights * $180",
+            "hotel * 2",
+            "rent = $100 # monthly",
         ],
     ),
 ];
@@ -231,11 +241,11 @@ const SYNTAX: &[(&str, &[&str])] = &[
 const TIPS: &[(&str, &str)] = &[
     (
         "Write like notes",
-        "Words Omacus doesn't know are ignored, so `Lunch with Sam $18` just works. Put labels before a colon (`Rent: $1,450`) to keep them out of the math entirely.",
+        "Words Omacus doesn't know are ignored, so `Lunch with Sam $18` just works. A markdown prefix comes off first: `- hotel = 3 nights * $180` sets hotel. `#` at the start of a line is a heading; `#` later on the line is a comment (`rent = $100 # monthly`). Put labels before a colon (`Rent: $1,450`) to keep them out of the math entirely.",
     ),
     (
         "Blocks and totals",
-        "`sum`, `total` and `average` cover the lines above, back to the last blank line or header, and work in a calculation too (`total * 1.08`). `sum(1, 2, 3)`, `avg(2, 4)`, `min` and `max` take arguments. Leave a blank line to start a new block.",
+        "`sum`, `total` and `average` cover the lines above, back to the last blank line or prose heading, and work in a calculation too (`total * 1.08`). A list, a quote or a task stays in the block. `sum(1, 2, 3)`, `avg(2, 4)`, `min` and `max` take arguments. Leave a blank line to start a new block.",
     ),
     (
         "Chain with prev",
@@ -251,7 +261,11 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "Nothing to save",
-        "Pages save as you type and reopen with your cursor where you left it. Quit with Ctrl+Q or Ctrl+W. Esc only closes the switcher, help, or a dialog.",
+        "Pages save as you type and reopen with your cursor where you left it. Quit with Ctrl+Q or Ctrl+W. Esc only closes the switcher, the preview, help, or a dialog.",
+    ),
+    (
+        "Preview and print",
+        "`Ctrl+P` shows the page as rendered notes: headings, lists, checkboxes and tables, with each answer in a small pill after its line. Print and Export PDF use that view. Esc returns to editing. Tables are drawn, and a cell is not calculated.",
     ),
     (
         "Deleted isn't gone",
