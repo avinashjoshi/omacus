@@ -4,11 +4,12 @@
 // part after "#", which browsers never send to the server.
 
 import init, {
-  Calc, suggest, shareEncode, shareDecode, layoutAnswers, realignMap, pageMarks, previewHtml, variables,
+  Calc, suggest, shareEncode, shareDecode, layoutAnswers, realignMap, pageMarks, previewHtml, variables, wordKind,
 } from "./pkg/omacus_web.js";
 import {
-  EditorState, StateField, StateEffect, RangeSetBuilder, Prec, EditorView, Decoration, WidgetType, keymap,
-  defaultKeymap, history as undoHistory, historyKeymap, autocompletion, acceptCompletion, closeCompletion, moveCompletionSelection,
+  EditorState, StateField, StateEffect, RangeSetBuilder, Prec, EditorView, Decoration, WidgetType, keymap, hoverTooltip,
+  defaultKeymap, history as undoHistory, historyKeymap, autocompletion, acceptCompletion, closeCompletion,
+  moveCompletionSelection, startCompletion, completionStatus,
 } from "./editor.js";
 
 const WASM = "/app/pkg/omacus_web_bg.wasm";
@@ -113,10 +114,10 @@ const store = {
 
 // Same built-in colors as the desktop app. Auto follows this device.
 const THEMES = {
-  light: { dark: false, bg: "#ffffff", side: "#f6f8fa", fg: "#24292f", dim: "#6e7781", comment: "#8c959f", accent: "#0969da", variable: "#cf222e", sel: "#ddf4ff", hover: "#eaeef2", line: "#d0d7de", line2: "#afb8c1" },
-  dark: { dark: true, bg: "#1a1b26", side: "#16161e", fg: "#c0caf5", dim: "#787c99", comment: "#565f89", accent: "#7aa2f7", variable: "#bb9af7", sel: "#33467c", hover: "#24283b", line: "#2a2e45", line2: "#3b4261" },
-  paper: { dark: false, bg: "#f6f1e7", side: "#efe6d6", fg: "#3c3226", dim: "#8a7b68", comment: "#a89880", accent: "#b45309", variable: "#9f1239", sel: "#eadcc4", hover: "#e7dcc8", line: "#e0d3bc", line2: "#c9b89a" },
-  dusk: { dark: true, bg: "#1c2433", side: "#151b28", fg: "#d7e0f0", dim: "#8b9bb3", comment: "#64748b", accent: "#8eb4ff", variable: "#f0a27a", sel: "#2c3d5c", hover: "#243044", line: "#2c3a50", line2: "#3d4e6b" },
+  light: { dark: false, bg: "#ffffff", side: "#f6f8fa", fg: "#24292f", dim: "#6e7781", comment: "#8c959f", accent: "#0969da", variable: "#cf222e", defined: "#1a7f37", keyword: "#8250df", number: "#1f2328", sel: "#ddf4ff", hover: "#eaeef2", line: "#d0d7de", line2: "#afb8c1" },
+  dark: { dark: true, bg: "#1a1b26", side: "#16161e", fg: "#c0caf5", dim: "#787c99", comment: "#565f89", accent: "#7aa2f7", variable: "#bb9af7", defined: "#9ece6a", keyword: "#7dcfff", number: "#e0e6ff", sel: "#33467c", hover: "#24283b", line: "#2a2e45", line2: "#3b4261" },
+  paper: { dark: false, bg: "#f6f1e7", side: "#efe6d6", fg: "#3c3226", dim: "#8a7b68", comment: "#a89880", accent: "#b45309", variable: "#9f1239", defined: "#1d4ed8", keyword: "#0f766e", number: "#2a2118", sel: "#eadcc4", hover: "#e7dcc8", line: "#e0d3bc", line2: "#c9b89a" },
+  dusk: { dark: true, bg: "#1c2433", side: "#151b28", fg: "#d7e0f0", dim: "#8b9bb3", comment: "#64748b", accent: "#8eb4ff", variable: "#f0a27a", defined: "#c4b5fd", keyword: "#7ddea0", number: "#f1f5ff", sel: "#2c3d5c", hover: "#243044", line: "#2c3a50", line2: "#3d4e6b" },
 };
 const THEME_NOTES = {
   auto: "Follows this device's light or dark mode.",
@@ -158,6 +159,9 @@ function applySettings() {
   set("--app-comment", t.comment);
   set("--app-accent", t.accent);
   set("--app-var", t.variable);
+  set("--app-def", t.defined);
+  set("--app-kw", t.keyword);
+  set("--app-num", t.number);
   set("--app-sel", t.sel);
   set("--app-hover", t.hover);
   set("--text", t.fg);
@@ -676,15 +680,70 @@ function completions(ctx) {
   const doc = ctx.state.doc.toString();
   const found = JSON.parse(suggest(doc.slice(0, ctx.pos), doc));
   if (!found) return null;
-  return { from: found.start, options: found.items.map((label) => ({ label })), filter: false };
+  return {
+    from: found.start,
+    filter: false,
+    options: found.items.map((item) => ({
+      label: item.text,
+      detail: `${item.kind === "zone" ? "time zone" : item.kind} · ${item.detail}`,
+      type: item.kind,
+    })),
+  };
 }
 
-// As in the desktop app: Tab accepts a suggestion, Enter is always a new line.
+// Enter accepts only after Ctrl+Space. Typing still opens the list, and Tab
+// accepts it, but Enter stays a newline so "3 km in" cannot become "inch".
+let explicitCompletion = false;
+let armingExplicit = false;
+
+function hoverSource(view, pos) {
+  if (!calc) return null;
+  const found = JSON.parse(calc.hoverValue(view.state.doc.toString(), pos));
+  if (!found) return null;
+  return {
+    pos: found.start,
+    end: found.end,
+    above: true,
+    create() {
+      const dom = document.createElement("div");
+      dom.className = "hover-value";
+      dom.textContent = found.value;
+      return { dom };
+    },
+  };
+}
+
+// As in the desktop app: Tab accepts a suggestion. Ctrl+Space opens the list
+// and then Enter accepts it. Otherwise Enter is a new line.
 const editorKeys = [
   { key: "Tab", run: acceptCompletion },
   { key: "ArrowDown", run: moveCompletionSelection(true) },
   { key: "ArrowUp", run: moveCompletionSelection(false) },
-  { key: "Escape", run: closeCompletion },
+  {
+    key: "Escape",
+    run(view) {
+      explicitCompletion = false;
+      return closeCompletion(view);
+    },
+  },
+  {
+    key: "Ctrl-Space",
+    run(view) {
+      armingExplicit = true;
+      const opened = startCompletion(view);
+      armingExplicit = false;
+      explicitCompletion = completionStatus(view) === "active";
+      return opened;
+    },
+  },
+  {
+    key: "Enter",
+    run(view) {
+      if (!explicitCompletion || completionStatus(view) !== "active") return false;
+      explicitCompletion = false;
+      return acceptCompletion(view);
+    },
+  },
   { key: "Mod-Shift-s", run: () => (action("copy"), true) },
   { key: "Mod-Shift-m", run: () => (action("markdown"), true) },
 ];
@@ -696,7 +755,11 @@ const editorExtensions = [
   EditorView.lineWrapping,
   sheetField,
   autocompletion({ override: [completions], defaultKeymap: false, icons: false }),
-  EditorView.updateListener.of((u) => u.docChanged && onInput()),
+  hoverTooltip(hoverSource, { hoverTime: 250 }),
+  EditorView.updateListener.of((update) => {
+    if (!armingExplicit && completionStatus(update.view) !== "active") explicitCompletion = false;
+    if (update.docChanged) onInput();
+  }),
   EditorView.contentAttributes.of({ spellcheck: "false", autocapitalize: "off", autocorrect: "off", "aria-label": "Page" }),
 ];
 
@@ -837,7 +900,7 @@ function lineSpans(line, vars) {
   };
   if (marks.heading) paint(0, line.length, `t-h${marks.heading}`);
   else {
-    for (const [from, to, name] of tokens(line.slice(0, marks.comment ?? line.length), vars)) {
+    for (const [from, to, name] of tokens(line.slice(0, marks.comment ?? line.length), vars, marks.define)) {
       paint(from, to, name);
     }
   }
@@ -870,8 +933,17 @@ function marksFor(line) {
   };
 }
 
-// The same colours as the desktop app's matte-black theme, as [from, to, class] spans.
-function tokens(line, vars) {
+const kindCache = new Map();
+function isKeywordOrUnit(word) {
+  const key = word.toLowerCase();
+  if (kindCache.has(key)) return kindCache.get(key);
+  const yes = engineReady ? wordKind(word) !== "" : KEYWORDS.has(key);
+  kindCache.set(key, yes);
+  return yes;
+}
+
+// The same colours as the desktop app, as [from, to, class] spans.
+function tokens(line, vars, define) {
   const out = [];
   const code = line;
   let at = 0;
@@ -889,7 +961,8 @@ function tokens(line, vars) {
     if (str) span("t-com");
     else if (num || sym) span("t-num");
     else if (word) {
-      const cls = vars.has(word) ? "t-var" : KEYWORDS.has(word.toLowerCase()) ? "t-kw" : "";
+      const defined = define && m.index === define[0];
+      const cls = defined ? "t-def" : vars.has(word) ? "t-var" : isKeywordOrUnit(word) ? "t-kw" : "";
       if (cls) span(cls);
     } else if (!ws) span("t-op");
   }

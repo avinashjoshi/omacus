@@ -24,6 +24,9 @@ pub struct Theme {
     pub number: Color32,
     pub keyword: Color32,
     pub variable: Color32,
+    /// A name on the line that defines it. Distinct from `variable` (a later use)
+    /// and from `keyword`.
+    pub defined: Color32,
     pub selection: Color32,
     pub hover: Color32,
 }
@@ -47,6 +50,7 @@ impl Theme {
             number: hex("#e0e6ff"),
             keyword: hex("#7dcfff"),
             variable: hex("#bb9af7"),
+            defined: hex("#9ece6a"),
             selection: hex("#33467c"),
             hover: hex("#24283b"),
         }
@@ -64,6 +68,7 @@ impl Theme {
             number: hex("#1f2328"),
             keyword: hex("#8250df"),
             variable: hex("#cf222e"),
+            defined: hex("#1a7f37"),
             selection: hex("#ddf4ff"),
             hover: hex("#eaeef2"),
         }
@@ -82,6 +87,7 @@ impl Theme {
             number: hex("#2a2118"),
             keyword: hex("#0f766e"),
             variable: hex("#9f1239"),
+            defined: hex("#1d4ed8"),
             selection: hex("#eadcc4"),
             hover: hex("#e7dcc8"),
         }
@@ -100,6 +106,7 @@ impl Theme {
             number: hex("#f1f5ff"),
             keyword: hex("#7ddea0"),
             variable: hex("#f0a27a"),
+            defined: hex("#c4b5fd"),
             selection: hex("#2c3d5c"),
             hover: hex("#243044"),
         }
@@ -212,6 +219,11 @@ impl Theme {
             number: get(&["bright_foreground", "color15"]).unwrap_or(foreground),
             keyword: get(&["cyan", "color6"]).unwrap_or(accent),
             variable: get(&["magenta", "color5"]).unwrap_or(accent),
+            defined: defined_color(
+                get(&["green", "color2"]),
+                get(&["cyan", "color6"]).unwrap_or(accent),
+                get(&["magenta", "color5"]).unwrap_or(accent),
+            ),
             selection: get(&["selection", "selection_background"])
                 .unwrap_or(mix(accent, background, 0.3)),
             hover: get(&["lighter_background"]).unwrap_or(mix(foreground, background, 0.08)),
@@ -252,6 +264,20 @@ pub fn watch(on_change: impl Fn() + Send + 'static) -> Arc<AtomicBool> {
     changed
 }
 
+/// A definition colour that is neither the keyword colour nor the use colour.
+fn defined_color(chosen: Option<Color32>, keyword: Color32, variable: Color32) -> Color32 {
+    let green = Color32::from_rgb(0x9e, 0xce, 0x6a);
+    let gold = Color32::from_rgb(0xe0, 0xaf, 0x68);
+    let color = chosen.unwrap_or(green);
+    if color != keyword && color != variable {
+        color
+    } else if gold != keyword && gold != variable {
+        gold
+    } else {
+        Color32::from_rgb(0x1a, 0x7f, 0x37)
+    }
+}
+
 fn parse_hex(s: &str) -> Option<Color32> {
     let s = s.trim().trim_start_matches('#').trim_start_matches("0x");
     let n = u32::from_str_radix(s.get(..6)?, 16).ok()?;
@@ -288,6 +314,20 @@ mod tests {
         }
         assert!(!Theme::paper().dark);
         assert!(Theme::dusk().dark);
+        for theme in &themes {
+            assert_ne!(
+                theme.defined, theme.variable,
+                "definition and use share a colour"
+            );
+            assert_ne!(
+                theme.defined, theme.keyword,
+                "definition and keyword share a colour"
+            );
+            assert_ne!(
+                theme.variable, theme.keyword,
+                "use and keyword share a colour"
+            );
+        }
         assert_eq!(Theme::paper().background, hex("#f6f1e7"));
         assert_eq!(Theme::dusk().background, hex("#1c2433"));
 

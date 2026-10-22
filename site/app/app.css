@@ -785,6 +785,12 @@ body.answers-inline .res {
 .t-bold { font-weight: 600; }
 .t-em { font-style: italic; }
 
+.cm-editor .t-def { color: var(--app-def); }
+.cm-editor .t-var { color: var(--app-var); }
+.cm-editor .t-kw { color: var(--app-kw); }
+.cm-editor .t-num { color: var(--app-num); }
+.cm-editor .t-com { color: var(--app-comment); }
+
 /* Ctrl+P: rendered notes. Answers sit in a pill after their line. */
 .page-preview {
   position: absolute;
@@ -976,6 +982,31 @@ body.answers-inline .res {
 .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
   background: var(--app-sel);
   color: var(--app-accent);
+}
+
+.cm-tooltip-autocomplete .cm-completionDetail {
+  margin-left: 16px;
+  color: var(--app-dim);
+  font-style: normal;
+}
+
+.cm-tooltip-autocomplete li[aria-selected] .cm-completionDetail {
+  color: var(--app-comment);
+}
+
+.cm-tooltip.cm-tooltip-hover {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.hover-value {
+  padding: 4px 8px;
+  border: 1px solid var(--app-sel);
+  border-radius: 6px;
+  background: var(--app-side);
+  color: var(--app-accent);
+  font: 13px var(--mono);
 }
 
 .menu-list .phone-only {
