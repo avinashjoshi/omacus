@@ -104,7 +104,7 @@ enum SheetAction {
     /// Copy a link that opens the sheet in a browser (or in Omacus).
     Share(usize),
     Settings,
-    /// Rendered markdown, with answers in pills. Ctrl+P.
+    /// Rendered markdown, with each answer in brackets. Ctrl+P.
     Preview,
 }
 
@@ -167,11 +167,12 @@ struct Switcher {
     selected: usize,
 }
 
-/// Where Enter goes in the switcher: an open sheet, or one in the trash.
+/// Where Enter goes in the switcher: an open page, one in the trash, or Settings.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Jump {
     Sheet(usize),
     Trash(String),
+    Settings,
 }
 
 struct Hit {
@@ -1152,18 +1153,27 @@ impl OmacusApp {
         };
         let titles: Vec<String> = self.store.sheets.iter().map(|s| s.title()).collect();
         let texts: Vec<&str> = self.store.sheets.iter().map(|s| s.text.as_str()).collect();
-        let mut hits: Vec<Hit> = find_sheets(&titles, &texts, &sw.query)
-            .into_iter()
-            .map(|i| Hit {
-                title: titles[i].clone(),
-                badge: if i == self.store.active {
-                    "current"
-                } else {
-                    ""
-                },
-                jump: Jump::Sheet(i),
-            })
-            .collect();
+        let mut hits = Vec::new();
+        if settings_command(&sw.query) {
+            hits.push(Hit {
+                title: "Settings".to_string(),
+                jump: Jump::Settings,
+                badge: "command",
+            });
+        }
+        hits.extend(
+            find_sheets(&titles, &texts, &sw.query)
+                .into_iter()
+                .map(|i| Hit {
+                    title: titles[i].clone(),
+                    badge: if i == self.store.active {
+                        "current"
+                    } else {
+                        ""
+                    },
+                    jump: Jump::Sheet(i),
+                }),
+        );
         if !sw.query.trim().is_empty() {
             let titles: Vec<String> = self.trash.iter().map(|t| t.title.clone()).collect();
             let texts: Vec<&str> = self.trash.iter().map(|t| t.text.as_str()).collect();
@@ -1182,6 +1192,7 @@ impl OmacusApp {
         match jump {
             Jump::Sheet(i) => self.apply(SheetAction::Select(i)),
             Jump::Trash(id) => self.open_preview(id),
+            Jump::Settings => self.open_settings(),
         }
     }
 
@@ -1553,10 +1564,33 @@ impl OmacusApp {
         let available = self.updates.available();
         let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
         let help_rect = icon_slot(row, 0);
-        let about_rect = Rect::from_min_max(row.min, pos2(help_rect.left() - 4.0, row.bottom()));
+        let gear_rect = icon_slot(row, 1);
+        let about_rect = Rect::from_min_max(row.min, pos2(gear_rect.left() - 4.0, row.bottom()));
         let about = ui.interact(about_rect, ui.scope_id().with("about"), Sense::click());
+        let gear = icon_button(
+            ui,
+            gear_rect,
+            ui.scope_id().with("settings"),
+            theme,
+            Icon::Gear,
+        );
         let help = icon_button(ui, help_rect, ui.scope_id().with("help"), theme, Icon::Help);
 
+        let version_text = format!("v{}", update::current());
+        let version_color = if available.is_some() {
+            theme.accent
+        } else {
+            theme.comment
+        };
+        let version_width = ui.ctx().fonts_mut(|f| {
+            f.layout_no_wrap(
+                version_text.clone(),
+                FontId::proportional(12.0),
+                version_color,
+            )
+            .size()
+            .x
+        });
         let painter = ui.painter();
         if about.hovered() {
             painter.rect_filled(about_rect, CornerRadius::same(6), theme.hover);
@@ -1576,19 +1610,22 @@ impl OmacusApp {
             FontId::proportional(13.0),
             theme.dim,
         );
-        let version = painter.text(
-            pos2(name.right() + 6.0, row.center().y),
-            Align2::LEFT_CENTER,
-            format!("v{}", update::current()),
-            FontId::proportional(12.0),
+        let version_x = name.right() + 6.0;
+        if version_x + version_width < gear_rect.left() - 6.0 {
+            let version = ui.painter().text(
+                pos2(version_x, row.center().y),
+                Align2::LEFT_CENTER,
+                version_text,
+                FontId::proportional(12.0),
+                version_color,
+            );
             if available.is_some() {
-                theme.accent
-            } else {
-                theme.comment
-            },
-        );
-        if available.is_some() {
-            painter.circle_filled(version.right_center() + vec2(7.0, 0.0), 3.0, theme.accent);
+                ui.painter().circle_filled(
+                    version.right_center() + vec2(7.0, 0.0),
+                    3.0,
+                    theme.accent,
+                );
+            }
         }
         if about.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -1611,6 +1648,12 @@ impl OmacusApp {
             .clicked()
         {
             self.toggle_help();
+        }
+        if gear
+            .on_hover_text(format!("Settings ({})", help::keys("Ctrl+,")))
+            .clicked()
+        {
+            self.open_settings();
         }
     }
 
@@ -2145,27 +2188,7 @@ impl OmacusApp {
         if !rect.contains(pointer) {
             return;
         }
-        let theme = self.theme.clone();
-        let value = hit.value.clone();
-        egui::Area::new(egui::Id::unique("omacus-hover"))
-            .order(Order::Tooltip)
-            .interactable(false)
-            .fixed_pos(pos2(rect.left(), rect.top() - 30.0))
-            .show(ui.ctx(), |ui| {
-                Frame::NONE
-                    .fill(theme.sidebar)
-                    .stroke(egui::Stroke::new(1.0, theme.selection))
-                    .corner_radius(CornerRadius::same(6))
-                    .inner_margin(Margin::symmetric(8, 4))
-                    .show(ui, |ui| {
-                        ui.label(
-                            egui::RichText::new(value)
-                                .monospace()
-                                .size(13.0)
-                                .color(theme.accent),
-                        );
-                    });
-            });
+        paint_hover_tip(ui.ctx(), &self.theme, rect, &hit.value);
     }
 
     fn lookup_hover(&mut self, text: &str, cursor: usize) -> Option<engine::Hover> {
@@ -2203,6 +2226,11 @@ impl OmacusApp {
         let toggle =
             Rect::from_center_size(pos2(x, area.top() + BAR_ROW / 2.0), Vec2::splat(ICON_BOX));
         let logo = Rect::from_center_size(pos2(x, area.bottom() - BAR_ROW / 2.0), vec2(18.0, 18.0));
+        let gear_rect = Rect::from_center_size(
+            pos2(x, logo.center().y - (ICON_BOX + 8.0)),
+            Vec2::splat(ICON_BOX),
+        );
+        let gear = icon_button(ui, gear_rect, id.with("rail-settings"), &theme, Icon::Gear);
         let plus = icon_button(
             ui,
             toggle.translate(vec2(0.0, ICON_BOX + 4.0)),
@@ -2230,6 +2258,11 @@ impl OmacusApp {
             .clicked()
         {
             self.apply(SheetAction::New);
+        } else if gear
+            .on_hover_text(format!("Settings ({})", help::keys("Ctrl+,")))
+            .clicked()
+        {
+            self.open_settings();
         } else if rail
             .on_hover_text(format!("Expand sidebar ({})", help::keys("Ctrl+B")))
             .clicked()
@@ -2626,6 +2659,7 @@ enum Icon {
     Plus,
     Sidebar,
     Help,
+    Gear,
 }
 
 /// Drawn rather than typed, so they match each other, Share and ⋯ in any font.
@@ -2653,6 +2687,14 @@ fn paint_icon(painter: &egui::Painter, icon: Icon, c: Pos2, color: Color32) {
                 color,
             );
         }
+        Icon::Gear => {
+            painter.circle_stroke(c, 2.7, stroke);
+            for i in 0..8 {
+                let a = i as f32 * std::f32::consts::FRAC_PI_4;
+                let d = vec2(a.cos(), a.sin());
+                painter.line_segment([c + d * 4.3, c + d * 7.0], stroke);
+            }
+        }
     }
 }
 
@@ -2675,6 +2717,62 @@ fn icon_button(
     };
     paint_icon(ui.painter(), icon, rect.center(), color);
     resp
+}
+
+/// Where a hover value sits: above the token, below it when that would leave
+/// the window, and shifted so the whole tip stays inside `bounds`. The tip is
+/// exactly as wide as the value, so a long amount is never wrapped.
+fn hover_tip_rect(token: Rect, text_size: Vec2, bounds: Rect) -> Rect {
+    let pad = vec2(12.0, 8.0);
+    let size = text_size + pad * 2.0;
+    let gap = 6.0;
+    let mut y = token.top() - size.y - gap;
+    if y < bounds.top() {
+        y = token.bottom() + gap;
+    }
+    if y + size.y > bounds.bottom() {
+        y = (bounds.bottom() - size.y).max(bounds.top());
+    }
+    let mut x = token.left();
+    if x + size.x > bounds.right() {
+        x = bounds.right() - size.x;
+    }
+    if x < bounds.left() {
+        x = bounds.left();
+    }
+    Rect::from_min_size(pos2(x, y), size)
+}
+
+fn paint_hover_tip(ctx: &egui::Context, theme: &Theme, token: Rect, value: &str) {
+    let galley = ctx.fonts_mut(|fonts| {
+        fonts.layout_no_wrap(value.to_string(), FontId::monospace(14.0), theme.accent)
+    });
+    let bounds = ctx.content_rect().shrink(8.0);
+    let tip = hover_tip_rect(token, galley.size(), bounds);
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        Order::Tooltip,
+        egui::Id::unique("omacus-hover"),
+    ));
+    painter.rect_filled(
+        tip.translate(vec2(0.0, 2.0)),
+        CornerRadius::same(8),
+        Color32::from_black_alpha(if theme.dark { 90 } else { 32 }),
+    );
+    painter.rect_filled(tip, CornerRadius::same(8), theme.sidebar);
+    painter.rect_stroke(
+        tip,
+        CornerRadius::same(8),
+        egui::Stroke::new(1.0, theme.selection),
+        egui::StrokeKind::Inside,
+    );
+    painter.galley(tip.min + vec2(12.0, 8.0), galley, theme.accent);
+}
+
+/// The switcher opens Settings when the query is the start of that word.
+/// A single letter would steal every page whose name starts with "s".
+fn settings_command(query: &str) -> bool {
+    let q = query.trim().to_lowercase();
+    q.len() >= 2 && "settings".starts_with(&q)
 }
 
 /// The sidebar's button column: centered on the rows' ⋯, `slot` buttons in from the right.
@@ -3180,9 +3278,9 @@ mod tests {
     use super::find_sheets;
     use super::{
         BAR_ROW, HINT_IDLE, SIDEBAR_ROW, Shortcut, SwitcherEdit, apply_switcher_query,
-        empty_sheet_hint, icon_slot, line_at, name_hint_visible, owns_key, sheet_event_filter,
-        shortcut_for, sidebar_accent, sidebar_label_job, switcher_takes_focus, take_chords,
-        take_switcher_edits,
+        empty_sheet_hint, hover_tip_rect, icon_slot, line_at, name_hint_visible, owns_key,
+        settings_command, sheet_event_filter, shortcut_for, sidebar_accent, sidebar_label_job,
+        switcher_takes_focus, take_chords, take_switcher_edits,
     };
     use eframe::egui::{Color32, Event, FontId, ImeEvent, Key, Modifiers, Rect, pos2, vec2};
     use std::time::Duration;
@@ -3437,6 +3535,46 @@ mod tests {
         assert!(!name_hint_visible(true, Duration::from_millis(100)));
         assert!(name_hint_visible(true, HINT_IDLE));
         assert!(name_hint_visible(false, Duration::ZERO));
+    }
+
+    #[test]
+    fn a_hover_tip_is_as_wide_as_its_value_and_stays_in_the_window() {
+        let bounds = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
+        let text = vec2(148.0, 16.0);
+        let token = Rect::from_min_size(pos2(100.0, 200.0), vec2(40.0, 16.0));
+        let tip = hover_tip_rect(token, text, bounds);
+        assert!((tip.width() - (text.x + 24.0)).abs() < 0.1);
+        assert!(
+            tip.width() > tip.height() * 2.0,
+            "a value must not stack into a tall box"
+        );
+        assert!(tip.bottom() <= token.top());
+        assert!(tip.left() >= bounds.left() && tip.right() <= bounds.right());
+        assert!(tip.top() >= bounds.top());
+
+        let token = Rect::from_min_size(pos2(340.0, 200.0), vec2(30.0, 16.0));
+        let tip = hover_tip_rect(token, text, bounds);
+        assert!((tip.width() - (text.x + 24.0)).abs() < 0.1);
+        assert!(tip.right() <= bounds.right() + 0.1);
+        assert!(tip.left() >= bounds.left());
+
+        let token = Rect::from_min_size(pos2(20.0, 4.0), vec2(30.0, 16.0));
+        let tip = hover_tip_rect(token, text, bounds);
+        assert!(tip.top() >= token.bottom());
+        assert!(tip.bottom() <= bounds.bottom());
+        assert!((tip.width() - (text.x + 24.0)).abs() < 0.1);
+    }
+
+    #[test]
+    fn settings_is_a_switcher_command() {
+        assert!(!settings_command(""));
+        assert!(!settings_command("s"));
+        assert!(!settings_command("  s "));
+        assert!(settings_command("se"));
+        assert!(settings_command("Set"));
+        assert!(settings_command("settings"));
+        assert!(!settings_command("settingx"));
+        assert!(!settings_command("page"));
     }
 
     #[test]

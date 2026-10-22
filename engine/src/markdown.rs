@@ -637,7 +637,7 @@ fn link_at(s: &str, i: usize) -> Option<(String, String, usize)> {
     Some((text, href, next))
 }
 
-/// The preview as HTML: one fragment, answers in `<span class="pill">`.
+/// The preview as HTML: one fragment, each answer as `[ value ]` in a button.
 pub fn preview_html(text: &str, answers: &[Option<&str>]) -> String {
     let mut html = String::from("<article class=\"md\">");
     for block in render(text, answers) {
@@ -710,9 +710,13 @@ pub fn preview_html(text: &str, answers: &[Option<&str>]) -> String {
 fn push_rich(html: &mut String, rich: &Rich) {
     push_inlines(html, &rich.inlines);
     if let Some(answer) = &rich.answer {
-        html.push_str("<span class=\"pill\">");
+        // The button's text is the brackets Avi wants. `data-value` is the raw
+        // answer, so a click copies that and not the brackets.
+        html.push_str("<button type=\"button\" class=\"pill\" data-value=\"");
         html.push_str(&escape(answer));
-        html.push_str("</span>");
+        html.push_str("\">[ ");
+        html.push_str(&escape(answer));
+        html.push_str(" ]</button>");
     }
 }
 
@@ -839,7 +843,9 @@ mod tests {
         let html = preview_html("- hotel = 3 nights * $180\n", &[Some("$540")]);
         assert!(html.contains("<li>"));
         assert!(html.contains("hotel = 3 nights * $180"));
-        assert!(html.contains("<span class=\"pill\">$540</span>"));
+        assert!(html.contains(
+            "<button type=\"button\" class=\"pill\" data-value=\"$540\">[ $540 ]</button>"
+        ));
 
         let quoted = preview_html("say **hello**\n", &[None]);
         assert!(quoted.contains("<strong>hello</strong>"));
@@ -854,7 +860,7 @@ mod tests {
     fn preview_escapes_html() {
         let html = preview_html("2 < 3 & 4\n", &[Some("true < false")]);
         assert!(html.contains("2 &lt; 3 &amp; 4"));
-        assert!(html.contains("true &lt; false"));
+        assert!(html.contains("data-value=\"true &lt; false\">[ true &lt; false ]</button>"));
         assert!(!html.contains("<script"));
     }
 }

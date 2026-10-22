@@ -1,4 +1,4 @@
-//! The rendered page: markdown, with each answer in a small pill.
+//! The rendered page: markdown, with each answer in brackets.
 //!
 //! This is what Ctrl+P shows, and what Print and Export PDF send out.
 
@@ -15,7 +15,7 @@ pub enum Action {
     Copy(String),
 }
 
-/// The words to put in a pill. Name hints stay in the editor; they aren't part of
+/// The words to put in brackets. Name hints stay in the editor; they aren't part of
 /// the page someone would print.
 pub fn answers(results: &[LineResult]) -> Vec<Option<String>> {
     results
@@ -175,10 +175,13 @@ fn line_ui(
         if let Some(answer) = &rich.answer {
             ui.add_space(8.0);
             let pill = ui.add(
-                egui::Button::new(RichText::new(answer).size(12.5).color(theme.background))
-                    .fill(theme.accent)
-                    .corner_radius(CornerRadius::same(10))
-                    .min_size(Vec2::new(0.0, 22.0)),
+                egui::Button::new(
+                    RichText::new(format!("[ {answer} ]"))
+                        .font(FontId::monospace((size - 0.5).max(12.0)))
+                        .color(theme.accent),
+                )
+                .frame(false)
+                .min_size(Vec2::new(0.0, size + 2.0)),
             );
             if pill.on_hover_text("Click to copy").clicked() {
                 ui.ctx().copy_text(answer.clone());
