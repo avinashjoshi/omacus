@@ -29,7 +29,7 @@ prev in EUR                   1,818.97 EUR
 | Downloads | `4 GB at 100 Mbps` → `5 min 20 s`, `700 MB @ 10 MB/s` |
 | Currency | `$30 in EUR`, `€50 + £20 in USD`, `£250 in USD` (live rates, cached 12h) |
 | Variables | `rent = $1200`, then `rent * 12` |
-| Sheet words | `prev`, `sum`/`total`, `avg`/`average` (over the lines since the last blank line or header). `sum(1, 2, 3)`, `avg(2, 4)`, `min(...)` and `max(...)` take arguments; a comma inside the call separates them, and `1,000` outside a call is still one thousand |
+| Page words | `prev`, `sum`/`total`, `avg`/`average` (over the lines since the last blank line or header). `sum(1, 2, 3)`, `avg(2, 4)`, `min(...)` and `max(...)` take arguments; a comma inside the call separates them, and `1,000` outside a call is still one thousand |
 | Dates | `today`, `now`, `tomorrow + 2 weeks`, `now - 90 minutes` |
 | Counting days | `days until Dec 25`, `weeks until Christmas`, `days since Jan 1`, `workdays in November`, `days between Mar 1 and Jun 30` |
 | Time zones | `6pm PST in Tokyo`, `time in Sydney`, `now in London`, `10:30 London to New York`, `3pm PST in IST` |
@@ -43,44 +43,45 @@ adds the notepad conventions on top.
 ## Using it
 
 - On Omarchy, `SUPER + CTRL + ALT + =` opens Omacus (or focuses it), floating and centered.
-- `Ctrl+Q` or `Ctrl+W` quits. `Esc` only closes the sheet switcher, help, or a dialog. Nothing is ever lost: like Sublime Text, every sheet is saved as you
+- `Ctrl+Q` or `Ctrl+W` quits. `Esc` only closes the page switcher, help, or a dialog. Nothing is ever lost: like Sublime Text, every page is saved as you
   type and reopens exactly where you left it, cursor included.
 - Click a result to copy it; `Ctrl+Shift+C` copies the last result, and `Ctrl+Shift+S` copies
-  the whole sheet with its answers lined up (`Ctrl+Shift+M` as a Markdown table).
+  the whole page with its answers lined up (`Ctrl+Shift+M` as a Markdown table).
 - `Ctrl` `+` / `-` zooms.
 - Colors follow the active Omarchy theme (`colors.toml`) and update live on `omarchy theme set`.
 
-### Sheets
+### Pages
 
 | Key | |
 |---|---|
-| `Ctrl+N` | New sheet |
-| `Ctrl+J` | Go to a sheet by name |
-| `Ctrl+Alt+↑` / `Ctrl+Alt+↓` | Previous / next sheet |
-| `Ctrl+Tab` / `Ctrl+Shift+Tab` (or `Ctrl+PgDn` / `PgUp`) | Next / previous sheet |
-| `Ctrl+1` … `Ctrl+9` | Jump to sheet |
-| `Alt+↑` / `Alt+↓` | Move sheet up / down |
-| `Ctrl+Shift+Delete` | Delete sheet (asks first; moved to `trash/`, restored from Recently deleted) |
+| `Ctrl+N` | New page |
+| `Ctrl+J` | Go to a page by name |
+| `Ctrl+Alt+↑` / `Ctrl+Alt+↓` | Previous / next page |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` (or `Ctrl+PgDn` / `PgUp`) | Next / previous page |
+| `Ctrl+1` … `Ctrl+9` | Jump to page |
+| `Alt+↑` / `Alt+↓` | Move page up / down |
+| `Ctrl+Shift+Delete` | Delete page (asks first; moved to `trash/`, restored from Recently deleted) |
 | `Ctrl+B` | Expand or collapse the sidebar |
-| `Ctrl+Shift+L` | Copy a share link to the sheet |
+| `Ctrl+Shift+L` | Copy a share link to the page |
 
-The ⋯ above a sheet (or on its row in the sidebar, or a right-click) has the same actions. A sheet's title is its first line.
-Sheets are plain text in `~/.local/share/omacus/sheets/`; order, cursors, and whether the
+The ⋯ above a page (or on its row in the sidebar, or a right-click) has the same actions. A page's title is its first line.
+Pages are plain text in `~/.local/share/omacus/pages/`; order, cursors, and whether the
 sidebar is expanded (and how wide) are in `~/.local/share/omacus/state.json`.
-A deleted sheet opens read-only from Recently deleted; Restore and Delete forever are explicit.
+A folder named `sheets` from an older version is renamed to `pages` the first time this version opens.
+A deleted page opens read-only from Recently deleted; Restore and Delete forever are explicit.
 
 ### Sharing and the web app
 
-**Share** above a sheet (or `Ctrl+Shift+L`) copies a link like
-`https://omacus.com/app#v1.…` that opens the sheet, live, in [Omacus in the browser](https://omacus.com/app).
-The sheet is compressed into the part after `#`, which browsers never send to a server, so it isn't
+**Share** above a page (or `Ctrl+Shift+L`) copies a link like
+`https://omacus.com/app#v1.…` that opens the page, live, in [Omacus in the browser](https://omacus.com/app).
+The page is compressed into the part after `#`, which browsers never send to a server, so it isn't
 uploaded anywhere; anyone with the link can read it.
 
-Open a shared sheet in the app with **Open in Omacus** on the web page (`omacus://` links are
+Open a shared page in the app with **Open in Omacus** on the web page (`omacus://` links are
 registered by the installer, the macOS app, and Windows on first run), by pasting the link into any
-sheet, or with `omacus open '<link>'`. It opens as a new sheet, or switches to it if you have it.
+page, or with `omacus open '<link>'`. It opens as a new page, or switches to it if you have it.
 
-The web app runs the same engine (`engine/`, compiled to WebAssembly from `web/`). Its sheets are
+The web app runs the same engine (`engine/`, compiled to WebAssembly from `web/`). Its pages are
 saved in that browser; export and import them as a `.zip` of `.txt` files. It installs as an app
 and works offline.
 
@@ -96,7 +97,7 @@ omacus '$100 in EUR'
 printf 'a = 5\na * 3\n' | omacus -
 omacus --version
 omacus update        # install the latest version
-omacus open '<link>' # open a shared sheet
+omacus open '<link>' # open a shared page
 ```
 
 ## Install
@@ -159,7 +160,7 @@ Or download [the installer](https://github.com/avinashjoshi/omacus/releases/late
 and open it. Omacus installs for your user (no admin prompt) into `%LOCALAPPDATA%\Programs\Omacus`,
 appears in Start and opens; `omacus 2+2` works in a new terminal. It isn't signed yet, so a
 downloaded installer may get a SmartScreen warning: choose **More info → Run anyway** (the
-PowerShell line doesn't get one). Uninstall from **Settings → Apps**; your sheets are kept.
+PowerShell line doesn't get one). Uninstall from **Settings → Apps**; your pages are kept.
 
 No installer: [`omacus-windows-x86_64.zip`](https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64.zip)
 holds a single portable `omacus.exe`.
@@ -210,7 +211,7 @@ On other desktops, bind a global shortcut to `omacus` in your keyboard settings.
 
 | | Linux | macOS | Windows |
 |---|---|---|---|
-| Sheets | `~/.local/share/omacus` | `~/Library/Application Support/omacus` | `%APPDATA%\omacus` |
+| Pages | `~/.local/share/omacus/pages` | `~/Library/Application Support/omacus/pages` | `%APPDATA%\omacus\pages` |
 | Custom theme | `~/.config/omacus/theme.toml` | `~/Library/Application Support/omacus/theme.toml` | `%APPDATA%\omacus\theme.toml` |
 | Settings | `~/.config/omacus/settings.toml` | `~/Library/Application Support/omacus/settings.toml` | `%APPDATA%\omacus\settings.toml` |
 

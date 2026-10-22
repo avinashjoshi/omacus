@@ -70,7 +70,7 @@ section = "utils"
 maintainer = "Avinash Joshi <avinash@hey.com>"
 extended-description = """\
 Type on the left, results appear on the right. Understands units, currencies, \
-percentages, variables, totals, dates and time zones, with multiple sheets that \
+percentages, variables, totals, dates and time zones, with multiple pages that \
 save as you type."""
 assets = [
     ["target/release/omacus", "usr/bin/", "755"],

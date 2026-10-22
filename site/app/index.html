@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Omacus in your browser: a notepad calculator</title>
-  <meta name="description" content="Omacus, the notepad calculator, in your browser: write prices, units, currencies, time zones and dates in plain words and see answers as you type. Share any sheet as a link. Free, no sign-up.">
+  <meta name="description" content="Omacus, the notepad calculator, in your browser: write prices, units, currencies, time zones and dates in plain words and see answers as you type. Share any page as a link. Free, no sign-up.">
   <link rel="canonical" href="https://omacus.com/app">
   <meta name="theme-color" content="#0d0d0d">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Omacus">
   <meta property="og:url" content="https://omacus.com/app">
   <meta property="og:title" content="Omacus in your browser">
-  <meta property="og:description" content="A notepad calculator: write math in plain words, answers line up as you type. Share any sheet as a link.">
+  <meta property="og:description" content="A notepad calculator: write math in plain words, answers line up as you type. Share any page as a link.">
   <meta property="og:image" content="https://omacus.com/img/og.png?v=2">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="manifest" href="/app/manifest.webmanifest">
@@ -27,12 +27,12 @@
 </head>
 <body class="app-page">
   <header class="bar">
-    <button class="icon-btn sheets-toggle" type="button" aria-label="Sheets" aria-controls="side" aria-expanded="false">
+    <button class="icon-btn sheets-toggle" type="button" aria-label="Pages" aria-controls="side" aria-expanded="false">
       <span></span><span></span><span></span>
     </button>
     <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="24" height="24">omacus</a>
     <span class="bar-title" data-title></span>
-    <button class="private-chip" type="button" data-action="privacy" aria-label="Private: your sheets stay on this device">
+    <button class="private-chip" type="button" data-action="privacy" aria-label="Private: your pages stay on this device">
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span>Private</span>
     </button>
     <div class="bar-actions">
@@ -46,11 +46,11 @@
           <button role="menuitem" data-action="markdown">Copy as Markdown table</button>
           <button role="menuitem" data-action="open-app">Open in the desktop app</button>
           <hr>
-          <button role="menuitem" data-action="new">New sheet</button>
-          <button role="menuitem" data-action="export">Export all sheets (.zip)</button>
-          <button role="menuitem" data-action="import">Import sheets…</button>
+          <button role="menuitem" data-action="new">New page</button>
+          <button role="menuitem" data-action="export">Export all pages (.zip)</button>
+          <button role="menuitem" data-action="import">Import pages…</button>
           <hr>
-          <button role="menuitem" data-action="delete" class="danger">Delete this sheet</button>
+          <button role="menuitem" data-action="delete" class="danger">Delete this page</button>
           <hr>
           <button role="menuitem" data-action="install" hidden data-install>Install as an app</button>
           <a role="menuitem" href="/download/">Get the desktop app</a>
@@ -65,16 +65,16 @@
     <aside class="side" id="side">
       <div class="rail" data-action="expand-side" title="Expand sidebar">
         <button class="side-btn" type="button" data-action="expand-side" aria-label="Expand sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/></svg></button>
-        <button class="side-btn" type="button" data-action="new" aria-label="New sheet" title="New sheet"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button>
+        <button class="side-btn" type="button" data-action="new" aria-label="New page" title="New page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button>
         <img src="/img/icon.svg" alt="" width="20" height="20">
       </div>
       <div class="side-body">
-        <div class="side-head"><span>Sheets</span><span class="side-head-actions"><button class="side-btn" type="button" aria-label="New sheet" title="New sheet" data-action="new"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button><button class="side-btn" type="button" aria-label="Collapse sidebar" title="Collapse sidebar" data-action="collapse-side"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/></svg></button></span></div>
-        <nav class="sheet-list" data-sheets aria-label="Sheets"></nav>
+        <div class="side-head"><span>Pages</span><span class="side-head-actions"><button class="side-btn" type="button" aria-label="New page" title="New page" data-action="new"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button><button class="side-btn" type="button" aria-label="Collapse sidebar" title="Collapse sidebar" data-action="collapse-side"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/></svg></button></span></div>
+        <nav class="sheet-list" data-sheets aria-label="Pages"></nav>
         <div class="deleted" hidden data-deleted></div>
         <details class="side-foot">
           <summary>Saved in this browser</summary>
-          <p>Sheets stay on this device, in this browser; nothing is uploaded. Export them (⋯ menu) to keep a copy. On iPhone and iPad, Safari clears a site's data after a week without a visit, unless you add Omacus to your Home Screen.</p>
+          <p>Pages stay on this device, in this browser; nothing is uploaded. Export them (⋯ menu) to keep a copy. On iPhone and iPad, Safari clears a site's data after a week without a visit, unless you add Omacus to your Home Screen.</p>
         </details>
       </div>
       <div class="side-resize" data-resize role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
@@ -88,9 +88,9 @@
       </div>
       <pre class="preview-body" hidden data-preview-body></pre>
       <div class="shared-banner" hidden data-shared>
-        <span><b>Shared sheet.</b> Edits stay here until you save it.</span>
+        <span><b>Shared page.</b> Edits stay here until you save it.</span>
         <button class="btn small" type="button" data-action="open-app">Open in Omacus</button>
-        <button class="btn small primary" type="button" data-action="save-shared">Save to my sheets</button>
+        <button class="btn small primary" type="button" data-action="save-shared">Save to my pages</button>
       </div>
       <div class="install-banner" hidden data-install-banner>
         <img src="/img/apple-touch-icon.png" alt="" width="36" height="36">
@@ -99,7 +99,7 @@
         <button class="icon-btn small" type="button" aria-label="Dismiss" data-action="dismiss-install">×</button>
       </div>
       <div class="editor" data-editor>
-        <p class="empty-hint" hidden data-empty>Sheets are in the sidebar. Open it from the sheets button, then pick one or start a new sheet.</p>
+        <p class="empty-hint" hidden data-empty>Pages are in the sidebar. Open it from the pages button, then pick one or start a new page.</p>
         <div class="cm-host" data-text></div>
       </div>
       <div class="confirm" hidden data-confirm role="dialog" aria-modal="true" aria-labelledby="confirm-text">
@@ -110,7 +110,7 @@
         </div>
       </div>
       <p class="loading" data-loading>Loading the engine…</p>
-      <button class="drawer-scrim" type="button" data-scrim aria-label="Close sheets"></button>
+      <button class="drawer-scrim" type="button" data-scrim aria-label="Close pages"></button>
     </main>
   </div>
 

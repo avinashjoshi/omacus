@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Omacus docs: syntax, units, currencies, time zones and CLI</title>
-  <meta name="description" content="How to install and use Omacus, the free notepad calculator: syntax, percentages, units, currencies, time zones, dates, sheets, shortcuts, themes, the command line and Omarchy setup.">
+  <meta name="description" content="How to install and use Omacus, the free notepad calculator: syntax, percentages, units, currencies, time zones, dates, pages, shortcuts, themes, the command line and Omarchy setup.">
   <meta name="author" content="Avinash Joshi">
   <link rel="canonical" href="https://omacus.com/docs/">
   <meta name="theme-color" content="#090909">
@@ -12,14 +12,14 @@
   <meta property="og:site_name" content="Omacus">
   <meta property="og:url" content="https://omacus.com/docs/">
   <meta property="og:title" content="Omacus docs">
-  <meta property="og:description" content="Syntax, sheets, shortcuts, themes, CLI and how Omacus works.">
+  <meta property="og:description" content="Syntax, pages, shortcuts, themes, CLI and how Omacus works.">
   <meta property="og:image" content="https://omacus.com/img/og.png?v=2">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Omacus docs">
-  <meta name="twitter:description" content="Syntax, sheets, shortcuts, themes, CLI and how Omacus works.">
+  <meta name="twitter:description" content="Syntax, pages, shortcuts, themes, CLI and how Omacus works.">
   <meta name="twitter:image" content="https://omacus.com/img/og.png?v=2">
   <link rel="manifest" href="/site.webmanifest">
   <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
@@ -118,7 +118,7 @@
      "name": "Is my data sent anywhere?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "No. Sheets stay on your disk. Omacus makes two kinds of request: one for exchange rates, and a check of the latest version number on GitHub. Neither sends anything about you or your sheets, and the version check can be turned off with check_for_updates = false in settings.toml."
+      "text": "No. Pages stay on your disk. Omacus makes two kinds of request: one for exchange rates, and a check of the latest version number on GitHub. Neither sends anything about you or your pages, and the version check can be turned off with check_for_updates = false in settings.toml."
      }
     }
    ]
@@ -151,7 +151,7 @@
   <nav class="docs-nav" aria-label="Docs">
     <p>Start</p>
     <a href="#install">Install</a>
-    <a href="#first-sheet">Your first sheet</a>
+    <a href="#first-page">Your first page</a>
     <p>Writing</p>
     <a href="#arithmetic">Arithmetic</a>
     <a href="#percentages">Percentages</a>
@@ -165,7 +165,7 @@
     <a href="#design">CSS units &amp; colours</a>
     <a href="#notes">Notes &amp; prose</a>
     <p>Using it</p>
-    <a href="#sheets">Sheets</a>
+    <a href="#pages">Pages</a>
     <a href="#shortcuts">Keyboard shortcuts</a>
     <a href="#autocomplete">Autocomplete</a>
     <a href="#themes">Themes</a>
@@ -206,21 +206,21 @@
 
     <h3 id="windows">Windows</h3>
     <pre>irm https://omacus.com/install.ps1 | iex</pre>
-    <p>Run that in PowerShell, or <a href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64-setup.exe">download the installer</a> and open it. Either way Omacus installs for your user (no admin prompt) into <code>%LOCALAPPDATA%\Programs\Omacus</code>, appears in Start, and opens. In a new terminal, <code>omacus 2+2</code> works too. Omacus isn't signed yet, so a downloaded installer may get a SmartScreen warning: choose <strong>More info → Run anyway</strong> (the PowerShell line doesn't get one). To remove it, use <strong>Settings → Apps</strong>; your sheets are kept.</p>
+    <p>Run that in PowerShell, or <a href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64-setup.exe">download the installer</a> and open it. Either way Omacus installs for your user (no admin prompt) into <code>%LOCALAPPDATA%\Programs\Omacus</code>, appears in Start, and opens. In a new terminal, <code>omacus 2+2</code> works too. Omacus isn't signed yet, so a downloaded installer may get a SmartScreen warning: choose <strong>More info → Run anyway</strong> (the PowerShell line doesn't get one). To remove it, use <strong>Settings → Apps</strong>; your pages are kept.</p>
     <p>Prefer no installer? The <a href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64.zip">portable .zip</a> holds a single <code>omacus.exe</code> to run from anywhere. Right-click it to <strong>Pin to Start</strong>; a shortcut's Properties let you set a global shortcut key.</p>
 
-    <!-- ===================================================== First sheet -->
+    <!-- ===================================================== First page -->
     <h3 id="updating">Updating</h3>
-    <p>The version is at the bottom of the sidebar. When a new one is out, a small dot appears next to it; click it to see what's new and choose <strong>Update now</strong>, and Omacus installs the new version and offers to restart. You can also check any time from <strong>About</strong> in the help window (<kbd>F1</kbd>). Your sheets, keybind and settings stay as they are. From a terminal, <code>omacus update</code> does the same.</p>
+    <p>The version is at the bottom of the sidebar. When a new one is out, a small dot appears next to it; click it to see what's new and choose <strong>Update now</strong>, and Omacus installs the new version and offers to restart. You can also check any time from <strong>About</strong> in the help window (<kbd>F1</kbd>). Your pages, keybind and settings stay as they are. From a terminal, <code>omacus update</code> does the same.</p>
     <p>On Windows, Update now swaps in the new <code>omacus.exe</code> where it's installed (or wherever you keep the portable one). If you installed the .deb or .rpm, the button opens the download page instead, so you update the same way you installed. Omacus checks GitHub for the latest version number when it starts (at most once an hour) and every 4 hours while it stays open; to turn that off, put <code>check_for_updates = false</code> in <code>settings.toml</code> (see <a href="#files">Where files live</a>).</p>
 
-    <h2 id="first-sheet">Your first sheet</h2>
+    <h2 id="first-page">Your first page</h2>
     <p>Open Omacus and start typing. Each line is calculated on its own, and the result appears at the right edge of that line. Lines that aren't math (headers, comments, prose) simply have no result.</p>
 <pre># Weekend
 Pizza $24 + $6 tip
 Movie tickets 2 * $14
 total</pre>
-    <p>Click any result to copy it. Everything is saved as you type, so just close the window when you're done; your sheet is there next time, with the cursor where you left it. Press <kbd>F1</kbd> any time for the built-in guide.</p>
+    <p>Click any result to copy it. Everything is saved as you type, so just close the window when you're done; your page is there next time, with the cursor where you left it. Press <kbd>F1</kbd> any time for the built-in guide.</p>
 
     <!-- ===================================================== Syntax -->
     <h2 id="arithmetic">Arithmetic</h2>
@@ -306,7 +306,7 @@ total</pre>
     <p class="guide-link">More examples in the guide: <a href="/guides/currency/">Convert currencies as you type</a>.</p>
 
     <h2 id="variables">Variables</h2>
-    <p>Write <code>name = value</code> to remember something for the rest of the sheet. Variable names are letters, digits and underscores, and are highlighted once defined.</p>
+    <p>Write <code>name = value</code> to remember something for the rest of the page. Variable names are letters, digits and underscores, and are highlighted once defined.</p>
   <!-- ex:variables -->
   <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
@@ -429,7 +429,7 @@ total</pre>
   <!-- /ex -->
 
     <h2 id="notes">Notes &amp; prose</h2>
-    <p>A sheet is a notebook first. Lines starting with <code>#</code> are headers, <code>//</code> starts a comment (on its own line or after the math), and <code>"quoted text"</code> is ignored. A label before a colon is left out of the math, and words Omacus doesn't know are skipped.</p>
+    <p>A page is a notebook first. Lines starting with <code>#</code> are headers, <code>//</code> starts a comment (on its own line or after the math), and <code>"quoted text"</code> is ignored. A label before a colon is left out of the math, and words Omacus doesn't know are skipped.</p>
   <!-- ex:notes -->
   <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
@@ -445,32 +445,32 @@ total</pre>
     <div class="callout"><b>Tip:</b> if a word you meant as prose happens to be a unit (like <code>at</code> or <code>a</code>), put it in a label (<code>Hotel at the beach: $120</code>) or in quotes.</div>
 
     <!-- ===================================================== Using it -->
-    <h2 id="sheets">Sheets</h2>
-    <p>The sidebar lists your sheets; a sheet's title is its first line. Create as many as you like, one per trip, budget, invoice or project.</p>
+    <h2 id="pages">Pages</h2>
+    <p>The sidebar lists your pages; a page's title is its first line. Create as many as you like, one per trip, budget, invoice or project.</p>
     <ul>
       <li><strong>Always saved.</strong> Every change is written within half a second, and again when you close. There is no save command and nothing to lose.</li>
-      <li><strong>Picks up where you left off.</strong> Order, the open sheet, each sheet's cursor, and whether the sidebar is expanded (and how wide) all come back next time. Drag the sidebar's right edge to resize it. <kbd>Ctrl B</kbd> collapses it to a thin rail; click the logo there to open it again.</li>
-      <li><strong>Deleting is safe.</strong> Deleted sheets move to Recently deleted (a <code>trash</code> folder next to your sheets). Click one to read it; Restore puts it back, and Delete forever removes it.</li>
-      <li><strong>Plain text.</strong> Each sheet is a <code>.txt</code> file, so you can search, sync or back them up with anything.</li>
+      <li><strong>Picks up where you left off.</strong> Order, the open page, each page's cursor, and whether the sidebar is expanded (and how wide) all come back next time. Drag the sidebar's right edge to resize it. <kbd>Ctrl B</kbd> collapses it to a thin rail; click the logo there to open it again.</li>
+      <li><strong>Deleting is safe.</strong> Deleted pages move to Recently deleted (a <code>trash</code> folder next to your pages). Click one to read it; Restore puts it back, and Delete forever removes it.</li>
+      <li><strong>Plain text.</strong> Each page is a <code>.txt</code> file, so you can search, sync or back them up with anything.</li>
     </ul>
-    <p>The <strong>⋯</strong> above a sheet, the <strong>⋯</strong> on its row in the sidebar, and a right-click on that row all open the same menu: <em>New sheet</em>, <em>Move up</em>, <em>Move down</em>, <em>Copy with answers</em>, <em>Copy as Markdown table</em>, <em>Share link</em> and <em>Delete sheet</em>.</p>
+    <p>The <strong>⋯</strong> above a page, the <strong>⋯</strong> on its row in the sidebar, and a right-click on that row all open the same menu: <em>New page</em>, <em>Move up</em>, <em>Move down</em>, <em>Copy with answers</em>, <em>Copy as Markdown table</em>, <em>Share link</em> and <em>Delete page</em>.</p>
 
     <h2 id="sharing">Sharing &amp; the web app</h2>
-    <p>Any sheet can travel as a link. <em>Share link</em> in the <strong>⋯</strong> menu, or <kbd>Ctrl Shift L</kbd>, copies one like <code>omacus.com/app#v1.U1bwyS…</code>. Whoever opens it sees the sheet in <a href="/app">Omacus in the browser</a>, with every answer worked out live by the same engine as the desktop app.</p>
+    <p>Any page can travel as a link. <em>Share link</em> in the <strong>⋯</strong> menu, or <kbd>Ctrl Shift L</kbd>, copies one like <code>omacus.com/app#v1.U1bwyS…</code>. Whoever opens it sees the page in <a href="/app">Omacus in the browser</a>, with every answer worked out live by the same engine as the desktop app.</p>
     <ul>
-      <li><strong>The sheet is the link.</strong> It's compressed into the part after <code>#</code>, which browsers never send to a server, so Omacus never sees or stores it. Anyone who has the link can read the sheet, so share it the way you'd share a document.</li>
+      <li><strong>The page is the link.</strong> It's compressed into the part after <code>#</code>, which browsers never send to a server, so Omacus never sees or stores it. Anyone who has the link can read the page, so share it the way you'd share a document.</li>
       <li><strong>Answers are recalculated when it's opened.</strong> Currencies use that day's rates, and <code>today</code> or <code>days until</code> count from the day it's opened.</li>
-      <li><strong>Length.</strong> A typical sheet makes a link of a few hundred characters. Past about 2,000, some email and SMS apps can cut a link off; past 8,000, some chat apps can too. Omacus tells you the length when it copies one. For a very long sheet, <kbd>Ctrl Shift M</kbd> copies it as a Markdown table instead.</li>
+      <li><strong>Length.</strong> A typical page makes a link of a few hundred characters. Past about 2,000, some email and SMS apps can cut a link off; past 8,000, some chat apps can too. Omacus tells you the length when it copies one. For a very long page, <kbd>Ctrl Shift M</kbd> copies it as a Markdown table instead.</li>
     </ul>
     <h3 id="open-links">Opening a link in the app</h3>
-    <p>A shared sheet opens as a new sheet (or switches to it, if you already have it):</p>
+    <p>A shared page opens as a new page (or switches to it, if you already have it):</p>
     <ul>
       <li>On the web page, choose <strong>Open in Omacus</strong>. The installer and the macOS app register <code>omacus://</code> links, and Windows registers them the first time Omacus runs.</li>
-      <li>Paste a link into any sheet: it opens the shared sheet instead of pasting the text.</li>
+      <li>Paste a link into any page: it opens the shared page instead of pasting the text.</li>
       <li>From a terminal: <code>omacus open 'https://omacus.com/app#v1.…'</code>.</li>
     </ul>
     <h3 id="web-app">The web app</h3>
-    <p><a href="/app" target="_blank" rel="noopener">omacus.com/app</a> is Omacus in any modern browser, on a computer or a phone, with nothing to install. Sheets you make there are saved in that browser on that device, and are never uploaded. Export them from the ⋯ menu as a <code>.zip</code> of <code>.txt</code> files, the same format as the desktop app's sheets folder, and import them anywhere.</p>
+    <p><a href="/app" target="_blank" rel="noopener">omacus.com/app</a> is Omacus in any modern browser, on a computer or a phone, with nothing to install. Pages you make there are saved in that browser on that device, and are never uploaded. Export them from the ⋯ menu as a <code>.zip</code> of <code>.txt</code> files, the same format as the desktop app's pages folder, and import them anywhere.</p>
     <p>Chrome, Edge and Android can install it as an app (⋯ → <em>Install as an app</em>), and it works offline once opened. On iPhone and iPad, choose Share → <em>Add to Home Screen</em>: Safari otherwise clears a site's data after seven days without a visit.</p>
 
     <h2 id="shortcuts">Keyboard shortcuts</h2>
@@ -478,20 +478,20 @@ total</pre>
     <table>
       <thead><tr><th>Keys</th><th>Action</th></tr></thead>
       <tbody>
-        <tr><td><kbd>Ctrl N</kbd></td><td>New sheet</td></tr>
-        <tr><td><kbd>Ctrl J</kbd></td><td>Go to a sheet by name (or by something written in it)</td></tr>
-        <tr><td><kbd>Ctrl Alt ↑</kbd> / <kbd>Ctrl Alt ↓</kbd></td><td>Previous / next sheet</td></tr>
-        <tr><td><kbd>Ctrl Tab</kbd> / <kbd>Ctrl Shift Tab</kbd></td><td>Next / previous sheet (also <kbd>Ctrl PgDn</kbd> / <kbd>Ctrl PgUp</kbd>)</td></tr>
-        <tr><td><kbd>Ctrl 1</kbd> … <kbd>Ctrl 9</kbd></td><td>Jump to a sheet</td></tr>
-        <tr><td><kbd>Alt ↑</kbd> / <kbd>Alt ↓</kbd></td><td>Move the sheet up / down</td></tr>
-        <tr><td><kbd>Ctrl Shift Delete</kbd></td><td>Delete the sheet (asks first; Undo appears, and it's kept in Recently deleted)</td></tr>
+        <tr><td><kbd>Ctrl N</kbd></td><td>New page</td></tr>
+        <tr><td><kbd>Ctrl J</kbd></td><td>Go to a page by name (or by something written in it)</td></tr>
+        <tr><td><kbd>Ctrl Alt ↑</kbd> / <kbd>Ctrl Alt ↓</kbd></td><td>Previous / next page</td></tr>
+        <tr><td><kbd>Ctrl Tab</kbd> / <kbd>Ctrl Shift Tab</kbd></td><td>Next / previous page (also <kbd>Ctrl PgDn</kbd> / <kbd>Ctrl PgUp</kbd>)</td></tr>
+        <tr><td><kbd>Ctrl 1</kbd> … <kbd>Ctrl 9</kbd></td><td>Jump to a page</td></tr>
+        <tr><td><kbd>Alt ↑</kbd> / <kbd>Alt ↓</kbd></td><td>Move the page up / down</td></tr>
+        <tr><td><kbd>Ctrl Shift Delete</kbd></td><td>Delete the page (asks first; Undo appears, and it's kept in Recently deleted)</td></tr>
         <tr><td><kbd>Ctrl B</kbd></td><td>Expand / collapse the sidebar</td></tr>
         <tr><td>Click a result</td><td>Copy it</td></tr>
         <tr><td><kbd>Ctrl Shift C</kbd></td><td>Copy the last result</td></tr>
-        <tr><td><kbd>Ctrl Shift S</kbd></td><td>Copy the whole sheet with its answers lined up (also in the sheet's ⋯ menu)</td></tr>
-        <tr><td><kbd>Ctrl Shift M</kbd></td><td>Copy the sheet as a Markdown table, for Slack, GitHub or a doc (also in the ⋯ menu)</td></tr>
-        <tr><td><kbd>Ctrl Shift L</kbd></td><td>Copy a share link to the sheet (see <a href="#sharing">Sharing</a>)</td></tr>
-        <tr><td><kbd>Ctrl Z</kbd> / <kbd>Ctrl Shift Z</kbd></td><td>Undo / redo (each sheet has its own history)</td></tr>
+        <tr><td><kbd>Ctrl Shift S</kbd></td><td>Copy the whole page with its answers lined up (also in the page's ⋯ menu)</td></tr>
+        <tr><td><kbd>Ctrl Shift M</kbd></td><td>Copy the page as a Markdown table, for Slack, GitHub or a doc (also in the ⋯ menu)</td></tr>
+        <tr><td><kbd>Ctrl Shift L</kbd></td><td>Copy a share link to the page (see <a href="#sharing">Sharing</a>)</td></tr>
+        <tr><td><kbd>Ctrl Z</kbd> / <kbd>Ctrl Shift Z</kbd></td><td>Undo / redo (each page has its own history)</td></tr>
         <tr><td><kbd>Ctrl +</kbd> / <kbd>Ctrl −</kbd> / <kbd>Ctrl 0</kbd></td><td>Zoom in / out / reset</td></tr>
         <tr><td><kbd>F1</kbd> or <kbd>Ctrl /</kbd></td><td>Help: shortcuts, live syntax examples, tips</td></tr>
         <tr><td><kbd>Esc</kbd></td><td>Close the switcher, help, or a dialog</td></tr>
@@ -500,7 +500,7 @@ total</pre>
     </table>
 
     <h2 id="autocomplete">Autocomplete</h2>
-    <p>After two letters, Omacus suggests your sheet's variables, then keywords, time zones and units. <kbd>Tab</kbd> accepts, <kbd>↑</kbd> <kbd>↓</kbd> choose, <kbd>Esc</kbd> dismisses. <kbd>Enter</kbd> always starts a new line and never accepts a suggestion, so <code>3 km in</code> followed by Enter can't turn into <code>inch</code>. Short connecting words like <code>in</code>, <code>to</code> and <code>of</code> never trigger suggestions.</p>
+    <p>After two letters, Omacus suggests your page's variables, then keywords, time zones and units. <kbd>Tab</kbd> accepts, <kbd>↑</kbd> <kbd>↓</kbd> choose, <kbd>Esc</kbd> dismisses. <kbd>Enter</kbd> always starts a new line and never accepts a suggestion, so <code>3 km in</code> followed by Enter can't turn into <code>inch</code>. Short connecting words like <code>in</code>, <code>to</code> and <code>of</code> never trigger suggestions.</p>
 
     <h2 id="themes">Themes</h2>
     <p>Omacus picks its colors in this order:</p>
@@ -512,7 +512,7 @@ total</pre>
     <p>A <code>theme.toml</code> uses the same keys as an Omarchy theme's <code>colors.toml</code>. Every key is optional:</p>
 <div class="annot">
 <code>mode = "dark"</code><span class="c"># or "light"</span>
-<code>background = "#121212"</code><span class="c"># sheet background</span>
+<code>background = "#121212"</code><span class="c"># page background</span>
 <code>dark_background = "#0d0d0d"</code><span class="c"># sidebar and popups</span>
 <code>foreground = "#bebebe"</code><span class="c"># text</span>
 <code>bright_foreground = "#eaeaea"</code><span class="c"># numbers</span>
@@ -521,7 +521,7 @@ total</pre>
 <code>accent = "#e68e0d"</code><span class="c"># results, headers, cursor</span>
 <code>cyan = "#bebebe"</code><span class="c"># keywords like in, of, total</span>
 <code>magenta = "#d35f5f"</code><span class="c"># variables</span>
-<code>selection = "#2a2a2a"</code><span class="c"># selection and the active sheet</span>
+<code>selection = "#2a2a2a"</code><span class="c"># selection and the active page</span>
 <code>lighter_background = "#1e1e1e"</code><span class="c"># hover</span>
 </div>
 
@@ -530,12 +530,12 @@ total</pre>
 <div class="annot">
 <code>omacus '$100 in EUR'</code><span class="c"># one expression → prints the answer</span>
 <code class="full">omacus '6pm PST in Tokyo'</code>
-<code>printf 'rent = $1450\nrent * 12\n' | omacus -</code><span class="c"># a whole sheet from stdin, one result per line</span>
+<code>printf 'rent = $1450\nrent * 12\n' | omacus -</code><span class="c"># a whole page from stdin, one result per line</span>
 <code class="full">omacus - &lt; ~/notes/budget.txt</code>
 <code>omacus</code><span class="c"># no arguments: open the window</span>
 <code>omacus --version</code><span class="c"># which version you have</span>
 <code>omacus update</code><span class="c"># install the latest version</span>
-<code>omacus open '&lt;share link&gt;'</code><span class="c"># open a shared sheet in the window</span>
+<code>omacus open '&lt;share link&gt;'</code><span class="c"># open a shared page in the window</span>
 </div>
     <p>A single expression exits with status 1 when there's no answer, which makes it easy to use in scripts. On Windows, <code>omacus.exe "..."</code> works the same from a terminal.</p>
 
@@ -563,9 +563,10 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
     <table class="files">
       <thead><tr><th><span class="sr-only">What</span></th><th>Linux</th><th>macOS</th><th>Windows</th></tr></thead>
       <tbody>
-        <tr><td class="what">Sheets</td><td data-os="Linux"><code>~/.local/share/omacus/sheets</code></td><td data-os="macOS"><code>~/Library/Application Support/omacus/sheets</code></td><td data-os="Windows"><code>%APPDATA%\omacus\sheets</code></td></tr>
-        <tr><td class="what">Deleted sheets</td><td data-os="Linux"><code>…/omacus/trash</code></td><td data-os="macOS"><code>…/omacus/trash</code></td><td data-os="Windows"><code>…\omacus\trash</code></td></tr>
-        <tr><td class="what">Order, cursors, sidebar</td><td colspan="3" data-os="All"><span><code>state.json</code> next to the <code>sheets</code> folder</span></td></tr>
+        <tr><td class="what">Pages</td><td data-os="Linux"><code>~/.local/share/omacus/pages</code></td><td data-os="macOS"><code>~/Library/Application Support/omacus/pages</code></td><td data-os="Windows"><code>%APPDATA%\omacus\pages</code></td></tr>
+        <tr><td class="what">Older installs</td><td colspan="3" data-os="All"><span>A folder named <code>sheets</code> is renamed to <code>pages</code> the first time this version opens. The text files themselves are unchanged.</span></td></tr>
+        <tr><td class="what">Deleted pages</td><td data-os="Linux"><code>…/omacus/trash</code></td><td data-os="macOS"><code>…/omacus/trash</code></td><td data-os="Windows"><code>…\omacus\trash</code></td></tr>
+        <tr><td class="what">Order, cursors, sidebar</td><td colspan="3" data-os="All"><span><code>state.json</code> next to the <code>pages</code> folder</span></td></tr>
         <tr><td class="what">Custom theme</td><td data-os="Linux"><code>~/.config/omacus/theme.toml</code></td><td data-os="macOS"><code>~/Library/Application Support/omacus/theme.toml</code></td><td data-os="Windows"><code>%APPDATA%\omacus\theme.toml</code></td></tr>
         <tr><td class="what">Settings</td><td colspan="3" data-os="All"><span><code>settings.toml</code> next to <code>theme.toml</code></span></td></tr>
         <tr><td class="what">Exchange-rate cache</td><td data-os="Linux"><code>~/.cache/omacus</code></td><td data-os="macOS"><code>~/Library/Caches/omacus</code></td><td data-os="Windows"><code>%LOCALAPPDATA%\omacus</code></td></tr>
@@ -584,17 +585,17 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
     <p>That's because Omacus isn't notarized by Apple yet. Install with the <a href="#mac">one-line installer</a> to avoid the prompt, or allow it once under <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>.</p>
     <h3>Windows SmartScreen warns about an unknown publisher.</h3>
     <p>Choose <strong>More info → Run anyway</strong>. The warning appears because the executable isn't code-signed yet.</p>
-    <h3>Who can see a sheet I share?</h3>
-    <p>Anyone you give the link to. The sheet is inside the link itself, after the <code>#</code>, which browsers don't send to servers, so it isn't uploaded or stored anywhere. Don't share a link to a sheet you'd want kept private.</p>
+    <h3>Who can see a page I share?</h3>
+    <p>Anyone you give the link to. The page is inside the link itself, after the <code>#</code>, which browsers don't send to servers, so it isn't uploaded or stored anywhere. Don't share a link to a page you'd want kept private.</p>
     <h3>Is my data sent anywhere?</h3>
-    <p>No. Sheets stay on your disk. Omacus makes two kinds of request: one for exchange rates, and a check of the latest version number on GitHub. Neither sends anything about you or your sheets, and the version check can be turned off with <code>check_for_updates = false</code> in <code>settings.toml</code> (see <a href="#files">Where files live</a>).</p>
+    <p>No. Pages stay on your disk. Omacus makes two kinds of request: one for exchange rates, and a check of the latest version number on GitHub. Neither sends anything about you or your pages, and the version check can be turned off with <code>check_for_updates = false</code> in <code>settings.toml</code> (see <a href="#files">Where files live</a>).</p>
 
     <h2 id="how-it-works">How it works</h2>
-    <p>Omacus is a single Rust program: one native window and one engine, shared by the app and the command line. Every keystroke re-evaluates the sheet from top to bottom. For each line:</p>
+    <p>Omacus is a single Rust program: one native window and one engine, shared by the app and the command line. Every keystroke re-evaluates the page from top to bottom. For each line:</p>
     <div class="flow">
       <div><b>Classify</b>Blank lines and headers start a new block; comments are skipped; <code>total</code>, <code>average</code> and dates are handled directly.</div>
       <div><b>Rewrite</b>The notepad layer strips labels and quotes, turns <code>€20</code> into <code>20 EUR</code>, and rewrites <code>% on</code>, <code>% off</code> and <code>as % of</code> into plain arithmetic.</div>
-      <div><b>Evaluate</b><a href="https://github.com/printfn/fend">fend</a> does the math, with units and currencies, in a context shared by the whole sheet, so variables carry down. Unknown words are dropped and the line is retried.</div>
+      <div><b>Evaluate</b><a href="https://github.com/printfn/fend">fend</a> does the math, with units and currencies, in a context shared by the whole page, so variables carry down. Unknown words are dropped and the line is retried.</div>
       <div><b>Format</b>Results are rounded for reading, given thousands separators, and painted on the first row of their line.</div>
     </div>
     <p>Each result also lands in a hidden variable, which is how <code>prev</code>, <code>total</code> and named totals see the lines above them. Time zones use the IANA time-zone database, so daylight saving is always right.</p>
@@ -605,7 +606,7 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
         <tr><td>The notepad layer: labels, percentages, totals, prose</td><td><code>src/engine.rs</code></td></tr>
         <tr><td>Dates and time zones</td><td><code>src/time.rs</code></td></tr>
         <tr><td>Exchange rates and their cache</td><td><code>src/rates.rs</code></td></tr>
-        <tr><td>Sheets, saving and restoring</td><td><code>src/sheets.rs</code></td></tr>
+        <tr><td>Pages, saving and restoring</td><td><code>src/sheets.rs</code></td></tr>
         <tr><td>The window, sidebar and results column</td><td><code>src/app.rs</code></td></tr>
         <tr><td>Syntax colors and autocomplete</td><td><code>src/highlight.rs</code>, <code>src/complete.rs</code></td></tr>
         <tr><td>Themes, live reloading</td><td><code>src/theme.rs</code></td></tr>
@@ -619,7 +620,7 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
 <div class="annot">
 <code class="full">git clone https://github.com/avinashjoshi/omacus && cd omacus</code>
 <code>cargo run --release</code><span class="c"># open the window</span>
-<code>cargo test</code><span class="c"># the engine, sheets, time zones, help examples</span>
+<code>cargo test</code><span class="c"># the engine, pages, time zones, help examples</span>
 <code>./install.sh</code><span class="c"># Linux: build and install for your user</span>
 </div>
     <p>Releases are automatic: bumping <code>version</code> in <code>Cargo.toml</code> on <code>main</code> runs the tests on Linux, macOS and Windows, builds every package, and publishes a GitHub release with notes. Omacus is <a href="https://github.com/avinashjoshi/omacus/blob/main/LICENSE">MIT licensed</a>.</p>
