@@ -270,7 +270,7 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "Preview and print",
-        "`Ctrl+P` shows the page as rendered notes: headings, lists, checkboxes and tables, with each answer in a small pill after its line. Print and Export PDF use that view. Esc returns to editing. Tables are drawn, and a cell is not calculated.",
+        "`Ctrl+P` shows the page as rendered notes: headings, lists, checkboxes and tables, with each answer in brackets after its line, in its own colour. Print and Export PDF use that view. Esc returns to editing. Tables are drawn, and a cell is not calculated.",
     ),
     (
         "Deleted isn't gone",
@@ -282,7 +282,7 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "Jump between pages",
-        "`Ctrl+J` and a few letters of a page's name (or something written in it), then Enter. `Ctrl+Alt+↑` and `Ctrl+Alt+↓` move to the previous or next page.",
+        "`Ctrl+J` and a few letters of a page's name (or something written in it), then Enter. Type `settings` to open Settings. `Ctrl+Alt+↑` and `Ctrl+Alt+↓` move to the previous or next page.",
     ),
     (
         "Copy fast",
@@ -302,7 +302,7 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "Theme",
-        "Settings (`Ctrl+,`) picks the theme: Light, Dark, Paper, Dusk, the Omarchy theme, or your own file at `{theme}`. Auto uses that file if it exists, then the Omarchy theme, then the system's light or dark mode. `Ctrl+\\` hides the answers column so each answer sits after its line.",
+        "Settings (`Ctrl+,`, or the gear at the bottom of the sidebar) picks the theme: Light, Dark, Paper, Dusk, the Omarchy theme, or your own file at `{theme}`. Auto uses that file if it exists, then the Omarchy theme, then the system's light or dark mode. `Ctrl+\\` hides the answers column so each answer sits after its line.",
     ),
 ];
 

@@ -47,7 +47,7 @@ adds the notepad conventions on top.
   type and reopens exactly where you left it, cursor included.
 - Click a result to copy it (a short note confirms); `Ctrl+Shift+C` copies the last result, and `Ctrl+Shift+S` copies
   the whole page with its answers lined up (`Ctrl+Shift+M` as a Markdown table). Hover a variable or a number such as `1.5k` to see its value. A name you define, a later use of it, and keywords or units are three different colours.
-- `Ctrl` `+` / `-` zooms. `Ctrl+,` opens Settings. `Ctrl+\` hides the answers column, so each answer sits after its line. `Ctrl+P` previews the page as rendered notes, with each answer in a pill; Print and Export PDF use that view.
+- `Ctrl` `+` / `-` zooms. `Ctrl+,` opens Settings, and so does the gear at the bottom of the sidebar. `Ctrl+\` hides the answers column, so each answer sits after its line. `Ctrl+P` previews the page as rendered notes, with each answer in brackets; Print and Export PDF use that view.
 - Settings picks the theme. Auto follows your `theme.toml`, then the active Omarchy theme (live on `omarchy theme set`), then the system's light or dark mode. Light, Dark, Paper and Dusk are built in.
 
 ### Pages
@@ -63,11 +63,11 @@ adds the notepad conventions on top.
 | `Ctrl+Shift+Delete` | Delete page (asks first; moved to `trash/`, restored from Recently deleted) |
 | `Ctrl+B` | Expand or collapse the sidebar |
 | `Ctrl+Shift+L` | Copy a share link to the page |
-| `Ctrl+,` | Settings: theme, answers column, update checks |
+| `Ctrl+,` | Settings: theme, answers column, update checks (also the gear at the bottom of the sidebar) |
 | `Ctrl+\` | Hide the answers column |
 | `Ctrl+P` | Preview the page (print and export PDF from there) |
 
-The ⋯ above a page (or on its row in the sidebar, or a right-click) has the same actions, and Settings. A page's title is its first line.
+The ⋯ above a page (or on its row in the sidebar, or a right-click) has the same actions, and Settings. The gear at the bottom of the sidebar (and of the collapsed strip) opens Settings too, and so does typing `settings` in the page switcher (`Ctrl+J`). A page's title is its first line.
 Pages are plain text in `~/.local/share/omacus/pages/`; order, cursors, and whether the
 sidebar is expanded (and how wide) are in `~/.local/share/omacus/state.json`.
 A folder named `sheets` from an older version is renamed to `pages` the first time this version opens.

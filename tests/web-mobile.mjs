@@ -72,7 +72,14 @@ check(js.includes('has("sw")'), "a local preview can register the worker with ?s
 check(html.includes("rates may be stale") && html.includes("data-rates-note"), "a failed rates refresh says rates may be stale");
 check(js.includes('note.dataset.ratesState = state'), "the rates note records whether the refresh succeeded");
 check(css.includes(".rates-note"), "the rates note is styled");
-check(css.includes(".pill"), "answers in the preview are pills");
+check(css.includes(".pill"), "answers in the preview are marked");
+check(/\.hover-value \{[^}]*white-space:\s*nowrap/.test(css), "a hover value stays on one line");
+check(/\.cm-tooltip\.cm-tooltip-hover \{[^}]*max-width:\s*none/.test(css), "the hover tooltip sizes to its text");
+check(html.includes("rail-settings"), "the collapsed rail has a settings gear");
+check(html.includes('class="side-tools"'), "the open sidebar has a settings gear");
+check(css.includes("#1a3a5c"), "printed answers use a dark ink");
+check(/@page \{[^}]*margin:/.test(css), "printed pages have margins");
+check(js.includes("pill.dataset.value"), "clicking an answer copies the value, not the brackets");
 check(css.includes("body.answers-inline .res"), "hiding the column places answers inline");
 check(
   /@media \(max-width: 620px\)[\s\S]*?\.features \{[\s\S]*?overflow-x:\s*auto/.test(siteCss),
@@ -368,11 +375,30 @@ if (pkg) {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "p", ctrlKey: true }));
     const root = document.querySelector("[data-page-preview]");
     const pill = root?.querySelector(".pill");
-    return { open: !!root && !root.hidden, pill: pill?.textContent ?? "" };
+    const md = root?.querySelector(".md");
+    return {
+      open: !!root && !root.hidden,
+      pill: pill?.textContent ?? "",
+      value: pill?.dataset.value ?? "",
+      color: pill ? getComputedStyle(pill).color : "",
+      body: md ? getComputedStyle(md).color : "",
+    };
   })()`);
   check(preview.open === true, "Ctrl+P did not open the preview");
-  check(preview.pill.length > 0, `the preview has no answer pill (${preview.pill})`);
+  check(/^\[ .+ \]$/.test(preview.pill), `an answer is not in brackets (${preview.pill})`);
+  check(preview.value.length > 0 && !preview.value.startsWith("["), `the copied value kept the brackets (${preview.value})`);
+  check(preview.color && preview.color !== preview.body, `an answer is not its own colour (${preview.color} vs ${preview.body})`);
   if (shots) await plainShot(join(shots, "preview.png"));
+  await page("Emulation.setEmulatedMedia", { media: "print" });
+  const printed = await evalJson(`(() => {
+    const pill = document.querySelector("[data-page-preview] .pill");
+    const bar = getComputedStyle(document.querySelector(".page-preview-bar")).display;
+    return { color: pill ? getComputedStyle(pill).color : "", bar };
+  })()`);
+  check(printed.bar === "none", `print still shows the preview bar (${printed.bar})`);
+  check(printed.color && printed.color !== "rgb(0, 0, 0)", `printed answer lost its ink (${printed.color})`);
+  if (shots) await plainShot(join(shots, "print-preview.png"));
+  await page("Emulation.setEmulatedMedia", { media: "screen" });
   const closedPreview = await evalJson(`(() => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     return document.querySelector("[data-page-preview]").hidden;
@@ -394,7 +420,7 @@ if (pkg) {
 
   // A page with a definition, a use, a keyword, a scaled number and a # comment.
   await evalJson(`(() => {
-    localStorage.setItem("omacus:page:hover", "rent = $1,450 # monthly\\nrent * 2\\n1.5k\\ntotal");
+    localStorage.setItem("omacus:page:hover", "rent = $1,450 # monthly\\nrent * 2\\n1.5k\\ntotal\\nseats = 10\\nrevenue = $1,200 * seats");
     localStorage.setItem("omacus:index", JSON.stringify({ order: ["hover"], active: "hover" }));
     return true;
   })()`);
@@ -428,7 +454,58 @@ if (pkg) {
   })()`);
   check(tip.text === "$1,450", `hover showed ${tip.text}`);
   check(tip.shown && tip.y > 0 && tip.y < 760 && tip.x > 0, `hover tooltip is off-screen (${JSON.stringify(tip)})`);
+  check(tip.w > tip.h, `hover tooltip is taller than it is wide (${tip.w}x${tip.h})`);
+  const nowrap = await evalJson(`getComputedStyle(document.querySelector(".hover-value")).whiteSpace`);
+  check(nowrap === "nowrap", `hover value wraps (${nowrap})`);
   if (shots) await plainShot(join(shots, "hover.png"));
+  const big = await evalJson(`(() => {
+    const el = [...document.querySelectorAll(".t-def")].find((n) => n.textContent === "revenue");
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + Math.min(r.height / 2, 8) };
+  })()`);
+  check(big, "revenue is not marked as a definition");
+  if (big) {
+  await page("Input.dispatchMouseEvent", { type: "mouseMoved", x: 8, y: 8 });
+  await page("Input.dispatchMouseEvent", { type: "mouseMoved", x: big.x, y: big.y });
+  await waitFor(`document.querySelector(".hover-value")?.textContent === "$12,000"`, 4000);
+  const longTip = await evalJson(`(() => {
+    const el = document.querySelector(".hover-value");
+    const host = el.closest(".cm-tooltip");
+    const h = host.getBoundingClientRect();
+    const inside = h.x >= 0 && h.y >= 0 && h.right <= innerWidth + 1 && h.bottom <= innerHeight + 1;
+    return { text: el.textContent, w: h.width, h: h.height, x: h.x, y: h.y, inside, lines: el.innerText.split("\\n").length };
+  })()`);
+  check(longTip.text === "$12,000", `long hover showed ${longTip.text}`);
+  check(longTip.w > longTip.h * 2, `long hover wrapped into a tall box (${longTip.w}x${longTip.h})`);
+  check(longTip.lines === 1, `long hover split onto ${longTip.lines} lines`);
+  check(longTip.inside, `long hover left the window (${JSON.stringify(longTip)})`);
+  if (shots) await plainShot(join(shots, "hover-long.png"));
+  }
+  const gears = await evalJson(`(() => {
+    document.querySelector("[data-settings]").hidden = true;
+    const side = document.querySelector(".side-tools [data-action=settings]");
+    side.click();
+    const opened = !document.querySelector("[data-settings]").hidden;
+    document.querySelector("[data-settings]").hidden = true;
+    const workspace = document.querySelector(".workspace");
+    workspace.classList.add("collapsed");
+    const rail = document.querySelector(".rail-settings");
+    const box = rail.getBoundingClientRect();
+    return { opened, rail: getComputedStyle(rail).display, x: box.x, y: box.y, w: box.width, h: box.height };
+  })()`);
+  check(gears.opened === true, "the sidebar gear did not open settings");
+  check(gears.rail !== "none" && gears.w > 0 && gears.h > 0, `the collapsed rail has no gear (${JSON.stringify(gears)})`);
+  if (shots) await plainShot(join(shots, "settings-rail.png"));
+  const railOpened = await evalJson(`(() => {
+    document.querySelector(".rail-settings").click();
+    const opened = !document.querySelector("[data-settings]").hidden;
+    document.querySelector("[data-settings]").hidden = true;
+    document.querySelector(".workspace").classList.remove("collapsed");
+    return opened;
+  })()`);
+  check(railOpened === true, "the collapsed-rail gear did not open settings");
+  if (shots) await plainShot(join(shots, "settings-sidebar.png"));
 
   // A refresh that fails leaves the cached rates in use and says so. A cache younger
   // than 12 hours does not. `at: 0` is older than any 12-hour window.

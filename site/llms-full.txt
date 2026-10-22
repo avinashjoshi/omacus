@@ -256,7 +256,7 @@ Pixels, `rem`, `em` and points convert with a 16px root, or the one you give (`a
 
 ## Notes & prose
 
-A page is one plain-text document, and any line can be a note, a calculation, or both. Omacus reads the line after a markdown prefix (`#`, `-`, `*`, `1.`, `- [ ]`, `>`): if what remains is math, it computes (`- hotel = 3 nights * $180` sets hotel to $540), otherwise the line is prose. Variables carry across the whole page, including prose. `#` at the start of a line is a heading; `#` later on the line is a comment, like `//`, and is drawn in the comment colour. `Ctrl P` previews the page as rendered notes, with each answer in a small pill after its line. Print and Export PDF use that view. Tables are drawn in the preview, and a cell is not calculated.
+A page is one plain-text document, and any line can be a note, a calculation, or both. Omacus reads the line after a markdown prefix (`#`, `-`, `*`, `1.`, `- [ ]`, `>`): if what remains is math, it computes (`- hotel = 3 nights * $180` sets hotel to $540), otherwise the line is prose. Variables carry across the whole page, including prose. `#` at the start of a line is a heading; `#` later on the line is a comment, like `//`, and is drawn in the comment colour. `Ctrl P` previews the page as rendered notes, with each answer in brackets after its line, in its own colour. Print and Export PDF use that view. Tables are drawn in the preview, and a cell is not calculated.
 
 | You type | Omacus shows |
 |---|---|
@@ -341,7 +341,7 @@ After two letters, Omacus suggests your page's variables, then keywords, time zo
 
 ## Themes
 
-Settings (`Ctrl ,`, or Settings in a page's ⋯ menu) chooses the theme, whether answers sit in a column, and whether Omacus checks for updates. The same choices are saved in `settings.toml` (see [where files live](https://omacus.com/docs/#files)). `Ctrl \` hides the answers column, so each answer sits after its line.
+Settings (`Ctrl ,`, the gear at the bottom of the sidebar, or Settings in a page's ⋯ menu) chooses the theme, whether answers sit in a column, and whether Omacus checks for updates. Typing `settings` in the page switcher (`Ctrl J`) opens it too. The same choices are saved in `settings.toml` (see [where files live](https://omacus.com/docs/#files)). `Ctrl \` hides the answers column, so each answer sits after its line.
 
 **Auto** picks colors in this order:
 

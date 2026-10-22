@@ -311,7 +311,7 @@ pub fn page_marks(line: &str) -> String {
 }
 
 /// The preview as HTML. `answers_json` is the array `evaluate` returns; each
-/// value (and a real error, not a name hint) becomes a `<span class="pill">`.
+/// value (and a real error, not a name hint) becomes `[ value ]`.
 #[wasm_bindgen(js_name = previewHtml)]
 pub fn preview_html(text: &str, answers_json: &str) -> String {
     let parsed: Vec<serde_json::Value> = serde_json::from_str(answers_json).unwrap_or_default();
@@ -461,9 +461,18 @@ mod tests {
         let answers = calc.evaluate(text);
         let html = preview_html(text, &answers);
         assert!(html.contains("<li>"), "{html}");
-        assert!(html.contains("class=\"pill\">$540</span>"), "{html}");
-        assert!(html.contains("class=\"pill\">$1,080</span>"), "{html}");
-        assert!(html.contains("class=\"pill\">$100</span>"), "{html}");
+        assert!(
+            html.contains("data-value=\"$540\">[ $540 ]</button>"),
+            "{html}"
+        );
+        assert!(
+            html.contains("data-value=\"$1,080\">[ $1,080 ]</button>"),
+            "{html}"
+        );
+        assert!(
+            html.contains("data-value=\"$100\">[ $100 ]</button>"),
+            "{html}"
+        );
         assert!(html.contains("pack sunscreen"), "{html}");
         assert!(!html.contains("# monthly"), "{html}");
     }
