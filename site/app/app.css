@@ -272,14 +272,16 @@ html:has(body.app-page) {
   align-items: center;
   gap: 4px;
   width: 100%;
-  /* The logo sits level with "Sheets" in the open sidebar. */
-  padding: 13px 0 0;
+  /* The sidebar button sits level with where the open sidebar has it, the logo
+     at the bottom. */
+  flex: 1;
+  padding: 10px 0 14px;
   cursor: pointer;
 }
 
 /* Sidebar buttons: drawn icons, quiet until hovered, like the rows. */
 .rail img {
-  margin-bottom: 8px;
+  margin-top: auto;
 }
 
 .side-btn {
