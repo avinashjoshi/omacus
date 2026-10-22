@@ -124,8 +124,8 @@ html:has(body.app-page) {
 }
 
 .icon-btn:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.04);
+  color: var(--app-fg);
+  background: var(--app-hover);
 }
 
 .icon-btn svg {
@@ -175,7 +175,7 @@ html:has(body.app-page) {
   padding: 6px;
   border: 1px solid var(--line-2);
   border-radius: 12px;
-  background: var(--panel);
+  background: var(--app-side);
   box-shadow: 0 20px 50px -20px #000;
 }
 
@@ -195,8 +195,8 @@ html:has(body.app-page) {
 
 .menu-list button:hover,
 .menu-list a:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--app-fg);
+  background: var(--app-hover);
 }
 
 .menu-list .danger {
@@ -540,7 +540,13 @@ html:has(body.app-page) {
 .cm-editor .cm-selectionBackground,
 .cm-editor.cm-focused .cm-selectionBackground,
 .cm-editor .cm-content ::selection {
-  background: rgba(230, 142, 13, 0.28) !important;
+  background: color-mix(in srgb, var(--app-accent) 28%, transparent) !important;
+}
+
+/* Hidden answers column: the answer follows the line instead of floating right. */
+body.answers-inline .res {
+  float: none;
+  margin-left: 1.2em;
 }
 
 /* The answer: at the right edge, beside its line when there's room, else just below. */
@@ -674,6 +680,80 @@ html:has(body.app-page) {
 
 .res.copied {
   color: var(--app-dim);
+}
+
+.settings {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+}
+
+.settings-scrim {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+
+.settings-card {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 14vh;
+  transform: translateX(-50%);
+  width: min(440px, calc(100vw - 32px));
+  padding: 18px 20px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--app-bg);
+  color: var(--app-fg);
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.35);
+}
+
+.settings-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.settings-card h2 {
+  margin: 0;
+  font: 600 18px var(--sans);
+}
+
+.settings-field,
+.settings-check {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font: 500 14px var(--sans);
+  color: var(--app-dim);
+}
+
+.settings-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  color: var(--app-fg);
+}
+
+.settings-card select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--app-side);
+  color: var(--app-fg);
+  font: 14px var(--sans);
+}
+
+.settings-note {
+  margin: 8px 0 0;
+  color: var(--app-comment);
+  font: 13px/1.45 var(--sans);
 }
 
 .swatch {

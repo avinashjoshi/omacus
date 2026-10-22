@@ -49,6 +49,12 @@ check(/closest\("\.side, \.sheets-toggle, \.bar"\)/.test(js), "taps on the drawe
 check(js.includes('setAttribute("aria-expanded", String(open))'), "the sheets button reflects the drawer");
 check(js.includes("Recently deleted"), "deleted sheets can be restored from Recently deleted");
 check(js.includes("r.hint"), "name hints are marked so they can wait out typing");
+check(html.includes("data-settings"), "settings dialog is in the page");
+check(html.includes('data-action="settings"'), "the menu opens settings");
+check(js.includes("hideAnswers"), "the answers column can be hidden");
+check(js.includes('"#f6f1e7"') && js.includes('"#1c2433"'), "paper and dusk match the desktop themes");
+check(js.includes('e.key === ","') && js.includes('e.key === "\\\\"'), "settings and the answers column have shortcuts");
+check(css.includes("body.answers-inline .res"), "hiding the column places answers inline");
 check(
   /@media \(max-width: 620px\)[\s\S]*?\.features \{[\s\S]*?overflow-x:\s*auto/.test(siteCss),
   "example cards scroll sideways on a narrow screen",
@@ -268,6 +274,59 @@ if (shots) await shot(join(shots, "desktop.png"));
 
 const pkg = existsSync(join(site, "app/pkg/omacus_web.js"));
 if (pkg) {
+  // app.js imports the wasm package, so the module (and Settings) only runs when it exists.
+  await waitFor(`document.documentElement.style.getPropertyValue("--app-bg").trim() !== ""`);
+  await evalJson(`document.querySelector("[data-loading]")?.remove()`);
+  await waitFor(`document.querySelector(".res")`, 20000);
+  await evalJson(`document.querySelector("[data-menu-button]").click()`);
+  const menuOpen = await evalJson(`!document.querySelector("[data-menu]").hidden`);
+  check(menuOpen === true, "the menu did not open");
+  await evalJson(`document.querySelector('[data-action="settings"]').click()`);
+  const settingsOpen = await evalJson(`!document.querySelector("[data-settings]").hidden`);
+  check(settingsOpen === true, "settings did not open from the menu");
+  async function pickTheme(name) {
+    return evalJson(`(() => {
+      const select = document.querySelector("[data-setting=theme]");
+      select.value = ${JSON.stringify(name)};
+      select.dispatchEvent(new Event("change"));
+      return getComputedStyle(document.documentElement).getPropertyValue("--app-bg").trim().toLowerCase();
+    })()`);
+  }
+  check(await pickTheme("paper") === "#f6f1e7", "paper theme did not apply");
+  if (shots) await plainShot(join(shots, "settings-paper.png"));
+  check(await pickTheme("dusk") === "#1c2433", "dusk theme did not apply");
+  if (shots) await plainShot(join(shots, "settings-dusk.png"));
+  check(await pickTheme("light") === "#ffffff", "light theme did not apply");
+  if (shots) await plainShot(join(shots, "settings-light.png"));
+  check(await pickTheme("dark") === "#1a1b26", "dark theme did not apply");
+  if (shots) await plainShot(join(shots, "settings-dark.png"));
+  const answers = await evalJson(`(() => {
+    const hide = document.querySelector("[data-setting=hide-answers]");
+    hide.click();
+    const inline = document.body.classList.contains("answers-inline");
+    hide.click();
+    const column = !document.body.classList.contains("answers-inline");
+    const note = document.querySelector("[data-theme-note]").textContent;
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    const closed = document.querySelector("[data-settings]").hidden;
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: ",", ctrlKey: true }));
+    const reopened = !document.querySelector("[data-settings]").hidden;
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "\\\\", ctrlKey: true }));
+    const toggled = document.body.classList.contains("answers-inline");
+    document.querySelector("[data-settings]").hidden = true;
+    localStorage.removeItem("omacus:settings");
+    return { inline, column, note, closed, reopened, toggled };
+  })()`);
+  check(answers.inline === true, "hiding the answers column did not mark the page");
+  check(answers.column === true, "showing the column again left answers inline");
+  check(answers.note.includes("dark"), `theme note was ${answers.note}`);
+  check(answers.closed === true, "Escape did not close settings");
+  check(answers.reopened === true, "Ctrl+, did not open settings");
+  check(answers.toggled === true, "Ctrl+\\ did not hide the answers column");
+  const inlineFloat = await evalJson(`getComputedStyle(document.querySelector(".res")).float`);
+  check(inlineFloat === "none", `an inline answer still floats ${inlineFloat}`);
+  if (shots && answers.toggled) await plainShot(join(shots, "answers-inline.png"));
+
   // The homepage embeds the editor in an iframe. The shell still fills that frame.
   // The embed class is added by app.js, which only loads once the wasm package exists.
   await page("Emulation.clearDeviceMetricsOverride");
@@ -422,6 +481,11 @@ async function openMobile() {
 async function tap(x, y) {
   await page("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
   await page("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+}
+
+async function plainShot(path) {
+  const { data } = await page("Page.captureScreenshot", { format: "png" });
+  writeFileSync(path, Buffer.from(data, "base64"));
 }
 
 async function shot(path) {

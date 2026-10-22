@@ -66,6 +66,7 @@ const el = {
   preview: $("[data-preview]"),
   previewTitle: $("[data-preview-title]"),
   previewBody: $("[data-preview-body]"),
+  settings: $("[data-settings]"),
 };
 
 let calc;
@@ -102,6 +103,113 @@ const store = {
     } catch {}
   },
 };
+
+// Same built-in colors as the desktop app. Auto follows this device.
+const THEMES = {
+  light: { dark: false, bg: "#ffffff", side: "#f6f8fa", fg: "#24292f", dim: "#6e7781", comment: "#8c959f", accent: "#0969da", variable: "#cf222e", sel: "#ddf4ff", hover: "#eaeef2", line: "#d0d7de", line2: "#afb8c1" },
+  dark: { dark: true, bg: "#1a1b26", side: "#16161e", fg: "#c0caf5", dim: "#787c99", comment: "#565f89", accent: "#7aa2f7", variable: "#bb9af7", sel: "#33467c", hover: "#24283b", line: "#2a2e45", line2: "#3b4261" },
+  paper: { dark: false, bg: "#f6f1e7", side: "#efe6d6", fg: "#3c3226", dim: "#8a7b68", comment: "#a89880", accent: "#b45309", variable: "#9f1239", sel: "#eadcc4", hover: "#e7dcc8", line: "#e0d3bc", line2: "#c9b89a" },
+  dusk: { dark: true, bg: "#1c2433", side: "#151b28", fg: "#d7e0f0", dim: "#8b9bb3", comment: "#64748b", accent: "#8eb4ff", variable: "#f0a27a", sel: "#2c3d5c", hover: "#243044", line: "#2c3a50", line2: "#3d4e6b" },
+};
+const THEME_NOTES = {
+  auto: "Follows this device's light or dark mode.",
+  light: "A plain light theme.",
+  dark: "A dark theme.",
+  paper: "Warm paper, for reading in daylight.",
+  dusk: "A blue night theme.",
+};
+
+function loadSettings() {
+  try {
+    const saved = JSON.parse(store.get("settings") || "null");
+    const theme = ["auto", "light", "dark", "paper", "dusk"].includes(saved?.theme) ? saved.theme : "auto";
+    return { theme, hideAnswers: !!saved?.hideAnswers };
+  } catch {
+    return { theme: "auto", hideAnswers: false };
+  }
+}
+
+let settings = loadSettings();
+
+function saveSettings() {
+  store.set("settings", JSON.stringify(settings));
+}
+
+function themeName() {
+  if (settings.theme !== "auto") return settings.theme;
+  return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function applySettings() {
+  const t = THEMES[themeName()];
+  const root = document.documentElement;
+  const set = (name, value) => root.style.setProperty(name, value);
+  set("--app-bg", t.bg);
+  set("--app-side", t.side);
+  set("--app-fg", t.fg);
+  set("--app-dim", t.dim);
+  set("--app-comment", t.comment);
+  set("--app-accent", t.accent);
+  set("--app-var", t.variable);
+  set("--app-sel", t.sel);
+  set("--app-hover", t.hover);
+  set("--text", t.fg);
+  set("--text-2", t.dim);
+  set("--line", t.line);
+  set("--line-2", t.line2);
+  set("--panel", t.side);
+  set("--panel-2", t.hover);
+  set("--bg", t.bg);
+  root.style.colorScheme = t.dark ? "dark" : "light";
+  document.body.classList.toggle("answers-inline", settings.hideAnswers);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = t.bg;
+}
+
+function updateThemeNote() {
+  const note = $("[data-theme-note]");
+  if (note) note.textContent = THEME_NOTES[settings.theme] || THEME_NOTES.auto;
+}
+
+function openSettings() {
+  closeMenu();
+  if (!el.settings) return;
+  const select = $("[data-setting=theme]", el.settings);
+  const hide = $("[data-setting=hide-answers]", el.settings);
+  if (select) select.value = settings.theme;
+  if (hide) hide.checked = settings.hideAnswers;
+  updateThemeNote();
+  el.settings.hidden = false;
+}
+
+function closeSettings() {
+  if (el.settings) el.settings.hidden = true;
+}
+
+function toggleAnswers() {
+  settings.hideAnswers = !settings.hideAnswers;
+  saveSettings();
+  applySettings();
+  const hide = el.settings && $("[data-setting=hide-answers]", el.settings);
+  if (hide) hide.checked = settings.hideAnswers;
+  toast(settings.hideAnswers ? "Answers sit after each line." : "Answers are in the column.");
+}
+
+applySettings();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (settings.theme === "auto") applySettings();
+});
+$("[data-setting=theme]")?.addEventListener("change", (e) => {
+  settings.theme = e.target.value;
+  saveSettings();
+  applySettings();
+  updateThemeNote();
+});
+$("[data-setting=hide-answers]")?.addEventListener("change", (e) => {
+  settings.hideAnswers = e.target.checked;
+  saveSettings();
+  applySettings();
+});
 
 // Older builds stored each page under `sheet:`. Read those once and write `page:`.
 function migratePageKeys() {
@@ -397,8 +505,9 @@ function restoreTrashed(id) {
 
 // ---------------------------------------------------------------------------------
 // The editor: CodeMirror (editor.js, bundled by site/tools/editor). Lines wrap at the
-// full width. Each answer floats right at the end of its line, so it sits beside a
-// short line and drops to its own row, still right-aligned, below a long one.
+// full width. Each answer floats at the right edge of its line, unless Settings hides
+// that column: then the answer sits inline after the line. A long line still drops
+// the answer onto the row below.
 
 const setResults = StateEffect.define();
 
@@ -822,6 +931,10 @@ async function action(name) {
     setDrawer(false);
   } else if (name === "expand-side") {
     setSide(true);
+  } else if (name === "settings") {
+    openSettings();
+  } else if (name === "close-settings") {
+    closeSettings();
   } else if (name === "privacy") {
     toast(
       "<b>Private.</b> Pages are saved in this browser, on this device, and never uploaded. " +
@@ -1002,11 +1115,22 @@ addEventListener(
       e.preventDefault();
       action("share");
     }
+    // Ctrl+, opens settings. Ctrl+\ hides the answers column. Ctrl+P stays free.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "," || e.key === "\\")) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === ",") openSettings();
+      else toggleAnswers();
+    }
   },
   true,
 );
 addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    if (el.settings && !el.settings.hidden) {
+      closeSettings();
+      return;
+    }
     if (el.confirm && !el.confirm.hidden) {
       el.confirm.hidden = true;
       return;

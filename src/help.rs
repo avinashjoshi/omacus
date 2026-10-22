@@ -66,6 +66,10 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
         "Results",
         &[
             ("Click a result", "Copy it"),
+            (
+                "Ctrl+\\",
+                "Hide the answers column (answers sit after each line)",
+            ),
             ("Ctrl+Shift+C", "Copy the last result"),
             ("Ctrl+Shift+S", "Copy the page with its answers"),
             ("Ctrl+Shift+M", "Copy the page as a Markdown table"),
@@ -94,7 +98,8 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
         "Window",
         &[
             ("F1  /  Ctrl+/", "This help"),
-            ("Esc", "Close the switcher, help, or a dialog"),
+            ("Ctrl+,", "Settings: theme, answers column, update checks"),
+            ("Esc", "Close the switcher, help, settings, or a dialog"),
             ("Ctrl+W  /  Ctrl+Q", "Quit (everything is saved)"),
             ("Super+Ctrl+Alt+=", "Open Omacus from anywhere (Omarchy)"),
         ],
@@ -278,7 +283,7 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "Theme",
-        "On Omarchy, colors follow your theme and switch with it. Elsewhere Omacus follows the system's light or dark mode. For your own colors, put a `colors.toml`-style file at `{theme}`.",
+        "Settings (`Ctrl+,`) picks the theme: Light, Dark, Paper, Dusk, the Omarchy theme, or your own file at `{theme}`. Auto uses that file if it exists, then the Omarchy theme, then the system's light or dark mode. `Ctrl+\\` hides the answers column so each answer sits after its line.",
     ),
 ];
 
