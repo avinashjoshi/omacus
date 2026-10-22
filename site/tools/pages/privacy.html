@@ -1,32 +1,32 @@
 <!--
 path: /privacy/
 title: Privacy: what Omacus does with your data (nothing)
-description: Omacus keeps your sheets on your device. No account, no analytics in the app; the only requests are exchange rates and a check for new versions. Here is all of it, in plain words.
+description: Omacus keeps your pages on your device. No account, no analytics in the app; the only requests are exchange rates and a check for new versions. Here is all of it, in plain words.
 kicker: privacy
 h1: Privacy
-lede: Omacus has no account, no ads and no analytics, and your sheets never leave your device unless you share them. This page lists everything Omacus sends over the network, and why.
+lede: Omacus has no account, no ads and no analytics, and your pages never leave your device unless you share them. This page lists everything Omacus sends over the network, and why.
 card: Privacy
-blurb: Where your sheets live, and the only two things Omacus fetches.
+blurb: Where your pages live, and the only two things Omacus fetches.
 related: /docs/, /use-cases/
 -->
     <h2 id="desktop">The desktop app</h2>
     <ul>
-      <li><strong>Your sheets</strong> are plain text files in a folder on your computer (see <a href="/docs/#files">where files live</a>). They are never uploaded.</li>
-      <li><strong>Exchange rates.</strong> Omacus downloads the latest rates from <a href="https://www.exchangerate-api.com/docs/free">open.er-api.com</a> at most every 12 hours while you use it, and keeps them on disk so currency math works offline. The request carries nothing from your sheets.</li>
+      <li><strong>Your pages</strong> are plain text files in a folder on your computer (see <a href="/docs/#files">where files live</a>). They are never uploaded.</li>
+      <li><strong>Exchange rates.</strong> Omacus downloads the latest rates from <a href="https://www.exchangerate-api.com/docs/free">open.er-api.com</a> at most every 12 hours while you use it, and keeps them on disk so currency math works offline. The request carries nothing from your pages.</li>
       <li><strong>Checking for updates.</strong> Omacus asks GitHub for the latest version number when it starts (at most once an hour) and every 4 hours while it's open. Put <code>check_for_updates = false</code> in <code>settings.toml</code> to turn that off. A new version is downloaded, from GitHub, only when you choose <em>Update now</em> or run <code>omacus update</code>.</li>
       <li><strong>Nothing else.</strong> No telemetry, no crash reports, no usage statistics.</li>
     </ul>
 
     <h2 id="web-app">The web app</h2>
     <ul>
-      <li><strong>Your sheets</strong> are saved in your browser's storage, on that device. They are never sent to omacus.com or anywhere else. Clearing the site's data in your browser deletes them, so export a copy (⋯ menu) if they matter.</li>
+      <li><strong>Your pages</strong> are saved in your browser's storage, on that device. They are never sent to omacus.com or anywhere else. Clearing the site's data in your browser deletes them, so export a copy (⋯ menu) if they matter.</li>
       <li><strong>Exchange rates</strong> come from the same source as the desktop app, kept in the browser for 12 hours.</li>
       <li><strong>The app itself</strong> is downloaded from omacus.com and cached so it works offline.</li>
     </ul>
 
     <h2 id="share-links">Share links</h2>
-    <p>A share link carries the sheet inside it, compressed into the part after the <code>#</code>. Browsers never send that part to a server, so omacus.com doesn't receive your sheet when someone opens the link.</p>
-    <p>Anyone who has the link can read the sheet, so treat it like the sheet itself. Chat apps that show link previews may store the whole link on their servers.</p>
+    <p>A share link carries the page inside it, compressed into the part after the <code>#</code>. Browsers never send that part to a server, so omacus.com doesn't receive your page when someone opens the link.</p>
+    <p>Anyone who has the link can read the page, so treat it like the page itself. Chat apps that show link previews may store the whole link on their servers.</p>
 
     <h2 id="website">This website</h2>
     <p>omacus.com is static pages, hosted on GitHub Pages behind Cloudflare. Like any host, they handle your IP address and a log of requests to serve the pages. Cloudflare counts visits without cookies. There are no cookies, ads or third-party trackers, and the fonts are served from omacus.com itself.</p>

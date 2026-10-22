@@ -1,6 +1,10 @@
-//! Sheets live as plain text files in `~/.local/share/omacus/sheets/`, Sublime-style:
+//! Pages live as plain text files in `~/.local/share/omacus/pages/`, Sublime-style:
 //! every edit is saved, nothing asks to be saved, and closing the window loses nothing.
-//! `state.json` remembers order, the active sheet, cursors and the sidebar.
+//! `state.json` remembers order, the active page, cursors and the sidebar.
+//!
+//! Older versions stored those files in `sheets/`. The first launch that sees only
+//! that folder renames it to `pages/`; if both exist, files still only in `sheets/`
+//! are moved across. The text format and `state.json` keys are unchanged.
 //!
 //! Two windows can be open on the same sheets. Each remembers every file's size and
 //! modification time as it last read or wrote it, and `sync` picks up what the other
@@ -119,7 +123,7 @@ impl Store {
     }
 
     fn load_in(root: Option<PathBuf>, welcome: &str) -> Self {
-        let dir = root.as_ref().map(|r| r.join("sheets"));
+        let dir = root.as_ref().map(|r| pages_dir(r));
         let state: State = root
             .as_ref()
             .and_then(|r| std::fs::read(r.join("state.json")).ok())
@@ -571,6 +575,30 @@ fn read_sheet(dir: &Path, id: &str) -> Option<Sheet> {
     })
 }
 
+/// `pages/`, or the older `sheets/` folder when it can't be renamed.
+fn pages_dir(root: &Path) -> PathBuf {
+    let pages = root.join("pages");
+    let legacy = root.join("sheets");
+    if legacy.is_dir() && !pages.exists() {
+        if std::fs::rename(&legacy, &pages).is_ok() {
+            return pages;
+        }
+        return legacy;
+    }
+    if legacy.is_dir() && pages.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&legacy) {
+            for entry in entries.flatten() {
+                let dest = pages.join(entry.file_name());
+                if !dest.exists() {
+                    let _ = std::fs::rename(entry.path(), dest);
+                }
+            }
+        }
+        let _ = std::fs::remove_dir(&legacy);
+    }
+    pages
+}
+
 /// Earlier versions kept a single `sheet.txt`.
 fn migrate_single_sheet(root: &Path, dir: &Path) {
     let old = root.join("sheet.txt");
@@ -741,12 +769,12 @@ mod tests {
         let root = temp_root("readonly");
         let mut store = Store::load_in(Some(root.clone()), "# A");
         store.save().unwrap();
-        let sheets = root.join("sheets");
-        std::fs::set_permissions(&sheets, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let pages = root.join("pages");
+        std::fs::set_permissions(&pages, std::fs::Permissions::from_mode(0o500)).unwrap();
         store.sheets[0].text = "# A\nmore".into();
         store.sheets[0].mark_dirty();
         let result = store.save();
-        std::fs::set_permissions(&sheets, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&pages, std::fs::Permissions::from_mode(0o700)).unwrap();
         assert!(result.is_err(), "{result:?}");
         let _ = std::fs::remove_dir_all(root);
     }
@@ -819,6 +847,41 @@ mod tests {
         store.save().unwrap();
         let again = Store::load_in(Some(root.clone()), "");
         assert_eq!(again.sheets.len(), 200);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn an_old_sheets_folder_becomes_pages() {
+        let root = temp_root("pages-dir");
+        let legacy = root.join("sheets");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join("abc.txt"), "# Weekend Plans\n1+1").unwrap();
+        std::fs::write(
+            root.join("state.json"),
+            r#"{"order":["abc"],"active":"abc","cursors":{"abc":4}}"#,
+        )
+        .unwrap();
+        let mut store = Store::load_in(Some(root.clone()), "# Welcome");
+        assert_eq!(store.current().title(), "Weekend Plans");
+        assert_eq!(store.current().cursor, 4);
+        assert!(root.join("pages").join("abc.txt").is_file());
+        assert!(!legacy.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn pages_already_there_keep_a_leftover_sheets_file() {
+        let root = temp_root("pages-both");
+        std::fs::create_dir_all(root.join("pages")).unwrap();
+        std::fs::create_dir_all(root.join("sheets")).unwrap();
+        std::fs::write(root.join("pages").join("new.txt"), "# New\n1").unwrap();
+        std::fs::write(root.join("sheets").join("old.txt"), "# Old\n2").unwrap();
+        let store = Store::load_in(Some(root.clone()), "");
+        let titles: Vec<_> = store.sheets.iter().map(Sheet::title).collect();
+        assert!(titles.contains(&"New".to_string()), "{titles:?}");
+        assert!(titles.contains(&"Old".to_string()), "{titles:?}");
+        assert!(root.join("pages").join("old.txt").is_file());
+        assert!(!root.join("sheets").exists());
         let _ = std::fs::remove_dir_all(root);
     }
 

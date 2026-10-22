@@ -104,24 +104,31 @@ const browser = spawn(chrome, [
   `--remote-debugging-port=0`,
   `--user-data-dir=${profile}`,
   "about:blank",
-], { stdio: ["ignore", "pipe", "pipe"] });
+], { stdio: ["ignore", "ignore", "ignore"] });
 
-let devtoolsUrl = "";
-browser.stderr.setEncoding("utf8");
-browser.stderr.on("data", (chunk) => {
-  const found = chunk.match(/DevTools listening on (ws:\/\/\S+)/);
-  if (found) devtoolsUrl = found[1];
-});
+// Chrome writes the port into the profile once DevTools is up. Reading stdout
+// for the "DevTools listening" line deadlocks when that pipe fills.
+const portFile = join(profile, "DevToolsActivePort");
 const started = Date.now();
-while (!devtoolsUrl && Date.now() - started < 20000) await new Promise((r) => setTimeout(r, 50));
-if (!devtoolsUrl) {
+let version = null;
+while (!version && Date.now() - started < 20000) {
+  if (existsSync(portFile)) {
+    const port = readFileSync(portFile, "utf8").split("\n")[0].trim();
+    try {
+      version = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json());
+    } catch {
+      version = null;
+    }
+  }
+  if (!version) await new Promise((r) => setTimeout(r, 50));
+}
+if (!version?.webSocketDebuggerUrl) {
   browser.kill();
   server.close();
   console.error("Chrome did not expose DevTools");
   process.exit(1);
 }
 
-const version = await fetch(devtoolsUrl.replace("ws://", "http://").replace(/\/devtools\/.*/, "/json/version")).then((r) => r.json());
 const ws = new WebSocket(version.webSocketDebuggerUrl);
 await new Promise((resolve, reject) => {
   ws.onopen = resolve;

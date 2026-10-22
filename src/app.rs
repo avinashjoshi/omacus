@@ -42,7 +42,7 @@ const WELCOME: &str = "\
 # Welcome to Omacus
 // Type on the left, results appear on the right.
 // Click a result to copy it. Press F1 for help and shortcuts.
-// Sheets are listed in the sidebar. Ctrl+B collapses it, Ctrl+J jumps to one.
+// Pages are listed in the sidebar. Ctrl+B collapses it, Ctrl+J jumps to one.
 
 Rent: $1,450
 Groceries $320 + $85
@@ -489,7 +489,7 @@ impl OmacusApp {
                 self.store.move_active(step);
             }
             SheetAction::Copy(i) => {
-                self.copy_with(i, engine::with_answers, "Sheet copied with answers");
+                self.copy_with(i, engine::with_answers, "Page copied with answers");
                 return;
             }
             SheetAction::Share(i) => {
@@ -508,11 +508,7 @@ impl OmacusApp {
                 return;
             }
             SheetAction::CopyMarkdown(i) => {
-                self.copy_with(
-                    i,
-                    engine::markdown_table,
-                    "Sheet copied as a Markdown table",
-                );
+                self.copy_with(i, engine::markdown_table, "Page copied as a Markdown table");
                 return;
             }
         }
@@ -539,9 +535,9 @@ impl OmacusApp {
         for text in crate::links::take() {
             let new = self.store.open(&text);
             self.toast = Some(Toast::info(if new {
-                "Opened the shared sheet"
+                "Opened the shared page"
             } else {
-                "You already have this sheet; switched to it"
+                "You already have this page; switched to it"
             }));
             self.sheet_switched();
             ctx.send_viewport_cmd(ViewportCommand::Focus);
@@ -1062,7 +1058,7 @@ impl OmacusApp {
                 let field = ui.add(
                     TextEdit::singleline(&mut shown)
                         .interactive(false)
-                        .hint_text("Go to sheet…")
+                        .hint_text("Go to page…")
                         .font(FontId::proportional(15.0))
                         .text_color(theme.foreground)
                         .frame(egui::Frame::NONE.inner_margin(Margin::symmetric(8, 6)))
@@ -1075,7 +1071,7 @@ impl OmacusApp {
                 ui.add_space(4.0);
                 if hits.is_empty() {
                     ui.add_space(4.0);
-                    ui.label(egui::RichText::new("  No sheet matches").color(theme.comment));
+                    ui.label(egui::RichText::new("  No page matches").color(theme.comment));
                     ui.add_space(4.0);
                 }
                 for (row, hit) in hits.iter().take(9).enumerate() {
@@ -1139,7 +1135,7 @@ impl OmacusApp {
         }
         if let Some(title) = self.store.take_conflicts().first() {
             self.toast = Some(Toast::info(format!(
-                "\u{201c}{title}\u{201d} changed in another window too; its version is a new sheet"
+                "\u{201c}{title}\u{201d} changed in another window too; its version is a new page"
             )));
         }
     }
@@ -1243,7 +1239,7 @@ impl OmacusApp {
         let body = match (&state, method) {
             (State::Installing, _) => "Updating… this takes a few seconds.".to_string(),
             (State::Installed, _) => {
-                format!("Updated. Restart Omacus to use {latest}; your sheets are saved.")
+                format!("Updated. Restart Omacus to use {latest}; your pages are saved.")
             }
             (State::Failed(e), _) => format!("The update didn't finish: {e}"),
             (_, Method::Installer | Method::Replace) => format!("You have {}.", update::current()),
@@ -1469,7 +1465,7 @@ impl OmacusApp {
         ui.painter().text(
             pos2(row.left() + 14.0, row.center().y),
             Align2::LEFT_CENTER,
-            "SHEETS",
+            "PAGES",
             FontId::proportional(11.0),
             theme.comment,
         );
@@ -1489,7 +1485,7 @@ impl OmacusApp {
             Icon::Plus,
         );
         if plus
-            .on_hover_text(format!("New sheet ({})", help::keys("Ctrl+N")))
+            .on_hover_text(format!("New page ({})", help::keys("Ctrl+N")))
             .clicked()
         {
             action = Some(SheetAction::New);
@@ -1942,7 +1938,7 @@ impl OmacusApp {
             Color32::WHITE,
         );
         if plus
-            .on_hover_text(format!("New sheet ({})", help::keys("Ctrl+N")))
+            .on_hover_text(format!("New page ({})", help::keys("Ctrl+N")))
             .clicked()
         {
             self.apply(SheetAction::New);
@@ -2041,7 +2037,7 @@ impl OmacusApp {
                 ui.add_space(6.0);
                 ui.label(
                     egui::RichText::new(
-                        "It's moved to Recently deleted, in the sidebar and the sheet switcher.",
+                        "It's moved to Recently deleted, in the sidebar and the page switcher.",
                     )
                     .size(13.0)
                     .color(theme.dim),
@@ -2093,7 +2089,7 @@ impl OmacusApp {
             .iter()
             .find(|t| t.id == id)
             .map(|t| heading_of(&t.text))
-            .unwrap_or_else(|| "this sheet".into());
+            .unwrap_or_else(|| "this page".into());
         let theme = self.theme.clone();
         let mut purge = false;
         let mut cancel = false;
@@ -2262,7 +2258,7 @@ fn sheet_menu(ui: &mut egui::Ui, i: usize, count: usize, action: &mut Option<She
         *action = Some(SheetAction::CopyMarkdown(i));
     }
     ui.separator();
-    if item(ui, "New sheet", Some("Ctrl+N")) {
+    if item(ui, "New page", Some("Ctrl+N")) {
         *action = Some(SheetAction::New);
     }
     if i > 0 && item(ui, "Move up", None) {
@@ -2272,7 +2268,7 @@ fn sheet_menu(ui: &mut egui::Ui, i: usize, count: usize, action: &mut Option<She
         *action = Some(SheetAction::Move(i, 1));
     }
     ui.separator();
-    if item(ui, "Delete sheet", Some("Ctrl+Shift+Delete")) {
+    if item(ui, "Delete page", Some("Ctrl+Shift+Delete")) {
         *action = Some(SheetAction::Delete(i));
     }
 }
@@ -2345,7 +2341,7 @@ fn icon_slot(row: Rect, slot: usize) -> Rect {
     Rect::from_center_size(pos2(x, row.center().y), Vec2::splat(ICON_BOX))
 }
 
-/// "SHEETS", "RECENTLY DELETED": lined up with the sheet names below.
+/// "PAGES", "RECENTLY DELETED": lined up with the page names below.
 fn section_label(ui: &mut egui::Ui, theme: &Theme, text: &str) {
     let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::hover());
     ui.painter().text(
@@ -2722,9 +2718,9 @@ fn name_hint_visible(editing_line: bool, idle_for: Duration) -> bool {
 
 fn empty_sheet_hint(sidebar_open: bool) -> &'static str {
     if sidebar_open {
-        "Sheets are listed on the left. Ctrl+B collapses them, and Ctrl+J jumps to one."
+        "Pages are listed on the left. Ctrl+B collapses them, and Ctrl+J jumps to one."
     } else {
-        "Sheets are in the sidebar. Ctrl+B expands it, or click the strip on the left. Ctrl+J jumps to one."
+        "Pages are in the sidebar. Ctrl+B expands it, or click the strip on the left. Ctrl+J jumps to one."
     }
 }
 
@@ -3065,7 +3061,8 @@ mod tests {
         assert!(empty_sheet_hint(true).contains("Ctrl+B"));
         assert!(empty_sheet_hint(true).contains("Ctrl+J"));
         assert!(empty_sheet_hint(false).contains("strip on the left"));
-        assert!(!empty_sheet_hint(false).contains("click Sheets"));
+        assert!(!empty_sheet_hint(false).to_lowercase().contains("sheet"));
+        assert!(!empty_sheet_hint(true).to_lowercase().contains("sheet"));
         assert_eq!(line_at("a\nb\nc", 0), 0);
         assert_eq!(line_at("a\nb\nc", 2), 1);
     }

@@ -92,7 +92,7 @@
     "Time zone conversion with daylight saving",
     "Percentages: of, on, off, as a percent of",
     "Variables, totals, averages and previous-line references",
-    "Multiple sheets saved automatically as plain text",
+    "Multiple pages saved automatically as plain text",
     "Autocomplete for variables, units and time zones",
     "Follows the Omarchy theme, or system light and dark mode",
     "Command-line interface"
@@ -105,7 +105,7 @@
    "@type": "VideoObject",
    "@id": "https://omacus.com/#video",
    "name": "Omacus in one minute",
-   "description": "A one-minute tour of Omacus, the notepad calculator: time zones, currencies, percentages, units and founder math like runway and dilution in plain words, variables that update everything below them, sheets that save as you type, share links that open live in any browser, and themes that follow Omarchy.",
+   "description": "A one-minute tour of Omacus, the notepad calculator: time zones, currencies, percentages, units and founder math like runway and dilution in plain words, variables that update everything below them, pages that save as you type, share links that open live in any browser, and themes that follow Omarchy.",
    "thumbnailUrl": "https://omacus.com/media/omacus-launch.jpg",
    "contentUrl": "https://omacus.com/media/omacus-launch.mp4",
    "embedUrl": "https://omacus.com/#video",
@@ -182,7 +182,7 @@
      "name": "How is it different from a regular calculator?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "A regular calculator shows one number at a time. Omacus keeps a whole page: every line keeps its answer, you can add notes beside the math, name values and reuse them, and changing a line updates everything below it. Sheets are saved as you type."
+      "text": "A regular calculator shows one number at a time. Omacus keeps a whole page: every line keeps its answer, you can add notes beside the math, name values and reuse them, and changing a line updates everything below it. Pages are saved as you type."
      }
     },
     {
@@ -190,12 +190,12 @@
      "name": "Can I use it from the terminal?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "Yes. omacus '$100 in EUR' prints the answer, and omacus - evaluates a whole sheet from standard input, one result per line."
+      "text": "Yes. omacus '$100 in EUR' prints the answer, and omacus - evaluates a whole page from standard input, one result per line."
      }
     },
     {
      "@type": "Question",
-     "name": "Where are my sheets stored?",
+     "name": "Where are my pages stored?",
      "acceptedAnswer": {
       "@type": "Answer",
       "text": "As plain text files on your own disk, so you can search, sync or back them up like any other notes. Nothing is uploaded."
@@ -273,9 +273,9 @@
           <button type="button" data-mode="watch" aria-pressed="true"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>Watch</button>
           <button type="button" data-mode="try" aria-pressed="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13 7l4 4"/></svg>Try it yourself</button>
         </div>
-        <div class="window" aria-label="Omacus, showing a sheet being typed with results appearing on the right">
+        <div class="window" aria-label="Omacus, showing a page being typed with results appearing on the right">
           <aside class="win-side" aria-hidden="true">
-            <div class="side-head"><span>SHEETS</span><span>+</span></div>
+            <div class="side-head"><span>PAGES</span><span>+</span></div>
             <div data-sheets></div>
             <div class="side-foot">?  Help &amp; shortcuts   F1</div>
           </aside>
@@ -299,7 +299,7 @@
       </div>
       <figure class="film reveal">
         <video controls playsinline preload="none" poster="/media/omacus-launch.jpg" width="1920" height="1080"
-          aria-label="Omacus in one minute: time zones, currencies, percentages, variables, sheets and themes, with narration and captions">
+          aria-label="Omacus in one minute: time zones, currencies, percentages, variables, pages and themes, with narration and captions">
           <source src="/media/omacus-launch.mp4" type="video/mp4">
         </video>
       </figure>
@@ -366,7 +366,7 @@
         </article>
         <article class="feature">
           <h3>Share as a link</h3>
-          <p>One link opens any sheet live in a browser, or straight in Omacus. The sheet travels inside the link; nothing is uploaded.</p>
+          <p>One link opens any page live in a browser, or straight in Omacus. The page travels inside the link; nothing is uploaded.</p>
           <a class="feature-link quiet" href="/docs/#sharing">How sharing works <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a>
         </article>
       </div>
@@ -377,7 +377,7 @@
   <section id="web-app">
     <div class="wrap split flip">
       <div class="shot web reveal">
-        <img src="/img/screens/web-app.webp" width="1470" height="900" alt="Omacus in a browser at omacus.com/app, with a trip sheet and its answers" loading="lazy">
+        <img src="/img/screens/web-app.webp" width="1470" height="900" alt="Omacus in a browser at omacus.com/app, with a trip page and its answers" loading="lazy">
       </div>
       <div class="split-text reveal">
         <span class="kicker">// in your browser</span>
@@ -385,30 +385,30 @@
         <p>The same engine runs at <a href="/app" target="_blank" rel="noopener">omacus.com/app</a>, on any computer or phone. Every answer matches the desktop app, because it's the same code.</p>
         <ul class="checks">
           <li><b>Add it to your Home Screen</b> and it opens like an app, offline.</li>
-          <li><b>Share any sheet as a link</b>; it opens live, or straight in the desktop app.</li>
-          <li><b>Export and import</b> plain .txt sheets, the desktop app's own format.</li>
+          <li><b>Share any page as a link</b>; it opens live, or straight in the desktop app.</li>
+          <li><b>Export and import</b> plain .txt pages, the desktop app's own format.</li>
         </ul>
         <p class="cta-row"><a class="btn primary" href="/app" target="_blank" rel="noopener">Open the web app <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a></p>
       </div>
     </div>
   </section>
 
-  <!-- Sheets -->
+  <!-- Pages -->
   <section>
     <div class="wrap split">
       <div class="split-text reveal">
-        <span class="kicker">// sheets</span>
+        <span class="kicker">// pages</span>
         <h2>Nothing to save. <em class="serif">Ever.</em></h2>
-        <p>Keep a sheet per trip, budget or invoice. Like Sublime Text, every keystroke is saved, and closing the window loses nothing.</p>
+        <p>Keep a page per trip, budget or invoice. Like Sublime Text, every keystroke is saved, and closing the window loses nothing.</p>
         <ul class="checks">
           <li><b>Reopens exactly where you left off</b>, cursor included.</li>
           <li><b>Plain text files</b> on disk, so you can search, sync or back them up.</li>
-          <li><b>Deleted sheets go to the trash</b>, not into the void.</li>
+          <li><b>Deleted pages go to the trash</b>, not into the void.</li>
           <li><b>Autocomplete</b> for your variables, units and time zones.</li>
         </ul>
       </div>
       <div class="shot reveal">
-        <img src="/img/screens/tokyo-night.webp" width="1470" height="900" alt="Omacus showing an invoice sheet, with a sidebar of other sheets, in the Tokyo Night theme" loading="lazy">
+        <img src="/img/screens/tokyo-night.webp" width="1470" height="900" alt="Omacus showing an invoice page, with a sidebar of other pages, in the Tokyo Night theme" loading="lazy">
       </div>
     </div>
   </section>
@@ -455,9 +455,9 @@
         <h2>Hands stay on the <em class="serif">keys</em>.</h2>
         <p>Everything has a shortcut, and <kbd>F1</kbd> opens a built-in guide where every example is calculated live.</p>
         <div class="keys">
-          <div>New sheet <kbd>Ctrl N</kbd></div>
-          <div>Find a sheet <kbd>Ctrl J</kbd></div>
-          <div>Jump to sheet <kbd>Ctrl 1–9</kbd></div>
+          <div>New page <kbd>Ctrl N</kbd></div>
+          <div>Find a page <kbd>Ctrl J</kbd></div>
+          <div>Jump to page <kbd>Ctrl 1–9</kbd></div>
           <div>Copy last result <kbd>Ctrl Shift C</kbd></div>
           <div>Accept suggestion <kbd>Tab</kbd></div>
           <div>Collapse sidebar <kbd>Ctrl B</kbd></div>
@@ -472,7 +472,7 @@
       <div class="split-text reveal">
         <span class="kicker">// command line</span>
         <h2>Also lives in your <em class="serif">terminal</em>.</h2>
-        <p>The same engine answers one-off questions, or evaluates a whole sheet from a pipe. Handy in scripts, launchers and status bars.</p>
+        <p>The same engine answers one-off questions, or evaluates a whole page from a pipe. Handy in scripts, launchers and status bars.</p>
         <p><a class="btn" href="/docs/#cli">CLI docs <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a></p>
       </div>
       <div class="terminal reveal" aria-label="Terminal examples">
@@ -493,24 +493,24 @@
     <div class="wrap">
       <div class="section-head center reveal">
         <span class="kicker">// private by design</span>
-        <h2>Your sheets stay <em class="serif">yours</em>.</h2>
+        <h2>Your pages stay <em class="serif">yours</em>.</h2>
         <p>No account, no cloud, no tracking in the app. What you write never leaves your device unless you send it.</p>
       </div>
       <div class="privacy reveal">
         <article>
           <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
           <h3>On your computer</h3>
-          <p>Sheets are plain text files in a folder on your disk. Search them, sync them, back them up; they're yours.</p>
+          <p>Pages are plain text files in a folder on your disk. Search them, sync them, back them up; they're yours.</p>
         </article>
         <article>
           <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></svg>
           <h3>In your browser</h3>
-          <p>The web app saves sheets in that browser, on that device. Nothing is uploaded, and there's no server that could see them.</p>
+          <p>The web app saves pages in that browser, on that device. Nothing is uploaded, and there's no server that could see them.</p>
         </article>
         <article>
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>
           <h3>In a share link</h3>
-          <p>The sheet rides after the <code>#</code>, the part of a link browsers never send to a server. Only people you give it to can read it.</p>
+          <p>The page rides after the <code>#</code>, the part of a link browsers never send to a server. Only people you give it to can read it.</p>
         </article>
       </div>
       <p class="privacy-note reveal">The only things Omacus fetches are exchange rates, and on the desktop, a check for new versions. Neither carries anything you've written. <a href="/privacy/">All of it, in plain words</a></p>
@@ -547,18 +547,18 @@
         </div>
         <div>
           <h3>How is it different from a regular calculator?</h3>
-          <p>A regular calculator shows one number at a time. Omacus keeps a whole page: every line keeps its answer, you can add notes beside the math, name values and reuse them, and changing a line updates everything below it. Sheets are saved as you type.</p>
+          <p>A regular calculator shows one number at a time. Omacus keeps a whole page: every line keeps its answer, you can add notes beside the math, name values and reuse them, and changing a line updates everything below it. Pages are saved as you type.</p>
         </div>
         <div>
           <h3>Can I use it from the terminal?</h3>
-          <p>Yes. <code>omacus '$100 in EUR'</code> prints the answer, and <code>omacus -</code> evaluates a whole sheet from standard input, one result per line.</p>
+          <p>Yes. <code>omacus '$100 in EUR'</code> prints the answer, and <code>omacus -</code> evaluates a whole page from standard input, one result per line.</p>
         </div>
         <div>
-          <h3>Where are my sheets stored?</h3>
+          <h3>Where are my pages stored?</h3>
           <p>As plain text files on your own disk, so you can search, sync or back them up like any other notes. Nothing is uploaded.</p>
         </div>
       </div>
-      <p class="faq-more reveal">More in the <a href="/guides/">guides</a> and <a href="/docs/">docs</a>, real sheets in <a href="/use-cases/">use cases</a>, or <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">ask on GitHub</a>.</p>
+      <p class="faq-more reveal">More in the <a href="/guides/">guides</a> and <a href="/docs/">docs</a>, real pages in <a href="/use-cases/">use cases</a>, or <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">ask on GitHub</a>.</p>
     </div>
   </section>
 

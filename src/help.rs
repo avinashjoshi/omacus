@@ -46,18 +46,18 @@ pub enum Action {
 
 const KEYS: &[(&str, &[(&str, &str)])] = &[
     (
-        "Sheets",
+        "Pages",
         &[
-            ("Ctrl+N", "New sheet"),
-            ("Ctrl+J", "Go to a sheet by name"),
-            ("Ctrl+Alt+↑  /  Ctrl+Alt+↓", "Previous / next sheet"),
-            ("Ctrl+Tab  /  Ctrl+Shift+Tab", "Next / previous sheet"),
-            ("Ctrl+PgDn  /  Ctrl+PgUp", "Next / previous sheet"),
-            ("Ctrl+1 … Ctrl+9", "Jump to a sheet"),
-            ("Alt+↑  /  Alt+↓", "Move the sheet up / down"),
+            ("Ctrl+N", "New page"),
+            ("Ctrl+J", "Go to a page by name"),
+            ("Ctrl+Alt+↑  /  Ctrl+Alt+↓", "Previous / next page"),
+            ("Ctrl+Tab  /  Ctrl+Shift+Tab", "Next / previous page"),
+            ("Ctrl+PgDn  /  Ctrl+PgUp", "Next / previous page"),
+            ("Ctrl+1 … Ctrl+9", "Jump to a page"),
+            ("Alt+↑  /  Alt+↓", "Move the page up / down"),
             (
                 "Ctrl+Shift+Delete",
-                "Delete the sheet (asks first; kept in Recently deleted)",
+                "Delete the page (asks first; kept in Recently deleted)",
             ),
             ("Ctrl+B", "Expand / collapse the sidebar"),
         ],
@@ -67,9 +67,9 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("Click a result", "Copy it"),
             ("Ctrl+Shift+C", "Copy the last result"),
-            ("Ctrl+Shift+S", "Copy the sheet with its answers"),
-            ("Ctrl+Shift+M", "Copy the sheet as a Markdown table"),
-            ("Ctrl+Shift+L", "Copy a share link to the sheet"),
+            ("Ctrl+Shift+S", "Copy the page with its answers"),
+            ("Ctrl+Shift+M", "Copy the page as a Markdown table"),
+            ("Ctrl+Shift+L", "Copy a share link to the page"),
         ],
     ),
     (
@@ -84,7 +84,7 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
     (
         "Editing",
         &[
-            ("Ctrl+Z  /  Ctrl+Shift+Z", "Undo / redo (per sheet)"),
+            ("Ctrl+Z  /  Ctrl+Shift+Z", "Undo / redo (per page)"),
             ("Ctrl+A", "Select all"),
             ("Ctrl+Plus  /  Ctrl+Minus", "Zoom in / out"),
             ("Ctrl+0", "Reset zoom"),
@@ -238,35 +238,35 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "Name things",
-        "`rent = $1,450` defines a variable for the rest of the sheet. Variables are highlighted, and autocomplete offers them as you type.",
+        "`rent = $1,450` defines a variable for the rest of the page. Variables are highlighted, and autocomplete offers them as you type.",
     ),
     (
-        "One sheet per thing",
-        "Make a sheet per trip, budget or project with Ctrl+N. The first line is the title, so start with `# Kyoto trip`.",
+        "One page per thing",
+        "Make a page per trip, budget or project with Ctrl+N. The first line is the title, so start with `# Kyoto trip`.",
     ),
     (
         "Nothing to save",
-        "Sheets save as you type and reopen with your cursor where you left it. Quit with Ctrl+Q or Ctrl+W. Esc only closes the switcher, help, or a dialog.",
+        "Pages save as you type and reopen with your cursor where you left it. Quit with Ctrl+Q or Ctrl+W. Esc only closes the switcher, help, or a dialog.",
     ),
     (
         "Deleted isn't gone",
-        "Deleted sheets go to `{data}/trash`. Sheets are plain text files in `{data}/sheets`, so search, sync or back them up.",
+        "Deleted pages go to `{data}/trash`. Pages are plain text files in `{data}/pages`, so search, sync or back them up.",
     ),
     (
-        "Share a sheet",
-        "`Ctrl+Shift+S` copies the whole sheet with each answer lined up after its line, ready to paste into a message or a doc.",
+        "Copy a page",
+        "`Ctrl+Shift+S` copies the whole page with each answer lined up after its line, ready to paste into a message or a doc.",
     ),
     (
-        "Jump between sheets",
-        "`Ctrl+J` and a few letters of a sheet's name (or something written in it), then Enter. `Ctrl+Alt+↑` and `Ctrl+Alt+↓` move to the previous or next sheet.",
+        "Jump between pages",
+        "`Ctrl+J` and a few letters of a page's name (or something written in it), then Enter. `Ctrl+Alt+↑` and `Ctrl+Alt+↓` move to the previous or next page.",
     ),
     (
         "Copy fast",
         "Click any result to copy it, or `Ctrl+Shift+C` for the last one, then paste anywhere.",
     ),
     (
-        "Share a sheet",
-        "Share (top right, or `Ctrl+Shift+L`) copies a link that opens the sheet, live, in any browser at omacus.com/app. The sheet is inside the link; nothing is uploaded. Paste a share link into a sheet to open it here.",
+        "Share a page",
+        "Share (top right, or `Ctrl+Shift+L`) copies a link that opens the page, live, in any browser at omacus.com/app. The page is inside the link; nothing is uploaded. Paste a share link into a page to open it here.",
     ),
     (
         "Time zones",
@@ -274,7 +274,7 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "From the terminal",
-        "`omacus '$100 in EUR'` prints one answer. `cat sheet.txt | omacus -` evaluates a whole sheet.",
+        "`omacus '$100 in EUR'` prints one answer. `cat page.txt | omacus -` evaluates a whole page.",
     ),
     (
         "Theme",
@@ -569,7 +569,7 @@ fn about(
     ui.add_space(6.0);
     ui.label(
         RichText::new(
-            "Your sheets stay on this computer, as plain text files. There's no account and \
+            "Your pages stay on this computer, as plain text files. There's no account and \
              no tracking. Omacus goes online for two things only: exchange rates, about \
              twice a day and saved for offline use, and checking GitHub for a new version. \
              Neither sends anything you've written.",
@@ -670,15 +670,15 @@ fn keyboard(ui: &mut egui::Ui, theme: &Theme) {
     }
 }
 
-/// Returns true when "Open as a sheet" is clicked.
+/// Returns true when "Open as a page" is clicked.
 fn syntax(ui: &mut egui::Ui, theme: &Theme, engine: &Engine) -> bool {
     let mut open = false;
     ui.horizontal(|ui| {
         ui.label(RichText::new("Every result below is calculated live.").color(theme.dim));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             open = ui
-                .button(RichText::new("Open as a sheet").color(theme.accent))
-                .on_hover_text("Create a new sheet with all these examples")
+                .button(RichText::new("Open as a page").color(theme.accent))
+                .on_hover_text("Create a new page with all these examples")
                 .clicked();
         });
     });
@@ -762,6 +762,28 @@ fn tips(ui: &mut egui::Ui, theme: &Theme) {
 mod tests {
     use super::*;
     use omacus_engine::Rates;
+
+    #[test]
+    fn help_says_page_not_sheet() {
+        let mut text = String::new();
+        for (group, rows) in KEYS {
+            text.push_str(group);
+            for (keys, what) in *rows {
+                text.push_str(keys);
+                text.push_str(what);
+            }
+        }
+        for (title, body) in TIPS {
+            text.push_str(title);
+            text.push_str(body);
+        }
+        text.push_str("Open as a page");
+        text.push_str("Your pages stay on this computer");
+        assert!(
+            !text.to_lowercase().contains("sheet"),
+            "help still says sheet: {text}"
+        );
+    }
 
     #[test]
     fn every_example_has_a_result() {
