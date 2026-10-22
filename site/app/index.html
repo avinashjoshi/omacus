@@ -52,6 +52,7 @@
           <hr>
           <button role="menuitem" data-action="delete" class="danger">Delete this page</button>
           <hr>
+          <button role="menuitem" data-action="settings">Settings</button>
           <button role="menuitem" data-action="install" hidden data-install>Install as an app</button>
           <a role="menuitem" href="/download/">Get the desktop app</a>
           <button role="menuitem" data-action="privacy" class="phone-only">Private: saved on this device</button>
@@ -115,6 +116,27 @@
   </div>
 
   <a class="embed-open" hidden data-embed-open target="_blank" rel="noopener">Open in the web app <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></a>
+  <div class="settings" hidden data-settings>
+    <button class="settings-scrim" type="button" data-action="close-settings" aria-label="Close settings"></button>
+    <div class="settings-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <header>
+        <h2 id="settings-title">Settings</h2>
+        <button class="icon-btn small" type="button" data-action="close-settings" aria-label="Close">×</button>
+      </header>
+      <label class="settings-field">Theme
+        <select data-setting="theme">
+          <option value="auto">Auto</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="paper">Paper</option>
+          <option value="dusk">Dusk</option>
+        </select>
+      </label>
+      <p class="settings-note" data-theme-note></p>
+      <label class="settings-check"><input type="checkbox" data-setting="hide-answers"> Hide the answers column</label>
+      <p class="settings-note">Answers sit after each line. Ctrl+\ toggles this. The desktop app also has Omarchy, a custom theme file, and update checks.</p>
+    </div>
+  </div>
   <div class="toast" role="status" aria-live="polite" hidden data-toast></div>
   <input type="file" accept=".txt,.zip,text/plain,application/zip" multiple hidden data-import>
 

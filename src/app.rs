@@ -15,6 +15,7 @@ use crate::calc::Calculator;
 use crate::help;
 use crate::highlight;
 use crate::rates::Rates;
+use crate::settings::{self, Settings};
 use crate::sheets::{SIDEBAR_MAX, SIDEBAR_MIN, Store, Trashed, heading_of};
 use crate::theme::{self, Theme};
 use crate::update::{self, Method, State, Updates};
@@ -88,6 +89,7 @@ enum SheetAction {
     CopyMarkdown(usize),
     /// Copy a link that opens the sheet in a browser (or in Omacus).
     Share(usize),
+    Settings,
 }
 
 /// A message at the bottom of the window.
@@ -170,6 +172,8 @@ enum Shortcut {
     NextSheet,
     Quit,
     Dismiss,
+    Settings,
+    ToggleAnswers,
 }
 
 /// Sheets matching the switcher's query, best first: title starts with it, title
@@ -241,6 +245,8 @@ pub struct OmacusApp {
     theme: Theme,
     theme_changed: Arc<AtomicBool>,
     system_dark: bool,
+    settings: Settings,
+    settings_open: bool,
     dirty_since: Option<Instant>,
     copied: Option<(usize, Instant)>,
     /// A short confirmation at the bottom of the window ("Sheet copied…").
@@ -291,12 +297,15 @@ impl OmacusApp {
         let rates = Rates::load(move || ctx.request_repaint());
         let ctx = cc.egui_ctx.clone();
         let theme_changed = theme::watch(move || ctx.request_repaint());
-        let ctx = cc.egui_ctx.clone();
-        let updates = Updates::check(move || ctx.request_repaint());
 
         let system_dark = is_system_dark(&cc.egui_ctx);
-        let theme = Theme::load(system_dark);
+        let settings = settings::load();
+        settings::remember(&settings);
+        let theme = Theme::resolve(settings.theme, system_dark);
         apply_visuals(&cc.egui_ctx, &theme);
+
+        let ctx = cc.egui_ctx.clone();
+        let updates = Updates::check(move || ctx.request_repaint());
 
         let mut app = Self {
             store: Store::load(WELCOME),
@@ -325,6 +334,8 @@ impl OmacusApp {
             theme,
             theme_changed,
             system_dark,
+            settings,
+            settings_open: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "settings"),
             dirty_since: None,
             copied: None,
             toast: None,
@@ -370,7 +381,7 @@ impl OmacusApp {
             cursor_line: None,
             help: std::env::var("OMACUS_SCREENSHOT_HELP")
                 .ok()
-                .filter(|t| t != "update" && t != "switcher")
+                .filter(|t| t != "update" && t != "switcher" && t != "settings")
                 .map(|t| help::Tab::from_name(&t)),
             screenshot: std::env::var_os("OMACUS_SCREENSHOT").map(|p| (p.into(), 0)),
         };
@@ -511,6 +522,10 @@ impl OmacusApp {
                 self.copy_with(i, engine::markdown_table, "Page copied as a Markdown table");
                 return;
             }
+            SheetAction::Settings => {
+                self.open_settings();
+                return;
+            }
         }
         self.sheet_switched();
     }
@@ -519,8 +534,7 @@ impl OmacusApp {
         let system_dark = is_system_dark(ctx);
         if self.theme_changed.swap(false, Ordering::Relaxed) || system_dark != self.system_dark {
             self.system_dark = system_dark;
-            self.theme = Theme::load(system_dark);
-            apply_visuals(ctx, &self.theme);
+            self.reload_theme(ctx);
         }
         // Both are no-ops unless their schedule is due (rates every 12 hours, updates every 4).
         let repaint = ctx.clone();
@@ -581,6 +595,8 @@ impl OmacusApp {
         let mut next_sheet = false;
         let mut quit = false;
         let mut dismiss = false;
+        let mut open_settings = false;
+        let mut toggle_answers = false;
         for chord in chords {
             match chord {
                 Shortcut::ToggleSwitcher => toggle_switcher = true,
@@ -588,6 +604,8 @@ impl OmacusApp {
                 Shortcut::NextSheet => next_sheet = true,
                 Shortcut::Quit => quit = true,
                 Shortcut::Dismiss => dismiss = true,
+                Shortcut::Settings => open_settings = true,
+                Shortcut::ToggleAnswers => toggle_answers = true,
             }
         }
         if quit {
@@ -602,11 +620,29 @@ impl OmacusApp {
         if toggle_help {
             self.toggle_help();
         }
+        if open_settings {
+            if self.settings_open {
+                self.settings_open = false;
+                self.focus_editor = true;
+            } else {
+                self.open_settings();
+            }
+        }
+        if toggle_answers {
+            self.settings.hide_answers = !self.settings.hide_answers;
+            self.persist_settings();
+            self.toast = Some(Toast::info(if self.settings.hide_answers {
+                "Answers sit after each line"
+            } else {
+                "Answers are in the column"
+            }));
+        }
         if toggle_switcher {
             self.switcher = match self.switcher {
                 Some(_) => None,
                 None => Some(Switcher::default()),
             };
+            self.settings_open = false;
             self.help = None;
             self.popup = None;
             self.pending_delete = None;
@@ -659,6 +695,13 @@ impl OmacusApp {
         if self.help.is_some() {
             if dismiss {
                 self.help = None;
+                self.focus_editor = true;
+            }
+            return;
+        }
+        if self.settings_open {
+            if dismiss {
+                self.settings_open = false;
                 self.focus_editor = true;
             }
             return;
@@ -897,8 +940,45 @@ impl OmacusApp {
             Some(_) => None,
             None => Some(help::Tab::default()),
         };
+        self.settings_open = false;
         self.popup = None;
         self.focus_editor = self.help.is_none();
+    }
+
+    fn open_settings(&mut self) {
+        self.settings_open = true;
+        self.help = None;
+        self.switcher = None;
+        self.popup = None;
+        self.update_open = false;
+        self.pending_delete = None;
+        self.focus_editor = false;
+    }
+
+    fn persist_settings(&mut self) {
+        if let Err(e) = settings::save(&self.settings) {
+            self.toast = Some(Toast::error(format!("Couldn't save settings: {e}")));
+        }
+    }
+
+    fn reload_theme(&mut self, ctx: &egui::Context) {
+        self.theme = Theme::resolve(self.settings.theme, self.system_dark);
+        apply_visuals(ctx, &self.theme);
+    }
+
+    fn show_settings(&mut self, ctx: &egui::Context) {
+        if !self.settings_open {
+            return;
+        }
+        let outcome = settings::show(ctx, &mut self.settings, &self.theme);
+        if outcome.changed {
+            self.persist_settings();
+            self.reload_theme(ctx);
+        }
+        if outcome.close {
+            self.settings_open = false;
+            self.focus_editor = true;
+        }
     }
 
     fn show_help(&mut self, ctx: &egui::Context) {
@@ -1715,7 +1795,9 @@ impl OmacusApp {
         }
 
         // Paint each answer at the end of its line, or on the row made for it below.
-        let right = ui.max_rect().right() - SCROLLBAR_ROOM;
+        // The column keeps them on the right; hiding it sits each one after the text.
+        let column_right = ui.max_rect().right() - SCROLLBAR_ROOM;
+        let inline = self.settings.hide_answers;
         let origin = output.galley_pos;
         let mut line = 0;
         let rows = &output.galley.rows;
@@ -1725,11 +1807,22 @@ impl OmacusApp {
                 continue;
             }
             if let Some(Some(width)) = answers.get(line) {
+                let dropped = answer_drops(row.rect().max.x, *width, editor_width);
                 let mut y = origin.y + row.pos.y;
-                if answer_drops(row.rect().max.x, *width, editor_width) {
+                if dropped {
                     y += row_height;
                 }
-                self.paint_result(ui, line, right, y, row_height, &font);
+                let anchor = if inline {
+                    let left = if dropped {
+                        origin.x
+                    } else {
+                        origin.x + row.rect().max.x + GAP
+                    };
+                    AnswerAnchor::Left(left)
+                } else {
+                    AnswerAnchor::Right(column_right)
+                };
+                self.paint_result(ui, line, anchor, y, row_height, &font);
             }
             line += 1;
         }
@@ -1739,7 +1832,7 @@ impl OmacusApp {
         &mut self,
         ui: &egui::Ui,
         line: usize,
-        right: f32,
+        anchor: AnswerAnchor,
         y: f32,
         h: f32,
         font: &FontId,
@@ -1760,7 +1853,10 @@ impl OmacusApp {
                     }
                     return;
                 }
-                let center = pos2(right - 8.0, y + h / 2.0);
+                let center = match anchor {
+                    AnswerAnchor::Right(right) => pos2(right - 8.0, y + h / 2.0),
+                    AnswerAnchor::Left(left) => pos2(left + 8.0, y + h / 2.0),
+                };
                 ui.painter().circle_filled(center, 3.0, theme.comment);
                 let rect = Rect::from_center_size(center, vec2(16.0, h));
                 let resp = ui.interact(
@@ -1775,11 +1871,12 @@ impl OmacusApp {
                 .ctx()
                 .fonts_mut(|f| f.layout_no_wrap(note.to_string(), font.clone(), theme.comment));
             let size = galley.size();
-            ui.painter().galley(
-                pos2(right - size.x, y + (h - size.y) / 2.0),
-                galley,
-                theme.comment,
-            );
+            let x = match anchor {
+                AnswerAnchor::Right(right) => right - size.x,
+                AnswerAnchor::Left(left) => left,
+            };
+            ui.painter()
+                .galley(pos2(x, y + (h - size.y) / 2.0), galley, theme.comment);
             return;
         }
         if result.kind != Kind::Value || result.display.is_empty() {
@@ -1811,7 +1908,11 @@ impl OmacusApp {
         } else {
             0.0
         };
-        let rect = Rect::from_min_size(pos2(right - size.x - extra, y), vec2(size.x + extra, h))
+        let content_left = match anchor {
+            AnswerAnchor::Right(right) => right - size.x - extra,
+            AnswerAnchor::Left(left) => left,
+        };
+        let rect = Rect::from_min_size(pos2(content_left, y), vec2(size.x + extra, h))
             .expand2(vec2(6.0, 1.0));
         let response = ui.interact(rect, ui.scope_id().with(("result", line)), Sense::click());
 
@@ -1827,10 +1928,8 @@ impl OmacusApp {
         }
         if let Some([r, g, b]) = swatch {
             let side = font.size * 0.8;
-            let square = Rect::from_min_size(
-                pos2(right - size.x - extra, y + (h - side) / 2.0),
-                vec2(side, side),
-            );
+            let square =
+                Rect::from_min_size(pos2(content_left, y + (h - side) / 2.0), vec2(side, side));
             ui.painter()
                 .rect_filled(square, CornerRadius::same(3), Color32::from_rgb(r, g, b));
             ui.painter().rect_stroke(
@@ -1840,8 +1939,11 @@ impl OmacusApp {
                 egui::StrokeKind::Inside,
             );
         }
-        ui.painter()
-            .galley(pos2(right - size.x, y + (h - size.y) / 2.0), galley, color);
+        ui.painter().galley(
+            pos2(content_left + extra, y + (h - size.y) / 2.0),
+            galley,
+            color,
+        );
     }
 
     fn popup(&mut self, ctx: &egui::Context) {
@@ -2215,6 +2317,7 @@ impl eframe::App for OmacusApp {
 
         self.popup(&ctx);
         self.show_help(&ctx);
+        self.show_settings(&ctx);
         self.show_update(&ctx);
         self.show_delete(&ctx);
         self.show_purge(&ctx);
@@ -2270,6 +2373,10 @@ fn sheet_menu(ui: &mut egui::Ui, i: usize, count: usize, action: &mut Option<She
     ui.separator();
     if item(ui, "Delete page", Some("Ctrl+Shift+Delete")) {
         *action = Some(SheetAction::Delete(i));
+    }
+    ui.separator();
+    if item(ui, "Settings", Some("Ctrl+,")) {
+        *action = Some(SheetAction::Settings);
     }
 }
 
@@ -2468,6 +2575,12 @@ fn answer_drops(row_end: f32, width: f32, wrap_width: f32) -> bool {
     row_end + GAP + width > wrap_width
 }
 
+/// Where an answer is painted: the right-hand column, or just after the line.
+enum AnswerAnchor {
+    Right(f32),
+    Left(f32),
+}
+
 /// Push rows down to make a row for each answer that doesn't fit beside its line.
 fn make_room_for_answers(
     galley: Arc<egui::Galley>,
@@ -2542,6 +2655,9 @@ fn shortcut_for(command: bool, alt: bool, shift: bool, key: Key, repeat: bool) -
         Key::ArrowUp if command && alt && !shift => Some(Shortcut::PrevSheet),
         Key::ArrowDown if command && alt && !shift => Some(Shortcut::NextSheet),
         Key::Q | Key::W if command && !alt && !shift && !repeat => Some(Shortcut::Quit),
+        // Ctrl+, opens settings. Ctrl+\ hides the answers column. Ctrl+P stays free.
+        Key::Comma if command && !alt && !shift && !repeat => Some(Shortcut::Settings),
+        Key::Backslash if command && !alt && !shift && !repeat => Some(Shortcut::ToggleAnswers),
         _ => None,
     }
 }
@@ -2554,6 +2670,7 @@ fn owns_key(command: bool, alt: bool, shift: bool, key: Key) -> bool {
         Key::Escape if !command && !alt && !shift => true,
         Key::ArrowUp | Key::ArrowDown if command && alt && !shift => true,
         Key::Q | Key::W if command && !alt && !shift => true,
+        Key::Comma | Key::Backslash if command && !alt && !shift => true,
         _ => false,
     }
 }
@@ -2922,6 +3039,40 @@ mod tests {
         ];
         assert!(take_chords(&mut preview).is_empty());
         assert_eq!(preview.len(), 2);
+    }
+
+    #[test]
+    fn settings_and_the_answers_column_have_shortcuts() {
+        assert_eq!(
+            shortcut_for(true, false, false, Key::Comma, false),
+            Some(Shortcut::Settings)
+        );
+        // A held comma must not insert a comma, and a repeat must not reopen settings.
+        assert_eq!(shortcut_for(true, false, false, Key::Comma, true), None);
+        assert!(owns_key(true, false, false, Key::Comma));
+        assert!(!owns_key(false, false, false, Key::Comma));
+        assert_eq!(
+            shortcut_for(true, false, false, Key::Backslash, false),
+            Some(Shortcut::ToggleAnswers)
+        );
+        assert_eq!(shortcut_for(true, false, false, Key::Backslash, true), None);
+        assert!(owns_key(true, false, false, Key::Backslash));
+        // A plain backslash is still a character.
+        assert!(!owns_key(false, false, false, Key::Backslash));
+
+        let mut settings = vec![
+            press(Key::Comma, Modifiers::COMMAND, false),
+            Event::Text(",".into()),
+        ];
+        assert_eq!(take_chords(&mut settings), vec![Shortcut::Settings]);
+        assert!(settings.is_empty());
+
+        let mut answers = vec![
+            press(Key::Backslash, Modifiers::COMMAND, false),
+            Event::Text("\\".into()),
+        ];
+        assert_eq!(take_chords(&mut answers), vec![Shortcut::ToggleAnswers]);
+        assert!(answers.is_empty());
     }
 
     #[test]

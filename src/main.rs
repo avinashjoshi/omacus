@@ -7,6 +7,7 @@ mod help;
 mod highlight;
 mod links;
 mod rates;
+mod settings;
 mod sheets;
 mod theme;
 mod update;

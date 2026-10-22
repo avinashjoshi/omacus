@@ -494,7 +494,9 @@ total</pre>
         <tr><td><kbd>Ctrl Z</kbd> / <kbd>Ctrl Shift Z</kbd></td><td>Undo / redo (each page has its own history)</td></tr>
         <tr><td><kbd>Ctrl +</kbd> / <kbd>Ctrl −</kbd> / <kbd>Ctrl 0</kbd></td><td>Zoom in / out / reset</td></tr>
         <tr><td><kbd>F1</kbd> or <kbd>Ctrl /</kbd></td><td>Help: shortcuts, live syntax examples, tips</td></tr>
-        <tr><td><kbd>Esc</kbd></td><td>Close the switcher, help, or a dialog</td></tr>
+        <tr><td><kbd>Ctrl ,</kbd></td><td>Settings: theme, answers column, update checks</td></tr>
+        <tr><td><kbd>Ctrl \</kbd></td><td>Hide the answers column (answers sit after each line)</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Close the switcher, help, settings, or a dialog</td></tr>
         <tr><td><kbd>Ctrl W</kbd> or <kbd>Ctrl Q</kbd></td><td>Quit (everything is saved)</td></tr>
       </tbody>
     </table>
@@ -503,12 +505,14 @@ total</pre>
     <p>After two letters, Omacus suggests your page's variables, then keywords, time zones and units. <kbd>Tab</kbd> accepts, <kbd>↑</kbd> <kbd>↓</kbd> choose, <kbd>Esc</kbd> dismisses. <kbd>Enter</kbd> always starts a new line and never accepts a suggestion, so <code>3 km in</code> followed by Enter can't turn into <code>inch</code>. Short connecting words like <code>in</code>, <code>to</code> and <code>of</code> never trigger suggestions.</p>
 
     <h2 id="themes">Themes</h2>
-    <p>Omacus picks its colors in this order:</p>
+    <p>Settings (<kbd>Ctrl ,</kbd>, or Settings in a page's ⋯ menu) chooses the theme, whether answers sit in a column, and whether Omacus checks for updates. The same choices are saved in <code>settings.toml</code> (see <a href="#files">where files live</a>). <kbd>Ctrl \</kbd> hides the answers column, so each answer sits after its line.</p>
+    <p><strong>Auto</strong> picks colors in this order:</p>
     <ol>
-      <li>Your own <code>theme.toml</code>, if you've made one (see <a href="#files">where files live</a>).</li>
+      <li>Your own <code>theme.toml</code>, if you've made one.</li>
       <li>On Omarchy, the active Omarchy theme. It switches live when you run <code>omarchy theme set</code>.</li>
       <li>Otherwise a built-in light or dark theme that follows your system setting, also live.</li>
     </ol>
+    <p>Or pick a built-in theme that ignores those files: Light, Dark, Paper (warm paper) or Dusk (a blue night). <strong>Omarchy</strong> uses only the Omarchy theme. <strong>Custom</strong> uses only your <code>theme.toml</code>. The web app has Auto, Light, Dark, Paper and Dusk, and follows the device when set to Auto.</p>
     <p>A <code>theme.toml</code> uses the same keys as an Omarchy theme's <code>colors.toml</code>. Every key is optional:</p>
 <div class="annot">
 <code>mode = "dark"</code><span class="c"># or "light"</span>

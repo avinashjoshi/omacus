@@ -3,8 +3,8 @@
 //! On launch, and every few hours while it stays open, Omacus asks GitHub for the
 //! latest release tag on a background thread. The answer is cached, so reopening
 //! the app within the hour makes no request.
-//! Nothing about the user or their sheets is sent. Turn it off with
-//! `check_for_updates = false` in `settings.toml` in the config folder.
+//! Nothing about the user or their pages is sent. Turn it off in Settings,
+//! or with `check_for_updates = false` in `settings.toml` in the config folder.
 //!
 //! On Linux and macOS, installing reuses the one-line installer, so an update is
 //! exactly a fresh install of the latest release: same files, same places, sheets
@@ -470,33 +470,10 @@ fn app_bundle(exe: &Path) -> Option<&Path> {
         .find(|p| p.extension().is_some_and(|e| e == "app"))
 }
 
-/// Whether checking is on. The answer is cached for a minute: this is asked on
-/// every frame, and shouldn't read a file each time.
+/// Whether checking is on. Settings keeps this in memory, so a check on every
+/// frame does not read the file. `OMACUS_NO_UPDATE_CHECK` forces it off.
 fn enabled() -> bool {
-    static CACHE: Mutex<Option<(std::time::Instant, bool)>> = Mutex::new(None);
-    let mut cache = CACHE.lock().unwrap();
-    if let Some((at, on)) = *cache
-        && at.elapsed() < Duration::from_secs(60)
-    {
-        return on;
-    }
-    let on = read_enabled();
-    *cache = Some((std::time::Instant::now(), on));
-    on
-}
-
-fn read_enabled() -> bool {
-    if std::env::var_os("OMACUS_NO_UPDATE_CHECK").is_some() {
-        return false;
-    }
-    let Some(path) = dirs::config_dir().map(|d| d.join("omacus").join("settings.toml")) else {
-        return true;
-    };
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|s| s.parse::<toml::Table>().ok())
-        .and_then(|t| t.get("check_for_updates").and_then(toml::Value::as_bool))
-        .unwrap_or(true)
+    crate::settings::updates_enabled()
 }
 
 /// The latest version, from GitHub's API. The API allows 60 requests an hour per

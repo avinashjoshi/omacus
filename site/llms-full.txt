@@ -309,6 +309,8 @@ On macOS, use `⌘` where this says `Ctrl`, and `⌥` for `Alt`.
 | `Ctrl Z` / `Ctrl Shift Z` | Undo / redo (each page has its own history) |
 | `Ctrl +` / `Ctrl −` / `Ctrl 0` | Zoom in / out / reset |
 | `F1` or `Ctrl /` | Help: shortcuts, live syntax examples, tips |
+| `Ctrl ,` | Settings: theme, answers column, update checks |
+| `Ctrl \` | Hide the answers column (answers sit after each line) |
 | `Esc`, `Ctrl W` or `Ctrl Q` | Close (everything is saved) |
 
 ## Autocomplete
@@ -317,12 +319,15 @@ After two letters, Omacus suggests your page's variables, then keywords, time zo
 
 ## Themes
 
-Omacus picks its colors in this order:
+Settings (`Ctrl ,`, or Settings in a page's ⋯ menu) chooses the theme, whether answers sit in a column, and whether Omacus checks for updates. The same choices are saved in `settings.toml` (see [where files live](https://omacus.com/docs/#files)). `Ctrl \` hides the answers column, so each answer sits after its line.
 
-- Your own `theme.toml`, if you've made one (see [where files live](https://omacus.com/docs/#files)).
+**Auto** picks colors in this order:
+
+- Your own `theme.toml`, if you've made one.
 - On Omarchy, the active Omarchy theme. It switches live when you run `omarchy theme set`.
-
 - Otherwise a built-in light or dark theme that follows your system setting, also live.
+
+Or pick a built-in theme that ignores those files: Light, Dark, Paper (warm paper) or Dusk (a blue night). **Omarchy** uses only the Omarchy theme. **Custom** uses only your `theme.toml`. The web app has Auto, Light, Dark, Paper and Dusk, and follows the device when set to Auto.
 
 A `theme.toml` uses the same keys as an Omarchy theme's `colors.toml`. Every key is optional:
 
