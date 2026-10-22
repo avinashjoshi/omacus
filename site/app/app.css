@@ -141,20 +141,6 @@ html:has(body.app-page) {
   font-size: 16px;
 }
 
-/* ⋯ in the top bar: borderless, lit on hover or while open, as in the desktop app. */
-.bar [data-menu-button] {
-  width: 32px;
-  height: 32px;
-  border-color: transparent;
-  border-radius: 7px;
-}
-
-.bar [data-menu-button]:hover,
-.bar [data-menu-button][aria-expanded="true"] {
-  background: var(--app-hover);
-  color: var(--app-fg);
-}
-
 /* Sheets button on phones: three bars. */
 .sheets-toggle {
   display: none;
