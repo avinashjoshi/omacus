@@ -53,6 +53,10 @@ check(html.includes("data-settings"), "settings dialog is in the page");
 check(html.includes('data-action="settings"'), "the menu opens settings");
 check(js.includes("hideAnswers"), "the answers column can be hidden");
 check(js.includes('"#f6f1e7"') && js.includes('"#1c2433"'), "paper and dusk match the desktop themes");
+check(js.includes('"#9ece6a"') && js.includes('"#7dcfff"') && js.includes('"#1a7f37"'), "definition, use and keyword colours are in the themes");
+check(js.includes("explicitCompletion") && js.includes('"Ctrl-Space"'), "Enter accepts only an explicitly opened suggestion");
+check(js.includes("hoverValue") && js.includes("t-def"), "hover values and definition colours are wired up");
+check(css.includes(".cm-editor .t-def") && css.includes(".hover-value"), "definition and hover styles exist");
 check(js.includes('e.key === ","') && js.includes('e.key === "\\\\"'), "settings and the answers column have shortcuts");
 check(js.includes("previewHtml"), "preview renders from the engine");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
@@ -360,6 +364,44 @@ if (pkg) {
   check(heading.has === true, "a heading line is not marked in the editor");
   check(heading.headSize > heading.lineSize + 2, `heading is ${heading.headSize}px, line is ${heading.lineSize}px`);
   check(Number(heading.weight) >= 600, `heading weight is ${heading.weight}`);
+
+  // A page with a definition, a use, a keyword, a scaled number and a # comment.
+  await evalJson(`(() => {
+    localStorage.setItem("omacus:page:hover", "rent = $1,450 # monthly\\nrent * 2\\n1.5k\\ntotal");
+    localStorage.setItem("omacus:index", JSON.stringify({ order: ["hover"], active: "hover" }));
+    return true;
+  })()`);
+  await navigate(`http://127.0.0.1:${port}/app/`);
+  await waitFor(`document.querySelector(".t-def") && document.querySelector(".t-var") && document.querySelector(".t-kw") && document.querySelector(".t-com")`, 20000);
+  const tones = await evalJson(`(() => {
+    const color = (sel) => getComputedStyle(document.querySelector(sel)).color;
+    return { def: color(".t-def"), use: color(".t-var"), kw: color(".t-kw"), com: color(".t-com"), num: color(".t-num") };
+  })()`);
+  check(tones.def !== tones.use && tones.use !== tones.kw && tones.def !== tones.kw, `colours did not split (${JSON.stringify(tones)})`);
+  check(tones.com !== tones.def && tones.com !== tones.use, `a # comment is not its own colour (${tones.com})`);
+  const spot = await evalJson(`(() => {
+    const el = document.querySelector(".t-var");
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + Math.min(r.height / 2, 8), word: el.textContent };
+  })()`);
+  check(spot.word === "rent", `hovered word was ${spot.word}`);
+  await page("Input.dispatchMouseEvent", { type: "mouseMoved", x: spot.x, y: spot.y });
+  await waitFor(`document.querySelector(".hover-value")`, 4000);
+  const tip = await evalJson(`(() => {
+    const el = document.querySelector(".hover-value");
+    const r = el.getBoundingClientRect();
+    const host = el.closest(".cm-tooltip");
+    const h = host.getBoundingClientRect();
+    return {
+      text: el.textContent,
+      x: h.x, y: h.y, w: h.width, h: h.height,
+      shown: getComputedStyle(host).visibility !== "hidden" && h.width > 0 && h.height > 0,
+      word: r.width,
+    };
+  })()`);
+  check(tip.text === "$1,450", `hover showed ${tip.text}`);
+  check(tip.shown && tip.y > 0 && tip.y < 760 && tip.x > 0, `hover tooltip is off-screen (${JSON.stringify(tip)})`);
+  if (shots) await plainShot(join(shots, "hover.png"));
 
   // The homepage embeds the editor in an iframe. The shell still fills that frame.
   // The embed class is added by app.js, which only loads once the wasm package exists.

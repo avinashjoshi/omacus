@@ -75,9 +75,21 @@ struct Popup {
     /// Char range of the word being completed.
     start: usize,
     end: usize,
-    items: Vec<String>,
+    items: Vec<complete::Suggestion>,
     selected: usize,
     anchor: Pos2,
+    /// The anchor was measured from the editor. A shortcut opens the popup
+    /// before that measurement exists.
+    anchored: bool,
+    /// Opened with Ctrl+Space. Enter accepts only then; otherwise Enter is a newline.
+    explicit: bool,
+}
+
+/// The value under the pointer, kept so a hover does not recompute every frame.
+struct HoverCache {
+    text: String,
+    cursor: usize,
+    hit: Option<engine::Hover>,
 }
 
 enum SheetAction {
@@ -280,6 +292,7 @@ pub struct OmacusApp {
     ctx: egui::Context,
     evaluated_at: Instant,
     popup: Option<Popup>,
+    hover: Option<HoverCache>,
     /// Cursor to apply to the editor after it is next shown.
     pending_cursor: Option<usize>,
     /// Sheets whose saved cursor has been put back this session.
@@ -353,6 +366,7 @@ impl OmacusApp {
             ctx: cc.egui_ctx.clone(),
             evaluated_at: Instant::now(),
             popup: None,
+            hover: None,
             pending_cursor: None,
             restored: HashSet::new(),
             focus_editor: true,
@@ -740,11 +754,20 @@ impl OmacusApp {
         let cmd = Modifiers::COMMAND;
         let cmd_shift = Modifiers::COMMAND | Modifiers::SHIFT;
 
+        // Ctrl+Space (Control on every platform, so macOS Spotlight keeps ⌘Space)
+        // opens suggestions on purpose. Enter accepts only that popup.
+        if ctx.input_mut(|i| i.consume_key(Modifiers::CTRL, Key::Space)) {
+            self.open_completion(true);
+        }
+
         if let Some(popup) = &mut self.popup {
-            let (accept, up, down) = ctx.input_mut(|i| {
+            let explicit = popup.explicit;
+            let (tab, enter, up, down) = ctx.input_mut(|i| {
                 (
-                    // Enter stays a newline: `3 km in⏎` must not become `inch`.
                     i.consume_key(Modifiers::NONE, Key::Tab),
+                    // Enter stays a newline unless the popup was opened on purpose,
+                    // so `3 km in⏎` does not become `inch`.
+                    explicit && i.consume_key(Modifiers::NONE, Key::Enter),
                     i.consume_key(Modifiers::NONE, Key::ArrowUp),
                     i.consume_key(Modifiers::NONE, Key::ArrowDown),
                 )
@@ -759,7 +782,7 @@ impl OmacusApp {
             }
             if close {
                 self.popup = None;
-            } else if accept {
+            } else if tab || enter {
                 let pick = popup.selected;
                 self.accept_completion(pick);
             }
@@ -840,7 +863,35 @@ impl OmacusApp {
         {
             ctx.copy_text(r.display.clone());
             self.copied = Some((idx, Instant::now()));
+            self.toast = Some(Toast::info(format!("Copied {}", r.display)));
         }
+    }
+
+    /// Open suggestions for the word at the caret. `explicit` is Ctrl+Space:
+    /// Enter then accepts. Typing opens the same list without that.
+    fn open_completion(&mut self, explicit: bool) {
+        let cursor = self.store.current().cursor;
+        let text = self.store.current().text.clone();
+        let Some((start, word)) = complete::word_before(&text, cursor) else {
+            return;
+        };
+        let items = complete::suggest(&word, &self.vars);
+        if items.is_empty() {
+            return;
+        }
+        let (anchor, anchored, selected) = match &self.popup {
+            Some(popup) if popup.end == cursor => (popup.anchor, popup.anchored, popup.selected),
+            _ => (Pos2::ZERO, false, 0),
+        };
+        self.popup = Some(Popup {
+            start,
+            end: cursor,
+            selected: selected.min(items.len() - 1),
+            items,
+            anchor,
+            anchored,
+            explicit,
+        });
     }
 
     fn commit_delete(&mut self) {
@@ -926,13 +977,13 @@ impl OmacusApp {
         let Some(popup) = self.popup.take() else {
             return;
         };
-        let Some(word) = popup.items.get(pick) else {
+        let Some(word) = popup.items.get(pick).map(|item| item.text.clone()) else {
             return;
         };
         let sheet = self.store.current();
         let chars: Vec<char> = sheet.text.chars().collect();
         let mut text: String = chars[..popup.start].iter().collect();
-        text.push_str(word);
+        text.push_str(&word);
         text.extend(&chars[popup.end.min(chars.len())..]);
         sheet.text = text;
         sheet.mark_dirty();
@@ -1795,8 +1846,10 @@ impl OmacusApp {
         }
 
         // Suggest while typing; any other cursor movement closes the popup.
+        // A popup opened with Ctrl+Space keeps Enter-to-accept while the word grows.
         match cursor {
             Some(c) if changed && response.has_focus() => {
+                let explicit = self.popup.as_ref().is_some_and(|p| p.explicit);
                 let text = &self.store.sheets[self.store.active].text;
                 self.popup = complete::word_before(text, c).and_then(|(start, word)| {
                     let items = complete::suggest(&word, &self.vars);
@@ -1807,11 +1860,24 @@ impl OmacusApp {
                         items,
                         selected: 0,
                         anchor: output.galley_pos + at.left_bottom().to_vec2() + vec2(0.0, 2.0),
+                        anchored: true,
+                        explicit,
                     })
                 });
             }
             Some(c) if self.popup.as_ref().is_some_and(|p| p.end == c) => {}
             _ => self.popup = None,
+        }
+        if let Some(popup) = &mut self.popup
+            && !popup.anchored
+            && let Some(c) = cursor
+        {
+            let at = output.galley.pos_from_cursor(CCursor::new(c));
+            popup.anchor = output.galley_pos + at.left_bottom().to_vec2() + vec2(0.0, 2.0);
+            popup.anchored = true;
+        }
+        if response.hovered() {
+            self.show_hover(ui, &output.galley, output.galley_pos);
         }
 
         if self.store.current().text.trim().is_empty() {
@@ -1956,8 +2022,10 @@ impl OmacusApp {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
         if response.clicked() {
-            ui.ctx().copy_text(result.display.clone());
+            let display = result.display.clone();
+            ui.ctx().copy_text(display.clone());
             self.copied = Some((line, Instant::now()));
+            self.toast = Some(Toast::info(format!("Copied {display}")));
             ui.ctx().request_repaint_after(COPIED_FOR);
         }
         if let Some([r, g, b]) = swatch {
@@ -1998,15 +2066,21 @@ impl OmacusApp {
                         let width = popup
                             .items
                             .iter()
-                            .map(|s| s.chars().count())
+                            .map(|item| {
+                                item.text.chars().count()
+                                    + item.kind_label().chars().count()
+                                    + item.detail.chars().count()
+                                    + 6
+                            })
                             .max()
-                            .unwrap_or(4) as f32
+                            .unwrap_or(8) as f32
                             * (FONT_SIZE - 2.0)
                             * 0.62
-                            + 24.0;
+                            + 16.0;
+                        let width = width.clamp(220.0, 520.0);
                         for (i, item) in popup.items.iter().enumerate() {
-                            let (rect, resp) = ui
-                                .allocate_exact_size(vec2(width.max(140.0), 24.0), Sense::click());
+                            let (rect, resp) =
+                                ui.allocate_exact_size(vec2(width, 26.0), Sense::click());
                             let selected = i == popup.selected;
                             if selected || resp.hovered() {
                                 ui.painter().rect_filled(
@@ -2023,9 +2097,21 @@ impl OmacusApp {
                             ui.painter().text(
                                 pos2(rect.left() + 8.0, rect.center().y),
                                 Align2::LEFT_CENTER,
-                                item,
+                                &item.text,
                                 font.clone(),
                                 color,
+                            );
+                            let meta = format!("{} · {}", item.kind_label(), item.detail);
+                            ui.painter().text(
+                                pos2(rect.right() - 8.0, rect.center().y),
+                                Align2::RIGHT_CENTER,
+                                meta,
+                                font.clone(),
+                                if selected {
+                                    theme.foreground
+                                } else {
+                                    theme.dim
+                                },
                             );
                             if resp.clicked() {
                                 clicked = Some(i);
@@ -2037,6 +2123,72 @@ impl OmacusApp {
             self.accept_completion(i);
             self.focus_editor = true;
         }
+    }
+
+    /// The value of the variable or number under the pointer.
+    fn show_hover(&mut self, ui: &egui::Ui, galley: &egui::Galley, origin: Pos2) {
+        let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) else {
+            return;
+        };
+        let cc = galley.cursor_from_pos(pointer - origin);
+        let text = self.store.current().text.clone();
+        let Some(hit) = self.lookup_hover(&text, cc.index.0) else {
+            return;
+        };
+        let start = galley.pos_from_cursor(CCursor::new(hit.start));
+        let end = galley.pos_from_cursor(CCursor::new(hit.end));
+        let rect = Rect::from_min_max(
+            origin + start.left_top().to_vec2(),
+            origin + end.right_bottom().to_vec2(),
+        )
+        .expand(3.0);
+        if !rect.contains(pointer) {
+            return;
+        }
+        let theme = self.theme.clone();
+        let value = hit.value.clone();
+        egui::Area::new(egui::Id::unique("omacus-hover"))
+            .order(Order::Tooltip)
+            .interactable(false)
+            .fixed_pos(pos2(rect.left(), rect.top() - 30.0))
+            .show(ui.ctx(), |ui| {
+                Frame::NONE
+                    .fill(theme.sidebar)
+                    .stroke(egui::Stroke::new(1.0, theme.selection))
+                    .corner_radius(CornerRadius::same(6))
+                    .inner_margin(Margin::symmetric(8, 4))
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(value)
+                                .monospace()
+                                .size(13.0)
+                                .color(theme.accent),
+                        );
+                    });
+            });
+    }
+
+    fn lookup_hover(&mut self, text: &str, cursor: usize) -> Option<engine::Hover> {
+        if let Some(cache) = &self.hover
+            && cache.text == text
+        {
+            if let Some(hit) = &cache.hit
+                && cursor >= hit.start
+                && cursor <= hit.end
+            {
+                return Some(hit.clone());
+            }
+            if cache.hit.is_none() && cache.cursor == cursor {
+                return None;
+            }
+        }
+        let hit = self.engine.hover_at(text, cursor);
+        self.hover = Some(HoverCache {
+            text: text.to_string(),
+            cursor,
+            hit: hit.clone(),
+        });
+        hit
     }
 
     /// A narrow strip when the sidebar is collapsed: the sidebar button on the top

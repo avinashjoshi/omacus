@@ -143,7 +143,7 @@ More examples in the guide: [Convert currencies as you type](https://omacus.com/
 
 ## Variables
 
-Write `name = value` to remember something for the rest of the page. Variable names are letters, digits and underscores, and are highlighted once defined.
+Write `name = value` to remember something for the rest of the page. Variable names are letters, digits and underscores. The name where you define it is one colour, and a later use of it is another. Keywords and units have a third. Hover a name, or a number such as `1.5k`, to see its value. Click an answer to copy it.
 
 | You type | Omacus shows |
 |---|---|
@@ -256,7 +256,7 @@ Pixels, `rem`, `em` and points convert with a 16px root, or the one you give (`a
 
 ## Notes & prose
 
-A page is one plain-text document, and any line can be a note, a calculation, or both. Omacus reads the line after a markdown prefix (`#`, `-`, `*`, `1.`, `- [ ]`, `>`): if what remains is math, it computes (`- hotel = 3 nights * $180` sets hotel to $540), otherwise the line is prose. Variables carry across the whole page, including prose. `#` at the start of a line is a heading; `#` later on the line is a comment, like `//`. `Ctrl P` previews the page as rendered notes, with each answer in a small pill after its line. Print and Export PDF use that view. Tables are drawn in the preview, and a cell is not calculated.
+A page is one plain-text document, and any line can be a note, a calculation, or both. Omacus reads the line after a markdown prefix (`#`, `-`, `*`, `1.`, `- [ ]`, `>`): if what remains is math, it computes (`- hotel = 3 nights * $180` sets hotel to $540), otherwise the line is prose. Variables carry across the whole page, including prose. `#` at the start of a line is a heading; `#` later on the line is a comment, like `//`, and is drawn in the comment colour. `Ctrl P` previews the page as rendered notes, with each answer in a small pill after its line. Print and Export PDF use that view. Tables are drawn in the preview, and a cell is not calculated.
 
 | You type | Omacus shows |
 |---|---|
@@ -337,7 +337,7 @@ On macOS, use `⌘` where this says `Ctrl`, and `⌥` for `Alt`.
 
 ## Autocomplete
 
-After two letters, Omacus suggests your page's variables, then keywords, time zones and units. `Tab` accepts, `↑` `↓` choose, `Esc` dismisses. `Enter` always starts a new line and never accepts a suggestion, so `3 km in` followed by Enter can't turn into `inch`. Short connecting words like `in`, `to` and `of` never trigger suggestions.
+After two letters, Omacus suggests your page's variables, then keywords, time zones and units. Each row shows the kind and a short description. `Tab` accepts, `↑` `↓` choose, `Esc` dismisses. `Enter` starts a new line and does not accept a suggestion, so `3 km in` followed by Enter can't turn into `inch`. `Ctrl Space` opens the suggestions on purpose, and then `Enter` accepts the chosen one. Short connecting words like `in`, `to` and `of` never trigger suggestions.
 
 ## Themes
 
@@ -363,8 +363,9 @@ bright_foreground = "#eaeaea"  # numbers
 light_foreground = "#8a8a8d"  # labels and operators
 dark_foreground = "#555555"  # comments
 accent = "#e68e0d"  # results, headers, cursor
-cyan = "#bebebe"  # keywords like in, of, total
-magenta = "#d35f5f"  # variables
+cyan = "#bebebe"  # keywords and units
+magenta = "#d35f5f"  # a name where it is used
+green = "#9ece6a"  # a name where it is defined
 selection = "#2a2a2a"  # selection and the active page
 lighter_background = "#1e1e1e"  # hover
 ```

@@ -1172,6 +1172,52 @@ impl Engine {
             .filter(|r| r.kind == Kind::Value)
             .map(|r| r.display)
     }
+
+    /// The value under a cursor (a char index): a variable, the name being
+    /// defined on this line, or a number whose formatted value differs (`1.5k`
+    /// is `1,500`). Lines above the cursor are the context, so a name defined
+    /// later is not visible yet. `None` for prose, comments, and a number that
+    /// already shows its own value.
+    pub fn hover_at(&self, text: &str, cursor: usize) -> Option<Hover> {
+        let (line_idx, line_at, token) = token_at(text, cursor)?;
+        let lines: Vec<&str> = text.split('\n').collect();
+        let line = *lines.get(line_idx)?;
+        if token_skipped(line, &token) {
+            return None;
+        }
+        let mut st = self.fresh();
+        let defs = defined_variables(text);
+        for (i, prev) in lines.iter().enumerate().take(line_idx) {
+            self.eval_in(&mut st, i, prev, &defs);
+        }
+        let value = if token_is_definition(line, &token) {
+            shown_value(&self.eval_in(&mut st, line_idx, line, &defs))?
+        } else if token.number {
+            let value = shown_value(&self.eval_math(&mut st, line_idx, &token.text, &defs))?;
+            if value == token.text {
+                return None;
+            }
+            value
+        } else if st.vars.contains(&token.text) {
+            shown_value(&self.eval_math(&mut st, line_idx, &token.text, &defs))?
+        } else {
+            return None;
+        };
+        Some(Hover {
+            start: line_at + token.start,
+            end: line_at + token.end,
+            value,
+        })
+    }
+}
+
+/// A value to show while the pointer rests on a variable or a number.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Hover {
+    /// Char index of the token in the whole page.
+    pub start: usize,
+    pub end: usize,
+    pub value: String,
 }
 
 /// Where each line of `new` text was in `old`, for moving answers along with their
@@ -1305,6 +1351,182 @@ pub fn defined_variables(text: &str) -> std::collections::HashSet<String> {
                 .map(|c| c[1].to_string())
         })
         .collect()
+}
+
+/// Byte range of the name being defined on this line (`hotel` in `- hotel = …`).
+/// A heading, a comment, and a table row define nothing.
+pub fn definition_span(line: &str) -> Option<(usize, usize)> {
+    let class = markdown::classify(line);
+    let body = match class.form {
+        markdown::Form::Blank | markdown::Form::Comment | markdown::Form::Table => return None,
+        _ => class.body,
+    };
+    let name = ASSIGN.captures(body)?.get(1)?;
+    let base = subslice_offset(line, body)?;
+    Some((base + name.start(), base + name.end()))
+}
+
+/// Byte index of `part` inside `whole`. `part` is a subslice, from `classify`.
+fn subslice_offset(whole: &str, part: &str) -> Option<usize> {
+    let start = part.as_ptr() as usize;
+    let base = whole.as_ptr() as usize;
+    let offset = start.checked_sub(base)?;
+    (offset + part.len() <= whole.len()).then_some(offset)
+}
+
+fn shown_value(result: &LineResult) -> Option<String> {
+    (result.kind == Kind::Value && !result.display.is_empty()).then(|| result.display.clone())
+}
+
+#[derive(Clone)]
+struct Tok {
+    start: usize,
+    end: usize,
+    text: String,
+    number: bool,
+}
+
+fn token_at(text: &str, cursor: usize) -> Option<(usize, usize, Tok)> {
+    if cursor > text.chars().count() {
+        return None;
+    }
+    let mut line_idx = 0;
+    let mut line_at = 0;
+    for (i, ch) in text.chars().enumerate() {
+        if i == cursor {
+            break;
+        }
+        if ch == '\n' {
+            line_idx += 1;
+            line_at = i + 1;
+        }
+    }
+    let line = text.split('\n').nth(line_idx)?;
+    let token = token_in_line(line, cursor - line_at)?;
+    Some((line_idx, line_at, token))
+}
+
+fn token_in_line(line: &str, col: usize) -> Option<Tok> {
+    let tokens = scan_tokens(line);
+    if let Some(tok) = tokens.iter().find(|t| col >= t.start && col < t.end) {
+        return Some(tok.clone());
+    }
+    tokens
+        .into_iter()
+        .rev()
+        .find(|t| t.end == col && col > t.start)
+}
+
+fn scan_tokens(line: &str) -> Vec<Tok> {
+    let chars: Vec<char> = line.chars().collect();
+    let mut i = 0;
+    let mut out = Vec::new();
+    while i < chars.len() {
+        let c = chars[i];
+        if is_currency(c) {
+            if chars
+                .get(i + 1)
+                .is_some_and(|n| n.is_ascii_digit() || *n == '.')
+            {
+                let start = i;
+                i = take_suffix(&chars, take_number(&chars, i + 1));
+                out.push(tok(&chars, start, i, true));
+            } else {
+                i += 1;
+            }
+        } else if c.is_ascii_digit() {
+            let start = i;
+            i = take_suffix(&chars, take_number(&chars, i));
+            out.push(tok(&chars, start, i, true));
+        } else if c.is_alphabetic() || c == '_' {
+            let start = i;
+            i += 1;
+            while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            out.push(tok(&chars, start, i, false));
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+fn tok(chars: &[char], start: usize, end: usize, number: bool) -> Tok {
+    Tok {
+        start,
+        end,
+        text: chars[start..end].iter().collect(),
+        number,
+    }
+}
+
+fn take_number(chars: &[char], mut i: usize) -> usize {
+    while i < chars.len()
+        && (chars[i].is_ascii_digit() || chars[i] == '.' || chars[i] == ',' || chars[i] == '_')
+    {
+        i += 1;
+    }
+    i
+}
+
+/// A scale stuck to a number (`1.5k`, `20%`), not a separate word (`3 km`).
+fn take_suffix(chars: &[char], i: usize) -> usize {
+    if chars.get(i) == Some(&'%') {
+        return i + 1;
+    }
+    let mut j = i;
+    while j < chars.len() && chars[j].is_ascii_alphabetic() && j - i < 2 {
+        j += 1;
+    }
+    let word: String = chars[i..j].iter().collect::<String>().to_ascii_lowercase();
+    if matches!(word.as_str(), "k" | "m" | "bn" | "b") {
+        j
+    } else {
+        i
+    }
+}
+
+fn is_currency(c: char) -> bool {
+    "$£€¥₹₩₽₺".contains(c)
+}
+
+fn token_skipped(line: &str, token: &Tok) -> bool {
+    let from = char_to_byte(line, token.start);
+    let class = markdown::classify(line);
+    if class.comment_at.is_some_and(|at| from >= at) {
+        return true;
+    }
+    if matches!(
+        class.form,
+        markdown::Form::Comment | markdown::Form::Table | markdown::Form::Blank
+    ) {
+        return true;
+    }
+    let mut quoted = false;
+    for (i, c) in line.char_indices() {
+        if i >= from {
+            break;
+        }
+        if c == '"' {
+            quoted = !quoted;
+        }
+    }
+    quoted
+}
+
+fn token_is_definition(line: &str, token: &Tok) -> bool {
+    let Some((from, to)) = definition_span(line) else {
+        return false;
+    };
+    (
+        char_to_byte(line, token.start),
+        char_to_byte(line, token.end),
+    ) == (from, to)
+}
+
+fn char_to_byte(line: &str, chars: usize) -> usize {
+    line.chars().take(chars).map(char::len_utf8).sum()
 }
 
 /// `sum`, `total`, `avg`, `average` over the values since the last blank line or header.
@@ -2689,6 +2911,61 @@ mod tests {
 
     fn one(line: &str) -> String {
         eval(line).pop().unwrap()
+    }
+
+    #[test]
+    fn hover_shows_a_variable_and_a_scaled_number() {
+        let engine = Engine::new(Rates::fixed(&[("USD", 1.0)]));
+        let text = "rent = $1,450\nrent * 2\n1.5k\n42";
+        let use_at = text.rfind("rent").unwrap();
+        let use_hover = engine
+            .hover_at(text, text[..use_at].chars().count() + 1)
+            .unwrap();
+        assert_eq!(use_hover.value, "$1,450");
+        let def = engine.hover_at(text, 1).unwrap();
+        assert_eq!(def.value, "$1,450");
+        let scaled = engine.eval_line("1.5k").unwrap();
+        assert_ne!(scaled, "1.5k");
+        let number_at = text.find("1.5k").unwrap();
+        let number = engine
+            .hover_at(text, text[..number_at].chars().count())
+            .unwrap();
+        assert_eq!(number.value, scaled);
+        let plain = text.find("42").unwrap();
+        assert!(
+            engine
+                .hover_at(text, text[..plain].chars().count())
+                .is_none()
+        );
+        // A later `#` is a comment, so the name inside it has no value.
+        let noted = "rent = $100 # rent";
+        let comment = noted.rfind("rent").unwrap();
+        assert!(
+            engine
+                .hover_at(noted, noted[..comment].chars().count())
+                .is_none()
+        );
+        let hotel = "- hotel = 3 nights * $180\nhotel";
+        let again = hotel.rfind("hotel").unwrap();
+        assert_eq!(
+            engine
+                .hover_at(hotel, hotel[..again].chars().count())
+                .unwrap()
+                .value,
+            "$540"
+        );
+    }
+
+    #[test]
+    fn definition_span_is_the_name_after_a_prefix() {
+        let line = "- hotel = 3 nights * $180";
+        let (from, to) = definition_span(line).unwrap();
+        assert_eq!(&line[from..to], "hotel");
+        let noted = "rent = $100 # monthly";
+        let (from, to) = definition_span(noted).unwrap();
+        assert_eq!(&noted[from..to], "rent");
+        assert!(definition_span("# Week 1").is_none());
+        assert!(definition_span("// rent = 1").is_none());
     }
 
     /// A missing name is a hint. Prose and a bare currency code stay blank, and a
