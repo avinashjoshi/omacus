@@ -125,7 +125,7 @@ More examples in the guide: [Convert units by just writing them](https://omacus.
 
 ## Currencies
 
-160+ currencies by code (`USD`, `EUR`, `JPY`…) or symbol (`$` `€` `£` `¥` `₹` `₩` `₽` `₺`). Rates are fetched from a free public source and cached, so currency math keeps working offline; they refresh every 12 hours while there's a connection.
+160+ currencies by code (`USD`, `EUR`, `JPY`…) or symbol (`$` `€` `£` `¥` `₹` `₩` `₽` `₺`). Rates are fetched from a free public source and cached, so currency math keeps working offline; they refresh every 12 hours while there's a connection. If that refresh doesn't succeed, the web app says rates may be stale.
 
 | You type | Omacus shows |
 |---|---|
@@ -305,7 +305,7 @@ A shared page opens as a new page (or switches to it, if you already have it):
 
 [omacus.com/app](https://omacus.com/app) is Omacus in any modern browser, on a computer or a phone, with nothing to install. Pages you make there are saved in that browser on that device, and are never uploaded. Export them from the ⋯ menu as a `.zip` of `.txt` files, the same format as the desktop app's pages folder, and import them anywhere.
 
-Chrome, Edge and Android can install it as an app (⋯ → *Install as an app*), and it works offline once opened. On iPhone and iPad, choose Share → *Add to Home Screen*: Safari otherwise clears a site's data after seven days without a visit.
+Chrome, Edge and Android can install it as an app (⋯ → *Install as an app*), and it works offline once opened. Cached exchange rates keep currency math working, and the page says when rates may be stale. On iPhone and iPad, choose Share → *Add to Home Screen*: Safari otherwise clears a site's data after seven days without a visit.
 
 ## Keyboard shortcuts
 

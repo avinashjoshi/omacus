@@ -86,7 +86,8 @@ page, or with `omacus open '<link>'`. It opens as a new page, or switches to it 
 
 The web app runs the same engine (`engine/`, compiled to WebAssembly from `web/`). Its pages are
 saved in that browser; export and import them as a `.zip` of `.txt` files. It installs as an app
-and works offline.
+and works offline. Exchange rates stay cached for 12 hours; if a refresh does not succeed, the
+page says rates may be stale.
 
 ### Autocomplete
 

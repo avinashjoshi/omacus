@@ -471,6 +471,15 @@ html:has(body.app-page) {
   font-size: 14px;
 }
 
+.rates-note {
+  margin: 0;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(90deg, rgba(240, 161, 42, 0.14), transparent);
+  color: var(--text);
+  font-size: 13.5px;
+}
+
 .shared-banner b {
   color: var(--text);
 }
@@ -923,6 +932,7 @@ body.answers-inline .res {
   body.app-page .side,
   body.app-page:has(.page-preview:not([hidden])) .editor,
   body.app-page .shared-banner,
+  body.app-page .rates-note,
   body.app-page .install-banner,
   body.app-page .confirm,
   body.app-page .loading,
