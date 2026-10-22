@@ -934,7 +934,6 @@ if (resize) {
 document.addEventListener("click", (e) => {
   const button = e.target.closest?.("[data-action]");
   if (button) action(button.dataset.action);
-  if (e.target.closest?.("[data-share]")) action("share");
   if (e.target.closest?.("[data-menu-button]")) {
     el.menu.hidden = !el.menu.hidden;
     el.menuButton.setAttribute("aria-expanded", String(!el.menu.hidden));
@@ -974,6 +973,11 @@ addEventListener(
       } else if (el.workspace) {
         setSide(el.workspace.classList.contains("collapsed"));
       }
+    }
+    // Ctrl+Shift+L copies a share link, as in the desktop app.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.shiftKey && e.key.toLowerCase() === "l") {
+      e.preventDefault();
+      action("share");
     }
   },
   true,

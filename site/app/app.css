@@ -891,8 +891,7 @@ html:has(body.app-page) {
     outline: none;
   }
 
-  /* The top bar keeps the sheet's name; Share and Private move into the ⋯ menu. */
-  .bar .share,
+  /* The top bar keeps the sheet's name; Private moves into the ⋯ menu. */
   .private-chip {
     display: none;
   }
