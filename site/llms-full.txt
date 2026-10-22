@@ -27,6 +27,12 @@ curl -fsSL https://omacus.com/install | bash
 
 Installs `Omacus.app` into `/Applications` (or `~/Applications`) and links the command-line tool at `~/.local/bin/omacus`. Apps installed this way open without a security prompt.
 
+Or with Homebrew, which also opens without a prompt:
+
+```
+brew install --cask avinashjoshi/tap/omacus
+```
+
 You can also [download the .dmg](https://omacus.com/download/#mac) for your Mac's chip and drag Omacus to Applications. Omacus isn't notarized by Apple yet, so the first time macOS blocks it:
 
 - Open Omacus once. macOS says it can't verify it; click **Done**.
@@ -36,13 +42,19 @@ Or in Terminal: `xattr -dr com.apple.quarantine /Applications/Omacus.app`. You o
 
 ### Windows
 
-[Download the .zip](https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64.zip), unzip it anywhere (for example `%LOCALAPPDATA%\Programs\Omacus`) and run `omacus.exe`. It's a single portable file. If SmartScreen warns about an unknown publisher, choose **More info → Run anyway**. Right-click it to **Pin to Start**; a shortcut's Properties let you set a global shortcut key.
+```
+irm https://omacus.com/install.ps1 | iex
+```
+
+Run that in PowerShell, or [download the installer](https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64-setup.exe) and open it. Either way Omacus installs for your user (no admin prompt) into `%LOCALAPPDATA%\Programs\Omacus`, appears in Start, and opens. In a new terminal, `omacus 2+2` works too. Omacus isn't signed yet, so a downloaded installer may get a SmartScreen warning: choose **More info → Run anyway** (the PowerShell line doesn't get one). To remove it, use **Settings → Apps**; your pages are kept.
+
+Prefer no installer? The [portable .zip](https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64.zip) holds a single `omacus.exe` to run from anywhere. Right-click it to **Pin to Start**; a shortcut's Properties let you set a global shortcut key.
 
 ### Updating
 
 The version is at the bottom of the sidebar. When a new one is out, a small dot appears next to it; click it to see what's new and choose **Update now**, and Omacus installs the new version and offers to restart. You can also check any time from **About** in the help window (`F1`). Your pages, keybind and settings stay as they are. From a terminal, `omacus update` does the same.
 
-On Windows, Update now swaps in the new `omacus.exe` wherever you keep it. If you installed the .deb or .rpm, the button opens the download page instead, so you update the same way you installed. Omacus checks GitHub for the latest version number when it starts (at most once an hour) and every 4 hours while it stays open; to turn that off, put `check_for_updates = false` in `settings.toml` (see [Where files live](https://omacus.com/docs/#files)).
+On Windows, Update now swaps in the new `omacus.exe` where it's installed (or wherever you keep the portable one). If you installed the .deb or .rpm, the button opens the download page instead, so you update the same way you installed. Omacus checks GitHub for the latest version number when it starts (at most once an hour) and every 4 hours while it stays open; to turn that off, put `check_for_updates = false` in `settings.toml` (see [Where files live](https://omacus.com/docs/#files)).
 
 ## Your first page
 
@@ -59,7 +71,7 @@ Click any result to copy it. Everything is saved as you type, so just close the 
 
 ## Arithmetic
 
-The usual operators, plus words for them. `x` between numbers multiplies, `k` and `M` are thousands and millions, `^` is a power. A comma followed by three digits groups thousands (`1,234`); followed by any other number of digits it's a decimal comma, so `1,5` is 1.5 and `€12,50` is €12.50.
+The usual operators, plus words for them. `x` between numbers multiplies, `k` and `M` are thousands and millions, `^` is a power. A comma followed by three digits groups thousands (`1,234`); followed by any other number of digits it's a decimal comma, so `1,5` is 1.5 and `€12,50` is €12.50. Dots in threes before a decimal comma group thousands too: `€1.234,56` is €1,234.56. `lakh` and `crore` after a number are 100,000 and 10,000,000.
 
 | You type | Omacus shows |
 |---|---|
@@ -144,7 +156,9 @@ Runway, burn, MRR and a round: [For founders](https://omacus.com/guides/founders
 
 ## Totals & prev
 
-`total` (or `sum`) adds up the lines above it, back to the last blank line or header, so a blank line starts a new block. `average` (or `avg`, `mean`) works the same way. `prev` is the result of the line just above.
+`total` (or `sum`) adds up the lines above it, back to the last blank line or header, so a blank line starts a new block. `average` (or `avg`, `mean`) works the same way. `prev` is the result of the line just above. Either can go in a calculation too: `total * 1.08`, `total in EUR`. Plain numbers in a block of dollars count as dollars.
+
+The same names also take arguments: `sum(1, 2, 3)` is 6, `avg(2, 4)` is 3, and `min` and `max` pick from the list. A comma inside the parentheses separates arguments (`sum($5, $10)` is $15). A thousands group stays one number, inside or outside a call: `sum(1,000, 2,000)` is 3,000, and `1,000 + 1` is 1,001. `total`, `average` and `mean` are the same functions.
 
 | You type | Omacus shows |
 |---|---|
@@ -185,7 +199,7 @@ More examples in the guide: [Convert time zones in plain English](https://omacus
 
 ## Dates
 
-`today`, `now`, `tomorrow`, `yesterday` or any date, plus or minus minutes, hours, days, weeks, months or years. Take one date from another for the days between them. A date without a year is this year's.
+`today`, `now`, `tomorrow`, `yesterday` or any date, plus or minus minutes, hours, days, weeks, months or years. Take one date from another for the days between them. A date without a year is this year's. Days, weeks, months and years move along the calendar, so a clock change in between never lands you on the wrong day; minutes and hours are time that passes.
 
 ```
 today  # Friday, 16 October 2026
@@ -193,6 +207,8 @@ tomorrow + 2 weeks  # Saturday, 31 October 2026
 now - 90 minutes  # Fri, 16 Oct 2026, 7:09 AM
 Jan 31 + 1 month  # Saturday, 28 February 2026
 Dec 25 - Dec 1  # 24 days
+next Friday  # Friday, 23 October 2026
+last Monday  # Monday, 12 October 2026
 ```
 
 For a time of day, add or take away minutes and hours from a clock time, or count from now. Add `in` and a place to see it there.
@@ -204,7 +220,7 @@ in 90 minutes  # the time 90 minutes from now
 in 3 hours in Tokyo  # that time in Tokyo
 ```
 
-Count the days to or from a date: `until` counts to the next one, `since` from the last one. Ask in days, weeks, months or workdays (Monday to Friday; public holidays aren't known). Christmas, New Year's, Halloween and Valentine's Day work by name.
+Count the days to or from a date: `until` counts to the next one, `since` from the last one. Ask in days, weeks, months or workdays (Monday to Friday; public holidays aren't known). Christmas, New Year's, Halloween and Valentine's Day work by name. Dates with slashes work when there's only one way to read them (`12/25` or `25/12`); for one like `2/3`, write the month (`Feb 3`), since it's 3 February in some places and 2 March in others.
 
 ```
 days until Dec 25  # the days left until Christmas
@@ -240,7 +256,7 @@ Pixels, `rem`, `em` and points convert with a 16px root, or the one you give (`a
 
 ## Notes & prose
 
-A page is a notebook first. Lines starting with `#` are headers, `//` starts a comment (on its own line or after the math), and `"quoted text"` is ignored. A label before a colon is left out of the math, and words Omacus doesn't know are skipped.
+A page is one plain-text document, and any line can be a note, a calculation, or both. Omacus reads the line after a markdown prefix (`#`, `-`, `*`, `1.`, `- [ ]`, `>`): if what remains is math, it computes (`- hotel = 3 nights * $180` sets hotel to $540), otherwise the line is prose. Variables carry across the whole page, including prose. `#` at the start of a line is a heading; `#` later on the line is a comment, like `//`. `Ctrl P` previews the page as rendered notes, with each answer in a small pill after its line. Print and Export PDF use that view. Tables are drawn in the preview, and a cell is not calculated.
 
 | You type | Omacus shows |
 |---|---|
@@ -249,6 +265,9 @@ A page is a notebook first. Lines starting with `#` are headers, `//` starts a c
 | `Rent: $1,450` | $1,450 |
 | `Lunch with Sam $18` | $18 |
 | `"quoted text" 40 + 2` | 42 |
+| `- hotel = 3 nights * $180` | $540 |
+| `hotel * 2` | $1,080 |
+| `rent = $100 # monthly` | $100 |
 
 **Tip:** if a word you meant as prose happens to be a unit (like `at` or `a`), put it in a label (`Hotel at the beach: $120`) or in quotes.
 
@@ -257,16 +276,16 @@ A page is a notebook first. Lines starting with `#` are headers, `//` starts a c
 The sidebar lists your pages; a page's title is its first line. Create as many as you like, one per trip, budget, invoice or project.
 
 - **Always saved.** Every change is written within half a second, and again when you close. There is no save command and nothing to lose.
-- **Picks up where you left off.** Order, the open page, each page's cursor and whether the sidebar is shown all come back next time.
+- **Picks up where you left off.** Order, the open page, each page's cursor, and whether the sidebar is expanded (and how wide) all come back next time. Drag the sidebar's right edge to resize it. `Ctrl B` collapses it to a thin rail; click the logo there to open it again.
 
-- **Deleting is safe.** Deleted pages move to a `trash` folder next to your pages; copy one back to restore it.
+- **Deleting is safe.** Deleted pages move to Recently deleted (a `trash` folder next to your pages). Click one to read it; Restore puts it back, and Delete forever removes it.
 - **Plain text.** Each page is a `.txt` file, so you can search, sync or back them up with anything.
 
 The **⋯** above a page, the **⋯** on its row in the sidebar, and a right-click on that row all open the same menu: *New page*, *Move up*, *Move down*, *Copy with answers*, *Copy as Markdown table*, *Share link* and *Delete page*.
 
 ## Sharing & the web app
 
-Any page can travel as a link. **Share** above the page, or `Ctrl Shift L`, copies one like `omacus.com/app#v1.U1bwyS…`. Whoever opens it sees the page in [Omacus in the browser](https://omacus.com/app), with every answer worked out live by the same engine as the desktop app.
+Any page can travel as a link. *Share link* in the **⋯** menu, or `Ctrl Shift L`, copies one like `omacus.com/app#v1.U1bwyS…`. Whoever opens it sees the page in [Omacus in the browser](https://omacus.com/app), with every answer worked out live by the same engine as the desktop app.
 
 - **The page is the link.** It's compressed into the part after `#`, which browsers never send to a server, so Omacus never sees or stores it. Anyone who has the link can read the page, so share it the way you'd share a document.
 - **Answers are recalculated when it's opened.** Currencies use that day's rates, and `today` or `days until` count from the day it's opened.
@@ -295,12 +314,13 @@ On macOS, use `⌘` where this says `Ctrl`, and `⌥` for `Alt`.
 | Keys | Action |
 |---|---|
 | `Ctrl N` | New page |
-| `Ctrl P` | Go to a page by name (or by something written in it) |
+| `Ctrl J` | Go to a page by name (or by something written in it) |
+| `Ctrl Alt ↑` / `Ctrl Alt ↓` | Previous / next page |
 | `Ctrl Tab` / `Ctrl Shift Tab` | Next / previous page (also `Ctrl PgDn` / `Ctrl PgUp`) |
 | `Ctrl 1` … `Ctrl 9` | Jump to a page |
 | `Alt ↑` / `Alt ↓` | Move the page up / down |
-| `Ctrl Shift Delete` | Delete the page (Undo appears for a few seconds; it's also kept in trash) |
-| `Ctrl B` | Show / hide the sidebar |
+| `Ctrl Shift Delete` | Delete the page (asks first; Undo appears, and it's kept in Recently deleted) |
+| `Ctrl B` | Expand / collapse the sidebar |
 | Click a result | Copy it |
 | `Ctrl Shift C` | Copy the last result |
 | `Ctrl Shift S` | Copy the whole page with its answers lined up (also in the page's ⋯ menu) |
@@ -311,7 +331,9 @@ On macOS, use `⌘` where this says `Ctrl`, and `⌥` for `Alt`.
 | `F1` or `Ctrl /` | Help: shortcuts, live syntax examples, tips |
 | `Ctrl ,` | Settings: theme, answers column, update checks |
 | `Ctrl \` | Hide the answers column (answers sit after each line) |
-| `Esc`, `Ctrl W` or `Ctrl Q` | Close (everything is saved) |
+| `Ctrl P` | Preview the page. Print and Export PDF use that view |
+| `Esc` | Close the switcher, preview, help, settings, or a dialog |
+| `Ctrl W` or `Ctrl Q` | Quit (everything is saved) |
 
 ## Autocomplete
 
@@ -325,6 +347,7 @@ Settings (`Ctrl ,`, or Settings in a page's ⋯ menu) chooses the theme, whether
 
 - Your own `theme.toml`, if you've made one.
 - On Omarchy, the active Omarchy theme. It switches live when you run `omarchy theme set`.
+
 - Otherwise a built-in light or dark theme that follows your system setting, also live.
 
 Or pick a built-in theme that ignores those files: Light, Dark, Paper (warm paper) or Dusk (a blue night). **Omarchy** uses only the Omarchy theme. **Custom** uses only your `theme.toml`. The web app has Auto, Light, Dark, Paper and Dusk, and follows the device when set to Auto.
@@ -387,7 +410,7 @@ o.bind("SUPER + CTRL + ALT + EQUAL", "Omacus calculator", { launch = "omacus", f
 o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })
 ```
 
-The keybind launches Omacus, or focuses it if it's already open. `Esc` closes it again.
+The keybind launches Omacus, or focuses it if it's already open. `Ctrl Q` quits it again.
 
 More examples in the guide: [The calculator that fits Omarchy](https://omacus.com/guides/omarchy-calculator/).
 

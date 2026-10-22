@@ -225,6 +225,64 @@ pub fn is_header(line: &str) -> bool {
     omacus_engine::is_header(line)
 }
 
+/// Editor marks for one line, with UTF-16 offsets (what the browser editor uses).
+/// `heading` is 1–6 or null, `comment` is the offset of a `//` or mid-line `#`,
+/// and `bold`, `italic` and `markers` are `[from, to]` spans.
+#[wasm_bindgen(js_name = pageMarks)]
+pub fn page_marks(line: &str) -> String {
+    use omacus_engine::markdown::{self, Form};
+    let class = markdown::classify(line);
+    let emph = markdown::emphasis(line);
+    let spans = |ranges: &[(usize, usize)]| {
+        ranges
+            .iter()
+            .map(|(from, to)| {
+                json!([
+                    markdown::utf16_offset(line, *from),
+                    markdown::utf16_offset(line, *to),
+                ])
+            })
+            .collect::<Vec<_>>()
+    };
+    json!({
+        "heading": match class.form {
+            Form::Heading(level) => Some(level),
+            _ => None,
+        },
+        "comment": class.comment_at.map(|at| markdown::utf16_offset(line, at)),
+        "bold": spans(&emph.bold),
+        "italic": spans(&emph.italic),
+        "markers": spans(&emph.markers),
+    })
+    .to_string()
+}
+
+/// The preview as HTML. `answers_json` is the array `evaluate` returns; each
+/// value (and a real error, not a name hint) becomes a `<span class="pill">`.
+#[wasm_bindgen(js_name = previewHtml)]
+pub fn preview_html(text: &str, answers_json: &str) -> String {
+    let parsed: Vec<serde_json::Value> = serde_json::from_str(answers_json).unwrap_or_default();
+    let answers: Vec<Option<String>> = parsed.iter().map(pill_text).collect();
+    let refs: Vec<Option<&str>> = answers.iter().map(|s| s.as_deref()).collect();
+    omacus_engine::markdown::preview_html(text, &refs)
+}
+
+fn pill_text(result: &serde_json::Value) -> Option<String> {
+    let kind = result["kind"].as_str().unwrap_or("");
+    let display = result["display"].as_str().unwrap_or("");
+    let hint = result["hint"].as_bool().unwrap_or(false);
+    if kind == "value" && !display.is_empty() {
+        return Some(display.to_string());
+    }
+    if kind == "none" && !hint {
+        let note = result["note"].as_str().unwrap_or("");
+        if !note.is_empty() {
+            return Some(note.to_string());
+        }
+    }
+    None
+}
+
 /// Names assigned in the sheet, for highlighting.
 #[wasm_bindgen]
 pub fn variables(sheet: &str) -> String {
@@ -254,6 +312,7 @@ fn to_json(results: Vec<omacus_engine::LineResult>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     /// Laying out answers already worked out matches working them out again.
     #[test]
@@ -298,5 +357,38 @@ mod tests {
                 .any(|i| i == "tomorrow")
         );
         assert_eq!(suggest("x", ""), "null");
+    }
+
+    #[test]
+    fn page_marks_use_utf16_and_keep_a_mid_line_hash() {
+        let marks: serde_json::Value =
+            serde_json::from_str(&page_marks("€ **bold** # note")).unwrap();
+        // "€" is one UTF-16 unit and three bytes. The bold word starts after "€ **".
+        assert_eq!(marks["bold"][0], json!([4, 8]));
+        assert_eq!(marks["markers"][0], json!([2, 4]));
+        assert_eq!(marks["comment"], 11);
+        assert!(marks["heading"].is_null());
+
+        let heading: serde_json::Value = serde_json::from_str(&page_marks("## Week 1")).unwrap();
+        assert_eq!(heading["heading"], 2);
+        assert!(heading["comment"].is_null());
+
+        let color: serde_json::Value = serde_json::from_str(&page_marks("#ff8800")).unwrap();
+        assert!(color["heading"].is_null());
+        assert!(color["comment"].is_null());
+    }
+
+    #[test]
+    fn preview_puts_a_pill_on_a_list_item() {
+        let calc = Calc::new();
+        let text = "- hotel = 3 nights * $180\npack sunscreen\nhotel * 2\nrent = $100 # monthly";
+        let answers = calc.evaluate(text);
+        let html = preview_html(text, &answers);
+        assert!(html.contains("<li>"), "{html}");
+        assert!(html.contains("class=\"pill\">$540</span>"), "{html}");
+        assert!(html.contains("class=\"pill\">$1,080</span>"), "{html}");
+        assert!(html.contains("class=\"pill\">$100</span>"), "{html}");
+        assert!(html.contains("pack sunscreen"), "{html}");
+        assert!(!html.contains("# monthly"), "{html}");
     }
 }

@@ -14,6 +14,8 @@ use eframe::egui::{
 use crate::calc::Calculator;
 use crate::help;
 use crate::highlight;
+use crate::pdf;
+use crate::preview;
 use crate::rates::Rates;
 use crate::settings::{self, Settings};
 use crate::sheets::{SIDEBAR_MAX, SIDEBAR_MIN, Store, Trashed, heading_of};
@@ -90,6 +92,8 @@ enum SheetAction {
     /// Copy a link that opens the sheet in a browser (or in Omacus).
     Share(usize),
     Settings,
+    /// Rendered markdown, with answers in pills. Ctrl+P.
+    Preview,
 }
 
 /// A message at the bottom of the window.
@@ -174,6 +178,7 @@ enum Shortcut {
     Dismiss,
     Settings,
     ToggleAnswers,
+    Preview,
 }
 
 /// Sheets matching the switcher's query, best first: title starts with it, title
@@ -247,6 +252,8 @@ pub struct OmacusApp {
     system_dark: bool,
     settings: Settings,
     settings_open: bool,
+    /// Ctrl+P: the page rendered as markdown. Esc returns to editing.
+    page_preview: bool,
     dirty_since: Option<Instant>,
     copied: Option<(usize, Instant)>,
     /// A short confirmation at the bottom of the window ("Sheet copied…").
@@ -336,6 +343,7 @@ impl OmacusApp {
             system_dark,
             settings,
             settings_open: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "settings"),
+            page_preview: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "preview"),
             dirty_since: None,
             copied: None,
             toast: None,
@@ -526,6 +534,14 @@ impl OmacusApp {
                 self.open_settings();
                 return;
             }
+            SheetAction::Preview => {
+                self.page_preview = !self.page_preview;
+                self.popup = None;
+                if !self.page_preview {
+                    self.focus_editor = true;
+                }
+                return;
+            }
         }
         self.sheet_switched();
     }
@@ -597,6 +613,7 @@ impl OmacusApp {
         let mut dismiss = false;
         let mut open_settings = false;
         let mut toggle_answers = false;
+        let mut toggle_preview = false;
         for chord in chords {
             match chord {
                 Shortcut::ToggleSwitcher => toggle_switcher = true,
@@ -606,6 +623,7 @@ impl OmacusApp {
                 Shortcut::Dismiss => dismiss = true,
                 Shortcut::Settings => open_settings = true,
                 Shortcut::ToggleAnswers => toggle_answers = true,
+                Shortcut::Preview => toggle_preview = true,
             }
         }
         if quit {
@@ -636,6 +654,13 @@ impl OmacusApp {
             } else {
                 "Answers are in the column"
             }));
+        }
+        if toggle_preview {
+            self.page_preview = !self.page_preview;
+            self.popup = None;
+            if !self.page_preview {
+                self.focus_editor = true;
+            }
         }
         if toggle_switcher {
             self.switcher = match self.switcher {
@@ -704,6 +729,11 @@ impl OmacusApp {
                 self.settings_open = false;
                 self.focus_editor = true;
             }
+            return;
+        }
+        if self.page_preview && dismiss {
+            self.page_preview = false;
+            self.focus_editor = true;
             return;
         }
 
@@ -1808,10 +1838,14 @@ impl OmacusApp {
             }
             if let Some(Some(width)) = answers.get(line) {
                 let dropped = answer_drops(row.rect().max.x, *width, editor_width);
-                let mut y = origin.y + row.pos.y;
-                if dropped {
-                    y += row_height;
-                }
+                // A heading is taller than a normal row, so the answer sits on the
+                // row itself (or in the gap just below it) rather than a fixed step.
+                let content_h = row.rect().height().max(row_height);
+                let (y, h) = if dropped {
+                    (origin.y + row.pos.y + content_h, row_height)
+                } else {
+                    (origin.y + row.pos.y, content_h)
+                };
                 let anchor = if inline {
                     let left = if dropped {
                         origin.x
@@ -1822,7 +1856,7 @@ impl OmacusApp {
                 } else {
                     AnswerAnchor::Right(column_right)
                 };
-                self.paint_result(ui, line, anchor, y, row_height, &font);
+                self.paint_result(ui, line, anchor, y, h, &font);
             }
             line += 1;
         }
@@ -2050,6 +2084,50 @@ impl OmacusApp {
         {
             self.store.toggle_sidebar();
             self.touched();
+        }
+    }
+
+    fn show_page_preview(&mut self, ui: &mut egui::Ui) {
+        let theme = self.theme.clone();
+        let (text, results) = if let Some(id) = &self.preview {
+            let text = self
+                .trash
+                .iter()
+                .find(|t| &t.id == id)
+                .map(|t| t.text.clone())
+                .unwrap_or_default();
+            let results = self.engine.eval_document(&text);
+            (text, results)
+        } else {
+            (self.store.current().text.clone(), self.results.clone())
+        };
+        let title = crate::sheets::heading_of(&text);
+        if let Some(action) = preview::show(ui, &theme, &text, &results) {
+            match action {
+                preview::Action::Close => {
+                    self.page_preview = false;
+                    self.focus_editor = true;
+                }
+                preview::Action::Print => {
+                    match pdf::save(&title, &preview::blocks(&text, &results), true) {
+                        Ok(_) => {
+                            self.toast = Some(Toast::info("Opened the preview to print"));
+                        }
+                        Err(e) => self.toast = Some(Toast::error(e)),
+                    }
+                }
+                preview::Action::Export => {
+                    match pdf::save(&title, &preview::blocks(&text, &results), false) {
+                        Ok(path) => {
+                            self.toast = Some(Toast::info(format!("Saved {}", path.display())));
+                        }
+                        Err(e) => self.toast = Some(Toast::error(e)),
+                    }
+                }
+                preview::Action::Copy(text) => {
+                    self.toast = Some(Toast::info(format!("Copied {text}")));
+                }
+            }
         }
     }
 
@@ -2304,7 +2382,9 @@ impl eframe::App for OmacusApp {
                 bottom: 20,
             });
         egui::CentralPanel::default().frame(frame).show(ui, |ui| {
-            if let Some(item) = self.current_preview() {
+            if self.page_preview {
+                self.show_page_preview(ui);
+            } else if let Some(item) = self.current_preview() {
                 self.preview_sheet(ui, &item);
             } else {
                 self.sheet_bar(ui);
@@ -2359,6 +2439,9 @@ fn sheet_menu(ui: &mut egui::Ui, i: usize, count: usize, action: &mut Option<She
     }
     if item(ui, "Copy as Markdown table", Some("Ctrl+Shift+M")) {
         *action = Some(SheetAction::CopyMarkdown(i));
+    }
+    if item(ui, "Preview", Some("Ctrl+P")) {
+        *action = Some(SheetAction::Preview);
     }
     ui.separator();
     if item(ui, "New page", Some("Ctrl+N")) {
@@ -2518,6 +2601,7 @@ macro_rules! font {
     };
 }
 static BUNDLED_FONT: &[u8] = font!("JetBrainsMono-Regular.ttf");
+static BOLD_FONT: &[u8] = font!("JetBrainsMono-Bold.ttf");
 /// ₹, ₩, ₺ and the other currency signs JetBrains Mono lacks, cut from Noto Sans.
 static CURRENCY_FONT: &[u8] = font!("NotoSans-Currency.ttf");
 /// Emoji people type into notes ("✈ Flights").
@@ -2561,11 +2645,17 @@ fn install_fonts(ctx: &egui::Context) {
         add("system", FontData::from_owned(bytes));
     }
     add("mono", inflate(BUNDLED_FONT));
+    add("bold", inflate(BOLD_FONT));
     add("currency", inflate(CURRENCY_FONT));
     add("emoji", inflate(EMOJI_FONT));
     for family in [FontFamily::Monospace, FontFamily::Proportional] {
         fonts.families.insert(family, chain.clone());
     }
+    let mut bold_chain = vec!["bold".to_string()];
+    bold_chain.extend(chain.iter().cloned());
+    fonts
+        .families
+        .insert(FontFamily::Name("bold".into()), bold_chain);
     ctx.set_fonts(fonts);
 }
 
@@ -2646,8 +2736,8 @@ pub fn run() -> eframe::Result {
 }
 
 /// Ctrl/Cmd+J toggles the switcher on the key press only. Ctrl/Cmd+Alt+Up/Down
-/// walks sheets and may repeat. Escape dismisses; it does not quit. Ctrl+P is
-/// left for a future preview.
+/// walks sheets and may repeat. Escape dismisses; it does not quit. Ctrl+P
+/// opens the rendered preview.
 fn shortcut_for(command: bool, alt: bool, shift: bool, key: Key, repeat: bool) -> Option<Shortcut> {
     match key {
         Key::Escape if !command && !alt && !shift && !repeat => Some(Shortcut::Dismiss),
@@ -2655,9 +2745,10 @@ fn shortcut_for(command: bool, alt: bool, shift: bool, key: Key, repeat: bool) -
         Key::ArrowUp if command && alt && !shift => Some(Shortcut::PrevSheet),
         Key::ArrowDown if command && alt && !shift => Some(Shortcut::NextSheet),
         Key::Q | Key::W if command && !alt && !shift && !repeat => Some(Shortcut::Quit),
-        // Ctrl+, opens settings. Ctrl+\ hides the answers column. Ctrl+P stays free.
+        // Ctrl+, opens settings. Ctrl+\ hides the answers column. Ctrl+P previews.
         Key::Comma if command && !alt && !shift && !repeat => Some(Shortcut::Settings),
         Key::Backslash if command && !alt && !shift && !repeat => Some(Shortcut::ToggleAnswers),
+        Key::P if command && !alt && !shift && !repeat => Some(Shortcut::Preview),
         _ => None,
     }
 }
@@ -2670,7 +2761,7 @@ fn owns_key(command: bool, alt: bool, shift: bool, key: Key) -> bool {
         Key::Escape if !command && !alt && !shift => true,
         Key::ArrowUp | Key::ArrowDown if command && alt && !shift => true,
         Key::Q | Key::W if command && !alt && !shift => true,
-        Key::Comma | Key::Backslash if command && !alt && !shift => true,
+        Key::Comma | Key::Backslash | Key::P if command && !alt && !shift => true,
         _ => false,
     }
 }
@@ -2995,9 +3086,13 @@ mod tests {
         );
         assert_eq!(shortcut_for(true, false, false, Key::J, true), None);
         assert!(owns_key(true, false, false, Key::J));
-        // Ctrl+P stays free for a later preview.
-        assert_eq!(shortcut_for(true, false, false, Key::P, false), None);
-        assert!(!owns_key(true, false, false, Key::P));
+        assert_eq!(
+            shortcut_for(true, false, false, Key::P, false),
+            Some(Shortcut::Preview)
+        );
+        assert!(owns_key(true, false, false, Key::P));
+        assert_eq!(shortcut_for(true, false, false, Key::P, true), None);
+        assert!(!owns_key(false, false, false, Key::P));
         assert_eq!(
             shortcut_for(true, true, false, Key::ArrowDown, true),
             Some(Shortcut::NextSheet)
@@ -3037,8 +3132,8 @@ mod tests {
             press(Key::P, Modifiers::COMMAND, false),
             Event::Text("p".into()),
         ];
-        assert!(take_chords(&mut preview).is_empty());
-        assert_eq!(preview.len(), 2);
+        assert_eq!(take_chords(&mut preview), vec![Shortcut::Preview]);
+        assert!(preview.is_empty());
     }
 
     #[test]

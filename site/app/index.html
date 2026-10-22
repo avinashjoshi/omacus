@@ -44,6 +44,7 @@
           <button role="menuitem" data-action="share">Share link</button>
           <button role="menuitem" data-action="copy">Copy with answers</button>
           <button role="menuitem" data-action="markdown">Copy as Markdown table</button>
+          <button role="menuitem" data-action="preview">Preview</button>
           <button role="menuitem" data-action="open-app">Open in the desktop app</button>
           <hr>
           <button role="menuitem" data-action="new">New page</button>
@@ -98,6 +99,16 @@
         <p data-install-text></p>
         <button class="btn small primary" type="button" hidden data-action="install">Install</button>
         <button class="icon-btn small" type="button" aria-label="Dismiss" data-action="dismiss-install">×</button>
+      </div>
+      <div class="page-preview" hidden data-page-preview>
+        <div class="page-preview-bar">
+          <button class="btn small primary" type="button" data-action="close-preview">Edit</button>
+          <span class="page-preview-hint">Esc</span>
+          <span class="page-preview-spacer"></span>
+          <button class="btn small" type="button" data-action="print-preview">Print</button>
+          <button class="btn small" type="button" data-action="export-preview">Export PDF</button>
+        </div>
+        <div class="page-preview-body" data-page-preview-body></div>
       </div>
       <div class="editor" data-editor>
         <p class="empty-hint" hidden data-empty>Pages are in the sidebar. Open it from the pages button, then pick one or start a new page.</p>
