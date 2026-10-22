@@ -501,7 +501,7 @@ function clearPreview() {
   syncEmpty();
 }
 
-// Ctrl+P: the page rendered as notes, with each answer in a pill. This is what
+// Ctrl+P: the page rendered as notes, with each answer in brackets. This is what
 // prints. Esc, or Edit, returns to the plain-text page.
 let pagePreviewOpen = false;
 
@@ -537,7 +537,8 @@ function refreshPagePreview() {
   for (const pill of el.pagePreviewBody.querySelectorAll(".pill")) {
     pill.title = "Click to copy";
     pill.addEventListener("click", () => {
-      copy(pill.textContent).then(() => toast(`Copied <b>${esc(pill.textContent)}</b>`));
+      const value = pill.dataset.value || pill.textContent;
+      copy(value).then(() => toast(`Copied <b>${esc(value)}</b>`));
     });
   }
 }
