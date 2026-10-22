@@ -1356,15 +1356,26 @@ impl OmacusApp {
         let count = self.store.sheets.len();
         let mut action = None;
         let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
-        let dots_rect = Rect::from_min_size(pos2(row.right() - 28.0, row.top()), vec2(28.0, 28.0));
+        // Framed, like the web app's: the one control above the sheet. Its right edge
+        // lines up with the answers, which leave room for the scrollbar.
+        let dots_rect = Rect::from_center_size(
+            pos2(row.right() - SCROLLBAR_ROOM - 15.0, row.center().y),
+            vec2(30.0, 30.0),
+        );
         let dots = ui.interact(dots_rect, ui.scope_id().with("bar-dots"), Sense::click());
         let menu = egui::Popup::menu(&dots).align(egui::RectAlign::BOTTOM_END);
         let lit = dots.hovered() || menu.is_open();
         let painter = ui.painter();
         if lit {
-            painter.rect_filled(dots_rect, CornerRadius::same(6), theme.hover);
+            painter.rect_filled(dots_rect, CornerRadius::same(7), theme.hover);
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
+        painter.rect_stroke(
+            dots_rect,
+            CornerRadius::same(7),
+            egui::Stroke::new(1.0, theme.selection),
+            egui::StrokeKind::Inside,
+        );
         let color = if lit { theme.foreground } else { theme.dim };
         for dx in [-6.0, 0.0, 6.0] {
             painter.circle_filled(dots_rect.center() + vec2(dx, 0.0), 2.0, color);
