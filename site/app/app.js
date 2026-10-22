@@ -35,8 +35,8 @@ $84 split 3 ways
 days until Christmas
 #ff8800 in hsl
 
-// Click an answer to copy it. Share link sends this sheet to anyone.
-// Private: your sheets are saved in this browser only. Nothing is uploaded.
+// Click an answer to copy it. Share link sends this page to anyone.
+// Private: your pages are saved in this browser only. Nothing is uploaded.
 `;
 
 // Embedded in omacus.com's homepage (/app/?embed#v1.…): just the editor, on the sheet
@@ -103,13 +103,35 @@ const store = {
   },
 };
 
+// Older builds stored each page under `sheet:`. Read those once and write `page:`.
+function migratePageKeys() {
+  let legacy = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(PREFIX + "sheet:")) legacy.push(key);
+    }
+  } catch {
+    return;
+  }
+  for (const key of legacy) {
+    const id = key.slice((PREFIX + "sheet:").length);
+    if (store.get("page:" + id) == null) {
+      const value = localStorage.getItem(key);
+      if (value != null) store.set("page:" + id, value);
+    }
+    store.remove("sheet:" + id);
+  }
+}
+
 function load() {
+  migratePageKeys();
   let index = {};
   try {
     index = JSON.parse(store.get("index") ?? "{}");
   } catch {}
-  state.order = Array.isArray(index.order) ? index.order.filter((id) => store.get("sheet:" + id) !== null) : [];
-  state.texts = new Map(state.order.map((id) => [id, store.get("sheet:" + id)]));
+  state.order = Array.isArray(index.order) ? index.order.filter((id) => store.get("page:" + id) !== null) : [];
+  state.texts = new Map(state.order.map((id) => [id, store.get("page:" + id)]));
   state.active = state.order.includes(index.active) ? index.active : state.order[0] ?? null;
 }
 
@@ -120,7 +142,7 @@ function saveIndex() {
 let persistAsked = false;
 function saveSheet(id) {
   if (id === "shared") return;
-  store.set("sheet:" + id, state.texts.get(id) ?? "");
+  store.set("page:" + id, state.texts.get(id) ?? "");
   // Ask the browser to keep this data rather than clearing it to free space.
   if (!persistAsked) {
     persistAsked = true;
@@ -510,14 +532,14 @@ const editorExtensions = [
   sheetField,
   autocompletion({ override: [completions], defaultKeymap: false, icons: false }),
   EditorView.updateListener.of((u) => u.docChanged && onInput()),
-  EditorView.contentAttributes.of({ spellcheck: "false", autocapitalize: "off", autocorrect: "off", "aria-label": "Sheet" }),
+  EditorView.contentAttributes.of({ spellcheck: "false", autocapitalize: "off", autocorrect: "off", "aria-label": "Page" }),
 ];
 
 const view = new EditorView({ parent: el.host, state: EditorState.create({ doc: "", extensions: editorExtensions }) });
 
 // The calculation runs in a worker (worker.js), so the page never waits on it. The
 // page sends each new text; the worker works on the newest, in slices, and sends
-// answers back as it goes (a long sheet fills in from the top). Copies are worked out
+// answers back as it goes (a long page fills in from the top). Copies are worked out
 // there too, never on the page while there's a worker. One that stops answering for
 // HANG_MS (it can't be interrupted mid-line) is replaced and given everything again.
 // Without workers, the page calculates itself.
@@ -670,9 +692,9 @@ async function share() {
   const url = `${location.origin}/app#${shareEncode(text)}`;
   await copy(url);
   const n = url.length.toLocaleString();
-  if (url.length > 8000) toast(`Link copied (${n} characters). <small>Long links can be cut off by some apps; for a long sheet, Copy as Markdown table is safer.</small>`);
+  if (url.length > 8000) toast(`Link copied (${n} characters). <small>Long links can be cut off by some apps; for a long page, Copy as Markdown table is safer.</small>`);
   else if (url.length > 2000) toast(`Link copied (${n} characters). <small>Fine for chat apps; some email and SMS may cut it.</small>`);
-  else toast("Link copied. <small>Anyone with it can open this sheet.</small>");
+  else toast("Link copied. <small>Anyone with it can open this page.</small>");
 }
 
 async function openShared() {
@@ -686,7 +708,7 @@ async function openShared() {
   if (same) {
     state.shared = null;
     select(same);
-    return toast("This sheet is already in your sheets.");
+    return toast("This page is already in your pages.");
   }
   state.shared = { text, link: hash };
   state.active = "shared";
@@ -717,7 +739,7 @@ function saveShared() {
   state.active = id;
   saveIndex();
   showSheet();
-  toast("Saved to your sheets.");
+  toast("Saved to your pages.");
 }
 
 addEventListener("hashchange", openShared);
@@ -760,10 +782,10 @@ async function action(name) {
   const text = currentText();
   if (name === "copy") {
     await copyLater(laidOut(text, false));
-    toast("Sheet copied with answers.");
+    toast("Page copied with answers.");
   } else if (name === "markdown") {
     await copyLater(laidOut(text, true));
-    toast("Sheet copied as a Markdown table.");
+    toast("Page copied as a Markdown table.");
   } else if (name === "new") {
     flushSave();
     addSheet("");
@@ -802,8 +824,8 @@ async function action(name) {
     setSide(true);
   } else if (name === "privacy") {
     toast(
-      "<b>Private.</b> Sheets are saved in this browser, on this device, and never uploaded. " +
-        "A share link carries the sheet after the #, which browsers don't send to any server. " +
+      "<b>Private.</b> Pages are saved in this browser, on this device, and never uploaded. " +
+        "A share link carries the page after the #, which browsers don't send to any server. " +
         '<a href="/privacy/" target="_blank" rel="noopener">Privacy</a>',
       null,
       7000,
@@ -854,6 +876,7 @@ function commitDelete() {
   flushSave();
   state.order.splice(at, 1);
   state.texts.delete(id);
+  store.remove("page:" + id);
   store.remove("sheet:" + id);
   state.active = state.order[Math.min(at, state.order.length - 1)] ?? addSheet("");
   saveIndex();
@@ -1013,10 +1036,10 @@ function exportZip() {
   const blob = zip(files);
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `omacus-sheets-${new Date().toISOString().slice(0, 10)}.zip`;
+  a.download = `omacus-pages-${new Date().toISOString().slice(0, 10)}.zip`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  toast(`Exported ${files.length} sheet${files.length === 1 ? "" : "s"}.`);
+  toast(`Exported ${files.length} page${files.length === 1 ? "" : "s"}.`);
 }
 
 el.importInput.addEventListener("change", async () => {
@@ -1032,7 +1055,7 @@ el.importInput.addEventListener("change", async () => {
   }
   el.importInput.value = "";
   showSheet();
-  toast(count ? `Imported ${count} sheet${count === 1 ? "" : "s"}.` : "Nothing new to import.");
+  toast(count ? `Imported ${count} page${count === 1 ? "" : "s"}.` : "Nothing new to import.");
 });
 
 const CRC = new Uint32Array(256).map((_, n) => {
@@ -1191,7 +1214,7 @@ function showInstall() {
   const text = installPrompt
     ? "<b>Install Omacus.</b> It opens in its own window and works offline."
     : ios()
-      ? `<b>Install Omacus:</b> tap ${SHARE_ICON} then <b>Add to Home Screen</b>. It works offline, like an app, and Safari keeps your sheets.`
+      ? `<b>Install Omacus:</b> tap ${SHARE_ICON} then <b>Add to Home Screen</b>. It works offline, like an app, and Safari keeps your pages.`
       : null;
   banner.hidden = EMBED || dismissed || standalone() || !text || state.active === "shared";
   if (text) $("[data-install-text]").innerHTML = text;

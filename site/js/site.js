@@ -223,7 +223,7 @@
       setMode("try");
       if (!frame) {
         frame = document.createElement("iframe");
-        frame.title = "Omacus, live: edit this sheet";
+        frame.title = "Omacus, live: edit this page";
         frame.className = "win-frame";
         list.parentElement.append(frame);
         frame.addEventListener("load", () => frame.contentDocument?.querySelector("textarea")?.focus());

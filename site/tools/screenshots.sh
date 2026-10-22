@@ -20,8 +20,8 @@ mkdir -p "$out"
 shoot() {
   local name=$1 theme=$2 active=$3 tab=${4:-} root
   root="$(mktemp -d)"
-  mkdir -p "$root/data/omacus/sheets" "$root/cfg/omacus" "$root/cache/omacus"
-  cp "$demo"/*.txt "$root/data/omacus/sheets/"
+  mkdir -p "$root/data/omacus/pages" "$root/cfg/omacus" "$root/cache/omacus"
+  cp "$demo"/*.txt "$root/data/omacus/pages/"
   printf '{"order":["kyoto","invoice","standup","budget","kitchen"],"active":"%s","cursors":{},"sidebar":true}' \
     "$active" >"$root/data/omacus/state.json"
   cp "$themes/$theme/colors.toml" "$root/cfg/omacus/theme.toml"

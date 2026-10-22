@@ -19,8 +19,8 @@ omacus — a notepad calculator
 USAGE:
     omacus                 open the calculator window
     omacus <expression>    evaluate one expression and print the result
-    cat sheet | omacus -   evaluate a sheet from stdin, one result per line
-    omacus open <link>     open a share link (omacus.com/app#…) as a sheet
+    cat page | omacus -    evaluate a page from stdin, one result per line
+    omacus open <link>     open a share link (omacus.com/app#…) as a page
     omacus update          install the latest version
     omacus --version       print the version
 ";
@@ -124,3 +124,15 @@ fn attach_console() {
 
 #[cfg(not(windows))]
 fn attach_console() {}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn cli_help_says_page() {
+        assert!(
+            !super::HELP.to_lowercase().contains("sheet"),
+            "{}",
+            super::HELP
+        );
+    }
+}
