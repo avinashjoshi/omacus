@@ -22,8 +22,12 @@ use omacus_engine::{self as engine, Engine, Kind, LineResult, complete};
 
 const FONT_SIZE: f32 = 16.0;
 const GAP: f32 = 32.0;
-/// Collapsed sidebar: logo and an expand button, not an overlay tab.
-const SIDEBAR_RAIL: f32 = 52.0;
+/// Collapsed sidebar: logo, an expand button and +, not an overlay tab.
+const SIDEBAR_RAIL: f32 = 48.0;
+/// The sidebar's top row is as tall as Share and ⋯ above the sheet, and level with them.
+const BAR_ROW: f32 = 28.0;
+/// Sidebar buttons are this square, centered over the rows' ⋯.
+const ICON_BOX: f32 = 24.0;
 /// Every sheet row is this tall, so a long name cannot wrap into the next one.
 const SIDEBAR_ROW: f32 = 32.0;
 const SCROLLBAR_ROOM: f32 = 12.0;
@@ -1429,16 +1433,14 @@ impl OmacusApp {
     fn sidebar_footer(&mut self, ui: &mut egui::Ui, theme: &Theme) {
         let available = self.updates.available();
         let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
-        let help_rect = Rect::from_min_size(pos2(row.right() - 28.0, row.top()), vec2(28.0, 28.0));
+        let help_rect = icon_slot(row, 0);
         let about_rect = Rect::from_min_max(row.min, pos2(help_rect.left() - 4.0, row.bottom()));
         let about = ui.interact(about_rect, ui.scope_id().with("about"), Sense::click());
-        let help = ui.interact(help_rect, ui.scope_id().with("help"), Sense::click());
+        let help = icon_button(ui, help_rect, ui.scope_id().with("help"), theme, Icon::Help);
 
         let painter = ui.painter();
-        for (rect, resp) in [(about_rect, &about), (help_rect, &help)] {
-            if resp.hovered() {
-                painter.rect_filled(rect, CornerRadius::same(6), theme.hover);
-            }
+        if about.hovered() {
+            painter.rect_filled(about_rect, CornerRadius::same(6), theme.hover);
         }
         let logo =
             Rect::from_center_size(pos2(row.left() + 14.0, row.center().y), vec2(18.0, 18.0));
@@ -1469,19 +1471,7 @@ impl OmacusApp {
         if available.is_some() {
             painter.circle_filled(version.right_center() + vec2(7.0, 0.0), 3.0, theme.accent);
         }
-        painter.text(
-            help_rect.center(),
-            Align2::CENTER_CENTER,
-            "?",
-            FontId::proportional(14.0),
-            if help.hovered() {
-                theme.foreground
-            } else {
-                theme.dim
-            },
-        );
-
-        if about.hovered() || help.hovered() {
+        if about.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
         let about_tip = match &available {
@@ -1513,36 +1503,42 @@ impl OmacusApp {
         let mut purge = None;
         self.refresh_trash(false);
 
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new("SHEETS")
-                    .size(11.0)
-                    .color(theme.comment),
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let plus = ui.add(
-                    egui::Button::new(egui::RichText::new("+").size(16.0).color(theme.dim))
-                        .frame(false),
-                );
-                if plus
-                    .on_hover_text(format!("New sheet ({})", help::keys("Ctrl+N")))
-                    .clicked()
-                {
-                    action = Some(SheetAction::New);
-                }
-                let collapse = ui.add(
-                    egui::Button::new(egui::RichText::new("\u{2039}").size(18.0).color(theme.dim))
-                        .frame(false),
-                );
-                if collapse
-                    .on_hover_text(format!("Collapse sidebar ({})", help::keys("Ctrl+B")))
-                    .clicked()
-                {
-                    self.store.toggle_sidebar();
-                    self.touched();
-                }
-            });
-        });
+        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), BAR_ROW), Sense::hover());
+        ui.painter().text(
+            pos2(row.left() + 14.0, row.center().y),
+            Align2::LEFT_CENTER,
+            "SHEETS",
+            FontId::proportional(11.0),
+            theme.comment,
+        );
+        let id = ui.scope_id();
+        let collapse = icon_button(
+            ui,
+            icon_slot(row, 0),
+            id.with("collapse"),
+            &theme,
+            Icon::Sidebar,
+        );
+        let plus = icon_button(
+            ui,
+            icon_slot(row, 1),
+            id.with("new-sheet"),
+            &theme,
+            Icon::Plus,
+        );
+        if plus
+            .on_hover_text(format!("New sheet ({})", help::keys("Ctrl+N")))
+            .clicked()
+        {
+            action = Some(SheetAction::New);
+        }
+        if collapse
+            .on_hover_text(format!("Collapse sidebar ({})", help::keys("Ctrl+B")))
+            .clicked()
+        {
+            self.store.toggle_sidebar();
+            self.touched();
+        }
         ui.add_space(6.0);
 
         let rows: Vec<(usize, String)> = self
@@ -1577,11 +1573,7 @@ impl OmacusApp {
                 }
                 if !self.trash.is_empty() {
                     ui.add_space(14.0);
-                    ui.label(
-                        egui::RichText::new("RECENTLY DELETED")
-                            .size(11.0)
-                            .color(theme.comment),
-                    );
+                    section_label(ui, &theme, "RECENTLY DELETED");
                     ui.add_space(4.0);
                     let trash = self.trash.clone();
                     for item in trash {
@@ -1953,38 +1945,52 @@ impl OmacusApp {
         }
     }
 
-    /// A narrow strip when the sidebar is collapsed: the logo, and a control to open it.
+    /// A narrow strip when the sidebar is collapsed: the logo on the top row, the
+    /// sidebar button and + under it. A click anywhere else on the strip opens it too.
     fn sidebar_rail(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme.clone();
-        let rail = ui.interact(
-            ui.max_rect(),
-            ui.scope_id().with("sidebar-rail"),
-            Sense::click(),
+        let area = ui.max_rect();
+        let id = ui.scope_id();
+        let rail = ui.interact(area, id.with("sidebar-rail"), Sense::click());
+        let logo = Rect::from_center_size(
+            pos2(area.left() + SIDEBAR_RAIL / 2.0, area.top() + BAR_ROW / 2.0),
+            vec2(20.0, 20.0),
+        );
+        let toggle = Rect::from_center_size(
+            logo.center() + vec2(0.0, BAR_ROW + 8.0),
+            Vec2::splat(ICON_BOX),
+        );
+        let plus = icon_button(
+            ui,
+            toggle.translate(vec2(0.0, ICON_BOX + 4.0)),
+            id.with("rail-new"),
+            &theme,
+            Icon::Plus,
         );
         let painter = ui.painter();
-        let logo = Rect::from_center_size(
-            pos2(ui.max_rect().center().x, ui.max_rect().top() + 22.0),
-            vec2(22.0, 22.0),
-        );
+        let color = if rail.hovered() {
+            painter.rect_filled(toggle, CornerRadius::same(6), theme.hover);
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            theme.foreground
+        } else {
+            theme.dim
+        };
+        paint_icon(painter, Icon::Sidebar, toggle.center(), color);
         painter.image(
             self.logo.small.id(),
             logo,
             Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
             Color32::WHITE,
         );
-        let expand = Rect::from_center_size(logo.center() + vec2(0.0, 36.0), vec2(28.0, 28.0));
-        if rail.hovered() {
-            painter.rect_filled(expand, CornerRadius::same(6), theme.hover);
-        }
-        painter.text(
-            expand.center(),
-            Align2::CENTER_CENTER,
-            "\u{203a}",
-            FontId::proportional(22.0),
-            theme.foreground,
-        );
-        let rail = rail.on_hover_text(format!("Expand sidebar ({})", help::keys("Ctrl+B")));
-        if rail.clicked() {
+        if plus
+            .on_hover_text(format!("New sheet ({})", help::keys("Ctrl+N")))
+            .clicked()
+        {
+            self.apply(SheetAction::New);
+        } else if rail
+            .on_hover_text(format!("Expand sidebar ({})", help::keys("Ctrl+B")))
+            .clicked()
+        {
             self.store.toggle_sidebar();
             self.touched();
         }
@@ -2202,9 +2208,12 @@ impl eframe::App for OmacusApp {
         self.handle_shortcuts(&ctx);
 
         if self.store.sidebar {
-            let frame = Frame::NONE
-                .fill(self.theme.sidebar)
-                .inner_margin(Margin::symmetric(10, 14));
+            let frame = Frame::NONE.fill(self.theme.sidebar).inner_margin(Margin {
+                left: 10,
+                right: 10,
+                top: 8,
+                bottom: 14,
+            });
             let panel = egui::Panel::left("sheets")
                 .resizable(true)
                 .default_size(self.store.sidebar_width)
@@ -2215,9 +2224,12 @@ impl eframe::App for OmacusApp {
                 .show(ui, |ui| self.sidebar(ui));
             self.store.set_sidebar_width(panel.response.rect.width());
         } else {
-            let frame = Frame::NONE
-                .fill(self.theme.sidebar)
-                .inner_margin(Margin::symmetric(4, 14));
+            let frame = Frame::NONE.fill(self.theme.sidebar).inner_margin(Margin {
+                left: 0,
+                right: 0,
+                top: 8,
+                bottom: 14,
+            });
             egui::Panel::left("sheets-rail")
                 .resizable(false)
                 .exact_size(SIDEBAR_RAIL)
@@ -2310,6 +2322,80 @@ fn paint_dots(painter: &egui::Painter, center: Pos2, color: Color32) {
     for dx in [-5.0, 0.0, 5.0] {
         painter.circle_filled(center + vec2(dx, 0.0), 1.5, color);
     }
+}
+
+#[derive(Clone, Copy)]
+enum Icon {
+    Plus,
+    Sidebar,
+    Help,
+}
+
+/// Drawn rather than typed, so they match each other, Share and ⋯ in any font.
+fn paint_icon(painter: &egui::Painter, icon: Icon, c: Pos2, color: Color32) {
+    let stroke = egui::Stroke::new(1.5, color);
+    match icon {
+        Icon::Plus => {
+            painter.line_segment([c + vec2(-6.0, 0.0), c + vec2(6.0, 0.0)], stroke);
+            painter.line_segment([c + vec2(0.0, -6.0), c + vec2(0.0, 6.0)], stroke);
+        }
+        // A window with its left panel marked off.
+        Icon::Sidebar => {
+            let r = Rect::from_center_size(c, vec2(16.0, 14.0));
+            painter.rect_stroke(r, CornerRadius::same(3), stroke, egui::StrokeKind::Middle);
+            let x = r.left() + 5.5;
+            painter.line_segment([pos2(x, r.top()), pos2(x, r.bottom())], stroke);
+        }
+        Icon::Help => {
+            painter.circle_stroke(c, 7.5, stroke);
+            painter.text(
+                c + vec2(0.0, 0.5),
+                Align2::CENTER_CENTER,
+                "?",
+                FontId::proportional(11.0),
+                color,
+            );
+        }
+    }
+}
+
+/// An icon in a square that lights up on hover, like ⋯.
+fn icon_button(
+    ui: &egui::Ui,
+    rect: Rect,
+    id: egui::Id,
+    theme: &Theme,
+    icon: Icon,
+) -> egui::Response {
+    let resp = ui.interact(rect, id, Sense::click());
+    let color = if resp.hovered() {
+        ui.painter()
+            .rect_filled(rect, CornerRadius::same(6), theme.hover);
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        theme.foreground
+    } else {
+        theme.dim
+    };
+    paint_icon(ui.painter(), icon, rect.center(), color);
+    resp
+}
+
+/// The sidebar's button column: centered on the rows' ⋯, `slot` buttons in from the right.
+fn icon_slot(row: Rect, slot: usize) -> Rect {
+    let x = row.right() - 15.0 - slot as f32 * (ICON_BOX + 4.0);
+    Rect::from_center_size(pos2(x, row.center().y), Vec2::splat(ICON_BOX))
+}
+
+/// "SHEETS", "RECENTLY DELETED": lined up with the sheet names below.
+fn section_label(ui: &mut egui::Ui, theme: &Theme, text: &str) {
+    let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::hover());
+    ui.painter().text(
+        pos2(row.left() + 14.0, row.center().y),
+        Align2::LEFT_CENTER,
+        text,
+        FontId::proportional(11.0),
+        theme.comment,
+    );
 }
 
 /// A ⋯ button: brighter, with a background, when hovered or its menu is open.
@@ -2778,9 +2864,10 @@ fn line_at(text: &str, cursor: usize) -> usize {
 mod tests {
     use super::find_sheets;
     use super::{
-        HINT_IDLE, SIDEBAR_ROW, Shortcut, SwitcherEdit, apply_switcher_query, empty_sheet_hint,
-        line_at, name_hint_visible, owns_key, sheet_event_filter, shortcut_for, sidebar_accent,
-        sidebar_label_job, switcher_takes_focus, take_chords, take_switcher_edits,
+        BAR_ROW, HINT_IDLE, SIDEBAR_ROW, Shortcut, SwitcherEdit, apply_switcher_query,
+        empty_sheet_hint, icon_slot, line_at, name_hint_visible, owns_key, sheet_event_filter,
+        shortcut_for, sidebar_accent, sidebar_label_job, switcher_takes_focus, take_chords,
+        take_switcher_edits,
     };
     use eframe::egui::{Color32, Event, FontId, ImeEvent, Key, Modifiers, Rect, pos2, vec2};
     use std::time::Duration;
@@ -2997,6 +3084,21 @@ mod tests {
         assert!(!name_hint_visible(true, Duration::from_millis(100)));
         assert!(name_hint_visible(true, HINT_IDLE));
         assert!(name_hint_visible(false, Duration::ZERO));
+    }
+
+    #[test]
+    fn sidebar_buttons_line_up_with_the_rows_dots() {
+        let row = Rect::from_min_size(pos2(10.0, 8.0), vec2(190.0, BAR_ROW));
+        let sheet = Rect::from_min_size(pos2(10.0, 40.0), vec2(190.0, SIDEBAR_ROW));
+        let dots = Rect::from_center_size(
+            pos2(sheet.right() - 15.0, sheet.center().y),
+            vec2(24.0, 24.0),
+        );
+        assert_eq!(icon_slot(row, 0).center().x, dots.center().x);
+        assert_eq!(icon_slot(row, 0).center().y, row.center().y);
+        assert!(icon_slot(row, 1).right() < icon_slot(row, 0).left());
+        // Level with Share and ⋯ above the sheet (8 down, 28 tall, in both panels).
+        assert_eq!(row.center().y, 8.0 + 28.0 / 2.0);
     }
 
     #[test]
