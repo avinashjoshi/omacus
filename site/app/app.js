@@ -1046,22 +1046,37 @@ function setRates(json) {
   return true;
 }
 
+// "fresh" hides the note. "stale" shows it: a refresh was due and did not succeed,
+// so the cached rates (if any) are still what currency math uses.
+function setRatesNote(state) {
+  const note = $("[data-rates-note]");
+  if (!note) return;
+  note.dataset.ratesState = state;
+  note.hidden = state !== "stale";
+}
+
 async function loadRates() {
   let cached = null;
   try {
     cached = JSON.parse(store.get("rates") ?? "null");
   } catch {}
-  if (cached?.rates) setRates(JSON.stringify(cached.rates));
-  if (cached && Date.now() - cached.at < RATES_MAX_AGE) return;
+  const have = !!(cached?.rates && setRates(JSON.stringify(cached.rates)));
+  const age = Number.isFinite(cached?.at) ? Date.now() - cached.at : Infinity;
+  if (have && age < RATES_MAX_AGE) {
+    setRatesNote("fresh");
+    return;
+  }
   try {
     const res = await fetch(RATES_URL);
+    if (!res.ok) throw new Error(String(res.status));
     const { rates } = await res.json();
-    if (rates && setRates(JSON.stringify(rates))) {
-      store.set("rates", JSON.stringify({ at: Date.now(), rates }));
-      evaluate();
-    }
+    if (!rates || !setRates(JSON.stringify(rates))) throw new Error("no rates");
+    store.set("rates", JSON.stringify({ at: Date.now(), rates }));
+    setRatesNote("fresh");
+    evaluate();
   } catch {
-    // Offline: the cached rates (if any) stay in use.
+    // A refresh was due and failed. Cached rates, when we have them, stay in use.
+    setRatesNote("stale");
   }
 }
 
@@ -1571,8 +1586,10 @@ function standalone() {
 async function goOffline() {
   if (!("serviceWorker" in navigator)) return;
   // Local previews serve files at fixed URLs, which the worker would keep serving
-  // stale; there, remove any worker instead.
-  if (["localhost", "127.0.0.1"].includes(location.hostname)) {
+  // from its copy. There, remove any worker instead. `?sw=1` registers one anyway,
+  // which is how an offline open is checked.
+  const local = ["localhost", "127.0.0.1"].includes(location.hostname);
+  if (local && !new URLSearchParams(location.search).has("sw")) {
     for (const reg of await navigator.serviceWorker.getRegistrations()) await reg.unregister();
     for (const key of await caches.keys()) await caches.delete(key);
     return;

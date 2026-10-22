@@ -16,6 +16,7 @@ const css = readFileSync(join(site, "app/app.css"), "utf8");
 const siteCss = readFileSync(join(site, "css/site.css"), "utf8");
 const js = readFileSync(join(site, "app/app.js"), "utf8");
 const html = readFileSync(join(site, "app/index.html"), "utf8");
+const sw = readFileSync(join(site, "app/sw.js"), "utf8");
 
 const failures = [];
 function check(cond, message) {
@@ -61,6 +62,16 @@ check(js.includes('e.key === ","') && js.includes('e.key === "\\\\"'), "settings
 check(js.includes("previewHtml"), "preview renders from the engine");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
+check(sw.includes('const CACHE = "omacus-app-3"'), "the app cache name moved past the cache-first shell");
+check(!sw.includes("omacus-app-2"), "the old app cache name is gone");
+check(sw.includes("if (res.ok)") && sw.includes("cache.put"), "only a successful response is stored for offline");
+check(sw.includes("e.waitUntil(fetched"), "the shell is refreshed in the background");
+check(sw.includes('"/app/pkg/omacus_web_bg.wasm"'), "the engine is precached for offline");
+check(!sw.includes("self.registration.unregister"), "the worker stays registered so an offline check can use it");
+check(js.includes('has("sw")'), "a local preview can register the worker with ?sw=1");
+check(html.includes("rates may be stale") && html.includes("data-rates-note"), "a failed rates refresh says rates may be stale");
+check(js.includes('note.dataset.ratesState = state'), "the rates note records whether the refresh succeeded");
+check(css.includes(".rates-note"), "the rates note is styled");
 check(css.includes(".pill"), "answers in the preview are pills");
 check(css.includes("body.answers-inline .res"), "hiding the column places answers inline");
 check(
@@ -108,6 +119,13 @@ const server = createServer((req, res) => {
 });
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const port = server.address().port;
+let serverStopped = false;
+function stopServer() {
+  if (serverStopped) return;
+  serverStopped = true;
+  server.close();
+  server.closeAllConnections?.();
+}
 
 const profile = join("/tmp", `omacus-chrome-${process.pid}`);
 const browser = spawn(chrome, [
@@ -149,6 +167,7 @@ await new Promise((resolve, reject) => {
   ws.onerror = () => reject(new Error("DevTools websocket failed"));
 });
 let nextId = 0;
+let failRates = false;
 const pending = new Map();
 const sessions = new Map();
 ws.onmessage = (ev) => {
@@ -160,6 +179,14 @@ ws.onmessage = (ev) => {
     else resolve(msg.result);
   } else if (msg.method === "Target.attachedToTarget") {
     sessions.set(msg.params.sessionId, msg.params);
+  } else if (msg.method === "Fetch.requestPaused") {
+    const requestId = msg.params.requestId;
+    const url = String(msg.params.request?.url || "");
+    const fail = failRates && url.includes("er-api.com");
+    const done = fail
+      ? send("Fetch.failRequest", { requestId, errorReason: "Failed" }, msg.sessionId)
+      : send("Fetch.continueRequest", { requestId }, msg.sessionId);
+    done.catch(() => {});
   }
 };
 function send(method, params = {}, sessionId) {
@@ -403,6 +430,32 @@ if (pkg) {
   check(tip.shown && tip.y > 0 && tip.y < 760 && tip.x > 0, `hover tooltip is off-screen (${JSON.stringify(tip)})`);
   if (shots) await plainShot(join(shots, "hover.png"));
 
+  // A refresh that fails leaves the cached rates in use and says so. A cache younger
+  // than 12 hours does not. `at: 0` is older than any 12-hour window.
+  failRates = true;
+  await page("Fetch.enable", {
+    patterns: [{ urlPattern: "https://open.er-api.com/*", requestStage: "Request" }],
+  });
+  await evalJson(`localStorage.setItem("omacus:rates", JSON.stringify({ at: 0, rates: { EUR: 0.5, USD: 1 } }))`);
+  await navigate(`http://127.0.0.1:${port}/app/`);
+  await waitFor(`document.querySelector("[data-rates-note]")?.dataset.ratesState === "stale"`, 20000);
+  const staleRates = await evalJson(`(() => {
+    const note = document.querySelector("[data-rates-note]");
+    return { hidden: note.hidden, text: note.textContent, state: note.dataset.ratesState };
+  })()`);
+  check(staleRates.state === "stale" && staleRates.hidden === false && staleRates.text.includes("rates may be stale"), `stale rates note was ${JSON.stringify(staleRates)}`);
+  if (shots) await plainShot(join(shots, "rates-stale.png"));
+  await evalJson(`localStorage.setItem("omacus:rates", JSON.stringify({ at: Date.now(), rates: { EUR: 0.5, USD: 1 } }))`);
+  await navigate(`http://127.0.0.1:${port}/app/`);
+  await waitFor(`document.querySelector("[data-rates-note]")?.dataset.ratesState === "fresh"`, 20000);
+  const freshRates = await evalJson(`(() => {
+    const note = document.querySelector("[data-rates-note]");
+    return { hidden: note.hidden, state: note.dataset.ratesState };
+  })()`);
+  check(freshRates.state === "fresh" && freshRates.hidden === true, `fresh rates still showed the note (${JSON.stringify(freshRates)})`);
+  failRates = false;
+  await page("Fetch.disable");
+
   // The homepage embeds the editor in an iframe. The shell still fills that frame.
   // The embed class is added by app.js, which only loads once the wasm package exists.
   await page("Emulation.clearDeviceMetricsOverride");
@@ -492,6 +545,44 @@ if (pkg) {
     await waitFor(`!document.body.classList.contains("drawer")`);
     await shot(join(shots, "after-drawer-closed.png"));
   }
+
+  // Offline: register the worker on 127.0.0.1 (?sw=1), wait until the shell is
+  // cached, then stop the server. The editor has to come back from that cache,
+  // and the old rates have to say they may be stale.
+  await page("Emulation.clearDeviceMetricsOverride");
+  await page("Emulation.setEmulatedMedia", { media: "", features: [] });
+  await page("Emulation.setDeviceMetricsOverride", {
+    width: 1280,
+    height: 800,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await evalJson(`localStorage.setItem("omacus:rates", JSON.stringify({ at: 0, rates: { EUR: 0.85, USD: 1 } }))`);
+  await navigate(`http://127.0.0.1:${port}/app/?sw=1`);
+  await waitFor(`document.querySelector(".cm-content")`, 20000);
+  await waitForAppCache();
+  await evalJson(`localStorage.setItem("omacus:rates", JSON.stringify({ at: 0, rates: { EUR: 0.85, USD: 1 } }))`);
+  failRates = true;
+  await page("Fetch.enable", {
+    patterns: [{ urlPattern: "https://open.er-api.com/*", requestStage: "Request" }],
+  });
+  stopServer();
+  await navigate(`http://127.0.0.1:${port}/app/?sw=1`);
+  await waitFor(`document.querySelector(".cm-content") && document.querySelector("[data-rates-note]")?.dataset.ratesState === "stale"`, 20000);
+  const offlineApp = await evalJson(`(() => {
+    const note = document.querySelector("[data-rates-note]");
+    return {
+      controller: !!navigator.serviceWorker.controller,
+      editor: !!document.querySelector(".cm-content"),
+      hidden: note.hidden,
+      text: note.textContent,
+      state: note.dataset.ratesState,
+    };
+  })()`);
+  check(offlineApp.controller === true, "the reloaded page was not served by the worker");
+  check(offlineApp.editor === true, "the editor did not open offline");
+  check(offlineApp.state === "stale" && offlineApp.hidden === false && offlineApp.text.includes("rates may be stale"), `offline rates note was ${JSON.stringify(offlineApp)}`);
+  if (shots) await plainShot(join(shots, "offline.png"));
 } else {
   console.log("editor checks skipped (wasm pkg not built)");
 }
@@ -499,7 +590,7 @@ if (pkg) {
 await page("Emulation.clearDeviceMetricsOverride").catch(() => {});
 ws.close();
 browser.kill();
-server.close();
+stopServer();
 
 if (failures.length) {
   console.error(failures.map((f) => "  - " + f).join("\n"));
@@ -515,6 +606,28 @@ async function evalJson(expression) {
   });
   if (exceptionDetails) throw new Error(exceptionDetails.text + " " + (exceptionDetails.exception?.description || ""));
   return result.value;
+}
+
+async function waitForAppCache() {
+  const start = Date.now();
+  let last = "";
+  while (Date.now() - start < 40000) {
+    try {
+      last = await evalJson(`(async () => {
+        const keys = await caches.keys();
+        if (!keys.includes("omacus-app-3")) return "no-cache";
+        const urls = (await (await caches.open("omacus-app-3")).keys()).map((k) => new URL(k.url).pathname);
+        const need = ["/app/", "/app/app.js", "/app/pkg/omacus_web_bg.wasm"];
+        const missing = need.filter((path) => !urls.includes(path));
+        return missing.length ? "missing " + missing.join(",") : "ready";
+      })()`);
+    } catch (e) {
+      last = String(e);
+    }
+    if (last === "ready") return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error("app cache not ready: " + last);
 }
 
 async function waitFor(expression, timeout = 5000) {
