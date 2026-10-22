@@ -36,13 +36,12 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span>Private</span>
     </button>
     <div class="bar-actions">
-      <button class="btn primary share" type="button" data-share>Share link</button>
       <div class="menu">
         <button class="icon-btn" type="button" aria-label="More" aria-haspopup="menu" aria-expanded="false" data-menu-button>
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
         </button>
         <div class="menu-list" role="menu" hidden data-menu>
-          <button role="menuitem" data-action="share" class="phone-only">Share link</button>
+          <button role="menuitem" data-action="share">Share link</button>
           <button role="menuitem" data-action="copy">Copy with answers</button>
           <button role="menuitem" data-action="markdown">Copy as Markdown table</button>
           <button role="menuitem" data-action="open-app">Open in the desktop app</button>
@@ -64,12 +63,13 @@
 
   <div class="workspace" data-workspace>
     <aside class="side" id="side">
-      <button class="rail" type="button" data-action="expand-side" aria-label="Expand sidebar">
-        <img src="/img/icon.svg" alt="" width="22" height="22">
-        <span aria-hidden="true">›</span>
-      </button>
+      <div class="rail" data-action="expand-side" title="Expand sidebar">
+        <button class="side-btn" type="button" data-action="expand-side" aria-label="Expand sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/></svg></button>
+        <button class="side-btn" type="button" data-action="new" aria-label="New sheet" title="New sheet"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button>
+        <img src="/img/icon.svg" alt="" width="20" height="20">
+      </div>
       <div class="side-body">
-        <div class="side-head"><span>Sheets</span><span class="side-head-actions"><button class="icon-btn small" type="button" aria-label="Collapse sidebar" data-action="collapse-side">‹</button><button class="icon-btn small" type="button" aria-label="New sheet" data-action="new">+</button></span></div>
+        <div class="side-head"><span>Sheets</span><span class="side-head-actions"><button class="side-btn" type="button" aria-label="New sheet" title="New sheet" data-action="new"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button><button class="side-btn" type="button" aria-label="Collapse sidebar" title="Collapse sidebar" data-action="collapse-side"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/></svg></button></span></div>
         <nav class="sheet-list" data-sheets aria-label="Sheets"></nav>
         <div class="deleted" hidden data-deleted></div>
         <details class="side-foot">

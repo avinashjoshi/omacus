@@ -242,7 +242,8 @@ html:has(body.app-page) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 12px 8px 16px;
+  /* Lined up with the sheet names, and the buttons with the rows' right edge. */
+  padding: 10px 8px 6px 18px;
   color: var(--app-dim);
   font: 500 11.5px var(--mono);
   letter-spacing: 0.06em;
@@ -269,14 +270,46 @@ html:has(body.app-page) {
   display: none;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 4px;
   width: 100%;
-  padding: 14px 0 0;
+  /* The sidebar button sits level with where the open sidebar has it, the logo
+     at the bottom. */
+  flex: 1;
+  padding: 10px 0 14px;
+  cursor: pointer;
+}
+
+/* Sidebar buttons: drawn icons, quiet until hovered, like the rows. */
+.rail img {
+  margin-top: auto;
+}
+
+.side-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border: 0;
+  border-radius: 7px;
   background: none;
   color: var(--app-dim);
-  font: 18px/1 var(--sans);
   cursor: pointer;
+}
+
+.side-btn:hover,
+.rail:hover > [data-action="expand-side"] {
+  background: var(--app-hover);
+  color: var(--app-fg);
+}
+
+.side-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
 }
 
 .workspace.collapsed {
@@ -858,8 +891,7 @@ html:has(body.app-page) {
     outline: none;
   }
 
-  /* The top bar keeps the sheet's name; Share and Private move into the ⋯ menu. */
-  .bar .share,
+  /* The top bar keeps the sheet's name; Private moves into the ⋯ menu. */
   .private-chip {
     display: none;
   }
