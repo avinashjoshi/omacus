@@ -65,7 +65,8 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
     (
         "Results",
         &[
-            ("Click a result", "Copy it"),
+            ("Click a result", "Copy it, with a short confirmation"),
+            ("Hover a name or number", "See its value"),
             (
                 "Ctrl+\\",
                 "Hide the answers column (answers sit after each line)",
@@ -84,9 +85,13 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
         "Autocomplete",
         &[
             ("Tab", "Accept the suggestion"),
+            ("Ctrl+Space", "Open suggestions. Enter then accepts"),
             ("↑  /  ↓", "Choose a suggestion"),
             ("Esc", "Dismiss suggestions"),
-            ("Enter", "Always a new line, never accepts"),
+            (
+                "Enter",
+                "A new line, unless suggestions were opened with Ctrl+Space",
+            ),
         ],
     ),
     (
@@ -241,7 +246,7 @@ const SYNTAX: &[(&str, &[&str])] = &[
 const TIPS: &[(&str, &str)] = &[
     (
         "Write like notes",
-        "Words Omacus doesn't know are ignored, so `Lunch with Sam $18` just works. A markdown prefix comes off first: `- hotel = 3 nights * $180` sets hotel. `#` at the start of a line is a heading; `#` later on the line is a comment (`rent = $100 # monthly`). Put labels before a colon (`Rent: $1,450`) to keep them out of the math entirely.",
+        "Words Omacus doesn't know are ignored, so `Lunch with Sam $18` just works. A markdown prefix comes off first: `- hotel = 3 nights * $180` sets hotel. `#` at the start of a line is a heading; `#` later on the line is a comment (`rent = $100 # monthly`), drawn in the comment colour. Put labels before a colon (`Rent: $1,450`) to keep them out of the math entirely.",
     ),
     (
         "Blocks and totals",
@@ -253,7 +258,7 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "Name things",
-        "`rent = $1,450` defines a variable for the rest of the page. Variables are highlighted, and autocomplete offers them as you type.",
+        "`rent = $1,450` defines a variable for the rest of the page. The name where you define it is one colour, a later use is another, and keywords and units have a third. Hover a name or a number (`1.5k`) to see its value. Autocomplete offers names as you type, with a short description.",
     ),
     (
         "One page per thing",
@@ -304,7 +309,9 @@ const TIPS: &[(&str, &str)] = &[
 /// Shortcut names as the platform writes them: `Ctrl+Shift+C` is `⌘⇧C` on macOS.
 pub fn keys(s: &str) -> String {
     if cfg!(target_os = "macos") {
-        s.replace("Ctrl+", "⌘")
+        // ⌘Space is Spotlight. This shortcut is the Control key on every platform.
+        s.replace("Ctrl+Space", "⌃Space")
+            .replace("Ctrl+", "⌘")
             .replace("Shift+", "⇧")
             .replace("Alt+", "⌥")
     } else {
@@ -801,6 +808,14 @@ mod tests {
         assert!(
             !text.to_lowercase().contains("sheet"),
             "help still says sheet: {text}"
+        );
+        assert!(
+            text.contains("Ctrl+Space"),
+            "help should say how to accept a suggestion with Enter"
+        );
+        assert!(
+            text.contains("comment colour"),
+            "help should say that a # comment is coloured"
         );
     }
 

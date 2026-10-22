@@ -11,34 +11,8 @@ use eframe::egui::text::{LayoutJob, TextFormat};
 use eframe::egui::{Color32, FontFamily, FontId};
 
 use crate::theme::Theme;
+use omacus_engine::complete;
 use omacus_engine::markdown::{self, Form};
-
-const KEYWORDS: &[&str] = &[
-    "in",
-    "to",
-    "as",
-    "of",
-    "on",
-    "off",
-    "what",
-    "is",
-    "prev",
-    "sum",
-    "total",
-    "avg",
-    "average",
-    "mean",
-    "min",
-    "max",
-    "today",
-    "now",
-    "tomorrow",
-    "yesterday",
-    "plus",
-    "minus",
-    "times",
-    "mod",
-];
 
 #[derive(Clone, Copy)]
 struct Look {
@@ -198,9 +172,12 @@ fn token_colors(
                 end = rest_from + rel2 + ch.len_utf8();
             }
             let word = &s[start..end];
-            if vars.contains(word) {
+            let defined = omacus_engine::definition_span(line) == Some((start, end));
+            if defined {
+                theme.defined
+            } else if vars.contains(word) {
                 theme.variable
-            } else if KEYWORDS.contains(&word.to_ascii_lowercase().as_str()) {
+            } else if complete::word_kind(word).is_some() {
                 theme.keyword
             } else {
                 continue;
@@ -282,6 +259,42 @@ mod tests {
         let sizes: Vec<f32> = job.sections.iter().map(|s| s.format.font_id.size).collect();
         assert!(sizes.contains(&24.0), "{sizes:?}");
         assert!(sizes.contains(&16.0), "{sizes:?}");
+    }
+
+    #[test]
+    fn a_definition_is_a_different_colour_from_a_use_and_a_unit() {
+        let theme = Theme::dark();
+        let vars = HashSet::from(["rent".to_string()]);
+        let job = layout(
+            "rent = $10\nrent\nmile",
+            &vars,
+            &theme,
+            FontId::monospace(16.0),
+        );
+        let colors = colors_of(&job, "rent");
+        assert_eq!(colors.len(), 2, "{colors:?}");
+        assert_eq!(colors[0], theme.defined);
+        assert_eq!(colors[1], theme.variable);
+        assert_eq!(colors_of(&job, "mile"), vec![theme.keyword]);
+        let noted = layout("rent = 1 # monthly", &vars, &theme, FontId::monospace(16.0));
+        assert_eq!(colors_of(&noted, "# monthly"), vec![theme.comment]);
+    }
+
+    fn colors_of(job: &LayoutJob, needle: &str) -> Vec<Color32> {
+        let mut out = Vec::new();
+        let mut from = 0;
+        while let Some(i) = job.text[from..].find(needle) {
+            let at = from + i;
+            let color = job
+                .sections
+                .iter()
+                .find(|s| s.byte_range.start.0 <= at && at < s.byte_range.end.0)
+                .map(|s| s.format.color)
+                .unwrap();
+            out.push(color);
+            from = at + needle.len();
+        }
+        out
     }
 
     #[test]

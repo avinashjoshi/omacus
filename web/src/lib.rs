@@ -65,6 +65,22 @@ impl Calc {
         to_json(self.engine.eval_document(text))
     }
 
+    /// The value under a UTF-16 cursor: `{"start", "end", "value"}` or `null`.
+    /// `start` and `end` are UTF-16 offsets of the token.
+    #[wasm_bindgen(js_name = hoverValue)]
+    pub fn hover_value(&self, text: &str, utf16_pos: u32) -> String {
+        let cursor = char_index_from_utf16(text, utf16_pos as usize);
+        match self.engine.hover_at(text, cursor) {
+            Some(hit) => json!({
+                "start": utf16_from_chars(text, hit.start),
+                "end": utf16_from_chars(text, hit.end),
+                "value": hit.value,
+            })
+            .to_string(),
+            None => "null".into(),
+        }
+    }
+
     /// `evaluate`, reusing the last calculation of the sheet `id`.
     #[wasm_bindgen(js_name = evaluateSheet)]
     pub fn evaluate_sheet(&self, id: &str, text: &str) -> String {
@@ -180,6 +196,21 @@ pub fn layout_answers(text: &str, results: &str, markdown: bool) -> String {
     }
 }
 
+fn char_index_from_utf16(text: &str, utf16: usize) -> usize {
+    let mut seen = 0;
+    for (i, ch) in text.chars().enumerate() {
+        if seen >= utf16 {
+            return i;
+        }
+        seen += ch.len_utf16();
+    }
+    text.chars().count()
+}
+
+fn utf16_from_chars(text: &str, chars: usize) -> usize {
+    text.chars().take(chars).map(char::len_utf16).sum()
+}
+
 fn kind(k: &Kind) -> &'static str {
     match k {
         Kind::Empty => "empty",
@@ -203,7 +234,23 @@ pub fn suggest(before: &str, sheet: &str) -> String {
         return "null".into();
     }
     let start: usize = before.chars().take(start).map(char::len_utf16).sum();
+    let items: Vec<_> = items
+        .into_iter()
+        .map(|item| {
+            json!({
+                "text": item.text,
+                "kind": item.kind,
+                "detail": item.detail,
+            })
+        })
+        .collect();
     json!({ "start": start, "items": items }).to_string()
+}
+
+/// `keyword`, `unit`, `zone`, or `""`. Page variables are coloured by the editor.
+#[wasm_bindgen(js_name = wordKind)]
+pub fn word_kind(word: &str) -> String {
+    complete::word_kind(word).unwrap_or("").to_string()
 }
 
 /// The `v1.…` part of a share link for a sheet (the same as the desktop app makes).
@@ -250,6 +297,12 @@ pub fn page_marks(line: &str) -> String {
             _ => None,
         },
         "comment": class.comment_at.map(|at| markdown::utf16_offset(line, at)),
+        "define": omacus_engine::definition_span(line).map(|(from, to)| {
+            json!([
+                markdown::utf16_offset(line, from),
+                markdown::utf16_offset(line, to),
+            ])
+        }),
         "bold": spans(&emph.bold),
         "italic": spans(&emph.italic),
         "markers": spans(&emph.markers),
@@ -349,14 +402,37 @@ mod tests {
         // "€" is 3 bytes in Rust but 1 unit in JavaScript: "tomo" starts at 3.
         let out: serde_json::Value = serde_json::from_str(&suggest("€5 tomo", "")).unwrap();
         assert_eq!(out["start"], 3);
-        assert!(
-            out["items"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|i| i == "tomorrow")
-        );
+        let tomorrow = out["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["text"] == "tomorrow")
+            .expect("tomorrow");
+        assert_eq!(tomorrow["kind"], "keyword");
+        assert_eq!(tomorrow["detail"], "tomorrow's date");
         assert_eq!(suggest("x", ""), "null");
+    }
+
+    #[test]
+    fn hover_value_uses_the_page_above() {
+        let calc = Calc::new();
+        assert!(calc.set_rates(r#"{"USD": 1}"#));
+        let text = "rent = $1,450\nrent * 2";
+        let at = text.rfind("rent").unwrap() as u32;
+        let out: serde_json::Value = serde_json::from_str(&calc.hover_value(text, at)).unwrap();
+        assert_eq!(out["value"], "$1,450");
+        assert!(calc.hover_value("42", 0) == "null");
+    }
+
+    #[test]
+    fn page_marks_name_the_definition() {
+        let marks: serde_json::Value =
+            serde_json::from_str(&page_marks("- hotel = 3 nights * $180")).unwrap();
+        assert_eq!(marks["define"], json!([2, 7]));
+        let noted: serde_json::Value =
+            serde_json::from_str(&page_marks("rent = $100 # monthly")).unwrap();
+        assert_eq!(noted["define"], json!([0, 4]));
+        assert_eq!(noted["comment"], 12);
     }
 
     #[test]

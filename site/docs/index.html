@@ -306,7 +306,7 @@ total</pre>
     <p class="guide-link">More examples in the guide: <a href="/guides/currency/">Convert currencies as you type</a>.</p>
 
     <h2 id="variables">Variables</h2>
-    <p>Write <code>name = value</code> to remember something for the rest of the page. Variable names are letters, digits and underscores, and are highlighted once defined.</p>
+    <p>Write <code>name = value</code> to remember something for the rest of the page. Variable names are letters, digits and underscores. The name where you define it is one colour, and a later use of it is another. Keywords and units have a third. Hover a name, or a number such as <code>1.5k</code>, to see its value. Click an answer to copy it.</p>
   <!-- ex:variables -->
   <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
@@ -429,7 +429,7 @@ total</pre>
   <!-- /ex -->
 
     <h2 id="notes">Notes &amp; prose</h2>
-    <p>A page is one plain-text document, and any line can be a note, a calculation, or both. Omacus reads the line after a markdown prefix (<code>#</code>, <code>-</code>, <code>*</code>, <code>1.</code>, <code>- [ ]</code>, <code>&gt;</code>): if what remains is math, it computes (<code>- hotel = 3 nights * $180</code> sets hotel to $540), otherwise the line is prose. Variables carry across the whole page, including prose. <code>#</code> at the start of a line is a heading; <code>#</code> later on the line is a comment, like <code>//</code>. <kbd>Ctrl P</kbd> previews the page as rendered notes, with each answer in a small pill after its line. Print and Export PDF use that view. Tables are drawn in the preview, and a cell is not calculated.</p>
+    <p>A page is one plain-text document, and any line can be a note, a calculation, or both. Omacus reads the line after a markdown prefix (<code>#</code>, <code>-</code>, <code>*</code>, <code>1.</code>, <code>- [ ]</code>, <code>&gt;</code>): if what remains is math, it computes (<code>- hotel = 3 nights * $180</code> sets hotel to $540), otherwise the line is prose. Variables carry across the whole page, including prose. <code>#</code> at the start of a line is a heading; <code>#</code> later on the line is a comment, like <code>//</code>, and is drawn in the comment colour. <kbd>Ctrl P</kbd> previews the page as rendered notes, with each answer in a small pill after its line. Print and Export PDF use that view. Tables are drawn in the preview, and a cell is not calculated.</p>
   <!-- ex:notes -->
   <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
@@ -506,7 +506,7 @@ total</pre>
     </table>
 
     <h2 id="autocomplete">Autocomplete</h2>
-    <p>After two letters, Omacus suggests your page's variables, then keywords, time zones and units. <kbd>Tab</kbd> accepts, <kbd>↑</kbd> <kbd>↓</kbd> choose, <kbd>Esc</kbd> dismisses. <kbd>Enter</kbd> always starts a new line and never accepts a suggestion, so <code>3 km in</code> followed by Enter can't turn into <code>inch</code>. Short connecting words like <code>in</code>, <code>to</code> and <code>of</code> never trigger suggestions.</p>
+    <p>After two letters, Omacus suggests your page's variables, then keywords, time zones and units. Each row shows the kind and a short description. <kbd>Tab</kbd> accepts, <kbd>↑</kbd> <kbd>↓</kbd> choose, <kbd>Esc</kbd> dismisses. <kbd>Enter</kbd> starts a new line and does not accept a suggestion, so <code>3 km in</code> followed by Enter can't turn into <code>inch</code>. <kbd>Ctrl Space</kbd> opens the suggestions on purpose, and then <kbd>Enter</kbd> accepts the chosen one. Short connecting words like <code>in</code>, <code>to</code> and <code>of</code> never trigger suggestions.</p>
 
     <h2 id="themes">Themes</h2>
     <p>Settings (<kbd>Ctrl ,</kbd>, or Settings in a page's ⋯ menu) chooses the theme, whether answers sit in a column, and whether Omacus checks for updates. The same choices are saved in <code>settings.toml</code> (see <a href="#files">where files live</a>). <kbd>Ctrl \</kbd> hides the answers column, so each answer sits after its line.</p>
@@ -527,8 +527,9 @@ total</pre>
 <code>light_foreground = "#8a8a8d"</code><span class="c"># labels and operators</span>
 <code>dark_foreground = "#555555"</code><span class="c"># comments</span>
 <code>accent = "#e68e0d"</code><span class="c"># results, headers, cursor</span>
-<code>cyan = "#bebebe"</code><span class="c"># keywords like in, of, total</span>
-<code>magenta = "#d35f5f"</code><span class="c"># variables</span>
+<code>cyan = "#bebebe"</code><span class="c"># keywords and units</span>
+<code>magenta = "#d35f5f"</code><span class="c"># a name where it is used</span>
+<code>green = "#9ece6a"</code><span class="c"># a name where it is defined</span>
 <code>selection = "#2a2a2a"</code><span class="c"># selection and the active page</span>
 <code>lighter_background = "#1e1e1e"</code><span class="c"># hover</span>
 </div>
