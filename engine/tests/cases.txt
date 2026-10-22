@@ -844,3 +844,41 @@ cost = 3 => 3
 min =>
 USD =>
 kg =>
+---
+# A list item, a heading, a quote or a task is math when the rest is math
+- hotel = 3 nights * $180 => $540
+hotel => $540
+* food = $40 => $40
+1. taxi = $25 => $25
+- [x] packed = 2 * $10 => $20
+- [ ] later = 1 + 1 => 2
+> tip = 10% of $40 => $4
+pack sunscreen
+hotel + food => $580
+---
+# A prose heading starts a new block. A list item does not. A heading can be math.
+- hotel = 3 nights * $180 => $540
+# Next city
+food = $40 => $40
+total => $40
+---
+# hotel = 3 nights * $180 => $540
+food = $20 => $20
+total => $560
+---
+# A hash at the start is a heading. A hash later on the line is a comment.
+rent = $100 # monthly => $100
+# just a heading =>
+"say # hi" 2 + 2 => 4
+---
+# Table cells are not calculated, and a table does not start a new block
+- hotel = $30 => $30
+| nights | rate |
+| --- | --- |
+| 3 * 180 | 540 |
+total => $30
+---
+# Week headings stay headings, including a second-level one
+## Week 1
+Mon $20 => $20
+total => $20

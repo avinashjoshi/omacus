@@ -3,7 +3,9 @@
 // Sheets live in this browser's localStorage; a share link carries a sheet in the
 // part after "#", which browsers never send to the server.
 
-import init, { Calc, suggest, shareEncode, shareDecode, layoutAnswers, realignMap } from "./pkg/omacus_web.js";
+import init, {
+  Calc, suggest, shareEncode, shareDecode, layoutAnswers, realignMap, pageMarks, previewHtml, variables,
+} from "./pkg/omacus_web.js";
 import {
   EditorState, StateField, StateEffect, RangeSetBuilder, Prec, EditorView, Decoration, WidgetType, keymap,
   defaultKeymap, history as undoHistory, historyKeymap, autocompletion, acceptCompletion, closeCompletion, moveCompletionSelection,
@@ -67,7 +69,12 @@ const el = {
   previewTitle: $("[data-preview-title]"),
   previewBody: $("[data-preview-body]"),
   settings: $("[data-settings]"),
+  pagePreview: $("[data-page-preview]"),
+  pagePreviewBody: $("[data-page-preview-body]"),
 };
+
+// pageMarks and variables throw until init() finishes. The editor is created first.
+let engineReady = false;
 
 let calc;
 let results = [];
@@ -352,6 +359,7 @@ const editorStates = new Map();
 let shownId = null;
 
 function showSheet() {
+  closePagePreview();
   clearPreview();
   if (shownId !== null) editorStates.set(shownId, view.state);
   shownId = state.active;
@@ -465,6 +473,7 @@ function renderDeleted() {
 let preview = null;
 
 function showPreview(item) {
+  closePagePreview();
   preview = item;
   if (el.preview) el.preview.hidden = false;
   if (el.previewTitle) el.previewTitle.textContent = heading(item.text);
@@ -483,9 +492,56 @@ function clearPreview() {
   preview = null;
   if (el.preview) el.preview.hidden = true;
   if (el.previewBody) el.previewBody.hidden = true;
-  if (el.editor) el.editor.hidden = false;
+  if (el.editor && !pagePreviewOpen) el.editor.hidden = false;
   renderSidebar();
   syncEmpty();
+}
+
+// Ctrl+P: the page rendered as notes, with each answer in a pill. This is what
+// prints. Esc, or Edit, returns to the plain-text page.
+let pagePreviewOpen = false;
+
+function openPagePreview() {
+  if (preview) clearPreview();
+  pagePreviewOpen = true;
+  if (el.pagePreview) el.pagePreview.hidden = false;
+  if (el.editor) el.editor.hidden = true;
+  refreshPagePreview();
+}
+
+function closePagePreview() {
+  if (!pagePreviewOpen) return;
+  pagePreviewOpen = false;
+  if (el.pagePreview) el.pagePreview.hidden = true;
+  if (el.editor && !preview) el.editor.hidden = false;
+}
+
+function togglePagePreview() {
+  if (pagePreviewOpen) {
+    closePagePreview();
+    view.focus();
+  } else {
+    openPagePreview();
+  }
+}
+
+function refreshPagePreview() {
+  if (!pagePreviewOpen || !el.pagePreviewBody || !engineReady) return;
+  const text = view.state.doc.toString();
+  const answers = view.state.field(sheetField).answers;
+  el.pagePreviewBody.innerHTML = previewHtml(text, JSON.stringify(answers));
+  for (const pill of el.pagePreviewBody.querySelectorAll(".pill")) {
+    pill.title = "Click to copy";
+    pill.addEventListener("click", () => {
+      copy(pill.textContent).then(() => toast(`Copied <b>${esc(pill.textContent)}</b>`));
+    });
+  }
+}
+
+function printPagePreview() {
+  if (!pagePreviewOpen) openPagePreview();
+  // The print dialog is the export too: Save as PDF writes this same preview.
+  window.print();
 }
 
 function restoreTrashed(id) {
@@ -570,7 +626,7 @@ function decorate(doc, answers) {
   for (let n = 1; n <= doc.lines; n++) {
     const line = doc.line(n);
     const r = answers[n - 1];
-    const spans = r?.kind === "header" ? [[0, line.length, "t-head"]] : tokens(line.text, vars);
+    const spans = lineSpans(line.text, vars);
     for (const [from, to, cls] of spans) {
       if (to > from) out.add(line.from + from, line.from + to, Decoration.mark({ class: cls }));
     }
@@ -714,6 +770,7 @@ function show(answers, text, done) {
   resultsExact = done && text === now;
   view.dispatch({ effects: setResults.of(results) });
   syncEmpty();
+  if (pagePreviewOpen) refreshPagePreview();
 }
 
 let frame = 0;
@@ -747,7 +804,15 @@ function pageLayout(text) {
   return calc.evaluate(text);
 }
 
+let varCache = { text: "", vars: new Set() };
 function definedVars(lines) {
+  const text = lines.join("\n");
+  if (engineReady) {
+    if (varCache.text !== text) {
+      varCache = { text, vars: new Set(JSON.parse(variables(text))) };
+    }
+    return varCache.vars;
+  }
   const vars = new Set();
   for (const l of lines) {
     const m = l.match(/^\s*([A-Za-z_]\w*)\s*=[^=]/);
@@ -756,15 +821,59 @@ function definedVars(lines) {
   return vars;
 }
 
+// Light styling for edit mode: a heading is larger, **bold** and *italic* show,
+// and a mid-line # (or //) is a comment. Offsets are UTF-16, like the editor.
+function lineSpans(line, vars) {
+  const marks = marksFor(line);
+  const cls = new Array(line.length).fill("");
+  const paint = (from, to, name) => {
+    for (let i = Math.max(0, from); i < Math.min(line.length, to); i++) cls[i] = name;
+  };
+  const add = (from, to, name) => {
+    for (let i = Math.max(0, from); i < Math.min(line.length, to); i++) {
+      if (cls[i] && cls[i] !== "t-com") cls[i] += " " + name;
+      else if (!cls[i]) cls[i] = name;
+    }
+  };
+  if (marks.heading) paint(0, line.length, `t-h${marks.heading}`);
+  else {
+    for (const [from, to, name] of tokens(line.slice(0, marks.comment ?? line.length), vars)) {
+      paint(from, to, name);
+    }
+  }
+  if (marks.comment != null) paint(marks.comment, line.length, "t-com");
+  for (const [from, to] of marks.bold) add(from, to, "t-bold");
+  for (const [from, to] of marks.italic) add(from, to, "t-em");
+  for (const [from, to] of marks.markers) paint(from, to, "t-com");
+  const out = [];
+  let i = 0;
+  while (i < line.length) {
+    const name = cls[i];
+    let j = i + 1;
+    while (j < line.length && cls[j] === name) j++;
+    if (name) out.push([i, j, name]);
+    i = j;
+  }
+  return out;
+}
+
+function marksFor(line) {
+  if (engineReady) return JSON.parse(pageMarks(line));
+  const comment = line.indexOf("//");
+  const heading = /^(#{1,6})(?:\s|$)/.exec(line);
+  return {
+    heading: heading ? Math.min(6, heading[1].length) : null,
+    comment: comment >= 0 ? comment : null,
+    bold: [],
+    italic: [],
+    markers: [],
+  };
+}
+
 // The same colours as the desktop app's matte-black theme, as [from, to, class] spans.
 function tokens(line, vars) {
   const out = [];
-  let code = line;
-  const c = line.indexOf("//");
-  if (c >= 0) {
-    out.push([c, line.length, "t-com"]);
-    code = line.slice(0, c);
-  }
+  const code = line;
   let at = 0;
   const label = code.match(/^(\s*[A-Za-z][A-Za-z0-9 '\-_&/]*:)(?= )/);
   if (label) {
@@ -895,6 +1004,16 @@ async function action(name) {
   } else if (name === "markdown") {
     await copyLater(laidOut(text, true));
     toast("Page copied as a Markdown table.");
+  } else if (name === "preview") {
+    togglePagePreview();
+  } else if (name === "close-preview") {
+    closePagePreview();
+    view.focus();
+  } else if (name === "print-preview") {
+    printPagePreview();
+  } else if (name === "export-preview") {
+    toast("In the print dialog, choose <b>Save as PDF</b>.");
+    printPagePreview();
   } else if (name === "new") {
     flushSave();
     addSheet("");
@@ -1115,12 +1234,14 @@ addEventListener(
       e.preventDefault();
       action("share");
     }
-    // Ctrl+, opens settings. Ctrl+\ hides the answers column. Ctrl+P stays free.
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "," || e.key === "\\")) {
+    // Ctrl+, opens settings. Ctrl+\ hides the answers column. Ctrl+P previews
+    // the page (and must not open the browser's print dialog).
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "," || e.key === "\\" || e.key.toLowerCase() === "p")) {
       e.preventDefault();
       e.stopPropagation();
       if (e.key === ",") openSettings();
-      else toggleAnswers();
+      else if (e.key === "\\") toggleAnswers();
+      else if (!e.repeat) togglePagePreview();
     }
   },
   true,
@@ -1133,6 +1254,11 @@ addEventListener("keydown", (e) => {
     }
     if (el.confirm && !el.confirm.hidden) {
       el.confirm.hidden = true;
+      return;
+    }
+    if (pagePreviewOpen) {
+      closePagePreview();
+      view.focus();
       return;
     }
     closeMenu();
@@ -1414,6 +1540,7 @@ async function start() {
     if (!state.order.length) addSheet(WELCOME);
   }
   await init({ module_or_path: WASM });
+  engineReady = true;
   calc = new Calc();
   if (typeof Worker !== "undefined") startWorker();
   el.loading.remove();

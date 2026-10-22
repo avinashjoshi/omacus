@@ -15,6 +15,7 @@ use regex::Regex;
 
 pub mod complete;
 pub mod extras;
+pub mod markdown;
 mod rates;
 pub mod share;
 pub mod time;
@@ -258,8 +259,55 @@ pub fn monotonic_ms() -> f64 {
 
 /// A `#` line is a header, unless it's a colour ("#ff8800", "#f80 in rgb").
 pub fn is_header(line: &str) -> bool {
-    let line = line.trim();
-    line.starts_with('#') && !crate::extras::is_color(line)
+    matches!(markdown::classify(line).form, markdown::Form::Heading(_))
+}
+
+/// A prefixed line (heading, list, task, quote) is calculated only when the words
+/// after the marker are a calculation. A title like "Week 1" is not: the forgiving
+/// reader would otherwise turn it into the number 1 and stop it being a heading.
+fn looks_like_math(body: &str, vars: &HashSet<String>) -> bool {
+    let body = body.trim();
+    if body.is_empty() {
+        return false;
+    }
+    if aggregate(body).is_some() || ASSIGN.is_match(body) || PREV.is_match(body) {
+        return true;
+    }
+    if body.contains([
+        '$', '£', '€', '¥', '₹', '₩', '₽', '₺', '%', '^', '*', '/', '+', '=',
+    ]) {
+        return true;
+    }
+    if body.contains(" - ") || body.contains(" – ") || body.contains(" — ") {
+        return true;
+    }
+    if body
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_digit() || matches!(c, '(' | '.' | '-'))
+    {
+        return true;
+    }
+    if body.contains('(') && body.chars().any(|c| c.is_ascii_digit()) {
+        return true;
+    }
+    if LONE_WORD.is_match(body)
+        && (vars.contains(body) || matches!(body, "pi" | "π" | "e" | "tau" | "τ" | "phi" | "φ"))
+    {
+        return true;
+    }
+    crate::time::eval(body).is_some()
+        || crate::time::impossible_date(body)
+        || crate::extras::eval(body).is_some()
+}
+
+/// An answer worth showing. A name hint on a heading is still a title.
+fn shown_math(result: &LineResult) -> bool {
+    match result.kind {
+        Kind::Value => !result.display.is_empty(),
+        Kind::Error => result.note.is_some() && !result.hint,
+        _ => false,
+    }
 }
 
 #[derive(Clone)]
@@ -613,7 +661,7 @@ impl Engine {
         // they never change the state the lines below see.
         for (line, result) in sheet.lines.iter().zip(sheet.results.iter_mut()) {
             if result.clock
-                && let Some(now) = crate::time::eval(line.trim())
+                && let Some(now) = crate::time::eval(markdown::math_body(line).trim())
             {
                 result.display = now;
             }
@@ -643,19 +691,46 @@ impl Engine {
 
     /// Line `i` of a sheet, given the state the lines above it left.
     fn eval_in(&self, st: &mut State, i: usize, line: &str, defs: &HashSet<String>) -> LineResult {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            st.block.clear();
-            return LineResult::new(Kind::Empty);
+        let class = markdown::classify(line);
+        match class.form {
+            markdown::Form::Blank => {
+                st.block.clear();
+                return LineResult::new(Kind::Empty);
+            }
+            markdown::Form::Comment => return LineResult::new(Kind::Comment),
+            // A table is drawn in the preview. Its cells are not math, and it
+            // does not start a new block the way a blank line does.
+            markdown::Form::Table => return LineResult::new(Kind::Error),
+            _ => {}
         }
-        if is_header(trimmed) {
+        let trimmed = class.body.trim();
+        let prefixed = !matches!(class.form, markdown::Form::Text);
+        // A heading, list item or quote is prose unless what remains is a
+        // calculation. "Week 1" stays a heading; "hotel = 3 nights * $180" runs.
+        // A prose heading still ends the block that `total` adds up.
+        if prefixed && (trimmed.is_empty() || !looks_like_math(trimmed, &st.vars)) {
+            if matches!(class.form, markdown::Form::Heading(_)) {
+                st.block.clear();
+                return LineResult::new(Kind::Header);
+            }
+            return LineResult::new(Kind::Error);
+        }
+        let result = self.eval_math(st, i, trimmed, defs);
+        if matches!(class.form, markdown::Form::Heading(_)) && !shown_math(&result) {
             st.block.clear();
             return LineResult::new(Kind::Header);
         }
-        if trimmed.starts_with("//") {
-            return LineResult::new(Kind::Comment);
-        }
+        result
+    }
 
+    /// The calculation on one line, after any markdown prefix has been taken off.
+    fn eval_math(
+        &self,
+        st: &mut State,
+        i: usize,
+        trimmed: &str,
+        defs: &HashSet<String>,
+    ) -> LineResult {
         if let Some(date) = crate::time::eval(trimmed) {
             return LineResult {
                 clock: true,
@@ -1224,7 +1299,11 @@ pub fn markdown_table(text: &str, results: &[LineResult]) -> String {
 /// Names assigned anywhere in the sheet (`rent = $1200`), for highlighting.
 pub fn defined_variables(text: &str) -> std::collections::HashSet<String> {
     text.lines()
-        .filter_map(|l| ASSIGN.captures(l).map(|c| c[1].to_string()))
+        .filter_map(|l| {
+            ASSIGN
+                .captures(markdown::math_body(l))
+                .map(|c| c[1].to_string())
+        })
         .collect()
 }
 
@@ -3002,5 +3081,19 @@ mod tests {
     fn prose_is_ignored() {
         assert_eq!(one("hello world"), "");
         assert_eq!(one("10 apples + 5"), "15");
+    }
+
+    #[test]
+    fn markdown_prefixes_compute_and_variables_cross_prose() {
+        let doc = "- hotel = 3 nights * $180\npack sunscreen\nhotel\n# Next\nhotel * 2";
+        let r = eval_results(doc);
+        assert_eq!(r[0].display, "$540");
+        assert_eq!(r[1].display, "");
+        assert_eq!(r[2].display, "$540");
+        assert_eq!(r[3].kind, Kind::Header);
+        assert_eq!(r[4].display, "$1,080");
+        assert!(defined_variables(doc).contains("hotel"));
+        assert!(defined_variables("- [x] hotel = 1\n| a | b |\n").contains("hotel"));
+        assert!(!defined_variables("| hotel = 1 |\n").contains("hotel"));
     }
 }

@@ -54,6 +54,10 @@ check(html.includes('data-action="settings"'), "the menu opens settings");
 check(js.includes("hideAnswers"), "the answers column can be hidden");
 check(js.includes('"#f6f1e7"') && js.includes('"#1c2433"'), "paper and dusk match the desktop themes");
 check(js.includes('e.key === ","') && js.includes('e.key === "\\\\"'), "settings and the answers column have shortcuts");
+check(js.includes("previewHtml"), "preview renders from the engine");
+check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
+check(html.includes("data-page-preview"), "the preview overlay is in the page");
+check(css.includes(".pill"), "answers in the preview are pills");
 check(css.includes("body.answers-inline .res"), "hiding the column places answers inline");
 check(
   /@media \(max-width: 620px\)[\s\S]*?\.features \{[\s\S]*?overflow-x:\s*auto/.test(siteCss),
@@ -326,6 +330,36 @@ if (pkg) {
   const inlineFloat = await evalJson(`getComputedStyle(document.querySelector(".res")).float`);
   check(inlineFloat === "none", `an inline answer still floats ${inlineFloat}`);
   if (shots && answers.toggled) await plainShot(join(shots, "answers-inline.png"));
+
+  // Put the answers column back, then open the rendered preview.
+  await evalJson(`document.body.classList.remove("answers-inline")`);
+  const preview = await evalJson(`(() => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "p", ctrlKey: true }));
+    const root = document.querySelector("[data-page-preview]");
+    const pill = root?.querySelector(".pill");
+    return { open: !!root && !root.hidden, pill: pill?.textContent ?? "" };
+  })()`);
+  check(preview.open === true, "Ctrl+P did not open the preview");
+  check(preview.pill.length > 0, `the preview has no answer pill (${preview.pill})`);
+  if (shots) await plainShot(join(shots, "preview.png"));
+  const closedPreview = await evalJson(`(() => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    return document.querySelector("[data-page-preview]").hidden;
+  })()`);
+  check(closedPreview === true, "Escape did not close the preview");
+  const heading = await evalJson(`(() => {
+    const head = document.querySelector(".t-h1");
+    const line = document.querySelector(".cm-line");
+    return {
+      has: !!head,
+      headSize: head ? parseFloat(getComputedStyle(head).fontSize) : 0,
+      lineSize: line ? parseFloat(getComputedStyle(line).fontSize) : 0,
+      weight: head ? getComputedStyle(head).fontWeight : "",
+    };
+  })()`);
+  check(heading.has === true, "a heading line is not marked in the editor");
+  check(heading.headSize > heading.lineSize + 2, `heading is ${heading.headSize}px, line is ${heading.lineSize}px`);
+  check(Number(heading.weight) >= 600, `heading weight is ${heading.weight}`);
 
   // The homepage embeds the editor in an iframe. The shell still fills that frame.
   // The embed class is added by app.js, which only loads once the wasm package exists.

@@ -50,7 +50,8 @@ EXAMPLES = {
     "design": ["16px in rem", "1.5rem in px", "12pt in px", "24px in rem at 18px", "#ff8800 in rgb",
                "#f80 in hsl", "rgb(51, 102, 153) in hex", "hsl(150, 60%, 45%)"],
     "notes": ["# A header", "// a comment line", "Rent: $1,450", "Lunch with Sam $18",
-              '"quoted text" 40 + 2'],
+              '"quoted text" 40 + 2', "- hotel = 3 nights * $180", "hotel * 2",
+              "rent = $100 # monthly"],
 }
 
 DEMO_ORDER = ["kyoto", "invoice", "standup", "budget", "kitchen"]
