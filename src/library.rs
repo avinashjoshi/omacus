@@ -556,7 +556,7 @@ mod tests {
         assert!(
             listed
                 .iter()
-                .any(|p| p.id == id && p.locked && p.title == "Locked"),
+                .any(|p| p.id == id && p.locked && p.title == sheets::LOCKED_TITLE),
             "{listed:?}"
         );
         let err = lib.show(&id, None).unwrap_err();
@@ -595,6 +595,35 @@ mod tests {
             .unwrap();
         assert!(view.text.contains("hike $12"), "{}", view.text);
         assert!(view.text.contains("cabin $400"), "{}", view.text);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_reference_to_a_locked_page_does_not_read_it() {
+        let root = temp_root("lock-ref");
+        let mut window = Store::open_at(root.clone());
+        window.new_sheet("# Trip Budget\ntotal = 40\n");
+        let id = window.sheets[0].id.clone();
+        let handle = window.sheets[0].handle.clone();
+        window.lock_page(&id, "correct horse").unwrap();
+        window.lock_now();
+        let sheet = window.sheets.iter().find(|s| s.id == id).unwrap();
+        let locked = window.as_reference(sheet, false, false);
+        assert_eq!(locked.title, sheets::LOCKED_TITLE);
+        assert!(locked.locked);
+        assert!(locked.text.is_empty());
+        let other = omacus_engine::xref::Page::new(
+            "groceries",
+            "Groceries",
+            &format!("n = @{handle}.total\n"),
+        );
+        let pages = vec![locked, other];
+        let results = omacus_engine::xref::eval_pages(super::engine(), &pages);
+        let line = &results[1][0];
+        assert!(!line.display.contains("40"), "{line:?}");
+        let note = line.note.as_deref().unwrap_or("");
+        assert!(note.contains("locked"), "{note}");
+        assert!(!note.contains("40"), "{note}");
         let _ = std::fs::remove_dir_all(root);
     }
 
