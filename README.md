@@ -158,9 +158,9 @@ On Linux it is `~/.config/Claude/claude_desktop_config.json`. On Windows it is
 
 ## Install
 
-Omacus runs on **Omarchy**, any **Linux**, **macOS** and **Windows**. Every release on the
-[Releases page](https://github.com/avinashjoshi/omacus/releases/latest) has notes and downloads
-for each platform.
+Omacus runs on **Omarchy**, any **Linux**, **macOS** and **Windows**. [What's new](https://omacus.com/updates/)
+lists each release in plain words. The [latest release](https://github.com/avinashjoshi/omacus/releases/latest)
+has the downloads for each platform.
 
 ### Omarchy
 

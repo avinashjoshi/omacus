@@ -15,6 +15,11 @@ fn site_readme_and_docs_say_page() {
     collect_html(&root.join("site"), &mut files);
     let mut problems = Vec::new();
     for path in files {
+        // The updates page repeats each release's own notes, including the one
+        // that renamed sheets to pages. That record is not rewritten.
+        if path.starts_with(root.join("site/updates")) {
+            continue;
+        }
         let text = std::fs::read_to_string(&path).unwrap_or_default();
         let visible = strip_non_copy(&text);
         if let Some(hit) = first_sheet_word(&visible) {
