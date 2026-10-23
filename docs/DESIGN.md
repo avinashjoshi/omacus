@@ -281,7 +281,7 @@ The web install banner, the shared-page banner, the rates note, and the update b
 
 The page fills the sheet. Focusing it shows the caret, not a ring, a shadow, or a tap highlight. Otherwise the contenteditable's focus outline, including the one from the site stylesheet, becomes a rounded frame around the whole page on iPhone Safari.
 
-Do: keep the accent focus ring on buttons, menus, sidebar rows, and fields.
+Do: keep the accent focus ring on buttons, menus, sidebar rows, and fields. Keep `img.cm-widgetBuffer` inline, so a short line holds its answer beside the text.
 Don't: outline the editor, or restyle the empty-page hint. It stays secondary text.
 
 ### Empty states
@@ -322,6 +322,14 @@ Don't: hardcode a count or a date in the page, point the page at `--app-*`, or p
 
 Do: use the marketing tokens. One accent. Say that this version does not sync. Paragraphs on the sync page and in this band use `--prose-gap`. Don't give them a margin of their own.
 Don't: collect an email, or describe sync as something the app already does. The launch video may show it as a feature; the website does not.
+
+### Foldable showcase
+
+The homepage section after "Nothing to install" shows Omacus on a generic unfolded phone. The screen is near square and slightly taller than wide, with a thin metal rim, a vertical hinge crease, and a punch-hole camera. The halves sit a few degrees open, so the device reads as a book-style foldable rather than a tablet. Inside is the web app in its wide layout: Trip Budget, pages to the left of the crease and the answers to the right, type at the app's own size so a line does not wrap. The light screenshot replaces the dark one when the system is light. The marketing page itself stays near-black.
+
+Do: use the marketing tokens for the rim, the crease, and the copy. The paragraph under the heading uses `--prose-gap`. Pictures have width, height, lazy loading, and alt text that names the page and the two panes. Corners and padding stay on the radius and 4px scales.
+
+Don't: name a phone brand, say "PWA", or point the section type or the rim at `--app-*`. The screen fill behind the picture may use `--app-bg`, and `--white` when the system is light, because that fill is the app. Don't reuse the `.shot` crop. Don't put a hex color in `site.css`.
 
 ### Preview and PDF typography
 

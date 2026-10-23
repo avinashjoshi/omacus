@@ -605,7 +605,7 @@ def sitemap(paths):
         extra = ""
         if p == "/":
             extra = "".join(f"\n    <image:image><image:loc>https://omacus.com/img/screens/{n}.webp</image:loc></image:image>"
-                            for n in ("examples-dark", "web-examples", "matte-black", "tokyo-night", "help-syntax"))
+                            for n in ("examples-dark", "web-examples", "unfold-dark", "unfold-light", "matte-black", "tokyo-night", "help-syntax"))
         entries.append(f"  <url>\n    <loc>https://omacus.com{p}</loc>\n    <lastmod>{{{{lastmod}}}}</lastmod>{extra}\n  </url>")
     (SITE / "sitemap.xml").write_text(
         '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"\n'

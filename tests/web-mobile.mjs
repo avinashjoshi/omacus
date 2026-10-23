@@ -164,6 +164,16 @@ check(tokens.includes("--print-code"), "printed code sits on a paper fill");
 check(css.includes(".page-preview-body") && /@media print[\s\S]*\.page-preview-body \{[^}]*padding:\s*0/.test(css), "print does not add the on-screen preview padding");
 check(js.includes("pill.dataset.value"), "clicking an answer copies the value, not the brackets");
 check(css.includes("body.answers-inline .res"), "hiding the column places answers inline");
+check(css.includes("img.cm-widgetBuffer"), "the answer spacer stays inline so a short line keeps its answer beside it");
+{
+  const home = readFileSync(join(site, "index.html"), "utf8");
+  const start = home.indexOf('id="unfold"');
+  const unfold = start >= 0 ? home.slice(start, start + 2200) : "";
+  check(start >= 0, "the homepage has an unfolded-phone section");
+  check(unfold.includes("Unfold it and your notes spread out"), "the foldable section says what opening the phone does");
+  check(unfold.includes("unfold-light.webp") && unfold.includes("unfold-dark.webp"), "the foldable section has light and dark screenshots");
+  check(!/iPhone|iPad|Samsung|Pixel|Galaxy|PWA|Cactus/i.test(unfold), "the foldable section stays generic");
+}
 check(
   /@media \(max-width: 620px\)[\s\S]*?\.features \{[\s\S]*?overflow-x:\s*auto/.test(siteCss),
   "example cards scroll sideways on a narrow screen",
