@@ -18,9 +18,10 @@ marker folds a release that has nothing new in the app, including a .0.
 Without a marker, a release stays on the timeline when it has a title, is a
 .0 version, carries a screenshot, or is not just a fix.
 
-Some release notes have quoted a private page. Those strings are matched below
-and never written to the page or the feed. The version tags are printed so the
-notes can be edited on GitHub; the text is not.
+An optional list of private phrases can be supplied in the OMACUS_PRIVATE_TERMS
+environment variable, one phrase per line. When that variable is unset or
+blank, nothing is checked. A match stops the build and names the version. The
+phrase is not printed, and the page is not written.
 """
 
 import argparse
@@ -44,36 +45,6 @@ API = f"https://api.github.com/repos/{REPO}/releases"
 PAGE = "https://omacus.com/updates/"
 FEED = "https://omacus.com/updates/feed.xml"
 
-# Matched case-insensitively against the whole release (notes, title, image
-# text, urls). A line that matches is dropped. A match that survives that
-# (split across lines) drops the notes for that version.
-PRIVATE = [
-    re.compile(r"soflo", re.I),
-    re.compile(r"duo\s+offer\s+discussion", re.I),
-    re.compile(r"duo\s+digital", re.I),
-    re.compile(r"series\s+a\s+team", re.I),
-    re.compile(r"\bupfront\b", re.I),
-    re.compile(r"\bstaffing\b", re.I),
-    re.compile(r"num_companies", re.I),
-    re.compile(r"\$\s*4\s*m\b", re.I),
-    re.compile(r"\$\s*110\s*k\s*mrr\b", re.I),
-]
-
-# Examples the tests feed through the filter. Kept next to the patterns so a
-# new pattern has to say what it catches and what it must leave alone.
-PROBES = [
-    ("soflo", "soft landing"),
-    ("Duo Offer Discussion", "offer discussion"),
-    ("Duo Digital", "digital"),
-    ("Series A Team", "series of talks"),
-    ("UPFRONT", "up front"),
-    ("Staffing", "staff"),
-    ("num_companies", "companies"),
-    ("$4m", "$4 a day"),
-    ("$110k mrr", "MRR and dilution"),
-]
-
-REVISED = "These notes are being edited before they go on the site."
 MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
 
 # A maintenance note, even with a nested explanation. A .0 release, a
@@ -112,8 +83,62 @@ class Item:
         return " ".join(self.parts)
 
 
+def private_terms():
+    """Phrases from OMACUS_PRIVATE_TERMS, one per line. Unset or blank skips the check."""
+    raw = os.environ.get("OMACUS_PRIVATE_TERMS", "")
+    terms = []
+    seen = set()
+    for line in raw.splitlines():
+        term = line.strip()
+        if not term:
+            continue
+        key = term.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        terms.append(key)
+    return terms
+
+
 def private(text):
-    return any(p.search(text or "") for p in PRIVATE)
+    terms = private_terms()
+    if not text or not terms:
+        return False
+    haystack = str(text).casefold()
+    return any(term in haystack for term in terms)
+
+
+def public_label(tag):
+    label = version_label(tag)
+    if private(label):
+        return "a release"
+    return label
+
+
+def gathered_text(value):
+    """The strings in a release, joined so a phrase cannot run from one field into the next."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        parts = [gathered_text(item) for item in value.values()]
+    elif isinstance(value, (list, tuple)):
+        parts = [gathered_text(item) for item in value]
+    else:
+        return ""
+    return "\n".join(part for part in parts if part)
+
+
+def require_public(raw_releases):
+    """Stop before writing when a configured phrase appears. The phrase is not printed."""
+    if not private_terms():
+        return
+    hits = []
+    for raw in raw_releases:
+        if private(gathered_text(raw)):
+            hits.append(public_label(raw.get("tag_name")))
+    if hits:
+        listed = ", ".join(hits)
+        raise SystemExit(f"updates: private text in {listed}; the page was not written")
 
 
 def plain(text):
@@ -171,30 +196,6 @@ def whats_new(body):
     if n:
         text = text[:n.start()]
     return text.strip()
-
-
-def redact(text):
-    """Drop lines that contain a private string, and the bullets nested under them."""
-    dropped = None
-    kept = []
-    hit = False
-    for line in text.splitlines():
-        indent = len(line) - len(line.lstrip(" "))
-        if dropped is not None:
-            if line.strip() and indent > dropped:
-                hit = True
-                continue
-            dropped = None
-        if private(line):
-            hit = True
-            if line.lstrip().startswith("-"):
-                dropped = indent
-            continue
-        kept.append(line)
-    cleaned = "\n".join(kept).strip()
-    if private(cleaned):
-        return "", True
-    return cleaned, hit
 
 
 def parse_notes(text):
@@ -287,7 +288,7 @@ class Images:
 
     def localize(self, url):
         url = (url or "").strip()
-        if not url or private(url):
+        if not url:
             return None
         if url in self.seen:
             return self.seen[url]
@@ -332,16 +333,13 @@ def inline(text, images):
         out.append(html.escape(text[pos:m.start()]))
         if m.group("img") is not None:
             alt = m.group("alt") or ""
-            if private(alt):
-                pos = m.end()
-                continue
             src = images.localize(m.group("img"))
             if src:
                 out.append(f'<img src="{html.escape(src, quote=True)}" alt="{html.escape(alt, quote=True)}">')
         elif m.group("label") is not None:
             href = safe_url(m.group("href"))
             label = m.group("label")
-            if href and not private(href):
+            if href:
                 out.append(f'<a href="{html.escape(href, quote=True)}">{html.escape(label)}</a>')
             else:
                 out.append(html.escape(label))
@@ -371,8 +369,6 @@ def paragraph(value, images):
     only = re.fullmatch(r"!\[([^\]]*)\]\(([^)\s]+)\)", value.strip())
     if only:
         alt, url = only.group(1), only.group(2)
-        if private(alt):
-            return ""
         src = images.localize(url)
         if src:
             cap = f"<figcaption>{html.escape(alt)}</figcaption>" if alt else ""
@@ -412,32 +408,17 @@ def asset_images(release):
 
 
 def prepare(raw):
-    """One release, ready to place. `flagged` means the GitHub notes need editing."""
+    """One release, ready to place."""
     body = raw.get("body") or ""
     name = raw.get("name") or ""
-    flagged = private(body) or private(name)
-    cleaned, line_hit = redact(whats_new(body))
-    flagged = flagged or line_hit
-    cleaned, flags = strip_flags(cleaned)
+    cleaned, flags = strip_flags(whats_new(body))
     title, body_text = split_title(cleaned)
     # The page adds its own Details link from the compare URL.
     body_text = "\n".join(
         line for line in body_text.splitlines() if not DETAILS_LINE.match(line.strip())
     ).strip()
-    if flagged and private(title):
-        title = ""
-    if flagged and private(body_text):
-        body_text = ""
-    if flagged and not body_text and not title:
-        blocks = [("p", REVISED)]
-        title = ""
-    else:
-        blocks = parse_notes(body_text)
+    blocks = parse_notes(body_text)
     images = asset_images(raw)
-    # Image text in the body is already inside `cleaned`. Asset names too.
-    if any(private(u) or private(n) for u, n in images):
-        flagged = True
-        images = [(u, n) for u, n in images if not private(u) and not private(n)]
     compare = COMPARE.search(body)
     tag = raw.get("tag_name") or ""
     published = raw.get("published_at") or ""
@@ -457,8 +438,6 @@ def prepare(raw):
         "images": images,
         "title": title,
         "minor": is_minor(tag, blocks, images, flags, title),
-        "flagged": flagged,
-        "revised": bool(flagged and blocks == [("p", REVISED)]),
     }
 
 
@@ -475,8 +454,6 @@ def group(releases):
 
 def title_and_body(rel, images):
     """The headline is the written title, or the first change when the notes are still a list."""
-    if rel["revised"]:
-        return REVISED, ""
     if rel.get("title"):
         return inline(rel["title"], images), render_blocks(rel["blocks"], images)
     blocks = rel["blocks"]
@@ -499,14 +476,10 @@ def title_and_body(rel, images):
 
 
 def feed_html(rel, images):
-    if rel["revised"]:
-        return f"<p>{REVISED}</p>"
     return render_blocks(rel["blocks"], images) or f"<p>{html.escape(plain_title(rel) or 'Maintenance release')}</p>"
 
 
 def plain_title(rel):
-    if rel["revised"]:
-        return "Notes being edited"
     if rel.get("title"):
         return plain(rel["title"])
     top = items_of(rel["blocks"])
@@ -571,7 +544,7 @@ def entry_html(entry, images):
     shots = gallery(rel, images)
     pre = '<span class="pre">Pre-release</span>' if rel["prerelease"] else ""
     links = [f'<a href="{html.escape(rel["html_url"], quote=True)}">GitHub</a>']
-    if rel["compare"] and not private(rel["compare"]):
+    if rel["compare"]:
         links.append(f'<a href="{html.escape(rel["compare"], quote=True)}">Details</a>')
     return f'''<li class="entry" id="{html.escape(rel["anchor"])}">
 <div class="entry-meta">
@@ -697,8 +670,8 @@ def atom(releases, images):
 def build(raw_releases, out: Path, fetch=None):
     raw_releases = [r for r in raw_releases if not r.get("draft")]
     raw_releases.sort(key=lambda r: (r.get("published_at") or "", version_tuple(r.get("tag_name")) or ()), reverse=True)
+    require_public(raw_releases)
     prepared = [prepare(r) for r in raw_releases]
-    flagged = [rel["label"] for rel in prepared if rel["flagged"]]
     media = out / "updates" / "media"
     images = Images(fetch, media)
     entries = group(prepared)
@@ -716,7 +689,6 @@ def build(raw_releases, out: Path, fetch=None):
                 child.unlink()
         if not any(media.iterdir()):
             media.rmdir()
-    return flagged
 
 
 def release_is_listed(releases, expect):
@@ -811,7 +783,7 @@ def main():
     args = parser.parse_args()
     if args.input:
         raw = json.loads(args.input.read_text())
-        flagged = build(raw, args.out, fetch=fetch_image)
+        build(raw, args.out, fetch=fetch_image)
     else:
         expect = os.environ.get("OMACUS_EXPECT_VERSION", "")
         try:
@@ -822,16 +794,12 @@ def main():
                 raise
             print("updates: kept the checked-in page; GitHub releases were unavailable", file=sys.stderr)
             return
-        flagged = build(raw, args.out, fetch=fetch_image)
-    print(f"updates: {len(raw)} releases, {len(flagged)} with notes to edit")
-    if flagged:
-        print("updates: edit the GitHub release notes for " + ", ".join(flagged), file=sys.stderr)
+        build(raw, args.out, fetch=fetch_image)
+    print(f"updates: {len(raw)} releases")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a") as fh:
             fh.write(f"Updates page: {len(raw)} releases.\n")
-            if flagged:
-                fh.write("Release notes to edit (private text was left off the page): " + ", ".join(flagged) + "\n")
 
 
 if __name__ == "__main__":

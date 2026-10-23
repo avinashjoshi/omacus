@@ -79,6 +79,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           OMACUS_EXPECT_VERSION: ${{ inputs.expect_version || (github.event_name == 'release' && github.event.release.tag_name) || '' }}
+          # One phrase per line. A match stops the deploy and names the version.
+          # An absent secret is empty, and the check is skipped.
+          OMACUS_PRIVATE_TERMS: ${{ secrets.OMACUS_PRIVATE_TERMS }}
         run: |
           if [ -z "$OMACUS_EXPECT_VERSION" ]; then
             version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
