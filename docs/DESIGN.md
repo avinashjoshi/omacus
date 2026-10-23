@@ -299,6 +299,15 @@ Don't add metrics, testimonials, or a changelog inside About. "What's new" opens
 Do: use the marketing tokens (`--bg`, `--text`, `--line`, `--accent`). Follow the 4px spacing scale. Keep one accent.
 Don't: point the page at `--app-*`, or put a hex color in `site.css`. Light mode only reassigns tokens in `tokens.css`.
 
+### Story
+
+`omacus.com/story` is a first-person account of why Omacus exists and how it is built. The counts and the timeline are filled in when the site is built (`site/tools/story.py`), from the repository and the release list. A figure that cannot be counted is left off. Sync is marked as not shipped, with no date.
+
+The page uses the same marketing frame as the updates page: a kicker, a serif word in the title, version pills, and the timeline. It stays on the near-black marketing palette.
+
+Do: use the marketing tokens. Follow the 4px spacing scale and the radius scale. Keep one accent. Write in the first person, plain and short.
+Don't: hardcode a count or a date in the page, point the page at `--app-*`, or put a hex color in `site.css`.
+
 ### Preview and PDF typography
 
 The preview is a document: title at 16px, body in the proportional face, answers in brackets in the accent (or `--print-accent` / `ANSWER_INK` when printed). Edit is a primary button. Print and Export PDF are quiet buttons. "Delete forever" on a trashed page is danger text, not a filled button, so Restore stays the one primary action.

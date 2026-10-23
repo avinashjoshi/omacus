@@ -375,9 +375,9 @@ pre {
 }
 
 /* Phones and narrow windows: the links fold into a sheet under the header;
-   Download stays in view. Updates makes seven links, so this starts a little
+   Download stays in view. Story makes eight links, so this starts a little
    sooner than the rest of the layout. */
-@media (max-width: 1020px) {
+@media (max-width: 1120px) {
   .menu-toggle {
     display: block;
   }
@@ -449,6 +449,7 @@ pre {
   .site-header.open .nav-links a:nth-child(5) { transition-delay: 0.2s; }
   .site-header.open .nav-links a:nth-child(6) { transition-delay: 0.24s; }
   .site-header.open .nav-links a:nth-child(7) { transition-delay: 0.28s; }
+  .site-header.open .nav-links a:nth-child(8) { transition-delay: 0.32s; }
 
   .site-header.open {
     background: var(--bg);
@@ -3290,5 +3291,199 @@ html[data-page="updates"] .nav a:hover {
 @media (prefers-reduced-motion: reduce) {
   .fix-group summary::before {
     transition: none;
+  }
+}
+
+/* ---------- Story (omacus.com/story) ---------- */
+/* Marketing tokens only. Counts and dates are filled in by site/tools/story.py. */
+
+.story-hero {
+  max-width: 40rem;
+  margin-bottom: var(--space-2);
+}
+
+.story-hero h1 {
+  font-size: clamp(40px, 6vw, 64px);
+  color: var(--text);
+  margin: 0 0 var(--space-4);
+}
+
+.story-lead {
+  margin: 0;
+  max-width: 36rem;
+  color: var(--text-2);
+  font-size: 18px;
+  line-height: 1.55;
+}
+
+.story-say {
+  margin: var(--space-3) 0 0;
+  color: var(--muted);
+  font-size: var(--type-caption);
+  letter-spacing: 0.04em;
+}
+
+.story-say span {
+  color: var(--text-2);
+  font-family: var(--mono);
+}
+
+.story-page .page-body > section > h2 {
+  margin: calc(var(--space-6) * 2) 0 var(--space-4);
+  color: var(--text);
+  font-size: clamp(var(--type-display), 3vw, 32px);
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+}
+
+.story-page .entry h2 {
+  margin: 0;
+  font-size: clamp(var(--type-display), 2.5vw, 30px);
+  line-height: 1.25;
+  letter-spacing: -0.03em;
+}
+
+.story-page .page-body > section > p,
+.story-page .story-net li,
+.story-page .story-lessons p {
+  color: var(--text-2);
+  font-size: 16.5px;
+  line-height: 1.65;
+}
+
+.story-page .page-body > section > p {
+  margin: 0 0 var(--space-4);
+  max-width: 40rem;
+}
+
+.story-page .page-body > section > p a,
+.story-page .story-net a,
+.story-page .story-links a {
+  color: var(--accent-hi);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.story-page .page-body > section > p a:hover,
+.story-page .story-net a:hover,
+.story-page .story-links a:hover {
+  border-bottom-color: var(--accent-hi);
+}
+
+.story-net {
+  list-style: none;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  max-width: 40rem;
+}
+
+.story-net li {
+  margin: 0;
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--line);
+}
+
+.story-net li:last-child {
+  border-bottom: 1px solid var(--line);
+}
+
+.story-net strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.story-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  list-style: none;
+  margin: var(--space-5) 0 0;
+  padding: 0;
+  max-width: 40rem;
+}
+
+.story-stats li {
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+}
+
+.story-stats b {
+  display: block;
+  color: var(--text);
+  font: 600 clamp(28px, 4vw, 40px) / 1.1 var(--display);
+  letter-spacing: -0.03em;
+}
+
+.story-stats span {
+  display: block;
+  margin-top: var(--space-2);
+  color: var(--muted);
+  font-size: var(--type-caption);
+  line-height: 1.4;
+}
+
+.story-page .timeline {
+  margin-top: var(--space-5);
+  max-width: 40rem;
+}
+
+.story-soon .version-pill {
+  background: transparent;
+  color: var(--text-2);
+  border: 1px solid var(--line-2);
+}
+
+.story-soon .version-pill:hover {
+  background: transparent;
+  color: var(--text-2);
+}
+
+.story-lessons {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+  max-width: 40rem;
+}
+
+.story-lessons li {
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg-raise);
+}
+
+.story-lessons h3 {
+  margin: 0 0 var(--space-2);
+  color: var(--text);
+  font-size: var(--type-title);
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+
+.story-lessons p {
+  margin: 0;
+}
+
+.story-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-5);
+}
+
+.story-links a {
+  min-height: var(--hit);
+  display: inline-flex;
+  align-items: center;
+}
+
+@media (max-width: 800px) {
+  .story-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
