@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """The updates page: grouping, the feed, and the private-notes filter."""
 
+import os
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import updates
+
+# A stand-in phrase. The real list lives outside the repo.
+TERM = "internal-codename"
 
 ATOM = "{http://www.w3.org/2005/Atom}"
 PNG = (
@@ -32,21 +36,47 @@ def release(tag, notes, day="2026-10-20T12:00:00Z", assets=None):
 
 def build(releases, fetch=None):
     out = Path(tempfile.mkdtemp())
-    flagged = updates.build(releases, out, fetch=fetch)
+    updates.build(releases, out, fetch=fetch)
     page = (out / "updates" / "index.html").read_text()
     feed = (out / "updates" / "feed.xml").read_text()
-    return page, feed, flagged, out
+    return page, feed, out
+
+
+class terms:
+    def __init__(self, value):
+        self.value = value
+
+    def __enter__(self):
+        self.saved = os.environ.get("OMACUS_PRIVATE_TERMS")
+        if self.value is None:
+            os.environ.pop("OMACUS_PRIVATE_TERMS", None)
+        else:
+            os.environ["OMACUS_PRIVATE_TERMS"] = self.value
+
+    def __exit__(self, *_exc):
+        if self.saved is None:
+            os.environ.pop("OMACUS_PRIVATE_TERMS", None)
+        else:
+            os.environ["OMACUS_PRIVATE_TERMS"] = self.saved
 
 
 class UpdatesPage(unittest.TestCase):
+    def setUp(self):
+        self._saved_terms = os.environ.pop("OMACUS_PRIVATE_TERMS", None)
+
+    def tearDown(self):
+        if self._saved_terms is None:
+            os.environ.pop("OMACUS_PRIVATE_TERMS", None)
+        else:
+            os.environ["OMACUS_PRIVATE_TERMS"] = self._saved_terms
+
     def test_smaller_fixes_fold_under_the_newer_entry(self):
-        page, feed, flagged, _ = build([
+        page, feed, _ = build([
             release("v0.3.2", "- Fix the cursor when a line wraps", "2026-10-23T03:00:00Z"),
             release("v0.3.1", "- Keep the sidebar from jumping", "2026-10-23T02:00:00Z"),
             release("v0.3.0", "- Add folders to the sidebar\n  - Drag a page into a folder\n- Show a value on hover", "2026-10-22T12:00:00Z"),
             release("v0.2.0", "- Omacus for Linux, macOS and Windows\n- Save pages as you type\n- Follow the system theme", "2026-10-16T12:00:00Z"),
         ])
-        self.assertEqual(flagged, [])
         # The newest fix is the timeline entry; the older fix is inside its group.
         head = page.split('<ol class="timeline">', 1)[1]
         self.assertLess(head.index('id="v0.3.2"'), head.index('id="v0.3.1"'))
@@ -65,45 +95,118 @@ class UpdatesPage(unittest.TestCase):
         self.assertEqual(len(entries), 4)
         self.assertTrue(entries[0].find(f"{ATOM}link").attrib["href"].endswith("#v0.3.2"))
 
-    def test_private_notes_are_left_off_the_page_and_the_version_is_flagged(self):
-        for probe, innocent in updates.PROBES:
-            with self.subTest(probe=probe):
-                self.assertTrue(updates.private(probe))
-                self.assertFalse(updates.private(innocent))
-                page, feed, flagged, _ = build([
-                    release("v9.9.9", f"- A public change\n- Secret {probe} stays out"),
-                ])
-                self.assertEqual(flagged, ["v9.9.9"])
-                self.assertIn("A public change", page)
-                self.assertNotIn(probe, page)
-                self.assertNotIn(probe.lower(), page.lower())
-                self.assertNotIn(probe, feed)
-                self.assertNotIn(probe.lower(), feed.lower())
+    def test_terms_are_read_from_the_environment(self):
+        self.assertEqual(updates.private_terms(), [])
+        self.assertFalse(updates.private(TERM))
+        with terms(" \n\t"):
+            self.assertEqual(updates.private_terms(), [])
+            self.assertFalse(updates.private(TERM))
+        with terms(f"\n{TERM}\n{TERM.upper()}\n\n  other-phrase  \n"):
+            self.assertEqual(updates.private_terms(), [TERM, "other-phrase"])
+            self.assertTrue(updates.private(f"See {TERM.upper()} here"))
+            self.assertTrue(updates.private("other-phrase"))
+            self.assertFalse(updates.private("internal"))
+            self.assertFalse(updates.private("codename"))
+            self.assertFalse(updates.private("internal codename"))
 
-    def test_a_release_that_is_only_private_text_keeps_its_version(self):
-        probe = updates.PROBES[0][0]
-        page, feed, flagged, _ = build([
-            release("v9.9.8", f"- {probe}"),
-        ])
-        self.assertEqual(flagged, ["v9.9.8"])
-        self.assertIn('id="v9.9.8"', page)
-        self.assertIn(updates.REVISED, page)
-        self.assertNotIn(probe, page)
-        self.assertNotIn(probe, feed)
+    def test_without_a_term_list_the_notes_are_published(self):
+        page, feed, _ = build([release("v9.9.9", f"- Secret {TERM} stays in the notes")])
+        self.assertIn(TERM, page)
+        self.assertIn(TERM, feed)
+
+    def test_a_blank_term_list_skips_the_check(self):
+        with terms(" \n"):
+            page, _, _ = build([release("v9.9.2", f"- {TERM}")])
+        self.assertIn(TERM, page)
+
+    def test_a_configured_term_stops_the_build_without_writing(self):
+        with terms(TERM):
+            out = Path(tempfile.mkdtemp())
+            with self.assertRaises(SystemExit) as caught:
+                updates.build([
+                    release("v9.9.9", f"- A public change\n- Secret {TERM} stays out"),
+                ], out)
+            message = str(caught.exception)
+            self.assertIn("v9.9.9", message)
+            self.assertNotIn(TERM, message.casefold())
+            self.assertNotIn("A public change", message)
+            self.assertFalse((out / "updates" / "index.html").exists())
+            self.assertFalse((out / "updates" / "feed.xml").exists())
+
+    def test_every_matching_version_is_named(self):
+        with terms(TERM):
+            with self.assertRaises(SystemExit) as caught:
+                updates.build([
+                    release("v9.9.9", f"- {TERM}", "2026-10-23T03:00:00Z"),
+                    release("v9.9.8", "- A public change", "2026-10-23T02:00:00Z"),
+                    release("v9.9.7", f"- also {TERM}", "2026-10-23T01:00:00Z"),
+                ], Path(tempfile.mkdtemp()))
+            message = str(caught.exception)
+            self.assertIn("v9.9.9", message)
+            self.assertIn("v9.9.7", message)
+            self.assertNotIn("v9.9.8", message)
+            self.assertNotIn(TERM, message.casefold())
+
+    def test_a_term_in_the_name_or_an_asset_stops_the_build(self):
+        named = release("v9.9.7", "- A public change")
+        named["name"] = f"Release {TERM}"
+        asset = release(
+            "v9.9.6",
+            "- A public change",
+            assets=[{"name": "shot.png", "browser_download_url": f"https://example.com/{TERM}.png"}],
+        )
+        with terms(TERM):
+            for rel in (named, asset):
+                with self.subTest(tag=rel["tag_name"]):
+                    out = Path(tempfile.mkdtemp())
+                    with self.assertRaises(SystemExit) as caught:
+                        updates.build([rel], out)
+                    self.assertIn(rel["tag_name"], str(caught.exception))
+                    self.assertNotIn(TERM, str(caught.exception).casefold())
+                    self.assertFalse((out / "updates" / "index.html").exists())
+
+    def test_a_private_version_label_is_not_printed(self):
+        rel = release(TERM, "- A public change")
+        with terms(TERM):
+            with self.assertRaises(SystemExit) as caught:
+                updates.build([rel], Path(tempfile.mkdtemp()))
+        message = str(caught.exception)
+        self.assertIn("a release", message)
+        self.assertNotIn(TERM, message.casefold())
+
+    def test_a_near_miss_is_published(self):
+        with terms(TERM):
+            page, feed, _ = build([
+                release("v9.9.3", "- internal\n- codename\n- internal codename"),
+            ])
+        self.assertIn("internal codename", page)
+        self.assertIn("internal codename", feed)
+        self.assertNotIn(TERM, page)
+
+    def test_a_draft_that_matches_does_not_block_the_page(self):
+        draft = release("v9.9.4", f"- {TERM}")
+        draft["draft"] = True
+        with terms(TERM):
+            page, feed, _ = build([
+                draft,
+                release("v9.9.5", "- A public change"),
+            ])
+        self.assertIn("A public change", page)
+        self.assertNotIn(TERM, page)
+        self.assertNotIn(TERM, feed)
 
     def test_no_inline_script_and_images_stay_on_the_site(self):
         def fetch(url):
             self.assertTrue(url.startswith("https://"))
             return PNG, "image/png"
 
-        page, feed, flagged, out = build([
+        page, feed, out = build([
             release(
                 "v1.2.0",
                 "- Add a picture of the new sidebar\n\n![The sidebar](https://example.com/side.png)",
                 assets=[{"name": "extra.png", "browser_download_url": "https://example.com/extra.png"}],
             ),
         ], fetch=fetch)
-        self.assertEqual(flagged, [])
         self.assertNotIn("<script", page.replace('<script src="/js/site.js"></script>', ""))
         self.assertNotIn("onclick=", page)
         self.assertNotIn("javascript:", page)
@@ -116,21 +219,19 @@ class UpdatesPage(unittest.TestCase):
         self.assertTrue(all(p.suffix == ".png" for p in media))
 
     def test_a_fix_with_an_explanation_still_folds(self):
-        page, _, flagged, _ = build([
+        page, _, _ = build([
             release("v0.4.2", "- Add a sidebar\n  - Drag a page into a folder", "2026-10-23T04:00:00Z"),
             release("v0.4.1", "- Fix the cursor when a line wraps\n  - The caret jumped to the next line", "2026-10-23T03:00:00Z"),
         ])
-        self.assertEqual(flagged, [])
         self.assertIn('<li class="entry" id="v0.4.2">', page)
         self.assertNotIn('<li class="entry" id="v0.4.1">', page)
         self.assertIn("1 smaller update", page)
         self.assertIn("The caret jumped to the next line", page)
 
     def test_ordinary_money_and_mrr_stay_on_the_page(self):
-        page, feed, flagged, _ = build([
+        page, feed, _ = build([
             release("v1.0.1", "- $4 a day is $28 a week\n- MRR and dilution, in the founders guide"),
         ])
-        self.assertEqual(flagged, [])
         self.assertIn("$4 a day", page)
         self.assertIn("MRR and dilution", page)
         self.assertIn("$4 a day", feed)
@@ -156,7 +257,7 @@ class UpdatesPage(unittest.TestCase):
         self.assertEqual(updates.expect_wait_seconds("0.2.11"), 60)
 
     def test_the_page_links_itself_in_the_nav(self):
-        page, _, _, _ = build([release("v0.1.0", "- Omacus\n- Pages\n- Themes")])
+        page, _, _ = build([release("v0.1.0", "- Omacus\n- Pages\n- Themes")])
         self.assertIn('href="/updates/" aria-current="page"', page)
         self.assertIn('href="/updates/feed.xml"', page)
 
@@ -167,8 +268,7 @@ class UpdatesPage(unittest.TestCase):
             "- Lock one page, or a whole folder\n\n"
             "**Details:** https://github.com/avinashjoshi/omacus/compare/v1.3.0...v1.4.0"
         )
-        page, feed, flagged, _ = build([release("v1.4.0", notes)])
-        self.assertEqual(flagged, [])
+        page, feed, _ = build([release("v1.4.0", notes)])
         self.assertIn("<h2>Lock pages and folders with a password</h2>", page)
         self.assertIn("A page stays locked until you type the password.", page)
         self.assertIn("Lock one page, or a whole folder", page)
@@ -179,7 +279,7 @@ class UpdatesPage(unittest.TestCase):
         self.assertIn("v1.4.0 — Lock pages and folders with a password", feed)
 
     def test_a_titled_note_stays_on_the_timeline(self):
-        page, _, _, _ = build([
+        page, _, _ = build([
             release("v1.8.2", "**A cleaner, calmer look**\n\nThe app and the website share one quiet look.", "2026-10-23T04:00:00Z"),
             release("v1.8.1", "**See every update in one place**\n\nThe updates page lists each version in plain words.", "2026-10-23T03:00:00Z"),
         ])
@@ -189,7 +289,7 @@ class UpdatesPage(unittest.TestCase):
         self.assertIn("The app and the website share one quiet look.", page)
 
     def test_a_minor_marker_folds_under_the_newer_entry(self):
-        page, _, _, _ = build([
+        page, _, _ = build([
             release(
                 "v1.6.2",
                 "**Rename a name everywhere it appears**\n\nEvery line that uses it updates.",
@@ -208,7 +308,7 @@ class UpdatesPage(unittest.TestCase):
         self.assertIn("1 smaller update", page)
 
     def test_an_internal_release_folds_even_as_a_point_zero(self):
-        page, feed, _, _ = build([
+        page, feed, _ = build([
             release(
                 "v1.7.1",
                 "**Folders in the sidebar**\n\nDrag a page into a folder.",
