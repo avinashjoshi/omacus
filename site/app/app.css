@@ -846,7 +846,9 @@ body.answers-inline .res {
   background: var(--app-hover);
 }
 
-.confirm input[data-rename-input] {
+.confirm input[data-rename-input],
+.confirm input[type="password"],
+.lock-gate input {
   box-sizing: border-box;
   width: 100%;
   margin: 0 0 8px;
@@ -856,6 +858,48 @@ body.answers-inline .res {
   background: var(--app-bg);
   color: var(--app-fg);
   font: 15px var(--sans);
+}
+
+.lock-mark {
+  display: inline-grid;
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.lock-mark svg,
+.lock-ico {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.lock-gate {
+  max-width: 360px;
+  margin: 48px auto 0;
+  display: grid;
+  gap: 8px;
+  color: var(--app-fg);
+}
+
+.lock-gate[hidden] {
+  display: none;
+}
+
+.lock-gate h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.lock-gate p {
+  margin: 0;
+  color: var(--app-dim);
+  font-size: 13.5px;
 }
 
 .confirm-note {

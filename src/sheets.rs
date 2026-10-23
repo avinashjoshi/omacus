@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use omacus_engine::lock::{self, ContentKey, Wrap};
 use omacus_engine::xref;
 use serde::{Deserialize, Serialize};
 
@@ -25,12 +26,13 @@ pub struct Sheet {
     pub cursor: usize,
     /// Short name for `@handle.variable`. Renaming the page does not change it.
     pub handle: String,
-    /// Password lock. Nothing sets this until that feature stores a password;
-    /// a reference to a locked page then shows a lock instead of the value.
-    pub locked: bool,
     dirty: bool,
     /// The file as this window last read or wrote it; `None` until it's on disk.
     stamp: Option<Stamp>,
+    /// Ciphertext file body. `text` is plaintext only while `unlocked` is set.
+    sealed: Option<String>,
+    /// The password has been entered this session, so `text` is the page.
+    unlocked: bool,
 }
 
 /// A file's modification time and size, to notice another window's writes.
@@ -51,8 +53,27 @@ pub struct Synced {
 
 impl Sheet {
     /// The first line, with a `#` or `//` stripped off. Not shortened.
+    /// A locked page that isn't open is just "Locked", so the sidebar and the
+    /// switcher never show its first line.
     pub fn heading(&self) -> String {
+        if self.sealed.is_some() && !self.unlocked {
+            return "Locked".into();
+        }
         heading_of(&self.text)
+    }
+
+    pub fn locked(&self) -> bool {
+        self.sealed.is_some()
+    }
+
+    /// The password has been entered, so `text` is the page.
+    pub fn revealed(&self) -> bool {
+        self.sealed.is_none() || self.unlocked
+    }
+
+    /// What the page file holds: ciphertext while locked, otherwise the text.
+    pub fn stored(&self) -> &str {
+        self.sealed.as_deref().unwrap_or(&self.text)
     }
 
     pub fn title(&self) -> String {
@@ -102,7 +123,61 @@ pub enum Node {
         collapsed: bool,
         #[serde(default)]
         children: Vec<Node>,
+        /// Set when the folder has a password. Pages inside are encrypted with it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lock: Option<FolderSeal>,
     },
+}
+
+/// The wrapped key for a locked folder. Stored on the folder, and copied into
+/// each page file so a page can still be opened after the folder is gone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FolderSeal {
+    pub salt: String,
+    pub nonce: String,
+    pub wrapped: String,
+    #[serde(default = "seal_memory")]
+    pub memory_kib: u32,
+    #[serde(default = "seal_iterations")]
+    pub iterations: u32,
+    #[serde(default = "seal_lanes")]
+    pub lanes: u32,
+}
+
+fn seal_memory() -> u32 {
+    19 * 1024
+}
+fn seal_iterations() -> u32 {
+    2
+}
+fn seal_lanes() -> u32 {
+    1
+}
+
+impl From<&Wrap> for FolderSeal {
+    fn from(wrap: &Wrap) -> Self {
+        Self {
+            salt: wrap.salt.clone(),
+            nonce: wrap.nonce.clone(),
+            wrapped: wrap.wrapped.clone(),
+            memory_kib: wrap.memory_kib,
+            iterations: wrap.iterations,
+            lanes: wrap.lanes,
+        }
+    }
+}
+
+impl FolderSeal {
+    fn wrap(&self) -> Wrap {
+        Wrap {
+            salt: self.salt.clone(),
+            nonce: self.nonce.clone(),
+            wrapped: self.wrapped.clone(),
+            memory_kib: self.memory_kib,
+            iterations: self.iterations,
+            lanes: self.lanes,
+        }
+    }
 }
 
 /// A row the sidebar draws. Children of a collapsed folder are left out.
@@ -176,6 +251,8 @@ pub struct Trashed {
     pub title: String,
     pub text: String,
     pub handle: String,
+    /// The file is encrypted. `text` is empty so a preview can't show it.
+    pub locked: bool,
 }
 
 /// The last delete, so Undo can put the page or the folder back where it was.
@@ -207,6 +284,9 @@ pub struct Store {
     deleted: Option<Deleted>,
     /// Titles of sheets that two windows changed at once, to tell the user.
     conflicts: Vec<String>,
+    /// Content keys for this session only. Never written to `state.json`.
+    page_keys: HashMap<String, ContentKey>,
+    folder_keys: HashMap<String, ContentKey>,
 }
 
 /// `OMACUS_DATA_DIR` when it is set, otherwise the per-user data folder
@@ -324,6 +404,8 @@ impl Store {
             state_dirty: false,
             deleted: None,
             conflicts: Vec::new(),
+            page_keys: HashMap::new(),
+            folder_keys: HashMap::new(),
         };
         store.align_sheets();
         store.ensure_handles();
@@ -438,29 +520,40 @@ impl Store {
 
     /// New sheets go to the top of the open page's folder (the root, when that
     /// page isn't in one), like a notes app.
-    pub fn new_sheet(&mut self, text: &str) {
+    /// `false` when the open page's folder is locked and this session doesn't
+    /// have its key: the page is not created, so it can't be written in the clear.
+    pub fn new_sheet(&mut self, text: &str) -> bool {
         let parent = self
             .sheets
             .get(self.active)
             .and_then(|s| self.folder_of(&s.id));
-        self.new_sheet_in(parent.as_deref(), text);
+        self.new_sheet_in(parent.as_deref(), text)
     }
 
-    /// A new page at the top of `parent` (`None` is the root).
-    pub fn new_sheet_in(&mut self, parent: Option<&str>, text: &str) {
+    /// A new page at the top of `parent` (`None` is the root). `false` when that
+    /// folder is locked and not unlocked.
+    pub fn new_sheet_in(&mut self, parent: Option<&str>, text: &str) -> bool {
         let id = self.unused_id();
         let parent = parent.filter(|id| self.folder_name(id).is_some());
-        let handle = self.fresh_handle(&heading_of(text));
+        let mut sheet = plain_sheet(id.clone(), text.to_string());
+        let handle = self.fresh_handle(&sheet.heading());
         self.handles.insert(id.clone(), handle.clone());
-        let sheet = Sheet {
-            id: id.clone(),
-            text: text.to_string(),
-            cursor: text.chars().count(),
-            handle,
-            locked: false,
-            dirty: true,
-            stamp: None,
-        };
+        sheet.handle = handle;
+        if sheet.sealed.is_none()
+            && let Some(folder) = parent.and_then(|id| self.covering_folder(id))
+        {
+            let Some(key) = self.folder_keys.get(&folder).cloned() else {
+                return false;
+            };
+            let Some(wrap) = self.folder_seal(&folder).map(|s| s.wrap()) else {
+                return false;
+            };
+            let Ok(sealed) = lock::seal(&key, text, &wrap, id.as_bytes()) else {
+                return false;
+            };
+            sheet.sealed = Some(sealed);
+            sheet.unlocked = true;
+        }
         if insert_node(&mut self.tree, parent, 0, Node::Page { id: id.clone() }).is_err() {
             self.tree.insert(0, Node::Page { id: id.clone() });
         }
@@ -468,6 +561,7 @@ impl Store {
         self.align_sheets();
         self.active = self.sheets.iter().position(|s| s.id == id).unwrap_or(0);
         self.state_dirty = true;
+        true
     }
 
     /// A folder at the top of `parent`. `None` when that parent is already nested.
@@ -482,6 +576,7 @@ impl Store {
             name: fresh_folder_name(&self.tree),
             collapsed: false,
             children: Vec::new(),
+            lock: None,
         };
         if insert_node(&mut self.tree, parent, 0, node).is_err() {
             return None;
@@ -527,6 +622,9 @@ impl Store {
         };
         let name = name.clone();
         let ids = page_ids_in(&node);
+        for id in &ids {
+            self.refresh_seal(id);
+        }
         let mut kept = Vec::new();
         let mut removed = Vec::new();
         for sheet in self.sheets.drain(..) {
@@ -538,6 +636,7 @@ impl Store {
         }
         removed.sort_by_key(|sheet| ids.iter().position(|id| id == &sheet.id).unwrap_or(0));
         for sheet in &removed {
+            // `refresh_seal` already ran while the pages were still in `self.sheets`.
             self.trash_sheet(sheet);
         }
         self.sheets = kept;
@@ -565,6 +664,19 @@ impl Store {
     /// Move a page or folder. `index` is among the destination's children after
     /// this item has been taken out. Returns whether it landed there.
     pub fn move_item(&mut self, id: &str, parent: Option<&str>, index: usize) -> bool {
+        let is_page = self.sheets.iter().any(|s| s.id == id);
+        let moving: Vec<String> = if is_page {
+            vec![id.to_string()]
+        } else {
+            self.pages_under(id)
+        };
+        if moving.iter().any(|pid| !self.can_move_page(pid, parent)) {
+            return false;
+        }
+        let old_covers: Vec<(String, Option<String>)> = moving
+            .iter()
+            .map(|pid| (pid.clone(), self.covering_folder(pid)))
+            .collect();
         let Some((old_parent, old_at, node)) = take_node(&mut self.tree, id) else {
             return false;
         };
@@ -581,6 +693,9 @@ impl Store {
         if let Err(node) = insert_node(&mut self.tree, parent, index, node) {
             let _ = insert_node(&mut self.tree, old_parent.as_deref(), old_at, node);
             return false;
+        }
+        for (pid, old) in &old_covers {
+            self.rebind_page(pid, old.as_deref());
         }
         self.align_sheets();
         self.state_dirty = true;
@@ -629,6 +744,7 @@ impl Store {
         let id = self.sheets[idx].id.clone();
         let (parent, at, _) =
             take_node(&mut self.tree, &id).unwrap_or((None, idx, Node::Page { id: id.clone() }));
+        self.refresh_seal(&id);
         let sheet = self.sheets.remove(idx);
         self.trash_sheet(&sheet);
         self.deleted = Some(Deleted {
@@ -718,12 +834,15 @@ impl Store {
             synced.changed = true;
             match now.and_then(|_| read_sheet(&dir, &sheet.id)) {
                 Some(fresh) => {
-                    if fresh.text != sheet.text {
+                    let changed = fresh.sealed != sheet.sealed
+                        || (fresh.sealed.is_none() && fresh.text != sheet.text);
+                    if changed {
                         synced.active_changed |= sheet.id == active;
-                        sheet.cursor = sheet.cursor.min(fresh.text.chars().count());
-                        sheet.text = fresh.text;
+                        let cursor = sheet.cursor;
+                        *sheet = fresh;
+                        sheet.cursor = cursor;
                     }
-                    sheet.stamp = fresh.stamp;
+                    sheet.stamp = stamp(&path);
                     i += 1;
                 }
                 // Deleted in the other window.
@@ -775,6 +894,7 @@ impl Store {
             self.new_sheet("");
         }
         self.active = self.sheets.iter().position(|s| s.id == active).unwrap_or(0);
+        self.reveal_all();
         synced
     }
 
@@ -786,15 +906,13 @@ impl Store {
         let Some(dir) = &self.dir else {
             return;
         };
-        // The trash gets the text as it is now, unsaved edits included.
+        // Ciphertext when the page is locked, so Recently deleted has no plaintext.
+        let Some(body) = stored_body(sheet) else {
+            return;
+        };
         let trash = dir.with_file_name("trash");
         let _ = std::fs::create_dir_all(&trash);
-        if write_atomic(
-            &trash.join(format!("{}.txt", sheet.id)),
-            sheet.text.as_bytes(),
-        )
-        .is_ok()
-        {
+        if write_atomic(&trash.join(format!("{}.txt", sheet.id)), body.as_bytes()).is_ok() {
             let _ = std::fs::remove_file(dir.join(format!("{}.txt", sheet.id)));
         }
     }
@@ -875,12 +993,15 @@ impl Store {
                     .metadata()
                     .and_then(|m| m.modified())
                     .unwrap_or(UNIX_EPOCH);
-                let title = heading_of(&text);
+                let sheet = sheet_from_stored(id.clone(), text, false, None);
+                let locked = sheet.locked();
+                let title = sheet.title();
                 let handle = self
                     .handles
                     .get(&id)
                     .cloned()
                     .unwrap_or_else(|| xref::allocate_handle(&title, &self.taken_handles()));
+                let text = if locked { String::new() } else { sheet.text };
                 Some((
                     modified,
                     Trashed {
@@ -888,6 +1009,7 @@ impl Store {
                         title,
                         text,
                         handle,
+                        locked,
                     },
                 ))
             })
@@ -906,21 +1028,14 @@ impl Store {
             self.deleted = None;
         }
         self.drop_placeholder();
+        let mut sheet = sheet_from_stored(id.to_string(), text, true, None);
         let handle = self
             .handles
             .get(id)
             .cloned()
-            .unwrap_or_else(|| self.fresh_handle(&heading_of(&text)));
+            .unwrap_or_else(|| self.fresh_handle(&sheet.heading()));
         self.handles.insert(id.to_string(), handle.clone());
-        let sheet = Sheet {
-            id: id.to_string(),
-            text: text.clone(),
-            cursor: text.chars().count(),
-            handle,
-            locked: false,
-            dirty: true,
-            stamp: None,
-        };
+        sheet.handle = handle;
         let title = sheet.title();
         self.tree.insert(0, Node::Page { id: id.to_string() });
         self.sheets.push(sheet);
@@ -992,32 +1107,303 @@ impl Store {
         }
     }
 
+    /// `Some(true)` is a closed lock, `Some(false)` an open one, `None` if the page
+    /// has no password of its own and isn't inside a locked folder.
+    pub fn page_lock(&self, id: &str) -> Option<bool> {
+        let sheet = self.sheets.iter().find(|s| s.id == id)?;
+        let locked = sheet.sealed.is_some() || self.covering_folder(id).is_some();
+        if !locked {
+            return None;
+        }
+        let open = sheet.unlocked || (sheet.sealed.is_none() && self.folder_is_open(id));
+        Some(!open)
+    }
+
+    /// `Some(true)` when the folder is locked and this session doesn't have the key.
+    pub fn folder_lock(&self, id: &str) -> Option<bool> {
+        self.folder_seal(id)?;
+        Some(!self.folder_keys.contains_key(id))
+    }
+
+    pub fn concealed(&self, id: &str) -> bool {
+        self.page_lock(id) == Some(true)
+    }
+
+    /// The page is encrypted by a folder password rather than its own.
+    pub fn folder_covers_page(&self, id: &str) -> bool {
+        self.covering_folder(id).is_some() && !self.individual_lock(id)
+    }
+
+    /// A locked folder that still has to be unlocked before a page can be added.
+    pub fn needs_unlock(&self, parent: Option<&str>) -> Option<String> {
+        let folder = parent.and_then(|id| self.covering_folder(id))?;
+        (!self.folder_keys.contains_key(&folder)).then_some(folder)
+    }
+
+    pub fn any_unlocked(&self) -> bool {
+        self.sheets.iter().any(|s| s.unlocked) || !self.folder_keys.is_empty()
+    }
+
+    pub fn lock_page(&mut self, id: &str, password: &str) -> Result<(), String> {
+        if self.covering_folder(id).is_some() {
+            return Err("This page is inside a locked folder.".into());
+        }
+        let idx = self.idx(id).ok_or("That page is gone.")?;
+        if self.sheets[idx].sealed.is_some() {
+            return Err("This page is already locked.".into());
+        }
+        let (key, wrap) = lock::create(password).map_err(|e| e.message().to_string())?;
+        let text = self.sheets[idx].text.clone();
+        let sealed =
+            lock::seal(&key, &text, &wrap, id.as_bytes()).map_err(|e| e.message().to_string())?;
+        self.sheets[idx].sealed = Some(sealed);
+        self.sheets[idx].unlocked = true;
+        self.sheets[idx].dirty = true;
+        self.page_keys.insert(id.to_string(), key);
+        self.persist_index(idx);
+        Ok(())
+    }
+
+    pub fn unlock_page(&mut self, id: &str, password: &str) -> Result<(), String> {
+        if let Some(folder) = self.covering_folder(id)
+            && (self.encrypted_by(id, Some(&folder)) || self.page_wrap(id).is_none())
+        {
+            return self.unlock_folder(&folder, password);
+        }
+        let idx = self.idx(id).ok_or("That page is gone.")?;
+        let sealed = self.sheets[idx]
+            .sealed
+            .clone()
+            .ok_or("This page isn't locked.")?;
+        let (text, key) = lock::open_password(password, &sealed, id.as_bytes())
+            .map_err(|e| e.message().to_string())?;
+        self.sheets[idx].text = text;
+        self.sheets[idx].unlocked = true;
+        self.page_keys.insert(id.to_string(), key);
+        Ok(())
+    }
+
+    pub fn change_page_password(
+        &mut self,
+        id: &str,
+        current: &str,
+        new: &str,
+    ) -> Result<(), String> {
+        let idx = self.idx(id).ok_or("That page is gone.")?;
+        if !self.sheets[idx].unlocked {
+            return Err("Unlock this page first.".into());
+        }
+        let wrap = self.page_wrap(id).ok_or("This page isn't locked.")?;
+        lock::unwrap_key(current, &wrap).map_err(|e| e.message().to_string())?;
+        let key = self
+            .page_keys
+            .get(id)
+            .cloned()
+            .ok_or("Unlock this page first.")?;
+        let wrap = lock::wrap_key(new, &key).map_err(|e| e.message().to_string())?;
+        let text = self.sheets[idx].text.clone();
+        let sealed =
+            lock::seal(&key, &text, &wrap, id.as_bytes()).map_err(|e| e.message().to_string())?;
+        self.sheets[idx].sealed = Some(sealed);
+        self.sheets[idx].dirty = true;
+        self.persist_index(idx);
+        Ok(())
+    }
+
+    pub fn remove_page_lock(&mut self, id: &str) -> Result<(), String> {
+        let idx = self.idx(id).ok_or("That page is gone.")?;
+        if self.sheets[idx].sealed.is_none() {
+            return Err("This page isn't locked.".into());
+        }
+        if !self.sheets[idx].unlocked {
+            return Err("Unlock this page first.".into());
+        }
+        let cover = self.covering_folder(id);
+        if self.encrypted_by(id, cover.as_deref()) {
+            return Err("The folder is locked. Remove that lock instead.".into());
+        }
+        self.sheets[idx].sealed = None;
+        self.sheets[idx].unlocked = false;
+        self.sheets[idx].dirty = true;
+        self.page_keys.remove(id);
+        self.persist_index(idx);
+        Ok(())
+    }
+
+    pub fn lock_folder(&mut self, id: &str, password: &str) -> Result<(), String> {
+        if self.folder_name(id).is_none() {
+            return Err("That folder is gone.".into());
+        }
+        if self.folder_seal(id).is_some() {
+            return Err("This folder is already locked.".into());
+        }
+        if self.ancestor_lock(id).is_some() {
+            return Err("A folder around this one is already locked.".into());
+        }
+        let (key, wrap) = lock::create(password).map_err(|e| e.message().to_string())?;
+        let seal = FolderSeal::from(&wrap);
+        if !self.set_folder_seal(id, Some(seal)) {
+            return Err("That folder is gone.".into());
+        }
+        self.folder_keys.insert(id.to_string(), key.clone());
+        for pid in self.pages_under(id) {
+            if self.individual_lock(&pid) {
+                continue;
+            }
+            let Some(idx) = self.idx(&pid) else { continue };
+            if self.sheets[idx].sealed.is_some() && !self.sheets[idx].unlocked {
+                continue;
+            }
+            let text = self.sheets[idx].text.clone();
+            let sealed = lock::seal(&key, &text, &wrap, pid.as_bytes())
+                .map_err(|e| e.message().to_string())?;
+            let idx = self.idx(&pid).unwrap();
+            self.sheets[idx].sealed = Some(sealed);
+            self.sheets[idx].unlocked = true;
+            self.sheets[idx].dirty = true;
+            self.page_keys.remove(&pid);
+            self.persist_index(idx);
+        }
+        Ok(())
+    }
+
+    pub fn unlock_folder(&mut self, id: &str, password: &str) -> Result<(), String> {
+        let seal = self
+            .folder_seal(id)
+            .cloned()
+            .ok_or("This folder isn't locked.")?;
+        let key = lock::unwrap_key(password, &seal.wrap()).map_err(|e| e.message().to_string())?;
+        self.folder_keys.insert(id.to_string(), key.clone());
+        for pid in self.pages_under(id) {
+            if self.individual_lock(&pid) {
+                continue;
+            }
+            self.reveal_with(&pid, &key);
+        }
+        Ok(())
+    }
+
+    pub fn change_folder_password(
+        &mut self,
+        id: &str,
+        current: &str,
+        new: &str,
+    ) -> Result<(), String> {
+        let seal = self
+            .folder_seal(id)
+            .cloned()
+            .ok_or("This folder isn't locked.")?;
+        lock::unwrap_key(current, &seal.wrap()).map_err(|e| e.message().to_string())?;
+        let key = self
+            .folder_keys
+            .get(id)
+            .cloned()
+            .ok_or("Unlock this folder first.")?;
+        let wrap = lock::wrap_key(new, &key).map_err(|e| e.message().to_string())?;
+        self.set_folder_seal(id, Some(FolderSeal::from(&wrap)));
+        for pid in self.pages_under(id) {
+            if self.individual_lock(&pid) {
+                continue;
+            }
+            let Some(idx) = self.idx(&pid) else { continue };
+            if !self.sheets[idx].unlocked {
+                continue;
+            }
+            let text = self.sheets[idx].text.clone();
+            let sealed = lock::seal(&key, &text, &wrap, pid.as_bytes())
+                .map_err(|e| e.message().to_string())?;
+            let idx = self.idx(&pid).unwrap();
+            self.sheets[idx].sealed = Some(sealed);
+            self.sheets[idx].dirty = true;
+            self.persist_index(idx);
+        }
+        Ok(())
+    }
+
+    pub fn remove_folder_lock(&mut self, id: &str) -> Result<(), String> {
+        if self.folder_seal(id).is_none() {
+            return Err("This folder isn't locked.".into());
+        }
+        if !self.folder_keys.contains_key(id) {
+            return Err("Unlock this folder first.".into());
+        }
+        for pid in self.pages_under(id) {
+            if !self.encrypted_by(&pid, Some(id)) {
+                continue;
+            }
+            let Some(idx) = self.idx(&pid) else { continue };
+            if !self.sheets[idx].unlocked {
+                continue;
+            }
+            self.sheets[idx].sealed = None;
+            self.sheets[idx].unlocked = false;
+            self.sheets[idx].dirty = true;
+            self.persist_index(idx);
+        }
+        self.folder_keys.remove(id);
+        self.set_folder_seal(id, None);
+        Ok(())
+    }
+
+    /// Drop every unlocked key and clear plaintext from memory. Files stay encrypted.
+    pub fn lock_now(&mut self) {
+        let ids: Vec<String> = self.sheets.iter().map(|s| s.id.clone()).collect();
+        for id in ids {
+            self.close_page(&id);
+        }
+        if let Some(deleted) = self.deleted.as_mut() {
+            match &mut deleted.item {
+                DeletedItem::Page(sheet) => close_detached(sheet),
+                DeletedItem::Folder { sheets, .. } => {
+                    for sheet in sheets {
+                        close_detached(sheet);
+                    }
+                }
+            }
+        }
+        self.page_keys.clear();
+        self.folder_keys.clear();
+    }
+
     /// Write changed sheets and the state. Keeps going past a failure, and returns
-    /// the first error so it can be shown.
+    /// the first error so it can be shown. A locked page is written as ciphertext.
     pub fn save(&mut self) -> Result<(), String> {
         let Some(dir) = self.dir.clone() else {
             return Ok(());
         };
         let mut first_error = None;
         let mut theirs = Vec::new();
-        for sheet in self.sheets.iter_mut().filter(|s| s.dirty) {
-            let path = dir.join(format!("{}.txt", sheet.id));
-            // Another window wrote this sheet since we read it: keep its text as a new sheet.
-            if sheet.stamp.is_some()
-                && stamp(&path) != sheet.stamp
+        let dirty: Vec<usize> = self
+            .sheets
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.dirty)
+            .map(|(i, _)| i)
+            .collect();
+        for idx in dirty {
+            let id = self.sheets[idx].id.clone();
+            self.refresh_seal(&id);
+            let Some(body) = self.body_for_disk(idx) else {
+                first_error.get_or_insert("A locked page was left unsaved.".into());
+                continue;
+            };
+            let path = dir.join(format!("{}.txt", self.sheets[idx].id));
+            let title = self.sheets[idx].title();
+            if self.sheets[idx].stamp.is_some()
+                && stamp(&path) != self.sheets[idx].stamp
                 && let Ok(text) = std::fs::read_to_string(&path)
-                && text != sheet.text
+                && text != body
             {
-                self.conflicts.push(sheet.title());
+                self.conflicts.push(title.clone());
                 theirs.push(text);
             }
-            match write_atomic(&path, sheet.text.as_bytes()) {
+            match write_atomic(&path, body.as_bytes()) {
                 Ok(()) => {
-                    sheet.dirty = false;
-                    sheet.stamp = stamp(&path);
+                    self.sheets[idx].dirty = false;
+                    self.sheets[idx].stamp = stamp(&path);
                 }
                 Err(e) => {
-                    first_error.get_or_insert(format!("{}: {e}", sheet.title()));
+                    first_error.get_or_insert(format!("{title}: {e}"));
                 }
             }
         }
@@ -1049,6 +1435,363 @@ impl Store {
         }
         self.state_dirty = false;
         first_error.map_or(Ok(()), Err)
+    }
+
+    fn idx(&self, id: &str) -> Option<usize> {
+        self.sheets.iter().position(|s| s.id == id)
+    }
+
+    fn folder_is_open(&self, page_id: &str) -> bool {
+        self.covering_folder(page_id)
+            .is_some_and(|id| self.folder_keys.contains_key(&id))
+    }
+
+    /// Nearest locked folder at or above `id` (a page or a folder).
+    fn covering_folder(&self, id: &str) -> Option<String> {
+        fn walk(nodes: &[Node], id: &str, locked: Option<&str>) -> Option<String> {
+            for node in nodes {
+                match node {
+                    Node::Page { id: pid } if pid == id => {
+                        return locked.map(str::to_string);
+                    }
+                    Node::Folder {
+                        id: fid,
+                        children,
+                        lock,
+                        ..
+                    } => {
+                        let here = if lock.is_some() {
+                            Some(fid.as_str())
+                        } else {
+                            locked
+                        };
+                        if fid == id {
+                            return here.map(str::to_string);
+                        }
+                        if let Some(found) = walk(children, id, here) {
+                            return Some(found);
+                        }
+                    }
+                    Node::Page { .. } => {}
+                }
+            }
+            None
+        }
+        walk(&self.tree, id, None)
+    }
+
+    /// A locked folder strictly above `id`, ignoring a lock on `id` itself.
+    fn ancestor_lock(&self, id: &str) -> Option<String> {
+        fn walk(nodes: &[Node], id: &str, locked: Option<&str>) -> Option<String> {
+            for node in nodes {
+                if let Node::Folder {
+                    id: fid,
+                    children,
+                    lock,
+                    ..
+                } = node
+                {
+                    if fid == id {
+                        return locked.map(str::to_string);
+                    }
+                    let here = if lock.is_some() {
+                        Some(fid.as_str())
+                    } else {
+                        locked
+                    };
+                    if let Some(found) = walk(children, id, here) {
+                        return Some(found);
+                    }
+                }
+            }
+            None
+        }
+        walk(&self.tree, id, None)
+    }
+
+    fn folder_seal(&self, id: &str) -> Option<&FolderSeal> {
+        fn walk<'a>(nodes: &'a [Node], id: &str) -> Option<&'a FolderSeal> {
+            for node in nodes {
+                if let Node::Folder {
+                    id: fid,
+                    children,
+                    lock,
+                    ..
+                } = node
+                {
+                    if fid == id {
+                        return lock.as_ref();
+                    }
+                    if let Some(found) = walk(children, id) {
+                        return Some(found);
+                    }
+                }
+            }
+            None
+        }
+        walk(&self.tree, id)
+    }
+
+    fn set_folder_seal(&mut self, id: &str, seal: Option<FolderSeal>) -> bool {
+        fn walk(nodes: &mut [Node], id: &str, seal: &mut Option<FolderSeal>) -> bool {
+            for node in nodes {
+                if let Node::Folder {
+                    id: fid,
+                    children,
+                    lock,
+                    ..
+                } = node
+                {
+                    if fid == id {
+                        *lock = seal.take();
+                        return true;
+                    }
+                    if walk(children, id, seal) {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+        let mut seal = seal;
+        let ok = walk(&mut self.tree, id, &mut seal);
+        if ok {
+            self.state_dirty = true;
+        }
+        ok
+    }
+
+    fn pages_under(&self, folder: &str) -> Vec<String> {
+        fn walk(nodes: &[Node], folder: &str, inside: bool, out: &mut Vec<String>) {
+            for node in nodes {
+                match node {
+                    Node::Page { id } if inside => out.push(id.clone()),
+                    Node::Folder { id, children, .. } => {
+                        walk(children, folder, inside || id == folder, out);
+                    }
+                    Node::Page { .. } => {}
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.tree, folder, false, &mut out);
+        out
+    }
+
+    fn page_wrap(&self, id: &str) -> Option<Wrap> {
+        let sealed = self.sheets.iter().find(|s| s.id == id)?.sealed.as_deref()?;
+        lock::wrap_of(sealed).ok()
+    }
+
+    fn encrypted_by(&self, page: &str, folder: Option<&str>) -> bool {
+        let (Some(folder), Some(wrap)) = (folder, self.page_wrap(page)) else {
+            return false;
+        };
+        self.folder_seal(folder)
+            .is_some_and(|seal| seal.wrap() == wrap)
+    }
+
+    /// A password on the page itself, not the folder around it.
+    fn individual_lock(&self, id: &str) -> bool {
+        let Some(wrap) = self.page_wrap(id) else {
+            return false;
+        };
+        match self.covering_folder(id) {
+            Some(folder) => self
+                .folder_seal(&folder)
+                .is_none_or(|seal| seal.wrap() != wrap),
+            None => !self.tree_has_wrap(&wrap),
+        }
+    }
+
+    fn tree_has_wrap(&self, wrap: &Wrap) -> bool {
+        fn walk(nodes: &[Node], wrap: &Wrap) -> bool {
+            for node in nodes {
+                if let Node::Folder { children, lock, .. } = node {
+                    if lock.as_ref().is_some_and(|seal| seal.wrap() == *wrap) {
+                        return true;
+                    }
+                    if walk(children, wrap) {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+        walk(&self.tree, wrap)
+    }
+
+    fn can_move_page(&self, id: &str, parent: Option<&str>) -> bool {
+        if self.individual_lock(id) {
+            return true;
+        }
+        let Some(dest) = parent.and_then(|p| self.covering_folder(p)) else {
+            return true;
+        };
+        if self.folder_keys.contains_key(&dest) {
+            return true;
+        }
+        self.sheets
+            .iter()
+            .any(|s| s.id == id && s.sealed.is_some() && !s.unlocked)
+    }
+
+    fn rebind_page(&mut self, id: &str, old_cover: Option<&str>) {
+        let new_cover = self.covering_folder(id);
+        if new_cover.as_deref() == old_cover {
+            return;
+        }
+        let Some(idx) = self.idx(id) else { return };
+        let individual = self.sheets[idx].sealed.is_some() && !self.encrypted_by(id, old_cover);
+        if individual {
+            return;
+        }
+        if let Some(folder) = new_cover {
+            let Some(key) = self.folder_keys.get(&folder).cloned() else {
+                return;
+            };
+            let Some(wrap) = self.folder_seal(&folder).map(|s| s.wrap()) else {
+                return;
+            };
+            if self.sheets[idx].unlocked || self.sheets[idx].sealed.is_none() {
+                let text = self.sheets[idx].text.clone();
+                if let Ok(sealed) = lock::seal(&key, &text, &wrap, id.as_bytes()) {
+                    let idx = self.idx(id).unwrap();
+                    self.sheets[idx].sealed = Some(sealed);
+                    self.sheets[idx].unlocked = true;
+                    self.sheets[idx].dirty = true;
+                    self.page_keys.remove(id);
+                    self.persist_index(idx);
+                }
+            }
+        } else if self.sheets[idx].unlocked {
+            self.sheets[idx].sealed = None;
+            self.sheets[idx].unlocked = false;
+            self.sheets[idx].dirty = true;
+            self.page_keys.remove(id);
+            self.persist_index(idx);
+        }
+    }
+
+    fn key_for(&self, id: &str) -> Option<ContentKey> {
+        if !self.individual_lock(id)
+            && let Some(folder) = self.covering_folder(id)
+            && let Some(key) = self.folder_keys.get(&folder)
+        {
+            return Some(key.clone());
+        }
+        self.page_keys.get(id).cloned()
+    }
+
+    fn wrap_for(&self, id: &str) -> Option<Wrap> {
+        if !self.individual_lock(id)
+            && let Some(folder) = self.covering_folder(id)
+        {
+            return self.folder_seal(&folder).map(|s| s.wrap());
+        }
+        self.page_wrap(id)
+    }
+
+    fn refresh_seal(&mut self, id: &str) {
+        let Some(idx) = self.idx(id) else { return };
+        if !self.sheets[idx].unlocked {
+            return;
+        }
+        let Some(key) = self.key_for(id) else { return };
+        let Some(wrap) = self.wrap_for(id) else {
+            return;
+        };
+        let text = self.sheets[idx].text.clone();
+        if let Ok(sealed) = lock::seal(&key, &text, &wrap, id.as_bytes()) {
+            let idx = self.idx(id).unwrap();
+            self.sheets[idx].sealed = Some(sealed);
+        }
+    }
+
+    fn reveal_with(&mut self, id: &str, key: &ContentKey) {
+        let Some(idx) = self.idx(id) else { return };
+        let Some(sealed) = self.sheets[idx].sealed.clone() else {
+            self.sheets[idx].unlocked = true;
+            return;
+        };
+        if let Ok(text) = lock::open_key(key, &sealed, id.as_bytes()) {
+            self.sheets[idx].text = text;
+            self.sheets[idx].unlocked = true;
+        }
+    }
+
+    fn reveal_all(&mut self) {
+        let ids: Vec<String> = self.sheets.iter().map(|s| s.id.clone()).collect();
+        for id in ids {
+            if self.sheets.iter().any(|s| s.id == id && s.unlocked) {
+                continue;
+            }
+            let Some(key) = self.key_for(&id) else {
+                continue;
+            };
+            self.reveal_with(&id, &key);
+        }
+    }
+
+    fn close_page(&mut self, id: &str) {
+        let Some(idx) = self.idx(id) else { return };
+        if self.sheets[idx].sealed.is_none() && self.covering_folder(id).is_none() {
+            return;
+        }
+        self.refresh_seal(id);
+        let Some(idx) = self.idx(id) else { return };
+        if self.sheets[idx].sealed.is_none() {
+            return;
+        }
+        self.sheets[idx].text.clear();
+        self.sheets[idx].unlocked = false;
+        self.sheets[idx].cursor = 0;
+        self.sheets[idx].dirty = true;
+        self.persist_index(idx);
+    }
+
+    fn body_for_disk(&self, idx: usize) -> Option<String> {
+        let sheet = &self.sheets[idx];
+        if let Some(sealed) = &sheet.sealed {
+            return Some(sealed.clone());
+        }
+        if self.covering_folder(&sheet.id).is_some() {
+            return None;
+        }
+        Some(sheet.text.clone())
+    }
+
+    fn persist_index(&mut self, idx: usize) {
+        let Some(dir) = self.dir.clone() else {
+            self.sheets[idx].dirty = true;
+            return;
+        };
+        let Some(body) = self.body_for_disk(idx) else {
+            self.sheets[idx].dirty = true;
+            return;
+        };
+        let path = dir.join(format!("{}.txt", self.sheets[idx].id));
+        if write_atomic(&path, body.as_bytes()).is_ok() {
+            self.sheets[idx].dirty = false;
+            self.sheets[idx].stamp = stamp(&path);
+        } else {
+            self.sheets[idx].dirty = true;
+        }
+    }
+}
+
+fn stored_body(sheet: &Sheet) -> Option<String> {
+    if let Some(sealed) = &sheet.sealed {
+        return Some(sealed.clone());
+    }
+    Some(sheet.text.clone())
+}
+
+fn close_detached(sheet: &mut Sheet) {
+    if sheet.sealed.is_some() {
+        sheet.text.clear();
+        sheet.unlocked = false;
+        sheet.cursor = 0;
     }
 }
 
@@ -1100,6 +1843,7 @@ fn side_entries(nodes: &[Node]) -> Vec<SideEntry> {
                     name,
                     collapsed,
                     children,
+                    ..
                 } => {
                     out.push(SideEntry {
                         depth,
@@ -1143,6 +1887,7 @@ fn sanitize_tree(nodes: Vec<Node>, known: &HashSet<String>) -> Vec<Node> {
                     name,
                     collapsed,
                     children,
+                    lock,
                 } => {
                     if depth >= MAX_FOLDER_DEPTH {
                         out.extend(walk(children, depth, known, seen));
@@ -1151,6 +1896,7 @@ fn sanitize_tree(nodes: Vec<Node>, known: &HashSet<String>) -> Vec<Node> {
                             id,
                             name,
                             collapsed,
+                            lock,
                             children: walk(children, depth + 1, known, seen),
                         });
                     } else {
@@ -1192,6 +1938,7 @@ fn find_folder(nodes: &[Node], id: &str) -> Option<(String, bool, usize)> {
                 name,
                 collapsed,
                 children,
+                ..
             } = node
             {
                 if fid == id {
@@ -1249,6 +1996,8 @@ fn child_list<'a>(nodes: &'a mut Vec<Node>, parent: Option<&str>) -> Option<&'a 
     None
 }
 
+// A failed insert hands the node back so the caller can put it where it was.
+#[allow(clippy::result_large_err)]
 fn insert_node(
     nodes: &mut Vec<Node>,
     parent: Option<&str>,
@@ -1479,15 +2228,40 @@ fn read_sheet(dir: &Path, id: &str) -> Option<Sheet> {
     let path = dir.join(format!("{id}.txt"));
     let stamp = stamp(&path);
     let text = std::fs::read_to_string(&path).ok()?;
-    Some(Sheet {
-        id: id.to_string(),
-        cursor: text.chars().count(),
-        text,
-        handle: String::new(),
-        locked: false,
-        dirty: false,
-        stamp,
-    })
+    Some(sheet_from_stored(id.to_string(), text, false, stamp))
+}
+
+fn plain_sheet(id: String, text: String) -> Sheet {
+    sheet_from_stored(id, text, true, None)
+}
+
+/// A page file is either plain text or a lock envelope (`OMACUS-LOCK`, or a
+/// future sync wrap around one). The envelope never becomes `text` until a
+/// password opens it. The handle is filled in after load.
+fn sheet_from_stored(id: String, raw: String, dirty: bool, stamp: Option<Stamp>) -> Sheet {
+    if lock::is_envelope(&raw) {
+        Sheet {
+            id,
+            text: String::new(),
+            cursor: 0,
+            handle: String::new(),
+            dirty,
+            stamp,
+            sealed: Some(raw),
+            unlocked: false,
+        }
+    } else {
+        Sheet {
+            id,
+            cursor: raw.chars().count(),
+            text: raw,
+            handle: String::new(),
+            dirty,
+            stamp,
+            sealed: None,
+            unlocked: false,
+        }
+    }
 }
 
 impl Store {
@@ -1574,15 +2348,20 @@ impl Store {
                 DeletedItem::Folder { sheets, .. } => sheets.as_mut_slice(),
             };
             if let Some(sheet) = sheets.iter_mut().find(|sheet| sheet.id == id) {
-                sheet.text = text.to_string();
+                if sheet.revealed() {
+                    sheet.text = text.to_string();
+                    wrote = true;
+                }
                 sheet.handle = handle.to_string();
-                wrote = true;
             }
         }
         if let Some(path) = self.trash_dir().map(|d| d.join(format!("{id}.txt")))
             && path.exists()
         {
-            wrote = write_atomic(&path, text.as_bytes()).is_ok() || wrote;
+            let existing = std::fs::read_to_string(&path).unwrap_or_default();
+            if !lock::is_envelope(&existing) {
+                wrote = write_atomic(&path, text.as_bytes()).is_ok() || wrote;
+            }
         }
         if wrote {
             self.handles.insert(id.to_string(), handle.to_string());
@@ -2181,6 +2960,126 @@ mod tests {
         store.new_sheet("# Trip Budget");
         assert_eq!(store.sheets[0].handle, "tripbudget");
         assert_eq!(store.sheets[1].handle, "trip");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn locking_a_page_hides_it_until_the_password_and_comes_back() {
+        let root = temp_root("lock-page");
+        let mut store = Store::load_in(Some(root.clone()), "# Groceries\nmilk $3");
+        let id = store.sheets[0].id.clone();
+        store.lock_page(&id, "correct horse").unwrap();
+        store.save().unwrap();
+        let file = std::fs::read_to_string(root.join("pages").join(format!("{id}.txt"))).unwrap();
+        assert!(file.starts_with("OMACUS-LOCK/1\n"), "{file}");
+        assert!(!file.contains("Groceries"), "{file}");
+        assert!(!file.contains("milk"), "{file}");
+
+        store.lock_now();
+        assert_eq!(store.sheets[0].heading(), "Locked");
+        assert!(store.concealed(&id));
+        assert_eq!(
+            store.unlock_page(&id, "nope").unwrap_err(),
+            "Wrong password."
+        );
+        assert!(store.concealed(&id));
+        store.unlock_page(&id, "correct horse").unwrap();
+        assert_eq!(store.sheets[0].text, "# Groceries\nmilk $3");
+
+        let again = Store::load_in(Some(root.clone()), "");
+        assert_eq!(again.sheets[0].heading(), "Locked");
+        assert!(again.concealed(&id));
+        let mut again = again;
+        again.unlock_page(&id, "correct horse").unwrap();
+        assert_eq!(again.sheets[0].text, "# Groceries\nmilk $3");
+        again.remove_page_lock(&id).unwrap();
+        again.save().unwrap();
+        let plain = std::fs::read_to_string(root.join("pages").join(format!("{id}.txt"))).unwrap();
+        assert_eq!(plain, "# Groceries\nmilk $3");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_locked_folder_encrypts_pages_inside_including_a_new_one() {
+        let root = temp_root("lock-folder");
+        let mut store = Store::load_in(Some(root.clone()), "# Groceries\nmilk $3");
+        let page = store.sheets[0].id.clone();
+        let folder = store.create_folder(None).unwrap();
+        store.rename_folder(&folder, "Trip");
+        assert!(store.place(&page, Place::Into(folder.clone())));
+        store.lock_folder(&folder, "folder-secret").unwrap();
+        store.save().unwrap();
+        let file = std::fs::read_to_string(root.join("pages").join(format!("{page}.txt"))).unwrap();
+        assert!(
+            !file.contains("Groceries") && !file.contains("milk"),
+            "{file}"
+        );
+
+        store.new_sheet_in(Some(&folder), "# Weekend Plans\nhike 6 km");
+        let weekend = store
+            .sheets
+            .iter()
+            .find(|s| s.text.contains("Weekend"))
+            .unwrap()
+            .id
+            .clone();
+        store.save().unwrap();
+        let nested =
+            std::fs::read_to_string(root.join("pages").join(format!("{weekend}.txt"))).unwrap();
+        assert!(
+            !nested.contains("Weekend") && !nested.contains("hike"),
+            "{nested}"
+        );
+
+        store.lock_now();
+        assert!(store.concealed(&page));
+        assert!(!store.new_sheet_in(Some(&folder), "# Trip Budget"));
+        store.unlock_folder(&folder, "folder-secret").unwrap();
+        assert_eq!(
+            store.sheets.iter().find(|s| s.id == page).unwrap().text,
+            "# Groceries\nmilk $3"
+        );
+        store.delete(store.sheets.iter().position(|s| s.id == page).unwrap());
+        let trashed = store.trashed();
+        let item = trashed.iter().find(|t| t.id == page).unwrap();
+        assert!(item.locked);
+        assert!(!item.text.contains("milk"), "{}", item.text);
+        assert_eq!(item.title, "Locked");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_closed_folder_refuses_plaintext_moved_in_until_it_is_open() {
+        let root = temp_root("lock-move");
+        let mut store = Store::load_in(Some(root.clone()), "# Groceries\nmilk $3");
+        let page = store.sheets[0].id.clone();
+        let trip = store.create_folder(None).unwrap();
+        store.rename_folder(&trip, "Trip");
+        store.lock_folder(&trip, "folder-secret").unwrap();
+        store.lock_now();
+        assert!(!store.place(&page, Place::Into(trip.clone())));
+        store.save().unwrap();
+        let path = root.join("pages").join(format!("{page}.txt"));
+        let file = std::fs::read_to_string(&path).unwrap();
+        assert!(file.contains("Groceries"), "{file}");
+
+        store.new_sheet("# Weekend Plans\nhike");
+        let weekend = store.sheets[0].id.clone();
+        let bag = store.create_folder(None).unwrap();
+        store.rename_folder(&bag, "Bag");
+        assert!(store.place(&weekend, Place::Into(bag.clone())));
+        assert!(!store.place(&bag, Place::Into(trip.clone())));
+        store.save().unwrap();
+        let weekend_file =
+            std::fs::read_to_string(root.join("pages").join(format!("{weekend}.txt"))).unwrap();
+        assert!(weekend_file.contains("Weekend"), "{weekend_file}");
+
+        store.unlock_folder(&trip, "folder-secret").unwrap();
+        assert!(store.place(&page, Place::Into(trip.clone())));
+        store.save().unwrap();
+        let locked = std::fs::read_to_string(&path).unwrap();
+        assert!(locked.starts_with("OMACUS-LOCK/1\n"), "{locked}");
+        assert!(!locked.contains("Groceries"), "{locked}");
         let _ = std::fs::remove_dir_all(root);
     }
 }

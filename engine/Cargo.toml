@@ -9,8 +9,17 @@ publish = false  # internal; the app's version is the one in ../Cargo.toml
 # Pure computation, no files, network or UI, so the same code runs in the desktop
 # app and, compiled to WebAssembly, in the browser.
 [dependencies]
+argon2 = "0.5"
+base64 = "0.22"
+chacha20poly1305 = "0.10"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std", "wasmbind"] }
 chrono-tz = "0.10.4"
 fend-core = "1.5.8"
+getrandom = "0.2"
 miniz_oxide = "0.8"
 regex = { version = "1.13.1", default-features = false, features = ["std", "perf", "unicode-perl", "unicode-case"] }
+
+# `getrandom` on wasm32 needs the browser's crypto. The feature is target-gated
+# so the desktop build does not pull in wasm-bindgen.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }

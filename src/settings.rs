@@ -100,6 +100,8 @@ pub struct Settings {
     pub export_dir: Option<PathBuf>,
     /// Overwrite an existing PDF without asking.
     pub replace_exports: bool,
+    /// Minutes of no typing before unlocked pages lock again. `0` is never.
+    pub lock_minutes: u32,
 }
 
 impl Default for Settings {
@@ -110,6 +112,7 @@ impl Default for Settings {
             hide_answers: false,
             export_dir: None,
             replace_exports: false,
+            lock_minutes: 5,
         }
     }
 }
@@ -126,6 +129,12 @@ struct Raw {
     export_dir: Option<String>,
     #[serde(default)]
     replace_exports: bool,
+    #[serde(default = "five_minutes")]
+    lock_minutes: u32,
+}
+
+fn five_minutes() -> u32 {
+    5
 }
 
 fn yes() -> bool {
@@ -154,6 +163,7 @@ impl Settings {
                 }
             }),
             replace_exports: raw.replace_exports,
+            lock_minutes: raw.lock_minutes.min(240),
         }
     }
 
@@ -163,11 +173,13 @@ impl Settings {
              check_for_updates = {}\n\
              theme = \"{}\"\n\
              hide_answers = {}\n\
-             replace_exports = {}\n",
+             replace_exports = {}\n\
+             lock_minutes = {}\n",
             self.check_for_updates,
             self.theme.as_str(),
             self.hide_answers,
             self.replace_exports,
+            self.lock_minutes,
         );
         if let Some(dir) = &self.export_dir {
             out.push_str(&format!(
@@ -276,6 +288,37 @@ pub fn controls(ui: &mut egui::Ui, settings: &mut Settings, theme: &Theme) -> bo
     );
     ui.add_space(10.0);
     ui.label(
+        egui::RichText::new("Lock again after")
+            .size(14.0)
+            .color(theme.dim),
+    );
+    let lock_label = match settings.lock_minutes {
+        0 => "Never".to_string(),
+        1 => "1 minute".to_string(),
+        n => format!("{n} minutes"),
+    };
+    egui::ComboBox::from_id_salt("omacus-lock-minutes")
+        .width(ui.available_width())
+        .selected_text(lock_label)
+        .show_ui(ui, |ui| {
+            for (minutes, label) in [
+                (1, "1 minute"),
+                (5, "5 minutes"),
+                (15, "15 minutes"),
+                (30, "30 minutes"),
+                (60, "60 minutes"),
+                (0, "Never"),
+            ] {
+                ui.selectable_value(&mut settings.lock_minutes, minutes, label);
+            }
+        });
+    note(
+        ui,
+        theme,
+        "Unlocked pages and folders lock again after this long with nothing typed. Quitting locks them too. A forgotten password can't be recovered.",
+    );
+    ui.add_space(10.0);
+    ui.label(
         egui::RichText::new("Export PDF")
             .size(14.0)
             .color(theme.dim),
@@ -355,6 +398,7 @@ mod tests {
         assert!(!settings.hide_answers);
         assert!(settings.export_dir.is_none());
         assert!(!settings.replace_exports);
+        assert_eq!(settings.lock_minutes, 5);
     }
 
     #[test]
@@ -389,6 +433,7 @@ mod tests {
             hide_answers: true,
             export_dir: Some(export.clone()),
             replace_exports: true,
+            lock_minutes: 15,
         };
         save_to(&path, &settings).unwrap();
         assert_eq!(load_from(&path), settings);
@@ -396,6 +441,7 @@ mod tests {
         assert!(text.contains("theme = \"paper\""));
         assert!(text.contains("hide_answers = true"));
         assert!(text.contains("replace_exports = true"));
+        assert!(text.contains("lock_minutes = 15"));
         assert!(text.contains("export_dir = "));
         std::fs::remove_dir_all(dir).unwrap();
     }

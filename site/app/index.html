@@ -53,6 +53,7 @@
           <button role="menuitem" data-action="new">New page</button>
           <button role="menuitem" data-action="new-folder">New folder</button>
           <button role="menuitem" data-action="move-folder">Move to folder…</button>
+          <button role="menuitem" data-action="lock-now">Lock now</button>
           <button role="menuitem" data-action="export">Export all pages (.zip)</button>
           <button role="menuitem" data-action="import">Import pages…</button>
           <hr>
@@ -112,6 +113,15 @@
         <button class="btn small primary" type="button" hidden data-action="install">Install</button>
         <button class="icon-btn small" type="button" aria-label="Dismiss" data-action="dismiss-install">×</button>
       </div>
+      <div class="lock-gate" hidden data-lock-gate>
+        <h2>This page is locked</h2>
+        <p>Enter the password to open it.</p>
+        <input data-gate-password type="password" autocomplete="current-password" aria-label="Password">
+        <p class="confirm-note" data-gate-error hidden></p>
+        <div>
+          <button class="btn small primary" type="button" data-action="gate-unlock">Unlock</button>
+        </div>
+      </div>
       <div class="page-preview" hidden data-page-preview>
         <div class="page-preview-bar">
           <button class="btn small primary" type="button" data-action="close-preview">Edit</button>
@@ -148,6 +158,18 @@
         <div class="move-list" data-move-list></div>
         <div>
           <button class="btn small" type="button" data-action="close-move">Cancel</button>
+        </div>
+      </div>
+      <div class="confirm" hidden data-lock role="dialog" aria-modal="true" aria-labelledby="lock-title">
+        <p id="lock-title" data-lock-title>Lock page</p>
+        <p class="confirm-note" data-lock-detail>A forgotten password can't be recovered.</p>
+        <input data-lock-current type="password" autocomplete="current-password" hidden aria-label="Current password">
+        <input data-lock-password type="password" autocomplete="new-password" aria-label="Password">
+        <input data-lock-confirm type="password" autocomplete="new-password" hidden aria-label="Confirm password">
+        <p class="confirm-note" data-lock-error hidden></p>
+        <div>
+          <button class="btn small primary" type="button" data-lock-yes data-action="lock-submit">Lock</button>
+          <button class="btn small" type="button" data-action="close-lock">Cancel</button>
         </div>
       </div>
       <div class="confirm" hidden data-rename role="dialog" aria-modal="true" aria-labelledby="rename-title">
@@ -196,6 +218,17 @@
         </label>
         <p class="settings-note" data-theme-note></p>
         <label class="settings-check"><input type="checkbox" data-setting="hide-answers"> Hide the answers column</label>
+        <label class="settings-field">Lock again after
+          <select data-setting="lock-minutes">
+            <option value="1">1 minute</option>
+            <option value="5" selected>5 minutes</option>
+            <option value="15">15 minutes</option>
+            <option value="30">30 minutes</option>
+            <option value="60">1 hour</option>
+            <option value="0">Never</option>
+          </select>
+        </label>
+        <p class="settings-note">An open lock closes after this long with no typing or clicking, and when you leave the page. A forgotten password can't be recovered.</p>
         <p class="settings-note">Answers sit after each line. Ctrl+\ toggles this. The desktop app also has Omarchy, a custom theme file, and update checks.</p>
         <p class="settings-note">The desktop app chooses the PDF folder. Here, Print and Export PDF use the page title, and the browser decides where the file goes.</p>
       </div>

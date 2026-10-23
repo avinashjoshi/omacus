@@ -59,13 +59,16 @@ export function sanitize(nodes, known) {
           continue;
         }
         seen.add(id);
-        out.push({
+        const folder = {
           type: "folder",
           id,
           name: typeof node.name === "string" ? node.name : "Folder",
           collapsed: !!node.collapsed,
           children: walk(node.children, depth + 1),
-        });
+        };
+        const lock = folderLock(node.lock);
+        if (lock) folder.lock = lock;
+        out.push(folder);
       }
     }
     return out;
@@ -86,6 +89,7 @@ export function visible(nodes) {
           id: node.id,
           name: node.name,
           collapsed: !!node.collapsed,
+          locked: !!node.lock,
         });
         if (!node.collapsed) walk(node.children, depth + 1);
       }
@@ -128,6 +132,60 @@ export function locate(nodes, id) {
 
 export function folderOf(nodes, id) {
   return locate(nodes, id)?.parent ?? null;
+}
+
+/// A lock object copied onto a folder, or null when the shape isn't one.
+export function folderLock(lock) {
+  if (!lock || typeof lock !== "object") return null;
+  if (typeof lock.salt !== "string" || typeof lock.nonce !== "string" || typeof lock.wrapped !== "string") {
+    return null;
+  }
+  return {
+    salt: lock.salt,
+    nonce: lock.nonce,
+    wrapped: lock.wrapped,
+    memory_kib: Number(lock.memory_kib) || 19 * 1024,
+    iterations: Number(lock.iterations) || 2,
+    lanes: Number(lock.lanes) || 1,
+  };
+}
+
+/// The nearest locked folder at or above `id`, including `id` when it is a locked folder.
+export function coveringLock(nodes, id) {
+  if (id == null) return null;
+  let found = null;
+  const walk = (list, ancestor) => {
+    for (const node of list ?? []) {
+      if (!node) continue;
+      if (node.type === "folder") {
+        const here = node.lock ? { id: node.id, lock: node.lock } : ancestor;
+        if (node.id === id) {
+          found = here;
+          return true;
+        }
+        if (walk(node.children, here)) return true;
+      } else if (node.type === "page" && node.id === id) {
+        found = ancestor;
+        return true;
+      }
+    }
+    return false;
+  };
+  walk(nodes, null);
+  return found;
+}
+
+/// Page ids inside a folder, including pages in nested folders.
+export function pagesUnder(nodes, folderId) {
+  const out = [];
+  const walk = (list, inside) => {
+    for (const node of list ?? []) {
+      if (node?.type === "page" && inside) out.push(node.id);
+      else if (node?.type === "folder") walk(node.children, inside || node.id === folderId);
+    }
+  };
+  walk(nodes, false);
+  return out;
 }
 
 export function folderDepth(nodes, id) {

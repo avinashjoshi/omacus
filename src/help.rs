@@ -70,6 +70,10 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
                 "Drag",
                 "Reorder a page or folder, or drop a page onto a folder",
             ),
+            (
+                "Lock…",
+                "Password-lock a page or folder. A forgotten password can't be recovered",
+            ),
         ],
     ),
     (
