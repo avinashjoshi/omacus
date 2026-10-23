@@ -60,6 +60,9 @@ check(js.includes("completionStatus(state)") && /if \(update\.docChanged\) \{[\s
 check(!js.includes("completionStatus(view)") && !js.includes("completionStatus(update.view)"), "completion status is read from the state, not the view");
 check(js.includes('autocomplete: "off"') && js.includes("commitTypedText"), "phone composition is committed and autocomplete stays off");
 check(js.includes('key: "F2"') && js.includes("Rename variable"), "F2 and the menu rename a variable");
+check(!js.includes('className = "hover-rename"'), "hover does not also offer Rename variable");
+check(js.includes("function inNameField"), "name fields are left out of the global shortcuts");
+check(js.includes('keys.textContent = "F2"') && js.includes('shortcut: "F2"'), "F2 is shown in the menu and the command palette");
 check(js.includes("definitionChange") && js.includes("ref-update"), "editing a definition can update its references");
 check(js.includes("touchstart") && js.includes("renameAtCaret") && html.includes('data-action="rename"'), "a phone can long-press a name or tap Rename");
 check(!js.includes('console.log("rename-'), "rename diagnostics stay out of the page");
@@ -88,6 +91,8 @@ check(js.includes('note.dataset.ratesState = state'), "the rates note records wh
 check(css.includes(".rates-note"), "the rates note is styled");
 check(css.includes(".pill"), "answers in the preview are marked");
 check(/\.hover-value \{[^}]*white-space:\s*nowrap/.test(css), "a hover value stays on one line");
+check(/\.hover-card \{[^}]*padding:/.test(css) && /\.hover-card \{[^}]*box-shadow:/.test(css), "a cross-page hover is one padded card");
+check(js.includes("`from ${name}`"), "a cross-page hover names the source page");
 check(/\.cm-tooltip\.cm-tooltip-hover \{[^}]*max-width:\s*none/.test(css), "the hover tooltip sizes to its text");
 check(html.includes("rail-settings"), "the collapsed rail has a settings gear");
 check(html.includes('class="side-tools"'), "the open sidebar has a settings gear");
@@ -610,7 +615,10 @@ if (pkg) {
   check(tip.text === "$1,450", `hover showed ${tip.text}`);
   check(tip.shown && tip.y > 0 && tip.y < 760 && tip.x > 0, `hover tooltip is off-screen (${JSON.stringify(tip)})`);
   check(tip.w > tip.h, `hover value is taller than it is wide (${tip.w}x${tip.h})`);
-  check(tip.rename, "hover did not offer Rename variable");
+  check(!tip.rename, "hover also offered Rename variable");
+  const popupCount = await evalJson(`document.querySelectorAll(".cm-tooltip, .rename-menu, .rename-pop, .ref-prompt").length`);
+  check(popupCount === 1, `more than one popup was visible (${popupCount})`);
+  if (shots) await plainShot(join(shots, "single-popup.png"));
   const nowrap = await evalJson(`getComputedStyle(document.querySelector(".hover-value")).whiteSpace`);
   check(nowrap === "nowrap", `hover value wraps (${nowrap})`);
   if (shots) await plainShot(join(shots, "hover.png"));
@@ -637,6 +645,213 @@ if (pkg) {
   check(longTip.inside, `long hover left the window (${JSON.stringify(longTip)})`);
   if (shots) await plainShot(join(shots, "hover-long.png"));
   }
+
+  // Right-click offers Rename, and only that menu — the value tip closes.
+  const menuSpot = await evalJson(`(() => {
+    const el = document.querySelector(".t-var");
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + Math.min(r.height / 2, 8) };
+  })()`);
+  await page("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x: menuSpot.x,
+    y: menuSpot.y,
+    button: "right",
+    buttons: 2,
+    clickCount: 1,
+  });
+  await page("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x: menuSpot.x,
+    y: menuSpot.y,
+    button: "right",
+    clickCount: 1,
+  });
+  await waitFor(`document.querySelector(".rename-menu")`, 2000);
+  const menu = await evalJson(`(() => {
+    const item = document.querySelector(".rename-menu");
+    return {
+      text: item?.innerText || "",
+      tips: document.querySelectorAll(".cm-tooltip, .hover-rename, .rename-pop").length,
+    };
+  })()`);
+  check(menu.text.includes("Rename variable") && menu.text.includes("F2"), `rename menu was ${JSON.stringify(menu)}`);
+  check(menu.tips === 0, `another popup stayed open with the menu (${menu.tips})`);
+  if (shots) await plainShot(join(shots, "context-menu-rename.png"));
+  await evalJson(`document.querySelector(".rename-menu button").dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))`);
+  await waitFor(`document.querySelector(".rename-pop input")`, 2000);
+  const selected = await evalJson(`(() => {
+    const input = document.querySelector(".rename-pop input");
+    return {
+      value: input.value,
+      start: input.selectionStart,
+      end: input.selectionEnd,
+      focused: document.activeElement === input,
+    };
+  })()`);
+  check(
+    selected.focused && selected.value === "rent" && selected.start === 0 && selected.end === selected.value.length,
+    `rename field did not preselect the name (${JSON.stringify(selected)})`,
+  );
+  if (shots) await plainShot(join(shots, "rename-field-selected.png"));
+  await page("Input.dispatchKeyEvent", {
+    type: "rawKeyDown",
+    modifiers: process.platform === "darwin" ? 4 : 2,
+    key: "a",
+    code: "KeyA",
+    windowsVirtualKeyCode: 65,
+    commands: ["selectAll"],
+  });
+  await page("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "a",
+    code: "KeyA",
+    windowsVirtualKeyCode: 65,
+  });
+  const selectedAll = await evalJson(`(() => {
+    const input = document.querySelector(".rename-pop input");
+    return { start: input.selectionStart, end: input.selectionEnd, value: input.value };
+  })()`);
+  check(selectedAll.start === 0 && selectedAll.end === selectedAll.value.length, `select all missed (${JSON.stringify(selectedAll)})`);
+  await page("Input.insertText", { text: "fare" });
+  const replaced = await evalJson(`document.querySelector(".rename-pop input")?.value`);
+  check(replaced === "fare", `select-all then type left ${JSON.stringify(replaced)}`);
+  await evalJson(`document.querySelector(".rename-pop input").select()`);
+  try {
+    await send("Browser.grantPermissions", {
+      origin: `http://127.0.0.1:${port}`,
+      permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"],
+    });
+  } catch {}
+  await evalJson(`navigator.clipboard.writeText("fare2")`);
+  await page("Input.dispatchKeyEvent", {
+    type: "rawKeyDown",
+    modifiers: process.platform === "darwin" ? 4 : 2,
+    key: "v",
+    code: "KeyV",
+    windowsVirtualKeyCode: 86,
+    commands: ["Paste"],
+  });
+  await page("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "v",
+    code: "KeyV",
+    windowsVirtualKeyCode: 86,
+  });
+  let pasted = await evalJson(`document.querySelector(".rename-pop input")?.value`);
+  if (pasted !== "fare2") {
+    pasted = await evalJson(`(() => {
+      const input = document.querySelector(".rename-pop input");
+      input.focus();
+      input.select();
+      const data = new DataTransfer();
+      data.setData("text/plain", "fare2");
+      const event = new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data });
+      input.dispatchEvent(event);
+      if (!event.defaultPrevented && input.value !== "fare2") {
+        document.execCommand("insertText", false, "fare2");
+      }
+      return input.value;
+    })()`);
+  }
+  check(pasted === "fare2", `paste left ${JSON.stringify(pasted)}`);
+  await evalJson(`document.querySelector(".rename-pop input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+
+  await evalJson(`document.querySelector(".side-head [data-action=new-folder]").click()`);
+  await waitFor(`document.querySelector("[data-rename]") && !document.querySelector("[data-rename]").hidden`, 2000);
+  const folderSelected = await evalJson(`(() => {
+    const input = document.querySelector("[data-rename-input]");
+    return { value: input.value, start: input.selectionStart, end: input.selectionEnd, focused: document.activeElement === input };
+  })()`);
+  check(
+    folderSelected.focused && folderSelected.start === 0 && folderSelected.end === folderSelected.value.length && folderSelected.value.length > 0,
+    `new folder name was not selected (${JSON.stringify(folderSelected)})`,
+  );
+  await evalJson(`navigator.clipboard.writeText("Trip Budget")`);
+  await page("Input.dispatchKeyEvent", {
+    type: "rawKeyDown",
+    modifiers: process.platform === "darwin" ? 4 : 2,
+    key: "v",
+    code: "KeyV",
+    windowsVirtualKeyCode: 86,
+    commands: ["Paste"],
+  });
+  await page("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "v",
+    code: "KeyV",
+    windowsVirtualKeyCode: 86,
+  });
+  let folderPasted = await evalJson(`document.querySelector("[data-rename-input]")?.value`);
+  if (folderPasted !== "Trip Budget") {
+    folderPasted = await evalJson(`(() => {
+      const input = document.querySelector("[data-rename-input]");
+      input.focus();
+      input.select();
+      document.execCommand("insertText", false, "Trip Budget");
+      return input.value;
+    })()`);
+  }
+  check(folderPasted === "Trip Budget", `folder paste left ${JSON.stringify(folderPasted)}`);
+  await evalJson(`document.querySelector("[data-rename-input]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+
+  // A cross-page reference is one card: the value, then "from Trip Budget",
+  // above the line rather than loose text on the next row.
+  await evalJson(`(() => {
+    localStorage.setItem("omacus:page:trip", "# Trip Budget\\ntotal = $40");
+    localStorage.setItem("omacus:page:groceries", "# Groceries\\ncost = @trip.total");
+    localStorage.setItem("omacus:index", JSON.stringify({
+      order: ["trip", "groceries"],
+      active: "groceries",
+      handles: { trip: "trip", groceries: "groceries" },
+    }));
+    return true;
+  })()`);
+  await navigate(`http://127.0.0.1:${port}/app/`);
+  await waitFor(`document.body.innerText.includes("@trip.total")`, 20000);
+  const refSpot = await evalJson(`(() => {
+    const el = [...document.querySelectorAll(".t-var")].find((n) => n.textContent === "total");
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + Math.min(r.height / 2, 8), top: r.top, bottom: r.bottom };
+  })()`);
+  check(refSpot, "@trip.total is not on the page");
+  if (refSpot) {
+    await page("Input.dispatchMouseEvent", { type: "mouseMoved", x: 8, y: 8 });
+    await page("Input.dispatchMouseEvent", { type: "mouseMoved", x: refSpot.x, y: refSpot.y });
+    await waitFor(`document.querySelector(".hover-source")?.textContent === "from Trip Budget"`, 4000);
+    const cross = await evalJson(`(() => {
+      const card = document.querySelector(".hover-card");
+      const value = card?.querySelector(".hover-value");
+      const source = card?.querySelector(".hover-source");
+      const cr = card.getBoundingClientRect();
+      const sr = source.getBoundingClientRect();
+      const vr = value.getBoundingClientRect();
+      const token = [...document.querySelectorAll(".t-var")].find((n) => n.textContent === "total").getBoundingClientRect();
+      const above = cr.bottom <= token.top + 1;
+      const below = cr.top >= token.bottom - 1;
+      const sourceInside = sr.top >= cr.top - 1 && sr.bottom <= cr.bottom + 1 && sr.left >= cr.left - 1 && sr.right <= cr.right + 1;
+      return {
+        value: value.textContent,
+        source: source.textContent,
+        tips: document.querySelectorAll(".cm-tooltip").length,
+        above, below,
+        sourceInside,
+        valueFirst: vr.bottom <= sr.top + 1,
+        cardW: cr.width,
+        cardH: cr.height,
+      };
+    })()`);
+    check(cross.value === "$40", `cross-page hover showed ${cross.value}`);
+    check(cross.source === "from Trip Budget", `cross-page source was ${cross.source}`);
+    check(cross.tips === 1, `cross-page hover opened ${cross.tips} tooltips`);
+    check(cross.sourceInside, "the page title is outside the value card");
+    check(cross.valueFirst, "the page title is not under the value");
+    check(cross.above || cross.below, `the card overlaps the reference (${JSON.stringify(cross)})`);
+    check(cross.above, `the card sat below the line when there was room above (${JSON.stringify(cross)})`);
+    if (shots) await plainShot(join(shots, "hover-cross-page.png"));
+  }
+
   const gears = await evalJson(`(() => {
     document.querySelector("[data-settings]").hidden = true;
     const side = document.querySelector(".side-tools [data-action=settings]");

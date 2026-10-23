@@ -152,13 +152,6 @@ fn ref_prompt_from(edit: engine::rename::DefinitionEdit) -> RefPrompt {
     }
 }
 
-/// "Rename" under a hovered variable, kept while the pointer is on the button.
-struct HoverRename {
-    rect: Rect,
-    anchor: Pos2,
-    cursor: usize,
-}
-
 enum SheetAction {
     Select(usize),
     New,
@@ -200,11 +193,13 @@ struct DropTarget<'a> {
     expand_id: &'a mut Option<String>,
 }
 
-/// A folder whose name is being typed.
+/// A folder whose name is being typed in a real text field.
 #[derive(Clone)]
 struct FolderRename {
     id: String,
     text: String,
+    /// Select the whole name on the next frame, so typing replaces it.
+    select_all: bool,
 }
 
 #[derive(Clone)]
@@ -299,6 +294,8 @@ enum Jump {
     Settings,
     NewFolder,
     MoveToFolder,
+    /// F2: rename the variable under the caret.
+    Rename,
 }
 
 struct Hit {
@@ -431,6 +428,8 @@ pub struct OmacusApp {
     rename: Option<RenameSession>,
     /// Enter was pressed in the rename field this frame.
     rename_commit: bool,
+    /// Enter was pressed in the folder-name field this frame.
+    rename_folder_commit: bool,
     /// Open a rename on this char index once the editor has been shown.
     rename_at: Option<usize>,
     /// Char index the context menu was opened on.
@@ -454,7 +453,6 @@ pub struct OmacusApp {
     editor_id: Option<egui::Id>,
     /// Screenshot hook: open the rename field on the sample page.
     demo_rename: bool,
-    hover_rename: Option<HoverRename>,
     /// Cursor to apply to the editor after it is next shown.
     pending_cursor: Option<usize>,
     /// Sheets whose saved cursor has been put back this session.
@@ -540,6 +538,7 @@ impl OmacusApp {
             hover: None,
             rename: None,
             rename_commit: false,
+            rename_folder_commit: false,
             rename_at: None,
             rename_menu_at: None,
             ref_prompt: None,
@@ -551,7 +550,6 @@ impl OmacusApp {
             ref_dismissed: false,
             editor_id: None,
             demo_rename: false,
-            hover_rename: None,
             pending_cursor: None,
             restored: HashSet::new(),
             focus_editor: true,
@@ -794,8 +792,14 @@ rental = rent + 50
                         .store
                         .folder_name(&id)
                         .unwrap_or_else(|| "New folder".into());
-                    self.rename_folder = Some(FolderRename { id, text });
+                    self.rename_folder = Some(FolderRename {
+                        id,
+                        text,
+                        select_all: true,
+                    });
                     self.switcher = None;
+                    self.popup = None;
+                    self.focus_editor = false;
                     self.touched();
                 }
                 return;
@@ -816,8 +820,14 @@ rental = rent + 50
             }
             SheetAction::RenameFolder(id) => {
                 let text = self.store.folder_name(&id).unwrap_or_default();
-                self.rename_folder = Some(FolderRename { id, text });
+                self.rename_folder = Some(FolderRename {
+                    id,
+                    text,
+                    select_all: true,
+                });
                 self.switcher = None;
+                self.popup = None;
+                self.focus_editor = false;
                 return;
             }
             SheetAction::DeleteFolder(id) => {
@@ -862,6 +872,7 @@ rental = rent + 50
                         focus: true,
                     });
                     self.popup = None;
+                    self.focus_editor = false;
                 }
                 return;
             }
@@ -1036,29 +1047,15 @@ rental = rent + 50
             return;
         }
         if self.rename_folder.is_some() {
-            let edits = ctx.input_mut(|i| take_switcher_edits(&mut i.events));
-            let mut commit = false;
-            let mut cancel = dismiss;
-            if let Some(rename) = &mut self.rename_folder {
-                for edit in edits {
-                    match edit {
-                        SwitcherEdit::Type(text) => rename.text.push_str(&text),
-                        SwitcherEdit::Backspace => {
-                            rename.text.pop();
-                        }
-                        SwitcherEdit::Confirm => commit = true,
-                        SwitcherEdit::Close => cancel = true,
-                        SwitcherEdit::Up | SwitcherEdit::Down => {}
-                    }
-                }
-            }
-            if cancel {
+            // Leave text, paste, arrows, and selection keys for the text field.
+            // Enter and Escape are the only keys this dialog handles itself.
+            let key = ctx.input_mut(|i| take_name_field_key(&mut i.events));
+            if dismiss || key == Some(NameFieldKey::Cancel) {
                 self.rename_folder = None;
+                self.rename_folder_commit = false;
                 self.focus_editor = true;
-            } else if commit && let Some(rename) = self.rename_folder.take() {
-                self.store.rename_folder(&rename.id, &rename.text);
-                self.touched();
-                self.focus_editor = true;
+            } else if key == Some(NameFieldKey::Confirm) {
+                self.rename_folder_commit = true;
             }
             return;
         }
@@ -1069,12 +1066,12 @@ rental = rent + 50
             return;
         }
         if self.handle_edit.is_some() {
-            let confirm = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
-            if dismiss {
+            let key = ctx.input_mut(|i| take_name_field_key(&mut i.events));
+            if dismiss || key == Some(NameFieldKey::Cancel) {
                 self.handle_edit = None;
                 self.handle_commit = false;
                 self.focus_editor = true;
-            } else if confirm {
+            } else if key == Some(NameFieldKey::Confirm) {
                 self.handle_commit = true;
             }
             return;
@@ -1120,16 +1117,17 @@ rental = rent + 50
         }
 
         if self.rename.is_some() {
-            if dismiss {
+            let key = ctx.input_mut(|i| take_name_field_key(&mut i.events));
+            if dismiss || key == Some(NameFieldKey::Cancel) {
                 self.rename = None;
                 self.focus_editor = true;
-                return;
-            }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
+            } else if key == Some(NameFieldKey::Confirm) {
                 self.rename_commit = true;
-                return;
             }
-        } else if self.ref_prompt.is_some() && dismiss {
+            // Editing keys stay in the queue for the text field.
+            return;
+        }
+        if self.ref_prompt.is_some() && dismiss {
             self.ref_prompt = None;
             self.ref_dismissed = true;
             self.focus_editor = true;
@@ -1578,6 +1576,13 @@ rental = rent + 50
                 badge: "command",
             });
         }
+        if rename_command(&sw.query) {
+            hits.push(Hit {
+                title: "Rename variable".to_string(),
+                jump: Jump::Rename,
+                badge: "F2",
+            });
+        }
         hits.extend(
             find_sheets(&titles, &texts, &sw.query)
                 .into_iter()
@@ -1612,6 +1617,11 @@ rental = rent + 50
             Jump::Settings => self.open_settings(),
             Jump::NewFolder => self.apply(SheetAction::NewFolderAt(None)),
             Jump::MoveToFolder => self.apply(SheetAction::MoveTo(self.store.active)),
+            Jump::Rename => {
+                self.rename_at = Some(self.store.current().cursor);
+                self.focus_editor = false;
+                self.popup = None;
+            }
         }
     }
 
@@ -2538,6 +2548,14 @@ rental = rent + 50
             make_room_for_answers(galley, &answers, wrap_width, row_height)
         };
 
+        // A name field is a real text editor. The page must not keep the keys.
+        if self.naming() {
+            self.focus_editor = false;
+            if let Some(id) = self.editor_id {
+                ui.ctx().memory_mut(|mem| mem.surrender_focus(id));
+            }
+        }
+
         // One editor per sheet, so each keeps its own cursor and undo history.
         let before_edit = self.store.sheets[self.store.active].text.clone();
         let output = TextEdit::multiline(&mut self.store.sheets[self.store.active].text)
@@ -2666,11 +2684,8 @@ rental = rent + 50
             }
         }
         if response.hovered() {
-            self.show_hover(ui, &output.galley, output.galley_pos);
-        } else if self.pointer_on_hover_rename(ui) {
-            self.keep_hover_rename(ui);
-        } else {
-            self.hover_rename = None;
+            let menu_open = response.secondary_clicked() || response.context_menu_opened();
+            self.show_hover(ui, &output.galley, output.galley_pos, menu_open);
         }
         self.rename_menu(ui, response, &output.galley, output.galley_pos);
         self.show_rename_field(ui, &output.galley, output.galley_pos);
@@ -2928,19 +2943,40 @@ rental = rent + 50
         }
     }
 
+    fn naming(&self) -> bool {
+        self.rename.is_some()
+            || self.rename_at.is_some()
+            || self.rename_folder.is_some()
+            || self.handle_edit.is_some()
+    }
+
+    fn pop_state(&self, value: bool, menu: bool) -> PopState {
+        PopState {
+            naming: self.naming(),
+            menu,
+            prompt: self.ref_prompt.is_some(),
+            completion: self.popup.is_some(),
+            value,
+            typing: self.edited_at.elapsed() < HINT_IDLE,
+            dialog: self.switcher.is_some()
+                || self.help.is_some()
+                || self.page_preview
+                || self.pending_delete.is_some()
+                || self.move_page.is_some(),
+        }
+    }
+
     /// The value of the variable or number under the pointer.
-    fn show_hover(&mut self, ui: &egui::Ui, galley: &egui::Galley, origin: Pos2) {
+    fn show_hover(&mut self, ui: &egui::Ui, galley: &egui::Galley, origin: Pos2, menu_open: bool) {
+        if shown_pop(self.pop_state(true, menu_open)) != ShownPop::Value {
+            return;
+        }
         let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) else {
             return;
         };
-        if self.pointer_on_hover_rename(ui) {
-            self.keep_hover_rename(ui);
-            return;
-        }
         let cc = galley.cursor_from_pos(pointer - origin);
         let text = self.store.current().text.clone();
         let Some(hit) = self.lookup_hover(&text, cc.index.0) else {
-            self.hover_rename = None;
             return;
         };
         let start = galley.pos_from_cursor(CCursor::new(hit.start));
@@ -2951,12 +2987,21 @@ rental = rent + 50
         )
         .expand(3.0);
         if !rect.contains(pointer) {
-            self.hover_rename = None;
             return;
         }
         let mut extras = Vec::new();
-        if let Some(title) = &hit.source_title {
-            extras.push(title.clone());
+        if let Some(title) = hit
+            .source_title
+            .as_deref()
+            .filter(|title| !title.is_empty())
+        {
+            extras.push(hover_from_line(title));
+        } else if let Some(handle) = hit
+            .source_handle
+            .as_deref()
+            .filter(|handle| !handle.is_empty())
+        {
+            extras.push(hover_from_line(&format!("@{handle}")));
         }
         match hit.used_by {
             0 => {}
@@ -2969,69 +3014,6 @@ rental = rent + 50
             && tip.contains(pointer)
         {
             self.pending_open = Some(handle);
-            return;
-        }
-        if engine::rename::binding_at(&text, cc.index.0).is_some() {
-            // Touching the token, so the pointer can move onto Rename without a gap.
-            let anchor = pos2(rect.left(), rect.bottom() - 1.0);
-            self.paint_hover_rename(ui, anchor, cc.index.0);
-        } else {
-            self.hover_rename = None;
-        }
-    }
-
-    fn pointer_on_hover_rename(&self, ui: &egui::Ui) -> bool {
-        let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) else {
-            return false;
-        };
-        self.hover_rename
-            .as_ref()
-            .is_some_and(|hover| hover.rect.contains(pointer))
-    }
-
-    fn keep_hover_rename(&mut self, ui: &egui::Ui) {
-        let Some(hover) = self.hover_rename.as_ref() else {
-            return;
-        };
-        let (anchor, cursor) = (hover.anchor, hover.cursor);
-        self.paint_hover_rename(ui, anchor, cursor);
-    }
-
-    fn paint_hover_rename(&mut self, ui: &egui::Ui, anchor: Pos2, cursor: usize) {
-        let theme = self.theme.clone();
-        let mut clicked = false;
-        let mut rect = Rect::from_min_size(anchor, vec2(72.0, 26.0));
-        egui::Area::new(egui::Id::unique("omacus-hover-rename"))
-            .order(Order::Tooltip)
-            .fixed_pos(anchor)
-            .interactable(true)
-            .show(ui.ctx(), |ui| {
-                Frame::NONE
-                    .fill(theme.sidebar)
-                    .stroke(egui::Stroke::new(1.0, theme.selection))
-                    .corner_radius(CornerRadius::same(6))
-                    .inner_margin(Margin::symmetric(8, 4))
-                    .show(ui, |ui| {
-                        let resp = ui.add(
-                            egui::Button::new(
-                                egui::RichText::new("Rename variable")
-                                    .size(12.5)
-                                    .color(theme.foreground),
-                            )
-                            .frame(false),
-                        );
-                        clicked = resp.clicked();
-                        rect = resp.rect.expand(6.0);
-                    });
-            });
-        self.hover_rename = Some(HoverRename {
-            rect,
-            anchor,
-            cursor,
-        });
-        if clicked {
-            self.rename_at = Some(cursor);
-            self.hover_rename = None;
         }
     }
 
@@ -3044,7 +3026,6 @@ rental = rent + 50
         self.ref_prompt = None;
         self.ref_base = None;
         self.ref_dismissed = false;
-        self.hover_rename = None;
         self.focus_editor = false;
         self.rename = Some(RenameSession {
             cursor,
@@ -3068,6 +3049,10 @@ rental = rent + 50
             let cc = galley.cursor_from_pos(pos - origin);
             self.rename_menu_at = Some(cc.index.0);
         }
+        if self.rename.is_some() {
+            self.rename_menu_at = None;
+            return;
+        }
         let menu_at = self.rename_menu_at;
         let text = self.store.current().text.clone();
         let on_name = menu_at.is_some_and(|at| engine::rename::binding_at(&text, at).is_some());
@@ -3076,7 +3061,10 @@ rental = rent + 50
         }
         let mut chosen = None;
         response.context_menu(|ui| {
-            if ui.button("Rename variable").clicked() {
+            if ui
+                .add(egui::Button::new("Rename variable").shortcut_text("F2"))
+                .clicked()
+            {
                 chosen = menu_at;
             }
         });
@@ -3116,15 +3104,14 @@ rental = rent + 50
                     .inner_margin(Margin::same(6))
                     .show(ui, |ui| {
                         let width = (buffer.chars().count().max(8) as f32) * 10.0 + 12.0;
+                        let chars = buffer.chars().count();
                         let out = TextEdit::singleline(&mut buffer)
                             .id(egui::Id::unique("omacus-rename-field"))
                             .font(FontId::monospace(FONT_SIZE))
                             .desired_width(width.clamp(96.0, 280.0))
                             .hint_text("New name")
                             .show(ui);
-                        if focus {
-                            out.response.request_focus();
-                        }
+                        place_name_caret(ui.ctx(), &out, chars, focus);
                         if let Some(err) = &error {
                             ui.label(
                                 egui::RichText::new(err)
@@ -3617,15 +3604,14 @@ rental = rent + 50
                     .color(theme.dim),
                 );
                 ui.add_space(10.0);
+                let chars = buffer.chars().count();
                 let out = TextEdit::singleline(&mut buffer)
                     .id(egui::Id::unique("omacus-handle-field"))
                     .font(FontId::monospace(FONT_SIZE))
                     .desired_width(ui.available_width())
                     .hint_text("handle")
                     .show(ui);
-                if focus {
-                    out.response.request_focus();
-                }
+                place_name_caret(ui.ctx(), &out, chars, focus);
                 if let Some(note) = error.as_ref().or(blurb.as_ref()) {
                     ui.add_space(6.0);
                     let bad = error.is_some()
@@ -4234,6 +4220,8 @@ rental = rent + 50
             return;
         };
         let theme = self.theme.clone();
+        let mut shown = rename.text.clone();
+        let select_all = rename.select_all;
         let mut cancel = false;
         let frame = Frame::NONE
             .fill(theme.sidebar)
@@ -4251,16 +4239,15 @@ rental = rent + 50
                         .color(theme.foreground),
                 );
                 ui.add_space(8.0);
-                // Display only. Keystrokes are applied in `handle_shortcuts`, the
-                // same way the page switcher types without moving the text cursor.
-                let mut shown = rename.text.clone();
-                ui.add(
-                    TextEdit::singleline(&mut shown)
-                        .interactive(false)
-                        .font(FontId::proportional(15.0))
-                        .text_color(theme.foreground)
-                        .desired_width(f32::INFINITY),
-                );
+                // A focused field. The page editor has given up the keyboard,
+                // and only Enter and Escape are taken before this runs.
+                let chars = shown.chars().count();
+                let out = TextEdit::singleline(&mut shown)
+                    .id(egui::Id::unique("omacus-folder-name"))
+                    .font(FontId::proportional(15.0))
+                    .desired_width(f32::INFINITY)
+                    .show(ui);
+                place_name_caret(ui.ctx(), &out, chars, select_all);
                 ui.add_space(6.0);
                 ui.label(
                     egui::RichText::new("Enter keeps the name. Esc cancels.")
@@ -4280,8 +4267,18 @@ rental = rent + 50
                     )
                     .clicked();
             });
+        if let Some(rename) = &mut self.rename_folder {
+            rename.text = shown;
+            rename.select_all = false;
+        }
+        let commit = std::mem::take(&mut self.rename_folder_commit);
         if modal.should_close() || cancel {
             self.rename_folder = None;
+            self.rename_folder_commit = false;
+            self.focus_editor = true;
+        } else if commit && let Some(rename) = self.rename_folder.take() {
+            self.store.rename_folder(&rename.id, &rename.text);
+            self.touched();
             self.focus_editor = true;
         }
     }
@@ -4615,9 +4612,14 @@ fn icon_button(
     resp
 }
 
+/// "from Trip Budget" under a cross-page value, inside the same card.
+fn hover_from_line(name: &str) -> String {
+    format!("from {name}")
+}
+
 /// Where a hover value sits: above the token, below it when that would leave
 /// the window, and shifted so the whole tip stays inside `bounds`. The tip is
-/// exactly as wide as the value, so a long amount is never wrapped.
+/// exactly as wide as its widest line, so a long amount is never wrapped.
 fn hover_tip_rect(token: Rect, text_size: Vec2, bounds: Rect) -> Rect {
     let pad = vec2(12.0, 8.0);
     let size = text_size + pad * 2.0;
@@ -4705,6 +4707,122 @@ fn new_folder_command(query: &str) -> bool {
 fn move_folder_command(query: &str) -> bool {
     let q = query.trim().to_lowercase();
     q.len() >= 2 && "move to folder".starts_with(&q)
+}
+
+/// The switcher offers Rename variable, and shows F2 beside it.
+fn rename_command(query: &str) -> bool {
+    let q = query.trim().to_lowercase();
+    q.len() >= 2 && ("rename".starts_with(&q) || "rename variable".starts_with(&q))
+}
+
+/// Which floating layer may be on screen. At most one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ShownPop {
+    None,
+    Value,
+    Completion,
+    Rename,
+    Menu,
+    Prompt,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PopState {
+    naming: bool,
+    menu: bool,
+    prompt: bool,
+    completion: bool,
+    value: bool,
+    /// The page changed in the last moment. Value tips stay hidden.
+    typing: bool,
+    /// A dialog is covering the page (switcher, help, preview, delete, move).
+    dialog: bool,
+}
+
+fn shown_pop(state: PopState) -> ShownPop {
+    if state.dialog {
+        return ShownPop::None;
+    }
+    if state.naming {
+        return ShownPop::Rename;
+    }
+    if state.menu {
+        return ShownPop::Menu;
+    }
+    if state.prompt {
+        return ShownPop::Prompt;
+    }
+    if state.completion {
+        return ShownPop::Completion;
+    }
+    if state.value && !state.typing {
+        ShownPop::Value
+    } else {
+        ShownPop::None
+    }
+}
+
+/// Enter confirms a name and Escape cancels it. Everything else — letters,
+/// digits, spaces, arrows, Home/End, Delete, copy, cut, paste — stays in
+/// `events` for the text field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NameFieldKey {
+    Confirm,
+    Cancel,
+}
+
+fn take_name_field_key(events: &mut Vec<egui::Event>) -> Option<NameFieldKey> {
+    let mut found = None;
+    events.retain(|event| match event {
+        egui::Event::Key {
+            key: Key::Enter,
+            pressed: true,
+            modifiers,
+            repeat,
+            ..
+        } if !modifiers.command && !modifiers.alt && !modifiers.shift => {
+            if !repeat {
+                found = Some(NameFieldKey::Confirm);
+            }
+            false
+        }
+        egui::Event::Key {
+            key: Key::Escape,
+            pressed: true,
+            modifiers,
+            repeat,
+            ..
+        } if modifiers.is_none() => {
+            if !repeat {
+                found = Some(NameFieldKey::Cancel);
+            }
+            false
+        }
+        _ => true,
+    });
+    found
+}
+
+/// Focus a name field once, and select its text when it has just opened.
+/// Requesting focus on later frames would interrupt IME.
+fn place_name_caret(
+    ctx: &egui::Context,
+    out: &egui::text_edit::TextEditOutput,
+    chars: usize,
+    select_all: bool,
+) {
+    if select_all || !out.response.has_focus() {
+        out.response.request_focus();
+    }
+    if !select_all {
+        return;
+    }
+    let mut state = out.state.clone();
+    state.cursor.set_char_range(Some(CCursorRange::two(
+        CCursor::new(0),
+        CCursor::new(chars),
+    )));
+    state.store(ctx, out.response.id);
 }
 
 /// The sidebar's button column: centered on the rows' ⋯, `slot` buttons in from the right.
@@ -5247,10 +5365,11 @@ fn line_at(text: &str, cursor: usize) -> usize {
 mod tests {
     use super::find_sheets;
     use super::{
-        BAR_ROW, HINT_IDLE, SIDEBAR_ROW, Shortcut, SwitcherEdit, apply_switcher_query,
-        empty_sheet_hint, hover_tip_rect, icon_slot, line_at, move_folder_command,
-        name_hint_visible, new_folder_command, owns_key, settings_command, sheet_event_filter,
-        shortcut_for, sidebar_accent, sidebar_label_job, switcher_takes_focus, take_chords,
+        BAR_ROW, HINT_IDLE, NameFieldKey, PopState, SIDEBAR_ROW, Shortcut, ShownPop, SwitcherEdit,
+        apply_switcher_query, empty_sheet_hint, hover_from_line, hover_tip_rect, icon_slot,
+        line_at, move_folder_command, name_hint_visible, new_folder_command, owns_key,
+        rename_command, settings_command, sheet_event_filter, shortcut_for, shown_pop,
+        sidebar_accent, sidebar_label_job, switcher_takes_focus, take_chords, take_name_field_key,
         take_switcher_edits,
     };
     use eframe::egui::{Color32, Event, FontId, ImeEvent, Key, Modifiers, Rect, pos2, vec2};
@@ -5534,6 +5653,21 @@ mod tests {
         assert!(tip.top() >= token.bottom());
         assert!(tip.bottom() <= bounds.bottom());
         assert!((tip.width() - (text.x + 24.0)).abs() < 0.1);
+
+        // A cross-page card is one rectangle: the value and "from Trip Budget"
+        // share it, and it still sits above the reference when there is room.
+        assert_eq!(hover_from_line("Trip Budget"), "from Trip Budget");
+        let value = vec2(36.0, 16.0);
+        let from = vec2(108.0, 14.0);
+        let card = vec2(value.x.max(from.x), value.y + 2.0 + from.y);
+        let token = Rect::from_min_size(pos2(80.0, 180.0), vec2(70.0, 18.0));
+        let tip = hover_tip_rect(token, card, bounds);
+        assert!(
+            tip.bottom() <= token.top(),
+            "the card overlaps the reference"
+        );
+        assert!(tip.width() + 0.1 >= card.x + 24.0);
+        assert!(tip.height() > value.y + 16.0);
     }
 
     #[test]
@@ -5552,6 +5686,12 @@ mod tests {
         assert!(new_folder_command("folder"));
         assert!(!new_folder_command("folders"));
         assert!(!move_folder_command("m"));
+        assert!(!rename_command(""));
+        assert!(!rename_command("r"));
+        assert!(rename_command("re"));
+        assert!(rename_command("Rename"));
+        assert!(rename_command("rename variable"));
+        assert!(!rename_command("renamed"));
         assert!(move_folder_command("mo"));
         assert!(move_folder_command("move to"));
         assert!(!move_folder_command("movie"));
@@ -5600,5 +5740,139 @@ mod tests {
         assert!(job.wrap.break_anywhere);
         assert_eq!(job.wrap.overflow_character, Some('\u{2026}'));
         assert_eq!(job.text, "Weekend Plans");
+    }
+
+    fn idle_pop(value: bool) -> PopState {
+        PopState {
+            naming: false,
+            menu: false,
+            prompt: false,
+            completion: false,
+            value,
+            typing: false,
+            dialog: false,
+        }
+    }
+
+    #[test]
+    fn only_one_popup_is_visible() {
+        let value = idle_pop(true);
+        assert_eq!(shown_pop(value), ShownPop::Value);
+        assert_eq!(
+            shown_pop(PopState {
+                typing: true,
+                ..value
+            }),
+            ShownPop::None
+        );
+        assert_eq!(
+            shown_pop(PopState {
+                completion: true,
+                ..value
+            }),
+            ShownPop::Completion
+        );
+        assert_eq!(
+            shown_pop(PopState {
+                completion: true,
+                typing: true,
+                ..value
+            }),
+            ShownPop::Completion
+        );
+        assert_eq!(
+            shown_pop(PopState {
+                prompt: true,
+                completion: true,
+                ..value
+            }),
+            ShownPop::Prompt
+        );
+        assert_eq!(
+            shown_pop(PopState {
+                menu: true,
+                prompt: true,
+                completion: true,
+                ..value
+            }),
+            ShownPop::Menu
+        );
+        assert_eq!(
+            shown_pop(PopState {
+                naming: true,
+                menu: true,
+                value: true,
+                ..value
+            }),
+            ShownPop::Rename
+        );
+        assert_eq!(
+            shown_pop(PopState {
+                dialog: true,
+                naming: true,
+                value: true,
+                ..value
+            }),
+            ShownPop::None
+        );
+        assert_eq!(shown_pop(idle_pop(false)), ShownPop::None);
+    }
+
+    #[test]
+    fn a_name_field_keeps_editing_keys() {
+        let editing = vec![
+            Event::Text("2".into()),
+            Event::Text(" ".into()),
+            Event::Text(".".into()),
+            Event::Paste("Trip Budget".into()),
+            press(Key::A, Modifiers::COMMAND, false),
+            press(Key::ArrowLeft, Modifiers::SHIFT, false),
+            press(Key::ArrowRight, Modifiers::NONE, false),
+            press(Key::Home, Modifiers::NONE, false),
+            press(Key::End, Modifiers::NONE, false),
+            press(Key::Delete, Modifiers::NONE, false),
+            press(Key::Backspace, Modifiers::COMMAND, false),
+            Event::Copy,
+            Event::Cut,
+        ];
+        let mut kept = editing.clone();
+        assert_eq!(take_name_field_key(&mut kept), None);
+        assert_eq!(kept.len(), editing.len());
+
+        // The folder dialog used to feed every key through the switcher, which
+        // appends text and drops selection, copy, and cut.
+        let mut stolen = editing.clone();
+        let edits = take_switcher_edits(&mut stolen);
+        assert!(
+            stolen.is_empty(),
+            "the switcher path removes editing events"
+        );
+        assert!(
+            edits
+                .iter()
+                .any(|edit| matches!(edit, SwitcherEdit::Type(text) if text == "2"))
+        );
+        assert!(
+            edits
+                .iter()
+                .any(|edit| matches!(edit, SwitcherEdit::Type(text) if text == " "))
+        );
+        assert!(
+            edits
+                .iter()
+                .any(|edit| matches!(edit, SwitcherEdit::Type(text) if text == "Trip Budget"))
+        );
+        assert_eq!(edits.len(), 4, "only the four text inserts survive");
+
+        let mut enter = vec![
+            press(Key::Enter, Modifiers::NONE, false),
+            Event::Text("a".into()),
+        ];
+        assert_eq!(take_name_field_key(&mut enter), Some(NameFieldKey::Confirm));
+        assert!(matches!(enter.as_slice(), [Event::Text(text)] if text == "a"));
+
+        let mut esc = vec![press(Key::Escape, Modifiers::NONE, false)];
+        assert_eq!(take_name_field_key(&mut esc), Some(NameFieldKey::Cancel));
+        assert!(esc.is_empty());
     }
 }
