@@ -75,24 +75,17 @@ jobs:
       - name: Updates page
         # Static changelog from the GitHub releases API, before assets are hashed,
         # so the new page picks up the same cache-busting as the rest of the site.
-        # A missing API keeps the copy already in site/updates. A version bump can
-        # deploy before the Release workflow publishes, so wait for that tag.
+        # A missing API keeps the copy already in site/updates. A version bump on
+        # main can land before the tag exists. Don't wait for it here: the Release
+        # workflow deploys this site again after it publishes, and passes
+        # expect_version so that run sees the new release.
         env:
           GH_TOKEN: ${{ github.token }}
           OMACUS_EXPECT_VERSION: ${{ inputs.expect_version || (github.event_name == 'release' && github.event.release.tag_name) || '' }}
           # One phrase per line. A match stops the deploy and names the version.
           # An absent secret is empty, and the check is skipped.
           OMACUS_PRIVATE_TERMS: ${{ secrets.OMACUS_PRIVATE_TERMS }}
-        run: |
-          if [ -z "$OMACUS_EXPECT_VERSION" ]; then
-            version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-            if ! git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
-              echo "v$version is not published yet; the page will wait for it"
-              export OMACUS_EXPECT_VERSION="$version"
-              export OMACUS_EXPECT_WAIT=1500
-            fi
-          fi
-          python3 site/tools/updates.py --out _site
+        run: python3 site/tools/updates.py --out _site
       - name: Story page
         # Counts and the timeline, from this checkout and GitHub. A missing API
         # keeps the copy already in site/story. Figures that can't be counted

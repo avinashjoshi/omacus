@@ -1583,6 +1583,24 @@ body.answers-inline .res {
   font: 0.88em var(--mono);
 }
 
+.md pre.code {
+  margin: 0.45em 0 0.8em;
+  padding: 6px 8px;
+  border: 1px solid var(--app-line);
+  border-radius: var(--radius-sm);
+  background: var(--app-hover);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.md pre.code code {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font: 13px/1.45 var(--mono);
+  white-space: inherit;
+}
+
 .md a { color: var(--app-accent); }
 
 body.answers-inline .md p.line,
@@ -1651,6 +1669,11 @@ body.answers-inline .md .pill {
   }
 
   body.app-page .page-preview[hidden] { display: none !important; }
+
+  body.app-page .page-preview-body {
+    padding: 0;
+    overflow: visible;
+  }
 
   body.app-page .md {
     max-width: none;
@@ -1748,6 +1771,27 @@ body.answers-inline .md .pill {
     font-family: "JetBrains Mono", ui-monospace, monospace;
   }
 
+  body.app-page .md pre.code {
+    margin: 0.35em 0 0.6em;
+    padding: 4pt 6pt;
+    border: 0.6pt solid var(--print-rule);
+    border-radius: 0;
+    background: var(--print-code);
+    color: var(--print-ink);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  body.app-page .md pre.code code {
+    background: none;
+    padding: 0;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 9.5pt;
+    line-height: 13pt;
+  }
+
   body.app-page .pill {
     background: var(--print-pill) !important;
     color: var(--print-accent) !important;
@@ -1767,7 +1811,7 @@ body.answers-inline .md .pill {
 
 @page {
   size: letter;
-  margin: 0.85in 0.9in;
+  margin: 0.55in;
 }
 
 /* ---------- Autocomplete ---------- */

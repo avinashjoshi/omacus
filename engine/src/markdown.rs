@@ -408,6 +408,10 @@ pub enum Block {
         header: bool,
         rows: Vec<Vec<Vec<Inline>>>,
     },
+    /// A fenced block. The lines are literal: not calculated, and not markdown.
+    Code {
+        lines: Vec<String>,
+    },
     /// One blank source line. Several in a row stay several blocks, so the
     /// gap does not collapse.
     Blank,
@@ -427,6 +431,19 @@ pub fn render(text: &str, answers: &[Option<&str>]) -> Vec<Block> {
     let mut blocks = Vec::new();
     let mut i = 0;
     while i < lines.len() {
+        if fence_marker(lines[i]) {
+            i += 1;
+            let mut code = Vec::new();
+            while i < lines.len() && !fence_marker(lines[i]) {
+                code.push(lines[i].to_string());
+                i += 1;
+            }
+            if i < lines.len() {
+                i += 1;
+            }
+            blocks.push(Block::Code { lines: code });
+            continue;
+        }
         let class = classify(lines[i]);
         match class.form {
             Form::Blank => {
@@ -583,6 +600,18 @@ fn table_cells(line: &str) -> Vec<String> {
     trimmed.split('|').map(|c| c.trim().to_string()).collect()
 }
 
+/// A line that opens or closes a code block: ``` or ```lang, and nothing else.
+fn fence_marker(line: &str) -> bool {
+    let trimmed = line.trim();
+    let Some(rest) = trimmed.strip_prefix("```") else {
+        return false;
+    };
+    !rest.contains('`')
+        && rest
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '+' | '.'))
+}
+
 fn is_rule(cells: &[String]) -> bool {
     !cells.is_empty()
         && cells.iter().all(|c| {
@@ -717,6 +746,16 @@ pub fn preview_html(text: &str, answers: &[Option<&str>]) -> String {
                     html.push_str("</li>");
                 }
                 html.push_str(if ordered { "</ol>" } else { "</ul>" });
+            }
+            Block::Code { lines } => {
+                html.push_str("<pre class=\"code\"><code>");
+                for (n, line) in lines.iter().enumerate() {
+                    if n > 0 {
+                        html.push('\n');
+                    }
+                    html.push_str(&escape(line));
+                }
+                html.push_str("</code></pre>");
             }
             Block::Quote(rows) => {
                 html.push_str("<blockquote>");
@@ -940,5 +979,35 @@ mod tests {
         assert!(html.contains("2 &lt; 3 &amp; 4"));
         assert!(html.contains("data-value=\"true &lt; false\">[ true &lt; false ]</button>"));
         assert!(!html.contains("<script"));
+    }
+
+    #[test]
+    fn a_fence_is_a_code_block_and_the_lines_stay_literal() {
+        let src = "\
+# Trip Budget
+
+```
+milk = $3
+a < b
+```
+
+hotel = 3 nights * $180
+";
+        let blocks = render(
+            src,
+            &[None, None, None, None, None, None, None, Some("$540")],
+        );
+        let code = blocks.iter().find_map(|b| match b {
+            Block::Code { lines } => Some(lines.clone()),
+            _ => None,
+        });
+        assert_eq!(code, Some(vec!["milk = $3".into(), "a < b".into()]));
+        let html = preview_html(
+            src,
+            &[None, None, None, None, None, None, None, Some("$540")],
+        );
+        assert!(html.contains("<pre class=\"code\"><code>milk = $3\na &lt; b</code></pre>"));
+        assert!(html.contains("[ $540 ]"));
+        assert!(!html.contains("```"));
     }
 }

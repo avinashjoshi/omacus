@@ -12,7 +12,7 @@ name: Release
 # GitHub release. A push to main does the same when the merged version has no tag
 # yet, which covers a merge made by a person. A tag or release created by
 # GITHUB_TOKEN does not trigger other workflows, so the builds and the publish job
-# live here, and this run also deploys the site when it did the merge itself.
+# live here. After the tag is published, this run deploys omacus.com and the web app.
 #
 # The checks to require on main are `test (ubuntu-22.04)`, `test (windows-latest)`,
 # `test (macos-latest)`, and `wasm`. Auto-merge has to be allowed on the repository.
@@ -324,15 +324,23 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Checksums and notes
+        id: notes
         run: |
+          set -euo pipefail
           (cd dist && sha256sum omacus-* install.sh > SHA256SUMS.txt)
           .github/scripts/release-notes.sh "${{ needs.check.outputs.version }}" "${{ github.repository }}" > notes.md
+          title="$(python3 .github/scripts/release_notes.py headline "${{ needs.check.outputs.version }}")"
+          {
+            echo "title<<ENDTITLE"
+            echo "$title"
+            echo "ENDTITLE"
+          } >> "$GITHUB_OUTPUT"
           cat notes.md
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           tag_name: v${{ needs.check.outputs.version }}
           target_commitish: ${{ needs.check.outputs.sha }}
-          name: Omacus v${{ needs.check.outputs.version }}
+          name: ${{ steps.notes.outputs.title }}
           body_path: notes.md
           files: dist/*
 
@@ -346,14 +354,19 @@ jobs:
       ref: ${{ needs.check.outputs.sha }}
 
   # A merge made with GITHUB_TOKEN does not start the site workflow. Deploy from
-  # here when this run waited out that merge. A normal push to main still deploys
-  # through site.yml on its own.
+  # here after the tag is published: the prepare/wait path, and a squash merge
+  # (wait is skipped on that push; publish is what matters). A normal push to
+  # main still deploys through site.yml on its own, without waiting for a tag
+  # that does not exist yet.
   deploy-site:
     needs: [publish, wait, check]
-    if: always() && needs.publish.result == 'success' && needs.wait.result == 'success'
+    if: >-
+      always() &&
+      needs.publish.result == 'success' &&
+      (needs.wait.result == 'success' || needs.check.outputs.release == 'true')
     uses: ./.github/workflows/site.yml
     with:
-      ref: ${{ needs.wait.outputs.sha }}
+      ref: ${{ needs.wait.outputs.sha || needs.check.outputs.sha }}
       expect_version: ${{ needs.check.outputs.version }}
     permissions:
       contents: read

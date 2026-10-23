@@ -705,8 +705,8 @@ def release_is_listed(releases, expect):
 def expect_wait_seconds(expect):
     """How long to poll when a version must be on the API before the page is written.
 
-    The default covers the short gap after a release is published. A version bump
-    that deploys the site before that publish sets OMACUS_EXPECT_WAIT longer.
+    The default covers the short gap after a release is published. The Release
+    workflow deploys the site after that publish, so this wait starts then.
     """
     if not expect:
         return 0

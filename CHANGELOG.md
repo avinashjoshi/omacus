@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+**PDFs use the page better**
+
+Exported pages have slimmer margins, so more of the sheet is the note itself. A code block sits with the text, in a monospace face, and a long line wraps instead of running off the page.
+
 ## 0.2.13
 
 **A clearer app on your phone**
@@ -13,7 +19,7 @@ The top bar is a solid strip, the sidebar shows the version and Settings, and th
 
 **The web app works offline**
 
-The web app at app.omacus.com keeps working with no connection after the first visit, and a new version asks before it reloads so an unsaved edit is not lost. What's new is a short title and a sentence or two, on the updates page and in the app.
+The web app at app.omacus.com keeps working with no connection after the first visit, and a new version asks before it reloads so an unsaved edit is not lost.
 
 - Opening omacus.com/app brings your saved pages along, then opens the app.
 - Opening or switching a page no longer draws a frame around it.
