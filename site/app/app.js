@@ -26,6 +26,13 @@ import {
 import { allocateHandle, freshLibrary, seedAction } from "./seed.js";
 import { backupEntries, mergeBackup, parseBackup, unzipNamed, zipBytes } from "./backup.js";
 
+// Set before any await, so a failed import never looks like a slow start.
+globalThis.__omacusBooted = true;
+const bootFail = document.querySelector("[data-boot-fail]");
+if (bootFail) bootFail.hidden = true;
+const bootLoading = document.querySelector("[data-loading]");
+if (bootLoading) bootLoading.hidden = false;
+
 const WASM = new URL("pkg/omacus_web_bg.wasm", import.meta.url).href;
 const WORKER = new URL("./worker.js", import.meta.url).href;
 const PREFIX = "omacus:";
@@ -4605,6 +4612,7 @@ async function start() {
 }
 
 start().catch((e) => {
-  el.loading.textContent = "Omacus couldn't start in this browser. Try a current Chrome, Firefox, Safari or Edge.";
   console.error(e);
+  if (typeof globalThis.omacusShowStored === "function") globalThis.omacusShowStored();
+  else if (el.loading) el.loading.textContent = "Omacus couldn't start. Your pages are still in this browser.";
 });

@@ -60,6 +60,8 @@ check(appJs.includes('from "./seed.js"'), "the web app imports the seed");
 check(appJs.includes("installLibrary(freshLibrary(WELCOME))"), "a first launch installs the examples");
 check(appJs.includes("seeded: librarySeeded"), "the flag is saved with the pages");
 check(sw.includes('"seed.js"') && sw.includes('"examples.js"'), "the example pages are in the offline shell");
+const buildWeb = readFileSync(join(root, "../.github/scripts/build-web.sh"), "utf8");
+check(buildWeb.includes("site/app/seed.js") && buildWeb.includes("site/app/examples.js"), "the web deploy copies the files the app imports");
 const markers = examples.split("text: `").length - 1;
 check(markers === PAGES.length, "the desktop reader finds one text block per page");
 check(PAGES.every((page) => !page.text.includes("`")), "page text has no backtick the desktop reader would stop on");

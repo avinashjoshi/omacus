@@ -209,6 +209,12 @@
       </div>
       <div class="menu-list row-menu" hidden data-row-menu role="menu"></div>
       <p class="loading" data-loading>Loading the engine…</p>
+      <div class="boot-fail" hidden data-boot-fail>
+        <p data-boot-message>Omacus couldn't start. Your pages are still in this browser.</p>
+        <div data-boot-pages></div>
+        <pre hidden data-boot-body></pre>
+        <button class="btn small primary" type="button" data-boot-export>Export everything</button>
+      </div>
       <button class="drawer-scrim" type="button" data-scrim aria-label="Close pages"></button>
     </main>
   </div>
@@ -307,6 +313,7 @@
   <input type="file" accept=".txt,.zip,text/plain,application/zip" multiple hidden data-import>
 
   <script src="trust.js"></script>
+  <script src="recover.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>
