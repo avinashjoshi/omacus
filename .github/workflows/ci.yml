@@ -98,4 +98,5 @@ jobs:
       - name: Web app mobile layout
         run: |
           node tests/folders.mjs
+          node tests/lock.mjs
           node tests/web-mobile.mjs

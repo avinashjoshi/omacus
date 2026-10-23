@@ -646,6 +646,118 @@ pub fn propagate_handle(pages_json: &str, source: u32, new_handle: &str) -> Stri
     }
 }
 
+fn lock_error(err: omacus_engine::lock::LockError) -> String {
+    json!({ "ok": false, "error": err.message() }).to_string()
+}
+
+fn wrap_json(wrap: &omacus_engine::lock::Wrap) -> serde_json::Value {
+    json!({
+        "salt": wrap.salt,
+        "nonce": wrap.nonce,
+        "wrapped": wrap.wrapped,
+        "memory_kib": wrap.memory_kib,
+        "iterations": wrap.iterations,
+        "lanes": wrap.lanes,
+    })
+}
+
+fn wrap_from(text: &str) -> Result<omacus_engine::lock::Wrap, omacus_engine::lock::LockError> {
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|_| omacus_engine::lock::LockError::Corrupt)?;
+    let field = |name: &str| value[name].as_str().unwrap_or("").to_string();
+    let number = |name: &str| value[name].as_u64().unwrap_or(0) as u32;
+    Ok(omacus_engine::lock::Wrap {
+        salt: field("salt"),
+        nonce: field("nonce"),
+        wrapped: field("wrapped"),
+        memory_kib: number("memory_kib"),
+        iterations: number("iterations"),
+        lanes: number("lanes"),
+    })
+}
+
+/// A new content key and the Argon2 wrap that holds it. `{ok, key, wrap}` or `{ok:false, error}`.
+#[wasm_bindgen(js_name = lockCreate)]
+pub fn lock_create(password: &str) -> String {
+    match omacus_engine::lock::create(password) {
+        Ok((key, wrap)) => {
+            json!({ "ok": true, "key": key.encode(), "wrap": wrap_json(&wrap) }).to_string()
+        }
+        Err(err) => lock_error(err),
+    }
+}
+
+/// Wrap an existing content key under a new password. `{ok, wrap}`.
+#[wasm_bindgen(js_name = lockWrap)]
+pub fn lock_wrap(password: &str, key: &str) -> String {
+    let key = match omacus_engine::lock::ContentKey::decode(key) {
+        Ok(key) => key,
+        Err(err) => return lock_error(err),
+    };
+    match omacus_engine::lock::wrap_key(password, &key) {
+        Ok(wrap) => json!({ "ok": true, "wrap": wrap_json(&wrap) }).to_string(),
+        Err(err) => lock_error(err),
+    }
+}
+
+/// Encrypt `plaintext` for page id `aad`. `wrap` is the JSON from `lockCreate`. `{ok, text}`.
+#[wasm_bindgen(js_name = lockSeal)]
+pub fn lock_seal(key: &str, plaintext: &str, wrap: &str, aad: &str) -> String {
+    let key = match omacus_engine::lock::ContentKey::decode(key) {
+        Ok(key) => key,
+        Err(err) => return lock_error(err),
+    };
+    let wrap = match wrap_from(wrap) {
+        Ok(wrap) => wrap,
+        Err(err) => return lock_error(err),
+    };
+    match omacus_engine::lock::seal(&key, plaintext, &wrap, aad.as_bytes()) {
+        Ok(text) => json!({ "ok": true, "text": text }).to_string(),
+        Err(err) => lock_error(err),
+    }
+}
+
+/// Decrypt with a content key this session already holds. `{ok, text}`.
+#[wasm_bindgen(js_name = lockOpen)]
+pub fn lock_open(key: &str, stored: &str, aad: &str) -> String {
+    let key = match omacus_engine::lock::ContentKey::decode(key) {
+        Ok(key) => key,
+        Err(err) => return lock_error(err),
+    };
+    match omacus_engine::lock::open_key(&key, stored, aad.as_bytes()) {
+        Ok(text) => json!({ "ok": true, "text": text }).to_string(),
+        Err(err) => lock_error(err),
+    }
+}
+
+/// Check a password against a wrap and return the content key. `{ok, key}`.
+#[wasm_bindgen(js_name = lockUnwrap)]
+pub fn lock_unwrap(password: &str, wrap: &str) -> String {
+    let wrap = match wrap_from(wrap) {
+        Ok(wrap) => wrap,
+        Err(err) => return lock_error(err),
+    };
+    match omacus_engine::lock::unwrap_key(password, &wrap) {
+        Ok(key) => json!({ "ok": true, "key": key.encode() }).to_string(),
+        Err(err) => lock_error(err),
+    }
+}
+
+/// Unlock a stored page with a password. `{ok, text, key}`.
+#[wasm_bindgen(js_name = lockOpenPassword)]
+pub fn lock_open_password(password: &str, stored: &str, aad: &str) -> String {
+    match omacus_engine::lock::open_password(password, stored, aad.as_bytes()) {
+        Ok((text, key)) => json!({ "ok": true, "text": text, "key": key.encode() }).to_string(),
+        Err(err) => lock_error(err),
+    }
+}
+
+/// Whether `text` is an encrypted page file.
+#[wasm_bindgen(js_name = lockIs)]
+pub fn lock_is(text: &str) -> bool {
+    omacus_engine::lock::is_lock(text)
+}
+
 fn utf16_spans(text: &str, spans: &[omacus_engine::rename::Span]) -> Vec<Vec<usize>> {
     spans
         .iter()
@@ -786,6 +898,37 @@ mod tests {
         let color: serde_json::Value = serde_json::from_str(&page_marks("#ff8800")).unwrap();
         assert!(color["heading"].is_null());
         assert!(color["comment"].is_null());
+    }
+
+    #[test]
+    fn lock_round_trip_over_the_wasm_api() {
+        let created: serde_json::Value =
+            serde_json::from_str(&lock_create("correct horse")).unwrap();
+        assert_eq!(created["ok"], true);
+        let sealed: serde_json::Value = serde_json::from_str(&lock_seal(
+            created["key"].as_str().unwrap(),
+            "# Groceries\nmilk $3",
+            &created["wrap"].to_string(),
+            "page-1",
+        ))
+        .unwrap();
+        assert_eq!(sealed["ok"], true);
+        let file = sealed["text"].as_str().unwrap();
+        assert!(lock_is(file));
+        assert!(
+            !file.contains("Groceries") && !file.contains("milk"),
+            "{file}"
+        );
+        let opened: serde_json::Value =
+            serde_json::from_str(&lock_open_password("correct horse", file, "page-1")).unwrap();
+        assert_eq!(opened["text"], "# Groceries\nmilk $3");
+        assert_eq!(opened["key"], created["key"]);
+        let wrong: serde_json::Value =
+            serde_json::from_str(&lock_open_password("nope", file, "page-1")).unwrap();
+        assert_eq!(wrong["ok"], false);
+        assert_eq!(wrong["error"], "Wrong password.");
+        let empty: serde_json::Value = serde_json::from_str(&lock_create("")).unwrap();
+        assert_eq!(empty["error"], "Enter a password.");
     }
 
     #[test]

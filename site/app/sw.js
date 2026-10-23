@@ -8,7 +8,7 @@
 // of versions. Local previews unregister the worker from the page; this file does
 // not, or a `?sw=1` check could not register one.
 
-const CACHE = "omacus-app-4";
+const CACHE = "omacus-app-5";
 
 // What the app needs in order to open. The page also sends the URLs it loaded;
 // both lists are kept, and anything else from an older version is dropped.

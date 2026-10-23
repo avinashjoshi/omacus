@@ -6,6 +6,7 @@
 import init, {
   Calc, shareEncode, shareDecode, layoutAnswers, realignMap, pageMarks, previewHtml, variables, wordKind,
   bindingAt, renameVariable, definitionChange, pageRefAt, rewriteVarRefs, renameBlurb, propagateRename, propagateHandle,
+  lockCreate, lockWrap, lockSeal, lockOpen, lockUnwrap, lockOpenPassword, lockIs,
 } from "./pkg/omacus_web.js";
 import {
   EditorState, StateField, StateEffect, RangeSetBuilder, Prec, EditorView, Decoration, WidgetType, keymap, hoverTooltip,
@@ -13,8 +14,8 @@ import {
   moveCompletionSelection, startCompletion, completionStatus,
 } from "./editor.js";
 import {
-  appendMissing, canNest, collectPageIds, createFolder, expandFolder, expandTo, folderOf, folders, fromPages,
-  insertNode, moveSibling, pageIds, place, removeNode, renameFolder, sanitize, siblingEnds, toggleFolder, validDrop,
+  appendMissing, canNest, collectPageIds, coveringLock, createFolder, expandFolder, expandTo, folderOf, folders, fromPages,
+  insertNode, moveSibling, pageIds, pagesUnder, place, removeNode, renameFolder, sanitize, siblingEnds, toggleFolder, validDrop,
   visible,
 } from "./tree.js";
 
@@ -90,6 +91,17 @@ const el = {
   switcherQuery: $("[data-switcher-query]"),
   switcherHits: $("[data-switcher-hits]"),
   rowMenu: $("[data-row-menu]"),
+  lock: $("[data-lock]"),
+  lockTitle: $("[data-lock-title]"),
+  lockDetail: $("[data-lock-detail]"),
+  lockCurrent: $("[data-lock-current]"),
+  lockPassword: $("[data-lock-password]"),
+  lockConfirm: $("[data-lock-confirm]"),
+  lockError: $("[data-lock-error]"),
+  lockYes: $("[data-lock-yes]"),
+  gate: $("[data-lock-gate]"),
+  gatePassword: $("[data-gate-password]"),
+  gateError: $("[data-gate-error]"),
 };
 
 // pageMarks and variables throw until init() finishes. The editor is created first.
@@ -104,7 +116,505 @@ let resultsExact = false;
 const state = { order: [], active: null, texts: new Map(), shared: null, tree: [], handles: new Map() };
 // Password lock is a hook for a feature that has not landed. Nothing sets this.
 // A reference to a locked page shows "🔒 locked" instead of the value.
-const lockedPages = new Map();
+// Plaintext and content keys stay in memory. localStorage only ever sees ciphertext
+// for a locked page. `plains` is the open text; `pageKeys` is an individual lock.
+const plains = new Map();
+const pageKeys = new Map();
+const folderKeys = new Map();
+let lastInput = Date.now();
+let pendingNew = null;
+
+const LOCK_ICON = `<svg class="lock-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="11" width="12" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`;
+const LOCK_OPEN_ICON = `<svg class="lock-ico open" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="11" width="12" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0"/></svg>`;
+
+function noteActivity() {
+  lastInput = Date.now();
+}
+
+function isLock(text) {
+  return typeof text === "string" && text.startsWith("OMACUS-LOCK/1\n");
+}
+
+function wrapOfStored(text) {
+  if (!isLock(text)) return null;
+  const fields = {};
+  for (const line of text.split("\n")) {
+    const at = line.indexOf("=");
+    if (at > 0) fields[line.slice(0, at)] = line.slice(at + 1);
+  }
+  if (!fields.salt || !fields.wrap || !fields.key) return null;
+  return {
+    salt: fields.salt,
+    nonce: fields.wrap,
+    wrapped: fields.key,
+    memory_kib: Number(fields.m) || 19 * 1024,
+    iterations: Number(fields.t) || 2,
+    lanes: Number(fields.p) || 1,
+  };
+}
+
+function sameWrap(a, b) {
+  return !!a && !!b && a.salt === b.salt && a.nonce === b.nonce && a.wrapped === b.wrapped;
+}
+
+function treeHasWrap(wrap) {
+  const walk = (list) => {
+    for (const node of list ?? []) {
+      if (node?.type !== "folder") continue;
+      if (sameWrap(wrap, node.lock)) return true;
+      if (walk(node.children)) return true;
+    }
+    return false;
+  };
+  return walk(state.tree);
+}
+
+function individualLock(id) {
+  const wrap = wrapOfStored(state.texts.get(id) ?? "");
+  if (!wrap) return false;
+  const cover = coveringLock(state.tree, id);
+  if (cover) return !sameWrap(wrap, cover.lock);
+  return !treeHasWrap(wrap);
+}
+
+function keyFor(id) {
+  if (!individualLock(id)) {
+    const cover = coveringLock(state.tree, id);
+    if (cover && folderKeys.has(cover.id)) return folderKeys.get(cover.id);
+  }
+  return pageKeys.get(id) ?? null;
+}
+
+function wrapFor(id) {
+  if (!individualLock(id)) {
+    const cover = coveringLock(state.tree, id);
+    if (cover?.lock) return cover.lock;
+  }
+  return wrapOfStored(state.texts.get(id) ?? "");
+}
+
+function pageConcealed(id) {
+  if (!id || id === "shared") return false;
+  if (plains.has(id)) return false;
+  if (isLock(state.texts.get(id) ?? "")) return true;
+  return !!coveringLock(state.tree, id);
+}
+
+function shownPlain(id) {
+  if (plains.has(id)) return plains.get(id);
+  const stored = state.texts.get(id) ?? "";
+  return isLock(stored) ? "" : stored;
+}
+
+function pageLabel(id) {
+  if (id === "shared") return heading(state.shared?.text ?? "");
+  if (pageConcealed(id)) return "Locked";
+  return heading(shownPlain(id));
+}
+
+function anyUnlocked() {
+  if (folderKeys.size > 0) return true;
+  for (const id of plains.keys()) {
+    if (isLock(state.texts.get(id) ?? "") || coveringLock(state.tree, id)) return true;
+  }
+  return false;
+}
+
+function parseLockResult(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { ok: false, error: "That lock could not be read." };
+  }
+}
+
+function sealWith(key, wrap, plain, id) {
+  if (!engineReady || !key || !wrap) return null;
+  const out = parseLockResult(lockSeal(key, plain, JSON.stringify(wrap), id));
+  return out.ok ? out.text : null;
+}
+
+function reseal(id, plain) {
+  return sealWith(keyFor(id), wrapFor(id), plain, id);
+}
+
+function revealPage(id, key) {
+  const stored = state.texts.get(id) ?? "";
+  if (!isLock(stored)) {
+    plains.set(id, stored);
+    return true;
+  }
+  if (!key) return false;
+  const out = parseLockResult(lockOpen(key, stored, id));
+  if (!out.ok) return false;
+  plains.set(id, out.text);
+  return true;
+}
+
+function setFolderLock(id, lock) {
+  const walk = (list) => {
+    for (const node of list ?? []) {
+      if (node?.type !== "folder") continue;
+      if (node.id === id) {
+        if (lock) node.lock = lock;
+        else delete node.lock;
+        return true;
+      }
+      if (walk(node.children)) return true;
+    }
+    return false;
+  };
+  return walk(state.tree);
+}
+
+function forgetPage(id) {
+  plains.delete(id);
+  pageKeys.delete(id);
+  editorStates.delete(id);
+}
+
+function lockNow(quiet = false) {
+  flushSave();
+  plains.clear();
+  pageKeys.clear();
+  folderKeys.clear();
+  editorStates.clear();
+  shownId = null;
+  closePagePreview();
+  if (!quiet) {
+    showSheet();
+    renderSidebar();
+    toast("Locked");
+  }
+  noteActivity();
+}
+
+function refuseConcealed() {
+  if (state.active && state.active !== "shared" && pageConcealed(state.active)) {
+    toast("Unlock this page first.");
+    return true;
+  }
+  return false;
+}
+
+function spotCover(spot) {
+  if (!spot || spot.kind === "root") return null;
+  if (spot.kind === "into") return coveringLock(state.tree, spot.id);
+  const parent = folderOf(state.tree, spot.id);
+  return parent ? coveringLock(state.tree, parent) : null;
+}
+
+function movingPages(id) {
+  return folders(state.tree).some((folder) => folder.id === id) ? pagesUnder(state.tree, id) : [id];
+}
+
+function canMoveLocked(id, spot) {
+  const cover = spotCover(spot);
+  if (!cover || folderKeys.has(cover.id)) return true;
+  return movingPages(id).every((pid) => individualLock(pid) || (isLock(state.texts.get(pid) ?? "") && !plains.has(pid)));
+}
+
+function rebindPage(id, oldId) {
+  const next = coveringLock(state.tree, id);
+  const nextId = next?.id ?? null;
+  if (nextId === oldId || individualLock(id)) return;
+  if (next && folderKeys.has(next.id)) {
+    const plain = plains.has(id) ? plains.get(id) : isLock(state.texts.get(id) ?? "") ? null : state.texts.get(id) ?? "";
+    if (plain == null) return;
+    const sealed = sealWith(folderKeys.get(next.id), next.lock, plain, id);
+    if (!sealed) return;
+    state.texts.set(id, sealed);
+    plains.set(id, plain);
+    pageKeys.delete(id);
+    saveSheet(id);
+  } else if (!next && plains.has(id)) {
+    state.texts.set(id, plains.get(id));
+    plains.delete(id);
+    pageKeys.delete(id);
+    saveSheet(id);
+  }
+}
+
+function applyPlace(id, spot) {
+  if (!canMoveLocked(id, spot)) {
+    toast("Unlock the folder before moving a page into it.");
+    return false;
+  }
+  const before = movingPages(id).map((pid) => [pid, coveringLock(state.tree, pid)?.id ?? null]);
+  if (!place(state.tree, id, spot)) return false;
+  for (const [pid, oldId] of before) rebindPage(pid, oldId);
+  syncOrder();
+  saveIndex();
+  if (state.active && pageIds(state.tree).includes(state.active)) showSheet();
+  return true;
+}
+
+function closeLock() {
+  if (el.lock) el.lock.hidden = true;
+  pendingNew = null;
+}
+
+function openLock(mode, id) {
+  if (!el.lock) return;
+  closeMenu();
+  closeRowMenu();
+  closeSwitcher();
+  el.lock.dataset.mode = mode;
+  el.lock.dataset.id = id;
+  const copy = {
+    "create-page": ["Lock page", "A forgotten password can't be recovered.", "Lock"],
+    "create-folder": ["Lock folder", "One password locks every page in this folder. A forgotten password can't be recovered.", "Lock"],
+    "unlock-folder": ["Unlock folder", "Enter the password to open the pages in this folder.", "Unlock"],
+    "change-page": ["Change password", "A forgotten password can't be recovered.", "Change"],
+    "change-folder": ["Change password", "A forgotten password can't be recovered.", "Change"],
+    "remove-page": ["Remove lock", "This page will be stored without a password.", "Remove lock"],
+    "remove-folder": ["Remove lock", "Pages in this folder will be stored without a password.", "Remove lock"],
+  }[mode] || ["Lock", "A forgotten password can't be recovered.", "Lock"];
+  if (el.lockTitle) el.lockTitle.textContent = copy[0];
+  if (el.lockDetail) el.lockDetail.textContent = copy[1];
+  if (el.lockYes) el.lockYes.textContent = copy[2];
+  const change = mode.startsWith("change");
+  const remove = mode.startsWith("remove");
+  if (el.lockCurrent) el.lockCurrent.hidden = !change;
+  if (el.lockPassword) el.lockPassword.hidden = remove;
+  if (el.lockConfirm) el.lockConfirm.hidden = remove || mode === "unlock-folder";
+  for (const input of [el.lockCurrent, el.lockPassword, el.lockConfirm]) {
+    if (input) input.value = "";
+  }
+  if (el.lockError) {
+    el.lockError.hidden = true;
+    el.lockError.textContent = "";
+  }
+  el.lock.hidden = false;
+  const focus = change ? el.lockCurrent : el.lockPassword;
+  if (!remove) focus?.focus();
+}
+
+function lockError(message) {
+  if (!el.lockError) return;
+  el.lockError.hidden = false;
+  el.lockError.textContent = message;
+}
+
+function submitLock() {
+  const mode = el.lock?.dataset.mode;
+  const id = el.lock?.dataset.id;
+  if (!mode || !id) return;
+  if (!engineReady) {
+    lockError("Still loading the engine.");
+    return;
+  }
+  const password = el.lockPassword?.value ?? "";
+  const confirm = el.lockConfirm?.value ?? "";
+  const current = el.lockCurrent?.value ?? "";
+  const needsMatch = mode === "create-page" || mode === "create-folder" || mode.startsWith("change");
+  if (needsMatch && password !== confirm) {
+    lockError("Those passwords don't match.");
+    return;
+  }
+  let error = null;
+  if (mode === "create-page") error = lockPage(id, password);
+  else if (mode === "create-folder") error = lockFolder(id, password);
+  else if (mode === "unlock-folder") error = unlockFolder(id, password);
+  else if (mode === "change-page") error = changePagePassword(id, current, password);
+  else if (mode === "change-folder") error = changeFolderPassword(id, current, password);
+  else if (mode === "remove-page") error = removePageLock(id);
+  else if (mode === "remove-folder") error = removeFolderLock(id);
+  if (error) {
+    lockError(error);
+    return;
+  }
+  const folder = pendingNew;
+  closeLock();
+  if (mode === "unlock-folder" && folder) {
+    pendingNew = null;
+    addSheet("", { parent: folder.parent });
+  }
+  saveIndex();
+  showSheet();
+  renderSidebar();
+  noteActivity();
+}
+
+function lockPage(id, password) {
+  if (coveringLock(state.tree, id)) return "This page is inside a locked folder.";
+  const stored = state.texts.get(id) ?? "";
+  if (isLock(stored)) return "This page is already locked.";
+  const created = parseLockResult(lockCreate(password));
+  if (!created.ok) return created.error;
+  const plain = plains.get(id) ?? stored;
+  const sealed = sealWith(created.key, created.wrap, plain, id);
+  if (!sealed) return "That lock could not be read.";
+  state.texts.set(id, sealed);
+  plains.set(id, plain);
+  pageKeys.set(id, created.key);
+  saveSheet(id);
+  return null;
+}
+
+function unlockPage(id, password) {
+  const cover = coveringLock(state.tree, id);
+  const wrap = wrapOfStored(state.texts.get(id) ?? "");
+  if (cover && (!wrap || sameWrap(wrap, cover.lock))) return unlockFolder(cover.id, password);
+  const opened = parseLockResult(lockOpenPassword(password, state.texts.get(id) ?? "", id));
+  if (!opened.ok) return opened.error;
+  plains.set(id, opened.text);
+  pageKeys.set(id, opened.key);
+  return null;
+}
+
+function changePagePassword(id, current, next) {
+  if (!plains.has(id)) return "Unlock this page first.";
+  const wrap = wrapOfStored(state.texts.get(id) ?? "");
+  if (!wrap) return "This page isn't locked.";
+  const check = parseLockResult(lockUnwrap(current, JSON.stringify(wrap)));
+  if (!check.ok) return check.error;
+  const key = pageKeys.get(id);
+  if (!key) return "Unlock this page first.";
+  const wrapped = parseLockResult(lockWrap(next, key));
+  if (!wrapped.ok) return wrapped.error;
+  const sealed = sealWith(key, wrapped.wrap, plains.get(id), id);
+  if (!sealed) return "That lock could not be read.";
+  state.texts.set(id, sealed);
+  saveSheet(id);
+  return null;
+}
+
+function removePageLock(id) {
+  if (!plains.has(id)) return "Unlock this page first.";
+  const cover = coveringLock(state.tree, id);
+  if (cover && sameWrap(wrapOfStored(state.texts.get(id) ?? ""), cover.lock)) {
+    return "The folder is locked. Remove that lock instead.";
+  }
+  state.texts.set(id, plains.get(id));
+  forgetPage(id);
+  saveSheet(id);
+  return null;
+}
+
+function lockFolder(id, password) {
+  if (!folders(state.tree).some((folder) => folder.id === id)) return "That folder is gone.";
+  const self = coveringLock(state.tree, id);
+  if (self?.id === id) return "This folder is already locked.";
+  if (self) return "A folder around this one is already locked.";
+  const created = parseLockResult(lockCreate(password));
+  if (!created.ok) return created.error;
+  setFolderLock(id, created.wrap);
+  folderKeys.set(id, created.key);
+  for (const pid of pagesUnder(state.tree, id)) {
+    if (individualLock(pid)) continue;
+    const stored = state.texts.get(pid) ?? "";
+    if (isLock(stored) && !plains.has(pid)) continue;
+    const plain = plains.has(pid) ? plains.get(pid) : stored;
+    const sealed = sealWith(created.key, created.wrap, plain, pid);
+    if (!sealed) continue;
+    state.texts.set(pid, sealed);
+    plains.set(pid, plain);
+    pageKeys.delete(pid);
+    saveSheet(pid);
+  }
+  return null;
+}
+
+function unlockFolder(id, password) {
+  const cover = coveringLock(state.tree, id);
+  if (!cover || cover.id !== id) return "This folder isn't locked.";
+  const opened = parseLockResult(lockUnwrap(password, JSON.stringify(cover.lock)));
+  if (!opened.ok) return opened.error;
+  folderKeys.set(id, opened.key);
+  for (const pid of pagesUnder(state.tree, id)) {
+    if (individualLock(pid)) continue;
+    revealPage(pid, opened.key);
+  }
+  return null;
+}
+
+function changeFolderPassword(id, current, next) {
+  const cover = coveringLock(state.tree, id);
+  if (!cover || cover.id !== id) return "This folder isn't locked.";
+  const check = parseLockResult(lockUnwrap(current, JSON.stringify(cover.lock)));
+  if (!check.ok) return check.error;
+  const key = folderKeys.get(id);
+  if (!key) return "Unlock this folder first.";
+  const wrapped = parseLockResult(lockWrap(next, key));
+  if (!wrapped.ok) return wrapped.error;
+  setFolderLock(id, wrapped.wrap);
+  for (const pid of pagesUnder(state.tree, id)) {
+    if (individualLock(pid) || !plains.has(pid)) continue;
+    const sealed = sealWith(key, wrapped.wrap, plains.get(pid), pid);
+    if (!sealed) continue;
+    state.texts.set(pid, sealed);
+    saveSheet(pid);
+  }
+  return null;
+}
+
+function removeFolderLock(id) {
+  const cover = coveringLock(state.tree, id);
+  if (!cover || cover.id !== id) return "This folder isn't locked.";
+  if (!folderKeys.has(id)) return "Unlock this folder first.";
+  for (const pid of pagesUnder(state.tree, id)) {
+    if (!sameWrap(wrapOfStored(state.texts.get(pid) ?? ""), cover.lock)) continue;
+    if (!plains.has(pid)) continue;
+    state.texts.set(pid, plains.get(pid));
+    forgetPage(pid);
+    saveSheet(pid);
+  }
+  folderKeys.delete(id);
+  setFolderLock(id, null);
+  return null;
+}
+
+function submitGate() {
+  const id = state.active;
+  if (!id || id === "shared") return;
+  const error = unlockPage(id, el.gatePassword?.value ?? "");
+  if (error) {
+    if (el.gateError) {
+      el.gateError.hidden = false;
+      el.gateError.textContent = error;
+    }
+    return;
+  }
+  if (el.gatePassword) el.gatePassword.value = "";
+  if (el.gateError) el.gateError.hidden = true;
+  noteActivity();
+  showSheet();
+  renderSidebar();
+  view?.focus();
+}
+
+function showGate() {
+  if (el.gate) el.gate.hidden = false;
+  if (el.editor) el.editor.hidden = true;
+  if (el.pagePreview) el.pagePreview.hidden = true;
+  pagePreviewOpen = false;
+  el.gatePassword?.focus();
+}
+
+function hideGate() {
+  if (el.gate) el.gate.hidden = true;
+}
+
+function onLockKey(e) {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  submitLock();
+}
+el.lockPassword?.addEventListener("keydown", onLockKey);
+el.lockConfirm?.addEventListener("keydown", onLockKey);
+el.lockCurrent?.addEventListener("keydown", onLockKey);
+el.gatePassword?.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  submitGate();
+});
+addEventListener("pointerdown", noteActivity, true);
+addEventListener("keydown", noteActivity, true);
+setInterval(() => {
+  const minutes = settings.lockMinutes ?? 5;
+  if (minutes > 0 && anyUnlocked() && Date.now() - lastInput >= minutes * 60 * 1000) lockNow();
+}, 5000);
 
 // ---------------------------------------------------------------------------------
 // Storage: one localStorage entry per sheet, plus the order and the active one.
@@ -152,9 +662,12 @@ function loadSettings() {
   try {
     const saved = JSON.parse(store.get("settings") || "null");
     const theme = ["auto", "light", "dark", "paper", "dusk"].includes(saved?.theme) ? saved.theme : "auto";
-    return { theme, hideAnswers: !!saved?.hideAnswers };
+    let lockMinutes = Number(saved?.lockMinutes);
+    if (!Number.isFinite(lockMinutes)) lockMinutes = 5;
+    lockMinutes = Math.max(0, Math.min(240, Math.round(lockMinutes)));
+    return { theme, hideAnswers: !!saved?.hideAnswers, lockMinutes };
   } catch {
-    return { theme: "auto", hideAnswers: false };
+    return { theme: "auto", hideAnswers: false, lockMinutes: 5 };
   }
 }
 
@@ -222,6 +735,8 @@ function openSettings(tab = "settings") {
   const hide = $("[data-setting=hide-answers]", el.settings);
   if (select) select.value = settings.theme;
   if (hide) hide.checked = settings.hideAnswers;
+  const lockAfter = $("[data-setting=lock-minutes]", el.settings);
+  if (lockAfter) lockAfter.value = String(settings.lockMinutes ?? 5);
   updateThemeNote();
   showSettingsTab(tab);
   el.settings.hidden = false;
@@ -254,6 +769,12 @@ $("[data-setting=hide-answers]")?.addEventListener("change", (e) => {
   settings.hideAnswers = e.target.checked;
   saveSettings();
   applySettings();
+});
+$("[data-setting=lock-minutes]")?.addEventListener("change", (e) => {
+  const minutes = Number(e.target.value);
+  settings.lockMinutes = Number.isFinite(minutes) ? Math.max(0, Math.min(240, minutes)) : 5;
+  saveSettings();
+  noteActivity();
 });
 
 // Older builds stored each page under `sheet:`. Read those once and write `page:`.
@@ -338,12 +859,29 @@ function newId() {
 }
 
 function addSheet(text, { select = true, parent } = {}) {
-  const id = newId();
-  state.texts.set(id, text);
   let folder = parent;
   if (parent === undefined) {
     folder = state.active && state.active !== "shared" ? folderOf(state.tree, state.active) : null;
   }
+  const cover = folder ? coveringLock(state.tree, folder) : null;
+  if (cover && !folderKeys.has(cover.id) && !isLock(text)) {
+    pendingNew = { parent: folder };
+    openLock("unlock-folder", cover.id);
+    toast("Unlock the folder before adding a page.");
+    return null;
+  }
+  const id = newId();
+  let stored = text;
+  if (cover && folderKeys.has(cover.id) && !isLock(text)) {
+    const sealed = sealWith(folderKeys.get(cover.id), cover.lock, text, id);
+    if (!sealed) {
+      toast("That lock could not be read.");
+      return null;
+    }
+    stored = sealed;
+    plains.set(id, text);
+  }
+  state.texts.set(id, stored);
   if (!insertNode(state.tree, folder, 0, { type: "page", id })) state.tree.unshift({ type: "page", id });
   syncOrder();
   const taken = new Set([...state.handles.values()].map((h) => h.toLowerCase()));
@@ -409,31 +947,33 @@ function currentHandle() {
   return state.handles.get(state.active) || "";
 }
 
-// Every page a `@handle.name` can read. `elsewhere` stays false: this tab does
-// not compare file stamps on each keystroke. `locked` is the password-lock hook.
+// Every page a `@handle.name` can read. A locked page contributes no text.
 function pageCatalog() {
   const pages = [];
   const doc = typeof view !== "undefined" && view ? view.state.doc.toString() : null;
   for (const id of state.order) {
-    const text = id === state.active && doc != null ? doc : (state.texts.get(id) ?? "");
+    const concealed = pageConcealed(id);
+    const text = concealed ? "" : (id === state.active && doc != null ? doc : shownPlain(id));
     pages.push({
       id,
       handle: state.handles.get(id) || "",
-      title: heading(text),
+      title: concealed ? "Locked" : heading(text),
       text,
-      locked: lockedPages.get(id) === true,
+      locked: concealed,
       deleted: false,
       elsewhere: false,
     });
   }
   for (const item of loadTrash()) {
     if (state.order.includes(item.id)) continue;
+    const locked = isLock(item.text);
+    const text = locked ? "" : item.text;
     pages.push({
       id: item.id,
       handle: item.handle || state.handles.get(item.id) || "",
-      title: heading(item.text),
-      text: item.text,
-      locked: false,
+      title: locked ? "Locked" : heading(text),
+      text,
+      locked,
       deleted: true,
       elsewhere: false,
     });
@@ -613,6 +1153,7 @@ addEventListener("storage", (e) => {
   const before = currentText();
   const mine = state.active;
   load();
+  reconcileUnlocks();
   // Each tab keeps its own open sheet.
   if (mine === "shared" || state.order.includes(mine)) state.active = mine;
   renderSidebar();
@@ -651,12 +1192,45 @@ function syncEmpty() {
   el.empty.hidden = view.state.doc.toString().trim() !== "";
 }
 
+function editingText() {
+  if (state.active === "shared") return state.shared?.text ?? "";
+  if (pageConcealed(state.active)) return "";
+  return shownPlain(state.active);
+}
+
+function reconcileUnlocks() {
+  for (const id of [...plains.keys()]) {
+    if (!state.order.includes(id)) {
+      forgetPage(id);
+      continue;
+    }
+    const stored = state.texts.get(id) ?? "";
+    if (!isLock(stored) && !coveringLock(state.tree, id)) {
+      plains.delete(id);
+      pageKeys.delete(id);
+      continue;
+    }
+    const key = keyFor(id);
+    if (!key || (isLock(stored) && !parseLockResult(lockOpen(key, stored, id)).ok)) forgetPage(id);
+  }
+}
+
 function onInput() {
   editedAt = performance.now();
   armHintTimer();
+  noteActivity();
   const text = view.state.doc.toString();
   if (state.active === "shared") {
     state.shared.text = text;
+  } else if (keyFor(state.active)) {
+    plains.set(state.active, text);
+    const sealed = reseal(state.active, text);
+    if (sealed) state.texts.set(state.active, sealed);
+    clearTimeout(pendingSave);
+    pendingSave = setTimeout(() => {
+      pendingSave = null;
+      saveSheet(state.active);
+    }, 300);
   } else {
     state.texts.set(state.active, text);
     clearTimeout(pendingSave);
@@ -689,7 +1263,18 @@ function showSheet() {
   results = [];
   resultsText = "";
   resultsExact = false;
-  const text = currentText();
+  if (state.active && state.active !== "shared" && pageConcealed(state.active)) {
+    editorStates.delete(state.active);
+    switchingPage = false;
+    showGate();
+    if (el.shared) el.shared.hidden = true;
+    renderSidebar();
+    syncEmpty();
+    return;
+  }
+  hideGate();
+  if (el.editor && !preview && !pagePreviewOpen) el.editor.hidden = false;
+  const text = state.active === "shared" ? (state.shared?.text ?? "") : shownPlain(state.active);
   let es = editorStates.get(state.active);
   if (!es || es.doc.toString() !== text) es = EditorState.create({ doc: text, extensions: editorExtensions });
   view.setState(es);
@@ -705,17 +1290,13 @@ function showSheet() {
 function select(id) {
   clearPreview();
   if (id !== "shared" && expandTo(state.tree, id)) saveIndex();
-  if (id === state.active) {
-    showSheet();
-    view.focus();
-    setDrawer(false);
-    return;
+  if (id !== state.active) {
+    flushSave();
+    state.active = id;
+    if (id !== "shared") saveIndex();
   }
-  flushSave();
-  state.active = id;
-  if (id !== "shared") saveIndex();
   showSheet();
-  view.focus();
+  if (!pageConcealed(id)) view.focus();
   setDrawer(false);
 }
 
@@ -726,7 +1307,12 @@ function flushSave() {
     saveSheet(state.active);
   }
 }
-addEventListener("pagehide", flushSave);
+addEventListener("pagehide", () => {
+  flushSave();
+  plains.clear();
+  pageKeys.clear();
+  folderKeys.clear();
+});
 
 const CHEVRON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`;
 const DOTS = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/></svg>`;
@@ -735,15 +1321,16 @@ function renderSidebar() {
   const rows = [];
   if (state.shared) rows.push(pageRow("shared", state.shared.text, true, 0));
   for (const entry of visible(state.tree)) {
-    rows.push(entry.type === "folder" ? folderRow(entry) : pageRow(entry.id, state.texts.get(entry.id), false, entry.depth));
+    rows.push(entry.type === "folder" ? folderRow(entry) : pageRow(entry.id, shownPlain(entry.id), false, entry.depth));
   }
   const fill = document.createElement("div");
   fill.className = "side-fill";
   el.sheets.replaceChildren(...rows, fill);
   paintDrop();
   if (!preview) {
-    el.title.textContent = title(currentText());
-    document.title = `${title(currentText())} · Omacus`;
+    const name = state.active === "shared" ? title(state.shared?.text ?? "") : pageConcealed(state.active) ? "Locked" : title(shownPlain(state.active));
+    el.title.textContent = name;
+    document.title = `${name} · Omacus`;
   }
   renderDeleted();
 }
@@ -772,10 +1359,17 @@ function pageRow(id, text, shared, depth) {
   const name = document.createElement("button");
   name.type = "button";
   name.className = "side-name";
+  const labelText = shared ? heading(text) : pageLabel(id);
   const label = document.createElement("span");
-  label.textContent = heading(text);
-  name.title = heading(text);
+  label.textContent = labelText;
+  name.title = labelText;
   name.append(label);
+  if (!shared && (isLock(state.texts.get(id) ?? "") || coveringLock(state.tree, id))) {
+    const icon = document.createElement("span");
+    icon.className = "lock-mark";
+    icon.innerHTML = pageConcealed(id) ? LOCK_ICON : LOCK_OPEN_ICON;
+    name.append(icon);
+  }
   if (shared) {
     const tag = document.createElement("i");
     tag.className = "shared-tag";
@@ -804,6 +1398,12 @@ function folderRow(entry) {
   label.textContent = entry.name || "Folder";
   name.title = entry.name || "Folder";
   name.append(label);
+  if (entry.locked) {
+    const icon = document.createElement("span");
+    icon.className = "lock-mark";
+    icon.innerHTML = folderKeys.has(entry.id) ? LOCK_OPEN_ICON : LOCK_ICON;
+    name.append(icon);
+  }
   row.append(chevron, name, moreButton("Folder menu"));
   return row;
 }
@@ -837,8 +1437,9 @@ function renderDeleted() {
   for (const item of items) {
     const b = document.createElement("button");
     b.type = "button";
-    b.textContent = heading(item.text);
-    b.title = heading(item.text);
+    const name = isLock(item.text) ? "Locked" : heading(item.text);
+    b.textContent = name;
+    b.title = name;
     if (preview?.id === item.id) b.setAttribute("aria-current", "true");
     b.addEventListener("click", () => showPreview(item));
     el.deleted.append(b);
@@ -850,15 +1451,20 @@ let preview = null;
 function showPreview(item) {
   closePagePreview();
   preview = item;
+  const locked = isLock(item.text);
+  const name = locked ? "Locked" : heading(item.text);
   if (el.preview) el.preview.hidden = false;
-  if (el.previewTitle) el.previewTitle.textContent = heading(item.text);
+  if (el.previewTitle) el.previewTitle.textContent = name;
   if (el.previewBody) {
     el.previewBody.hidden = false;
-    el.previewBody.textContent = item.text;
+    el.previewBody.textContent = locked
+      ? "This page is locked. Restore it and enter the password to read it."
+      : item.text;
   }
   if (el.editor) el.editor.hidden = true;
-  if (el.title) el.title.textContent = heading(item.text);
-  document.title = `${title(item.text)} · Omacus`;
+  hideGate();
+  if (el.title) el.title.textContent = name;
+  document.title = `${locked ? "Locked" : title(item.text)} · Omacus`;
   renderSidebar();
 }
 
@@ -867,7 +1473,8 @@ function clearPreview() {
   preview = null;
   if (el.preview) el.preview.hidden = true;
   if (el.previewBody) el.previewBody.hidden = true;
-  if (el.editor && !pagePreviewOpen) el.editor.hidden = false;
+  if (pageConcealed(state.active)) showGate();
+  else if (el.editor && !pagePreviewOpen) el.editor.hidden = false;
   renderSidebar();
   syncEmpty();
 }
@@ -892,6 +1499,7 @@ function closePagePreview() {
 }
 
 function togglePagePreview() {
+  if (refuseConcealed()) return;
   if (pagePreviewOpen) {
     closePagePreview();
     view.focus();
@@ -915,6 +1523,7 @@ function refreshPagePreview() {
 }
 
 function printPagePreview() {
+  if (refuseConcealed()) return;
   if (!pagePreviewOpen) openPagePreview();
   // The browser picks the folder and whether to replace a file. The title is
   // the page name, so Save as PDF suggests that instead of "Omacus".
@@ -1965,7 +2574,8 @@ function esc(s) {
 // (the desktop app makes and reads exactly the same links).
 
 async function share() {
-  const text = currentText();
+  if (refuseConcealed()) return;
+  const text = editingText();
   const url = `${location.origin}/app#${shareEncode(text)}`;
   await copy(url);
   const n = url.length.toLocaleString();
@@ -1995,7 +2605,8 @@ async function openShared() {
 // "Open in Omacus": hand the sheet to the desktop app through its omacus:// link.
 // If nothing takes it (no app, or one older than 0.1.10), say where to get it.
 function openInApp() {
-  const link = `omacus://open#${shareEncode(currentText())}`;
+  if (refuseConcealed()) return;
+  const link = `omacus://open#${shareEncode(editingText())}`;
   let left = false;
   const away = () => (left = true);
   addEventListener("blur", away, { once: true });
@@ -2072,15 +2683,18 @@ async function loadRates() {
 async function action(name) {
   closeMenu();
   closeRowMenu();
-  const text = currentText();
+  const text = editingText();
   if (name === "rename") {
+    if (refuseConcealed()) return;
     renameAtCaret();
   } else if (name === "handle") {
     openHandleDialog();
   } else if (name === "copy") {
+    if (refuseConcealed()) return;
     await copyLater(laidOut(text, false));
     toast("Page copied with answers.");
   } else if (name === "markdown") {
+    if (refuseConcealed()) return;
     await copyLater(laidOut(text, true));
     toast("Page copied as a Markdown table.");
   } else if (name === "preview") {
@@ -2095,9 +2709,19 @@ async function action(name) {
     printPagePreview();
   } else if (name === "new") {
     flushSave();
-    addSheet("");
-    showSheet();
-    view.focus();
+    if (addSheet("")) {
+      showSheet();
+      view.focus();
+    }
+  } else if (name === "lock-now") {
+    if (anyUnlocked()) lockNow();
+    else toast("Nothing is unlocked.");
+  } else if (name === "close-lock") {
+    closeLock();
+  } else if (name === "lock-submit") {
+    submitLock();
+  } else if (name === "gate-unlock") {
+    submitGate();
   } else if (name === "new-folder") {
     addFolder(null);
   } else if (name === "move-folder") {
@@ -2131,7 +2755,8 @@ async function action(name) {
     if (preview) restoreTrashed(preview.id);
   } else if (name === "purge-trash") {
     if (!preview || !el.confirm) return;
-  el.confirmText.textContent = `Delete “${heading(preview.text)}” forever? This can't be undone.`;
+  const purgeName = isLock(preview.text) ? "Locked" : heading(preview.text);
+  el.confirmText.textContent = `Delete “${purgeName}” forever? This can't be undone.`;
   el.confirm.hidden = false;
   const yes = $("[data-confirm-yes]");
   if (yes) yes.textContent = "Delete forever";
@@ -2170,7 +2795,7 @@ function deleteSheet() {
 
 function deletePage(id) {
   if (!pageIds(state.tree).includes(id) || !el.confirm) return;
-  el.confirmText.textContent = `Delete “${title(state.texts.get(id))}”? You can restore it from Recently deleted.`;
+  el.confirmText.textContent = `Delete “${pageLabel(id)}”? You can restore it from Recently deleted.`;
   el.confirm.hidden = false;
   const yes = $("[data-confirm-yes]");
   if (yes) yes.textContent = "Delete";
@@ -2222,6 +2847,8 @@ function dropPlaceholder() {
 function commitDeletePage(id) {
   const text = state.texts.get(id);
   if (text == null) return;
+  const label = isLock(text) ? "Locked" : title(shownPlain(id) || text);
+  forgetPage(id);
   const wasActive = state.active === id;
   const oldAt = state.order.indexOf(id);
   const taken = removeNode(state.tree, id);
@@ -2241,7 +2868,7 @@ function commitDeletePage(id) {
   }
   saveIndex();
   showSheet();
-  toast(`Deleted “${esc(title(text))}”.`, {
+  toast(`Deleted “${esc(label)}”.`, {
     label: "Undo",
     run() {
       dropPlaceholder();
@@ -2271,10 +2898,12 @@ function commitDeleteFolder(id) {
   saveTrash(trash);
   flushSave();
   for (const pid of ids) {
+    forgetPage(pid);
     state.texts.delete(pid);
     store.remove("page:" + pid);
     store.remove("sheet:" + pid);
   }
+  folderKeys.delete(id);
   const active = state.active;
   syncOrder();
   if (!state.order.includes(active)) {
@@ -2431,9 +3060,7 @@ function openMove(pageId) {
     button.style.paddingLeft = `${8 + depth * 14}px`;
     button.addEventListener("click", () => {
       if (current !== parent) {
-        place(state.tree, pageId, parent ? { kind: "into", id: parent } : { kind: "root" });
-        syncOrder();
-        saveIndex();
+        applyPlace(pageId, parent ? { kind: "into", id: parent } : { kind: "root" });
       }
       closeMove();
       renderSidebar();
@@ -2467,12 +3094,13 @@ function switcherItems(query) {
     hits.push({ kind: "rename", label: "Rename variable", shortcut: "F2" });
   }
   const q = query.trim().toLowerCase();
-  const addPage = (id, text) => {
-    const label = heading(text);
-    if (!q || label.toLowerCase().includes(q)) hits.push({ kind: "page", id, label });
+  const addPage = (id, text, concealed) => {
+    const label = concealed ? "Locked" : heading(text);
+    const hay = concealed ? label : `${label}\n${text}`;
+    if (!q || hay.toLowerCase().includes(q)) hits.push({ kind: "page", id, label });
   };
-  if (state.shared) addPage("shared", state.shared.text);
-  for (const id of state.order) addPage(id, state.texts.get(id));
+  if (state.shared) addPage("shared", state.shared.text, false);
+  for (const id of state.order) addPage(id, pageConcealed(id) ? "" : shownPlain(id), pageConcealed(id));
   return hits;
 }
 
@@ -2579,9 +3207,18 @@ function openRowMenu(row, x, y) {
   if (!row) return;
   const id = row.dataset.id;
   if (row.dataset.kind === "folder") {
-    const items = [{ label: "New page", run: () => { flushSave(); addSheet("", { parent: id }); showSheet(); view?.focus(); } }];
+    const items = [{ label: "New page", run: () => { flushSave(); if (addSheet("", { parent: id })) { showSheet(); view?.focus(); } } }];
     if (canNest(state.tree, id)) items.push({ label: "New folder", run: () => addFolder(id) });
     items.push({ label: "Rename", run: () => openFolderRename(id) });
+    items.push("sep");
+    const flock = folderLockState(id);
+    if (flock === "none") items.push({ label: "Lock…", run: () => openLock("create-folder", id) });
+    else if (flock === "closed") items.push({ label: "Unlock…", run: () => openLock("unlock-folder", id) });
+    else if (flock === "open") {
+      items.push({ label: "Change password…", run: () => openLock("change-folder", id) });
+      items.push({ label: "Remove lock…", run: () => openLock("remove-folder", id) });
+    }
+    if (anyUnlocked()) items.push({ label: "Lock now", run: () => lockNow() });
     items.push("sep", { label: "Delete folder", danger: true, run: () => deleteFolder(id) });
     openMenu(x, y, items);
     return;
@@ -2591,6 +3228,17 @@ function openRowMenu(row, x, y) {
   if (!ends.first) items.push({ label: "Move up", run: () => nudge(id, -1) });
   if (!ends.last) items.push({ label: "Move down", run: () => nudge(id, 1) });
   items.push({ label: "Move to folder…", run: () => openMove(id) });
+  items.push("sep");
+  const covered = !!(coveringLock(state.tree, id) && !individualLock(id));
+  const concealed = pageConcealed(id);
+  const locked = isLock(state.texts.get(id) ?? "") || !!coveringLock(state.tree, id);
+  if (concealed) items.push({ label: "Unlock…", run: () => select(id) });
+  else if (!covered && !locked) items.push({ label: "Lock…", run: () => openLock("create-page", id) });
+  else if (!covered) {
+    items.push({ label: "Change password…", run: () => openLock("change-page", id) });
+    items.push({ label: "Remove lock…", run: () => openLock("remove-page", id) });
+  }
+  if (anyUnlocked()) items.push({ label: "Lock now", run: () => lockNow() });
   items.push("sep", { label: "Delete page", danger: true, run: () => deletePage(id) });
   openMenu(x, y, items);
 }
@@ -2614,7 +3262,7 @@ function showChip() {
   const chip = ensureChip();
   chip.textContent = drag.kind === "folder"
     ? folders(state.tree).find((folder) => folder.id === drag.id)?.name || "Folder"
-    : heading(state.texts.get(drag.id));
+    : pageLabel(drag.id);
   chip.hidden = false;
 }
 
@@ -2736,11 +3384,7 @@ function onSidePointerUp(e) {
   document.body.classList.remove("dragging-side");
   if (e.type === "pointercancel" || !finished.active) return;
   ignoreClick = true;
-  if (finished.spot) {
-    place(state.tree, finished.id, finished.spot);
-    syncOrder();
-    saveIndex();
-  }
+  if (finished.spot) applyPlace(finished.id, finished.spot);
   renderSidebar();
 }
 
@@ -2910,6 +3554,10 @@ addEventListener("keydown", (e) => {
       closeSwitcher();
       return;
     }
+    if (el.lock && !el.lock.hidden) {
+      closeLock();
+      return;
+    }
     if (el.move && !el.move.hidden) {
       closeMove();
       return;
@@ -3013,23 +3661,39 @@ $("[data-confirm-no]")?.addEventListener("click", () => {
 // ---------------------------------------------------------------------------------
 // Export and import: plain .txt files in a .zip, like the desktop app's sheets folder.
 
+function folderLockState(id) {
+  const cover = coveringLock(state.tree, id);
+  if (!cover) return "none";
+  if (cover.id !== id) return "covered";
+  return folderKeys.has(id) ? "open" : "closed";
+}
+
 function exportZip() {
   flushSave();
   const used = new Set();
-  const files = state.order.map((id) => {
-    let name = title(state.texts.get(id)).replace(/[\\/:*?"<>|…]/g, "").trim() || "Untitled";
+  let skipped = 0;
+  const files = [];
+  for (const id of state.order) {
+    if (pageConcealed(id)) {
+      skipped += 1;
+      continue;
+    }
+    const plain = shownPlain(id);
+    let name = title(plain).replace(/[\\/:*?"<>|…]/g, "").trim() || "Untitled";
     let unique = name;
     for (let n = 2; used.has(unique.toLowerCase()); n++) unique = `${name} ${n}`;
     used.add(unique.toLowerCase());
-    return { name: `${unique}.txt`, data: new TextEncoder().encode(state.texts.get(id)) };
-  });
+    files.push({ name: `${unique}.txt`, data: new TextEncoder().encode(plain) });
+  }
   const blob = zip(files);
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = `omacus-pages-${new Date().toISOString().slice(0, 10)}.zip`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  toast(`Exported ${files.length} page${files.length === 1 ? "" : "s"}.`);
+  let note = `Exported ${files.length} page${files.length === 1 ? "" : "s"}.`;
+  if (skipped) note += " Locked pages are excluded from export unless unlocked.";
+  toast(note);
 }
 
 el.importInput.addEventListener("change", async () => {

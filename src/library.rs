@@ -60,9 +60,10 @@ impl Library {
     }
 
     pub fn show(&self, name: &str, password: Option<&str>) -> Result<PageView, String> {
-        let sheet = self.sheet(name)?;
-        self.unlocked(sheet, password)?;
-        Ok(self.view(sheet))
+        let idx = self.index(name, password)?;
+        let sheet = &self.store.sheets[idx];
+        let text = lock::reveal(&sheet.id, sheet.stored(), password)?;
+        Ok(view_text(&sheet.id, &text))
     }
 
     pub fn create(&mut self, name: &str, body: Option<&str>) -> Result<PageInfo, String> {
@@ -93,8 +94,7 @@ impl Library {
         extra: &str,
         password: Option<&str>,
     ) -> Result<PageInfo, String> {
-        let idx = self.index(name)?;
-        self.unlocked(&self.store.sheets[idx], password)?;
+        let idx = self.prepare(name, password)?;
         let text = append_text(&self.store.sheets[idx].text, extra);
         self.store.sheets[idx].text = text;
         self.store.sheets[idx].mark_dirty();
@@ -110,8 +110,7 @@ impl Library {
         text: &str,
         password: Option<&str>,
     ) -> Result<PageInfo, String> {
-        let idx = self.index(name)?;
-        self.unlocked(&self.store.sheets[idx], password)?;
+        let idx = self.prepare(name, password)?;
         let mut text = text.replace("\r\n", "\n").replace('\r', "\n");
         if !text.ends_with('\n') {
             text.push('\n');
@@ -126,9 +125,8 @@ impl Library {
 
     /// Move a page to Recently deleted.
     pub fn remove(&mut self, name: &str, password: Option<&str>) -> Result<String, String> {
-        let idx = self.index(name)?;
+        let idx = self.prepare(name, password)?;
         let title = self.store.sheets[idx].heading();
-        self.unlocked(&self.store.sheets[idx], password)?;
         self.store.delete(idx);
         self.store
             .save()
@@ -189,41 +187,85 @@ impl Library {
         PageInfo {
             id: sheet.id.clone(),
             title: sheet.heading(),
-            locked: self
-                .store
-                .directory()
-                .is_some_and(|dir| lock::is_locked(dir, &sheet.id)),
+            locked: sheet.locked() || lock::is_locked(sheet.stored()),
         }
     }
 
-    fn view(&self, sheet: &Sheet) -> PageView {
-        let results = line_results(&sheet.text);
-        PageView {
-            id: sheet.id.clone(),
-            title: sheet.heading(),
-            rendered: omacus_engine::with_answers(&sheet.text, &results),
-            lines: to_lines(&sheet.text, &results),
-            text: sheet.text.clone(),
+    fn index(&self, name: &str, password: Option<&str>) -> Result<usize, String> {
+        match resolve(&self.store.sheets, name) {
+            Ok(idx) => Ok(idx),
+            Err(err) if err.starts_with("no page named") => {
+                self.locked_index(name, password).unwrap_or(Err(err))
+            }
+            Err(err) => Err(err),
         }
     }
 
-    fn sheet(&self, name: &str) -> Result<&Sheet, String> {
-        let idx = self.index(name)?;
-        Ok(&self.store.sheets[idx])
-    }
-
-    fn index(&self, name: &str) -> Result<usize, String> {
-        resolve(&self.store.sheets, name)
-    }
-
-    fn unlocked(&self, sheet: &Sheet, password: Option<&str>) -> Result<(), String> {
-        let Some(dir) = self.store.directory() else {
-            return Ok(());
-        };
-        match lock::refusal(dir, &sheet.id, &sheet.text, password) {
-            Some(message) => Err(message),
-            None => Ok(()),
+    /// A locked page's title is hidden. With the password, match the real one.
+    fn locked_index(&self, name: &str, password: Option<&str>) -> Option<Result<usize, String>> {
+        let password = password.filter(|p| !p.is_empty())?;
+        let needle = fold(name.trim());
+        if needle.is_empty() {
+            return None;
         }
+        let mut hits: Vec<(u8, usize)> = Vec::new();
+        for (idx, sheet) in self.store.sheets.iter().enumerate() {
+            if !sheet.locked() {
+                continue;
+            }
+            let Ok(text) = lock::reveal(&sheet.id, sheet.stored(), Some(password)) else {
+                continue;
+            };
+            let title = fold(&sheets::heading_of(&text));
+            let rank = if title == needle {
+                0
+            } else if title.starts_with(&needle) {
+                1
+            } else if title.contains(&needle) {
+                2
+            } else if subsequence(&needle, &title) {
+                3
+            } else {
+                continue;
+            };
+            hits.push((rank, idx));
+        }
+        if hits.is_empty() {
+            return None;
+        }
+        hits.sort_by_key(|(rank, idx)| (*rank, *idx));
+        let best = hits[0].0;
+        let top: Vec<usize> = hits
+            .into_iter()
+            .filter(|(rank, _)| *rank == best)
+            .map(|(_, idx)| idx)
+            .collect();
+        match top.as_slice() {
+            [one] => Some(Ok(*one)),
+            many => Some(Err(ambiguous(name, &self.store.sheets, many))),
+        }
+    }
+
+    /// Decrypt into this session so a later save writes ciphertext, not the edit.
+    fn prepare(&mut self, name: &str, password: Option<&str>) -> Result<usize, String> {
+        let idx = self.index(name, password)?;
+        let id = self.store.sheets[idx].id.clone();
+        if self.store.sheets[idx].locked() && !self.store.sheets[idx].revealed() {
+            let Some(password) = password.filter(|p| !p.is_empty()) else {
+                return Err(lock::refuse(false));
+            };
+            self.store
+                .unlock_page(&id, password)
+                .map_err(|err| match err.as_str() {
+                    "Wrong password." => lock::refuse(true),
+                    other => other.to_string(),
+                })?;
+        }
+        self.store
+            .sheets
+            .iter()
+            .position(|s| s.id == id)
+            .ok_or_else(|| "That page is gone.".to_string())
     }
 
     fn ensure_dir(&self) -> Result<(), String> {
@@ -232,6 +274,17 @@ impl Library {
         } else {
             Err("no folder for pages".into())
         }
+    }
+}
+
+fn view_text(id: &str, text: &str) -> PageView {
+    let results = line_results(text);
+    PageView {
+        id: id.to_string(),
+        title: sheets::heading_of(text),
+        rendered: omacus_engine::with_answers(text, &results),
+        lines: to_lines(text, &results),
+        text: text.to_string(),
     }
 }
 
@@ -483,37 +536,94 @@ mod tests {
     #[test]
     fn a_locked_page_is_not_printed_or_changed() {
         let root = temp_root("lock");
-        let mut lib = Library::open_at(root.clone());
-        let info = lib.create("Weekend Plans", Some("cabin $400\n")).unwrap();
-        let secret = "cabin $400";
-        assert!(lib.show("Weekend", None).unwrap().text.contains(secret));
-        let hash = lock::password_hash("salt", "open-sesame");
-        let state = format!(
-            r#"{{"locks":{{"{}":{{"salt":"salt","hash":"{hash}"}}}}}}"#,
-            info.id
-        );
-        std::fs::write(root.join("state.json"), state).unwrap();
+        let mut window = Store::open_at(root.clone());
+        window.new_sheet("# Weekend Plans\ncabin $400\n");
+        let id = window.sheets[0].id.clone();
+        window.lock_page(&id, "open-sesame").unwrap();
+        window.save().unwrap();
+        let path = root.join("pages").join(format!("{id}.txt"));
+        let file = std::fs::read_to_string(&path).unwrap();
+        assert!(file.starts_with("OMACUS-LOCK/1\n"), "{file}");
+        assert!(!file.contains("cabin $400"), "{file}");
+        assert!(!file.contains("Weekend"), "{file}");
+        let state = std::fs::read_to_string(root.join("state.json")).unwrap();
+        assert!(!state.contains("open-sesame"), "{state}");
+        assert!(!state.contains("cabin"), "{state}");
+        assert!(!state.contains("\"hash\""), "{state}");
 
         let lib = Library::open_at(root.clone());
-        let err = lib.show("Weekend", None).unwrap_err();
-        assert!(!err.contains(secret), "{err}");
+        let listed = lib.list();
+        assert!(
+            listed
+                .iter()
+                .any(|p| p.id == id && p.locked && p.title == "Locked"),
+            "{listed:?}"
+        );
+        let err = lib.show(&id, None).unwrap_err();
         assert!(err.contains("locked"), "{err}");
-        let err = lib.show("Weekend", Some("nope")).unwrap_err();
-        assert!(!err.contains(secret), "{err}");
+        assert!(!err.contains("cabin"), "{err}");
+        let err = lib.show(&id, Some("nope")).unwrap_err();
+        assert!(err.contains("locked"), "{err}");
+        assert!(!err.contains("cabin"), "{err}");
+        let named = lib.show("Weekend", None).unwrap_err();
+        assert!(!named.contains("cabin"), "{named}");
         let view = lib.show("Weekend", Some("open-sesame")).unwrap();
-        assert!(view.text.contains(secret));
+        assert!(view.text.contains("cabin $400"), "{}", view.text);
 
         let mut lib = Library::open_at(root.clone());
-        assert!(lib.append("Weekend", "extra", None).is_err());
-        let text =
-            std::fs::read_to_string(root.join("pages").join(format!("{}.txt", info.id))).unwrap();
-        assert!(!text.contains("extra"), "{text}");
-        assert!(lib.remove("Weekend", None).is_err());
+        assert!(lib.append(&id, "hike $12", None).is_err());
+        assert!(lib.remove(&id, None).is_err());
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("OMACUS-LOCK/1\n"), "{text}");
         assert!(
-            root.join("pages")
-                .join(format!("{}.txt", info.id))
-                .is_file()
+            !text.contains("cabin $400") && !text.contains("hike $12"),
+            "{text}"
         );
+        assert!(path.is_file());
+
+        let mut lib = Library::open_at(root.clone());
+        lib.append("Weekend", "hike $12", Some("open-sesame"))
+            .unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("OMACUS-LOCK/1\n"), "{text}");
+        assert!(
+            !text.contains("hike $12") && !text.contains("cabin"),
+            "{text}"
+        );
+        let view = Library::open_at(root.clone())
+            .show(&id, Some("open-sesame"))
+            .unwrap();
+        assert!(view.text.contains("hike $12"), "{}", view.text);
+        assert!(view.text.contains("cabin $400"), "{}", view.text);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_folder_password_opens_its_page_and_the_file_stays_ciphertext() {
+        let root = temp_root("folder-lock");
+        let mut window = Store::open_at(root.clone());
+        window.new_sheet("# Groceries\nmilk $3\n");
+        let page = window.sheets[0].id.clone();
+        let folder = window.create_folder(None).unwrap();
+        assert!(window.rename_folder(&folder, "Trip Budget"));
+        assert!(window.place(&page, sheets::Place::Into(folder.clone())));
+        window.lock_folder(&folder, "folder-secret").unwrap();
+        window.save().unwrap();
+        let file = std::fs::read_to_string(root.join("pages").join(format!("{page}.txt"))).unwrap();
+        assert!(file.starts_with("OMACUS-LOCK/1\n"), "{file}");
+        assert!(
+            !file.contains("milk") && !file.contains("Groceries"),
+            "{file}"
+        );
+        let state = std::fs::read_to_string(root.join("state.json")).unwrap();
+        assert!(!state.contains("folder-secret"), "{state}");
+        assert!(!state.contains("milk"), "{state}");
+
+        let lib = Library::open_at(root.clone());
+        let err = lib.show(&page, None).unwrap_err();
+        assert!(err.contains("locked") && !err.contains("milk"), "{err}");
+        let view = lib.show("Groc", Some("folder-secret")).unwrap();
+        assert!(view.text.contains("milk $3"), "{}", view.text);
         let _ = std::fs::remove_dir_all(root);
     }
 
