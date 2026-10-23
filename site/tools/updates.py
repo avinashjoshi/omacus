@@ -548,8 +548,8 @@ def toc_html(entries):
 
 
 def page_html(entries, images):
-    # theme-color matches --bg (#090909 in :root, and the light reassignment
-    # in site.css). Browser chrome only; the page itself uses the variables.
+    # theme-color matches --bg in tokens.css (near-black, and the light paper
+    # on this page). Browser chrome only; the page itself uses the variables.
     timeline = "\n".join(entry_html(e, images) for e in entries)
     count = sum(1 + len(e["fixes"]) for e in entries)
     return f'''<!doctype html>

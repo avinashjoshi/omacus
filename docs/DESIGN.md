@@ -89,6 +89,8 @@ Danger is `#f7768e` on dark themes, `#a61b1b` on paper, `#b42318` on the plain l
 
 Gold `#f0a12a` on near-black `#090909`. Text `#ecebe8`, secondary `#b8b6b1`, muted `#9a9893`. Use `--bg`, `--text`, `--line`, `--panel`, `--accent`. Don't point marketing chrome at `--app-*`.
 
+The updates page follows the system. In light mode the same roles sit on warm paper (`#f6f5f2`), and the gold is darkened (`#9e660a`, links `#8a5608`) so a label on the button and a link on the page both clear WCAG AA. Those values live in `tokens.css` on `html[data-page="updates"]`. The rest of the marketing site stays on near-black.
+
 ### Print and PDF
 
 Preview and PDF are ink on paper, not a screen theme. CSS print colors are `--print-*` in `tokens.css`. The PDF itself writes the operator strings in `src/pdf.rs` (`ANSWER_INK` and the body gray). Those bytes are covered by tests. Don't recolor a PDF to match the screen accent.
@@ -248,9 +250,16 @@ Lock is the "Lock again after" combo (1, 5, 15, 30, or 60 minutes, or Never). Th
 
 ### About
 
-The wordmark, "Math, the way you write it.", then two cards: the version (and the update actions) and "Private by design". Links are accent, frame-less: Website, Docs, Releases, Privacy, Report an issue, Source code. The license line is muted.
+The wordmark, "Math, the way you write it.", then two cards: the version (and the update actions) and "Private by design". Links are accent, frame-less: Website, Docs, What's new, Privacy, Report an issue, Source code. The license line is muted.
 
-Don't add metrics, testimonials, or a changelog inside About. "What's new" opens the release notes.
+Don't add metrics, testimonials, or a changelog inside About. "What's new" opens the updates page.
+
+### Updates
+
+`omacus.com/updates` is a timeline of releases, newest first. A version is a pill (`--radius-pill`) in the accent. The date is caption size. The headline is the first line of the notes. Small fixes fold into a disclosure under the newer entry. Screenshots sit in the notes, with `--radius` and `--shadow-md`.
+
+Do: use the marketing tokens (`--bg`, `--text`, `--line`, `--accent`). Follow the 4px spacing scale. Keep one accent.
+Don't: point the page at `--app-*`, or put a hex color in `site.css`. Light mode only reassigns tokens in `tokens.css`.
 
 ### Preview and PDF typography
 

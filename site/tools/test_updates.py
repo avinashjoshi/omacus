@@ -136,17 +136,15 @@ class UpdatesPage(unittest.TestCase):
         self.assertIn("$4 a day", feed)
 
     def test_updates_rules_use_the_site_tokens(self):
-        """Component rules take colors from the site tokens. Hex lives only in
-        the light-mode reassignment, so a shared palette can replace that block."""
-        css = Path(__file__).parents[1].joinpath("css", "site.css").read_text()
-        start = css.index("/* ---------- Updates")
-        section = css[start:]
-        light = section.index("@media (prefers-color-scheme: light)")
-        # The token block is the first rule. Everything after it is components.
-        end = section.index("html[data-page=\"updates\"] .site-header.scrolled")
-        tokens, rules = section[light:end], section[end:]
-        self.assertIn("--bg:", tokens)
-        self.assertNotRegex(rules, r"#[0-9a-fA-F]{3,8}\b")
+        """The page takes its colors from tokens.css. site.css has no hex of its own."""
+        css_path = Path(__file__).parents[1].joinpath("css", "site.css")
+        tokens_path = Path(__file__).parents[1].joinpath("css", "tokens.css")
+        section = css_path.read_text().split("/* ---------- Updates", 1)[1]
+        self.assertNotRegex(section, r"#[0-9a-fA-F]{3,8}\b")
+        tokens = tokens_path.read_text()
+        light = tokens.split('html[data-page="updates"]', 1)[1]
+        self.assertIn("--bg:", light)
+        self.assertIn("--accent:", light)
 
     def test_the_page_links_itself_in_the_nav(self):
         page, _, _, _ = build([release("v0.1.0", "- Omacus\n- Pages\n- Themes")])

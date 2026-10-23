@@ -5,8 +5,40 @@
   <link href="https://omacus.com/updates/"/>
   <link rel="self" type="application/atom+xml" href="https://omacus.com/updates/feed.xml"/>
   <id>https://omacus.com/updates/</id>
-  <updated>2026-10-23T06:11:35Z</updated>
+  <updated>2026-10-23T10:06:55Z</updated>
   <author><name>Avinash Joshi</name></author>
+  <entry>
+    <title>v0.2.10 — Publish a release when the push skips the prepare job. #50</title>
+    <link href="https://omacus.com/updates/#v0.2.10"/>
+    <id>https://omacus.com/updates/#v0.2.10</id>
+    <published>2026-10-23T10:06:55Z</published>
+    <updated>2026-10-23T10:06:55Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Publish a release when the push skips the prepare job. &lt;a href="https://github.com/avinashjoshi/omacus/issues/50"&gt;#50&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Add a design language for the app and the website &lt;a href="https://github.com/avinashjoshi/omacus/issues/47"&gt;#47&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Cut releases through a pull request &lt;a href="https://github.com/avinashjoshi/omacus/issues/48"&gt;#48&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.2.9 — One hover card, and name fields that edit normally #45</title>
+    <link href="https://omacus.com/updates/#v0.2.9"/>
+    <id>https://omacus.com/updates/#v0.2.9</id>
+    <published>2026-10-23T07:28:25Z</published>
+    <updated>2026-10-23T07:28:25Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;One hover card, and name fields that edit normally &lt;a href="https://github.com/avinashjoshi/omacus/issues/45"&gt;#45&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.2.8 — Lock pages and folders with real encryption #44</title>
+    <link href="https://omacus.com/updates/#v0.2.8"/>
+    <id>https://omacus.com/updates/#v0.2.8</id>
+    <published>2026-10-23T07:09:35Z</published>
+    <updated>2026-10-23T07:09:35Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Lock pages and folders with real encryption &lt;a href="https://github.com/avinashjoshi/omacus/issues/44"&gt;#44&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
   <entry>
     <title>v0.2.7 — Share a page's variables with other pages through @handle.name #43</title>
     <link href="https://omacus.com/updates/#v0.2.7"/>

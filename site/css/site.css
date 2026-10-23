@@ -2933,32 +2933,17 @@ kbd {
 }
 
 /* ---------- Updates (omacus.com/updates) ---------- */
-/* Colors are the site tokens. Light mode only reassigns those tokens, so a
-   shared palette (docs/DESIGN.md) can replace that one block. Rules below
-   do not set their own colors. */
-
-@media (prefers-color-scheme: light) {
-  html[data-page="updates"] {
-    color-scheme: light;
-    --bg: #f6f5f2;
-    --bg-raise: #fffcf8;
-    --panel: #ffffff;
-    --panel-2: #f3f1ec;
-    --line: #e5e2db;
-    --line-2: #d5d1c8;
-    --text: #1c1b18;
-    --text-2: #3e3c37;
-    --muted: #6e6b64;
-    --faint: #8f8b83;
-    --accent: #a56b0b;
-    --accent-hi: #8a5608;
-    --accent-ink: #fff8ec;
-    --accent-glow: color-mix(in srgb, var(--accent) 14%, transparent);
-  }
-}
+/* Colors come from site/css/tokens.css, including the light paper palette.
+   Spacing, radii, and motion use that file's scale. */
 
 html[data-page="updates"] .site-header.scrolled {
   background: color-mix(in srgb, var(--bg) 82%, transparent);
+}
+
+html[data-page="updates"] .btn.primary {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent-hi) 28%, transparent) inset,
+    var(--shadow-md);
 }
 
 html[data-page="updates"] .nav a:hover {
@@ -2972,13 +2957,13 @@ html[data-page="updates"] .nav a:hover {
 
 .updates-hero {
   max-width: 40rem;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .updates-hero h1 {
   font-size: clamp(40px, 6vw, 64px);
   color: var(--text);
-  margin: 0 0 16px;
+  margin: 0 0 var(--space-4);
 }
 
 .updates-lead {
@@ -2989,9 +2974,9 @@ html[data-page="updates"] .nav a:hover {
 }
 
 .updates-tools {
-  margin: 18px 0 0;
+  margin: var(--space-4) 0 0;
   color: var(--muted);
-  font-size: 14.5px;
+  font-size: var(--type-body);
 }
 
 .updates-tools a {
@@ -3005,28 +2990,28 @@ html[data-page="updates"] .nav a:hover {
 
 .timeline {
   list-style: none;
-  margin: 64px 0 0;
+  margin: calc(var(--space-6) * 2) 0 0;
   padding: 0;
 }
 
 .entry {
   display: grid;
   grid-template-columns: 8.75rem minmax(0, 1fr);
-  column-gap: 28px;
-  padding-bottom: 72px;
+  column-gap: var(--space-6);
+  padding-bottom: calc(var(--space-6) * 2);
   scroll-margin-top: 96px;
 }
 
 .entry-meta {
   text-align: right;
-  padding-top: 4px;
+  padding-top: var(--space-1);
 }
 
 .entry-meta time {
   display: block;
-  margin-top: 8px;
+  margin-top: var(--space-2);
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--type-caption);
   line-height: 1.4;
   white-space: nowrap;
 }
@@ -3034,11 +3019,12 @@ html[data-page="updates"] .nav a:hover {
 .version-pill {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
+  min-height: var(--space-6);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
   background: var(--accent-glow);
   color: var(--accent-hi);
-  font: 600 12.5px/1.6 var(--mono);
+  font: 600 var(--type-caption) / 1.4 var(--mono);
   border-bottom: 0;
 }
 
@@ -3049,9 +3035,9 @@ html[data-page="updates"] .nav a:hover {
 
 .pre {
   display: inline-block;
-  margin-left: 8px;
+  margin-left: var(--space-2);
   color: var(--faint);
-  font: 500 11px/1.6 var(--mono);
+  font: 500 var(--type-caption) / 1.4 var(--mono);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -3060,7 +3046,7 @@ html[data-page="updates"] .nav a:hover {
   position: relative;
   min-width: 0;
   border-left: 1px solid var(--line);
-  padding: 0 0 0 28px;
+  padding: 0 0 0 var(--space-6);
 }
 
 .entry-body::before {
@@ -3086,13 +3072,13 @@ html[data-page="updates"] .nav a:hover {
 .entry h2 {
   margin: 0;
   color: var(--text);
-  font-size: clamp(22px, 2.5vw, 30px);
+  font-size: clamp(var(--type-display), 2.5vw, 30px);
   line-height: 1.25;
   letter-spacing: -0.03em;
 }
 
 .notes {
-  margin-top: 16px;
+  margin-top: var(--space-4);
   color: var(--text-2);
   font-size: 16.5px;
   line-height: 1.65;
@@ -3100,7 +3086,7 @@ html[data-page="updates"] .nav a:hover {
 
 .notes p,
 .fix-copy p {
-  margin: 0 0 12px;
+  margin: 0 0 var(--space-3);
 }
 
 .notes ul,
@@ -3142,8 +3128,8 @@ html[data-page="updates"] .nav a:hover {
 .notes code,
 .fix-copy code,
 .entry h2 code {
-  padding: 2px 6px;
-  border-radius: 6px;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-xs);
   background: var(--panel-2);
   border: 1px solid var(--line);
   color: var(--text);
@@ -3161,6 +3147,7 @@ html[data-page="updates"] .nav a:hover {
   border-radius: var(--radius);
   border: 1px solid var(--line-2);
   background: var(--panel);
+  box-shadow: var(--shadow-md);
 }
 
 .notes figcaption,
@@ -3171,19 +3158,19 @@ html[data-page="updates"] .nav a:hover {
 }
 
 .fix-group {
-  margin-top: 22px;
+  margin-top: var(--space-5);
   border-top: 1px solid var(--line);
-  padding-top: 14px;
+  padding-top: var(--space-3);
 }
 
 .fix-group summary {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: var(--space-2) var(--space-3);
   cursor: pointer;
   color: var(--text-2);
-  font-size: 14.5px;
+  font-size: var(--type-body);
   list-style: none;
 }
 
@@ -3199,7 +3186,7 @@ html[data-page="updates"] .nav a:hover {
   border-right: 1.5px solid var(--muted);
   border-bottom: 1.5px solid var(--muted);
   transform: rotate(-45deg);
-  transition: transform 0.2s ease;
+  transition: transform var(--dur) var(--ease);
 }
 
 .fix-group[open] summary::before {
@@ -3209,7 +3196,7 @@ html[data-page="updates"] .nav a:hover {
 .fix-range,
 .fix-when {
   color: var(--faint);
-  font: 500 12.5px/1.4 var(--mono);
+  font: 500 var(--type-caption) / 1.4 var(--mono);
 }
 
 .fixes {
@@ -3219,7 +3206,7 @@ html[data-page="updates"] .nav a:hover {
 }
 
 .fixes li {
-  padding: 16px 0;
+  padding: var(--space-4) 0;
   border-top: 1px solid var(--line);
   scroll-margin-top: 96px;
 }
@@ -3228,13 +3215,13 @@ html[data-page="updates"] .nav a:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 10px;
-  margin: 0 0 8px;
+  gap: var(--space-2) var(--space-3);
+  margin: 0 0 var(--space-2);
 }
 
 .fix-line time {
   color: var(--faint);
-  font-size: 13px;
+  font-size: var(--type-caption);
 }
 
 .fix-copy {
@@ -3244,9 +3231,9 @@ html[data-page="updates"] .nav a:hover {
 }
 
 .entry-links {
-  margin: 16px 0 0;
+  margin: var(--space-4) 0 0;
   color: var(--faint);
-  font-size: 13.5px;
+  font-size: var(--type-caption);
 }
 
 .entry-links a {
@@ -3259,25 +3246,25 @@ html[data-page="updates"] .nav a:hover {
 }
 
 .updates-count {
-  margin: 48px 0 0;
+  margin: calc(var(--space-6) + var(--space-4)) 0 0;
   color: var(--faint);
-  font-size: 13.5px;
+  font-size: var(--type-caption);
 }
 
 @media (max-width: 720px) {
   .entry {
     grid-template-columns: 1fr;
-    row-gap: 10px;
-    padding-bottom: 48px;
+    row-gap: var(--space-2);
+    padding-bottom: calc(var(--space-6) + var(--space-4));
     border-left: 1px solid var(--line);
-    padding-left: 16px;
+    padding-left: var(--space-4);
   }
 
   .entry-meta {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 10px;
+    gap: var(--space-2) var(--space-3);
     text-align: left;
   }
 
