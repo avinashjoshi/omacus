@@ -5,6 +5,7 @@
 
 import init, {
   Calc, suggest, shareEncode, shareDecode, layoutAnswers, realignMap, pageMarks, previewHtml, variables, wordKind,
+  bindingAt, renameVariable, definitionChange,
 } from "./pkg/omacus_web.js";
 import {
   EditorState, StateField, StateEffect, RangeSetBuilder, Prec, EditorView, Decoration, WidgetType, keymap, hoverTooltip,
@@ -376,6 +377,12 @@ const editorStates = new Map();
 let shownId = null;
 
 function showSheet() {
+  switchingPage = true;
+  closeRename();
+  closeRefPrompt();
+  closeRenameMenu();
+  refBase = null;
+  refDismissed = false;
   closePagePreview();
   clearPreview();
   if (shownId !== null) editorStates.set(shownId, view.state);
@@ -387,6 +394,8 @@ function showSheet() {
   let es = editorStates.get(state.active);
   if (!es || es.doc.toString() !== text) es = EditorState.create({ doc: text, extensions: editorExtensions });
   view.setState(es);
+  switchingPage = false;
+  syncRenameButton();
   el.shared.hidden = EMBED || state.active !== "shared";
   showInstall();
   evaluate();
@@ -723,17 +732,360 @@ function hoverSource(view, pos) {
   if (!calc) return null;
   const found = JSON.parse(calc.hoverValue(view.state.doc.toString(), pos));
   if (!found) return null;
+  const binding = JSON.parse(bindingAt(view.state.doc.toString(), pos));
   return {
     pos: found.start,
     end: found.end,
     above: true,
     create() {
       const dom = document.createElement("div");
-      dom.className = "hover-value";
-      dom.textContent = found.value;
+      dom.className = "hover-card";
+      const value = document.createElement("div");
+      value.className = "hover-value";
+      value.textContent = found.value;
+      dom.append(value);
+      if (binding) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "hover-rename";
+        btn.textContent = "Rename variable";
+        btn.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          openRename(view, pos);
+        });
+        dom.append(btn);
+      }
       return { dom };
     },
   };
+}
+
+// F2, the hover button, or the right-click menu: one field, Enter applies.
+let renamePop = null;
+let refPrompt = null;
+let applyingRename = false;
+// The page before a definition rename started. Typing the new name one letter
+// at a time still compares against this, so the uses of the old name stay found.
+let refBase = null;
+let refDismissed = false;
+
+function closeRename() {
+  renamePop?.remove();
+  renamePop = null;
+}
+
+function openRename(view, utf16) {
+  if (!calc) return false;
+  const doc = view.state.doc.toString();
+  const found = JSON.parse(bindingAt(doc, utf16));
+  if (!found) return false;
+  closeRename();
+  closeRefPrompt();
+  refBase = null;
+  refDismissed = false;
+  const host = document.createElement("div");
+  host.className = "rename-pop";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.spellcheck = false;
+  input.autocapitalize = "off";
+  input.autocorrect = "off";
+  input.autocomplete = "off";
+  input.enterKeyHint = "done";
+  input.setAttribute("aria-label", "New name");
+  input.value = found.name;
+  const err = document.createElement("div");
+  err.className = "rename-error";
+  host.append(input, err);
+  document.querySelector("[data-editor]").append(host);
+  const place = () => placePop(view, host, found.start);
+  place();
+  input.focus();
+  input.select();
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (input.value.trim() === found.name) {
+        closeRename();
+        view.focus();
+        return;
+      }
+      const result = JSON.parse(renameVariable(view.state.doc.toString(), utf16, input.value));
+      if (result.error) {
+        if (result.error === "none") {
+          closeRename();
+          view.focus();
+          return;
+        }
+        err.textContent = result.message;
+        input.focus();
+        return;
+      }
+      const current = JSON.parse(bindingAt(view.state.doc.toString(), utf16));
+      applyingRename = true;
+      view.dispatch({
+        changes: current.spans.map(([from, to]) => ({ from, to, insert: input.value.trim() })),
+        selection: { anchor: result.cursor },
+      });
+      applyingRename = false;
+      closeRename();
+      view.focus();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeRename();
+      view.focus();
+    }
+  });
+  input.addEventListener("input", () => {
+    err.textContent = "";
+  });
+  renamePop = host;
+  return true;
+}
+
+function closeRefPrompt() {
+  refPrompt?.remove();
+  refPrompt = null;
+}
+
+function placePop(view, host, at) {
+  const coords = view.coordsAtPos(at);
+  const box = document.querySelector("[data-editor]").getBoundingClientRect();
+  if (!coords) return;
+  host.style.top = `${coords.bottom - box.top + 4}px`;
+  const width = host.offsetWidth || 160;
+  const maxLeft = Math.max(8, box.width - width - 8);
+  host.style.left = `${Math.min(Math.max(8, coords.left - box.left), maxLeft)}px`;
+}
+
+function placeRefPrompt(view, host) {
+  placePop(view, host, view.state.selection.main.head);
+}
+
+function showRefPrompt(view, edit) {
+  const mode = edit.collision || !edit.references ? "msg" : "apply";
+  if (refPrompt && refPrompt.dataset.mode === mode) {
+    const label = refPrompt.querySelector(".ref-update, .ref-msg");
+    if (label) label.textContent = edit.message;
+    refPrompt._edit = edit;
+    placeRefPrompt(view, refPrompt);
+    return;
+  }
+  closeRefPrompt();
+  const host = document.createElement("div");
+  host.className = "ref-prompt";
+  host.dataset.mode = mode;
+  host._edit = edit;
+  if (mode === "msg") {
+    const msg = document.createElement("span");
+    msg.className = "ref-msg";
+    msg.textContent = edit.message;
+    host.append(msg);
+  } else {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ref-update";
+    btn.textContent = edit.message;
+    btn.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      const current = host._edit;
+      if (!current) return;
+      applyingRename = true;
+      view.dispatch({
+        changes: current.spans.map(([from, to]) => ({ from, to, insert: current.newName })),
+      });
+      applyingRename = false;
+      refBase = null;
+      refDismissed = false;
+      closeRefPrompt();
+      view.focus();
+    });
+    host.append(btn);
+  }
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.className = "ref-dismiss";
+  dismiss.textContent = "Dismiss";
+  dismiss.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    refDismissed = true;
+    closeRefPrompt();
+  });
+  host.append(dismiss);
+  document.querySelector("[data-editor]").append(host);
+  placeRefPrompt(view, host);
+  refPrompt = host;
+}
+
+// A definition's name changed. Keep the offer alive across each letter.
+function noteDefinitionEdit(view, before, after) {
+  if (!calc || applyingRename || renamePop) return;
+  const continued = refBase != null;
+  const base = refBase ?? before;
+  let edit;
+  try {
+    edit = JSON.parse(definitionChange(base, after));
+  } catch {
+    return;
+  }
+  if (edit) {
+    if (!continued) refDismissed = false;
+    refBase = base;
+    if (refDismissed) closeRefPrompt();
+    else showRefPrompt(view, edit);
+    return;
+  }
+  const fresh = JSON.parse(definitionChange(before, after));
+  if (fresh) {
+    refDismissed = false;
+    refBase = before;
+    showRefPrompt(view, fresh);
+    return;
+  }
+  refBase = null;
+  refDismissed = false;
+  closeRefPrompt();
+}
+
+let renameMenu = null;
+function closeRenameMenu() {
+  renameMenu?.remove();
+  renameMenu = null;
+}
+
+function showRenameMenu(view, x, y, utf16) {
+  closeRenameMenu();
+  const menu = document.createElement("div");
+  menu.className = "rename-menu";
+  menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - 180))}px`;
+  menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - 56))}px`;
+  const item = document.createElement("button");
+  item.type = "button";
+  item.textContent = "Rename variable";
+  item.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    closeRenameMenu();
+    openRename(view, utf16);
+  });
+  menu.append(item);
+  document.body.append(menu);
+  renameMenu = menu;
+}
+
+// The Rename button in the top bar, shown on a phone while the caret is on a name.
+function syncRenameButton() {
+  const button = document.querySelector(".rename-bar");
+  if (!button) return;
+  if (!calc) {
+    button.hidden = true;
+    return;
+  }
+  let found = null;
+  try {
+    found = JSON.parse(bindingAt(view.state.doc.toString(), view.state.selection.main.head));
+  } catch {
+    found = null;
+  }
+  button.hidden = !found;
+}
+
+function renameAtCaret() {
+  if (!openRename(view, view.state.selection.main.head)) {
+    toast("Put the cursor on a variable name.");
+  }
+}
+
+// A finger held on a name opens the rename field. A mouse right-click opens the menu.
+// contextmenu is the long-press on some phones; the timer covers the ones that never fire it.
+const LONG_PRESS_MS = 550;
+let pressOpenedAt = 0;
+
+function armRenamePress(view) {
+  const dom = view.contentDOM;
+  let point = null;
+  let pressTimer = 0;
+  const stop = () => {
+    clearTimeout(pressTimer);
+    pressTimer = 0;
+    point = null;
+  };
+  dom.addEventListener(
+    "touchstart",
+    (event) => {
+      if (event.touches.length !== 1) {
+        stop();
+        return;
+      }
+      const touch = event.touches[0];
+      const pos = view.posAtCoords({ x: touch.clientX, y: touch.clientY });
+      stop();
+      if (pos == null || !calc) return;
+      let found = null;
+      try {
+        found = JSON.parse(bindingAt(view.state.doc.toString(), pos));
+      } catch {
+        return;
+      }
+      if (!found) return;
+      point = { x: touch.clientX, y: touch.clientY, pos };
+      pressTimer = setTimeout(() => {
+        pressTimer = 0;
+        const held = point;
+        point = null;
+        if (held && openRename(view, held.pos)) pressOpenedAt = performance.now();
+      }, LONG_PRESS_MS);
+    },
+    { passive: true },
+  );
+  dom.addEventListener(
+    "touchmove",
+    (event) => {
+      if (!point || !event.touches[0]) return;
+      const touch = event.touches[0];
+      if (Math.hypot(touch.clientX - point.x, touch.clientY - point.y) > 12) stop();
+    },
+    { passive: true },
+  );
+  dom.addEventListener(
+    "touchend",
+    (event) => {
+      const justOpened = performance.now() - pressOpenedAt < 400;
+      stop();
+      if (justOpened) event.preventDefault();
+    },
+    { passive: false },
+  );
+  dom.addEventListener("touchcancel", stop);
+  view.dom.addEventListener("contextmenu", (event) => {
+    if (!calc) return;
+    if (performance.now() - pressOpenedAt < 700) {
+      event.preventDefault();
+      return;
+    }
+    const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+    if (pos == null) return;
+    let found = null;
+    try {
+      found = JSON.parse(bindingAt(view.state.doc.toString(), pos));
+    } catch {
+      return;
+    }
+    if (!found) return;
+    event.preventDefault();
+    if (point) {
+      stop();
+      if (openRename(view, pos)) pressOpenedAt = performance.now();
+      return;
+    }
+    showRenameMenu(view, event.clientX, event.clientY, pos);
+  });
+  document.addEventListener("mousedown", (event) => {
+    if (renameMenu && !renameMenu.contains(event.target)) closeRenameMenu();
+  });
 }
 
 // As in the desktop app: Tab accepts a suggestion. Ctrl+Space opens the list
@@ -746,7 +1098,17 @@ const editorKeys = [
     key: "Escape",
     run(view) {
       explicitCompletion = false;
-      return closeCompletion(view);
+      if (closeCompletion(view)) return true;
+      if (renamePop) {
+        closeRename();
+        return true;
+      }
+      if (refPrompt) {
+        refDismissed = true;
+        closeRefPrompt();
+        return true;
+      }
+      return false;
     },
   },
   {
@@ -769,7 +1131,18 @@ const editorKeys = [
   },
   { key: "Mod-Shift-s", run: () => (action("copy"), true) },
   { key: "Mod-Shift-m", run: () => (action("markdown"), true) },
+  {
+    key: "F2",
+    run(view) {
+      return openRename(view, view.state.selection.main.head);
+    },
+  },
 ];
+
+// Set while a phone keyboard's composition is being copied into the document,
+// so that copy is not itself treated as a definition rename.
+let committingTyped = false;
+let switchingPage = false;
 
 const editorExtensions = [
   undoHistory(),
@@ -783,7 +1156,13 @@ const editorExtensions = [
     // A doc change has to recalculate even when the completion check throws.
     // completionStatus wants the state; passing the view throws, which used to
     // skip this and leave the new line blank and the lines below it dimmed.
-    if (update.docChanged) onInput();
+    if (update.docChanged) {
+      if (!committingTyped && !switchingPage) {
+        noteDefinitionEdit(update.view, update.startState.doc.toString(), update.state.doc.toString());
+      }
+      onInput();
+    }
+    if (update.docChanged || update.selectionSet) syncRenameButton();
     if (!armingExplicit && !completionOpen(update.state)) explicitCompletion = false;
   }),
   EditorView.contentAttributes.of({
@@ -857,7 +1236,6 @@ function caretInDom() {
   }
   return null;
 }
-let committingTyped = false;
 let typedFrame = 0;
 function commitTypedText() {
   if (committingTyped || !view.hasFocus) return;
@@ -883,6 +1261,7 @@ function scheduleTypedCommit() {
 for (const type of ["input", "compositionupdate", "compositionend", "beforeinput"]) {
   view.contentDOM.addEventListener(type, scheduleTypedCommit);
 }
+armRenamePress(view);
 
 // The calculation runs in a worker (worker.js), so the page never waits on it. The
 // page sends each new text; the worker works on the newest, in slices, and sends
@@ -1205,7 +1584,9 @@ async function loadRates() {
 async function action(name) {
   closeMenu();
   const text = currentText();
-  if (name === "copy") {
+  if (name === "rename") {
+    renameAtCaret();
+  } else if (name === "copy") {
     await copyLater(laidOut(text, false));
     toast("Page copied with answers.");
   } else if (name === "markdown") {

@@ -56,9 +56,13 @@ check(js.includes("hideAnswers"), "the answers column can be hidden");
 check(js.includes('"#f6f1e7"') && js.includes('"#1c2433"'), "paper and dusk match the desktop themes");
 check(js.includes('"#9ece6a"') && js.includes('"#7dcfff"') && js.includes('"#1a7f37"'), "definition, use and keyword colours are in the themes");
 check(js.includes("explicitCompletion") && js.includes('"Ctrl-Space"'), "Enter accepts only an explicitly opened suggestion");
-check(js.includes("completionStatus(state)") && js.includes("if (update.docChanged) onInput()"), "a text change recalculates even if the completion check throws");
+check(js.includes("completionStatus(state)") && /if \(update\.docChanged\) \{[\s\S]*?onInput\(\)/.test(js), "a text change recalculates even if the completion check throws");
 check(!js.includes("completionStatus(view)") && !js.includes("completionStatus(update.view)"), "completion status is read from the state, not the view");
 check(js.includes('autocomplete: "off"') && js.includes("commitTypedText"), "phone composition is committed and autocomplete stays off");
+check(js.includes('key: "F2"') && js.includes("Rename variable"), "F2 and the menu rename a variable");
+check(js.includes("definitionChange") && js.includes("ref-update"), "editing a definition can update its references");
+check(js.includes("touchstart") && js.includes("renameAtCaret") && html.includes('data-action="rename"'), "a phone can long-press a name or tap Rename");
+check(!js.includes('console.log("rename-'), "rename diagnostics stay out of the page");
 check(js.includes("hoverValue") && js.includes("t-def"), "hover values and definition colours are wired up");
 check(css.includes(".cm-editor .t-def") && css.includes(".hover-value"), "definition and hover styles exist");
 check(js.includes('e.key === ","') && js.includes('e.key === "\\\\"'), "settings and the answers column have shortcuts");
@@ -591,14 +595,15 @@ if (pkg) {
     const h = host.getBoundingClientRect();
     return {
       text: el.textContent,
-      x: h.x, y: h.y, w: h.width, h: h.height,
-      shown: getComputedStyle(host).visibility !== "hidden" && h.width > 0 && h.height > 0,
-      word: r.width,
+      x: r.x, y: r.y, w: r.width, h: r.height,
+      shown: getComputedStyle(host).visibility !== "hidden" && r.width > 0 && r.height > 0,
+      rename: !!document.querySelector(".hover-rename"),
     };
   })()`);
   check(tip.text === "$1,450", `hover showed ${tip.text}`);
   check(tip.shown && tip.y > 0 && tip.y < 760 && tip.x > 0, `hover tooltip is off-screen (${JSON.stringify(tip)})`);
-  check(tip.w > tip.h, `hover tooltip is taller than it is wide (${tip.w}x${tip.h})`);
+  check(tip.w > tip.h, `hover value is taller than it is wide (${tip.w}x${tip.h})`);
+  check(tip.rename, "hover did not offer Rename variable");
   const nowrap = await evalJson(`getComputedStyle(document.querySelector(".hover-value")).whiteSpace`);
   check(nowrap === "nowrap", `hover value wraps (${nowrap})`);
   if (shots) await plainShot(join(shots, "hover.png"));
@@ -615,8 +620,7 @@ if (pkg) {
   await waitFor(`document.querySelector(".hover-value")?.textContent === "$12,000"`, 4000);
   const longTip = await evalJson(`(() => {
     const el = document.querySelector(".hover-value");
-    const host = el.closest(".cm-tooltip");
-    const h = host.getBoundingClientRect();
+    const h = el.getBoundingClientRect();
     const inside = h.x >= 0 && h.y >= 0 && h.right <= innerWidth + 1 && h.bottom <= innerHeight + 1;
     return { text: el.textContent, w: h.width, h: h.height, x: h.x, y: h.y, inside, lines: el.innerText.split("\\n").length };
   })()`);
