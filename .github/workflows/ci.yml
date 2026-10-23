@@ -35,7 +35,7 @@ jobs:
         run: python3 site/tools/test_story.py
       - name: Release notes
         if: runner.os == 'Linux'
-        run: python3 tests/check_release_notes.py
+        run: python3 tests/check_release_notes.py && python3 tests/check_release_workflow.py
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: clippy
