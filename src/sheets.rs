@@ -11,7 +11,7 @@
 //! window changed. When both changed a sheet, this window's text is saved and the
 //! other's becomes a new sheet, so neither is lost.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -78,6 +78,68 @@ pub fn heading_of(text: &str) -> String {
     }
 }
 
+/// A folder may contain another folder. Anything deeper is refused.
+pub const MAX_FOLDER_DEPTH: usize = 2;
+
+/// One sidebar entry. Pages and folders share this tree; `state.json` from before
+/// folders existed has no `tree`, and those pages load at the root in `order`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum Node {
+    Page {
+        id: String,
+    },
+    Folder {
+        id: String,
+        name: String,
+        #[serde(default)]
+        collapsed: bool,
+        #[serde(default)]
+        children: Vec<Node>,
+    },
+}
+
+/// A row the sidebar draws. Children of a collapsed folder are left out.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SideEntry {
+    pub depth: usize,
+    pub kind: SideKind,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SideKind {
+    Page {
+        id: String,
+    },
+    Folder {
+        id: String,
+        name: String,
+        collapsed: bool,
+    },
+}
+
+/// Where a drag (or Move to folder) puts an item.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Place {
+    /// Same parent as this page or folder, just before it.
+    Before(String),
+    /// Same parent as this page or folder, just after it.
+    After(String),
+    /// First child of this folder.
+    Into(String),
+    /// Last child of the root.
+    RootEnd,
+}
+
+/// A folder in the Move-to list, parents before their children.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FolderInfo {
+    pub id: String,
+    pub name: String,
+    /// 1 is a top-level folder, 2 is nested inside one.
+    pub depth: usize,
+}
+
 /// Missing fields keep their defaults, so a `state.json` from an older version
 /// (no `sidebar_width`, for example) still loads the sheet order and cursors.
 #[derive(Default, Serialize, Deserialize)]
@@ -89,6 +151,8 @@ struct State {
     sidebar: Option<bool>,
     /// Width of the expanded sidebar, in points. Absent in older `state.json`.
     sidebar_width: Option<f32>,
+    /// Absent until the first save that knows about folders.
+    tree: Option<Vec<Node>>,
 }
 
 /// Expanded sidebar width, and the range a drag is allowed to land in.
@@ -104,15 +168,32 @@ pub struct Trashed {
     pub text: String,
 }
 
+/// The last delete, so Undo can put the page or the folder back where it was.
+struct Deleted {
+    parent: Option<String>,
+    at: usize,
+    item: DeletedItem,
+}
+
+enum DeletedItem {
+    Page(Sheet),
+    /// `node` still holds the folder's children. `sheets` are those pages' text.
+    Folder {
+        node: Node,
+        sheets: Vec<Sheet>,
+    },
+}
+
 pub struct Store {
     dir: Option<PathBuf>,
     pub sheets: Vec<Sheet>,
+    /// Sidebar order. Pages not listed here are appended at the root on load.
+    tree: Vec<Node>,
     pub active: usize,
     pub sidebar: bool,
     pub sidebar_width: f32,
     state_dirty: bool,
-    /// The last deleted sheet and where it was, so it can be put back.
-    deleted: Option<(usize, Sheet)>,
+    deleted: Option<Deleted>,
     /// Titles of sheets that two windows changed at once, to tell the user.
     conflicts: Vec<String>,
 }
@@ -168,6 +249,26 @@ impl Store {
             }
         }
 
+        let mut tree = match state.tree {
+            Some(raw) => {
+                let ids: HashSet<String> = sheets.iter().map(|s| s.id.clone()).collect();
+                sanitize_tree(raw, &ids)
+            }
+            // No tree yet: the saved order is the root, top to bottom.
+            None => sheets
+                .iter()
+                .map(|s| Node::Page { id: s.id.clone() })
+                .collect(),
+        };
+        let placed = page_ids(&tree);
+        for sheet in &sheets {
+            if !placed.iter().any(|id| id == &sheet.id) {
+                tree.push(Node::Page {
+                    id: sheet.id.clone(),
+                });
+            }
+        }
+
         let mut store = Self {
             dir,
             active: 0,
@@ -177,10 +278,12 @@ impl Store {
                 .unwrap_or(SIDEBAR_WIDTH)
                 .clamp(SIDEBAR_MIN, SIDEBAR_MAX),
             sheets,
+            tree,
             state_dirty: false,
             deleted: None,
             conflicts: Vec::new(),
         };
+        store.align_sheets();
         if store.sheets.is_empty() {
             store.new_sheet(welcome);
         }
@@ -192,6 +295,60 @@ impl Store {
         store
     }
 
+    pub fn side_entries(&self) -> Vec<SideEntry> {
+        side_entries(&self.tree)
+    }
+
+    /// Folders a page can move into, in sidebar order.
+    pub fn folders(&self) -> Vec<FolderInfo> {
+        let mut out = Vec::new();
+        fn walk(nodes: &[Node], depth: usize, out: &mut Vec<FolderInfo>) {
+            for node in nodes {
+                if let Node::Folder {
+                    id, name, children, ..
+                } = node
+                {
+                    out.push(FolderInfo {
+                        id: id.clone(),
+                        name: name.clone(),
+                        depth: depth + 1,
+                    });
+                    walk(children, depth + 1, out);
+                }
+            }
+        }
+        walk(&self.tree, 0, &mut out);
+        out
+    }
+
+    pub fn folder_of(&self, page_id: &str) -> Option<String> {
+        locate(&self.tree, page_id).and_then(|(parent, _, _)| parent)
+    }
+
+    pub fn folder_name(&self, id: &str) -> Option<String> {
+        find_folder(&self.tree, id).map(|(name, _, _)| name)
+    }
+
+    /// Whether a new folder may be created inside `parent` (`None` is the root).
+    pub fn can_nest_folder(&self, parent: Option<&str>) -> bool {
+        match parent {
+            None => true,
+            Some(id) => folder_depth(&self.tree, id).is_some_and(|d| d < MAX_FOLDER_DEPTH),
+        }
+    }
+
+    /// True when this page is the first or last among its siblings.
+    pub fn at_sibling_edge(&self, index: usize) -> (bool, bool) {
+        let Some(id) = self.sheets.get(index).map(|s| s.id.as_str()) else {
+            return (true, true);
+        };
+        let Some((parent, at, _)) = locate(&self.tree, id) else {
+            return (true, true);
+        };
+        let len = children_len(&self.tree, parent.as_deref());
+        (at == 0, at + 1 >= len)
+    }
+
     pub fn current(&mut self) -> &mut Sheet {
         &mut self.sheets[self.active]
     }
@@ -199,6 +356,8 @@ impl Store {
     pub fn select(&mut self, idx: usize) {
         if idx < self.sheets.len() && idx != self.active {
             self.active = idx;
+            let id = self.sheets[idx].id.clone();
+            self.expand_to(&id);
             self.state_dirty = true;
         }
     }
@@ -232,18 +391,185 @@ impl Store {
         }
     }
 
-    /// New sheets go to the top of the list, like a notes app.
+    /// New sheets go to the top of the open page's folder (the root, when that
+    /// page isn't in one), like a notes app.
     pub fn new_sheet(&mut self, text: &str) {
+        let parent = self
+            .sheets
+            .get(self.active)
+            .and_then(|s| self.folder_of(&s.id));
+        self.new_sheet_in(parent.as_deref(), text);
+    }
+
+    /// A new page at the top of `parent` (`None` is the root).
+    pub fn new_sheet_in(&mut self, parent: Option<&str>, text: &str) {
+        let id = self.unused_id();
+        let parent = parent.filter(|id| self.folder_name(id).is_some());
         let sheet = Sheet {
-            id: self.unused_id(),
+            id: id.clone(),
             text: text.to_string(),
             cursor: text.chars().count(),
             dirty: true,
             stamp: None,
         };
-        self.sheets.insert(0, sheet);
-        self.active = 0;
+        if insert_node(&mut self.tree, parent, 0, Node::Page { id: id.clone() }).is_err() {
+            self.tree.insert(0, Node::Page { id: id.clone() });
+        }
+        self.sheets.push(sheet);
+        self.align_sheets();
+        self.active = self.sheets.iter().position(|s| s.id == id).unwrap_or(0);
         self.state_dirty = true;
+    }
+
+    /// A folder at the top of `parent`. `None` when that parent is already nested.
+    pub fn create_folder(&mut self, parent: Option<&str>) -> Option<String> {
+        let parent = parent.filter(|id| self.folder_name(id).is_some());
+        if !self.can_nest_folder(parent) {
+            return None;
+        }
+        let id = format!("f{}", new_id());
+        let node = Node::Folder {
+            id: id.clone(),
+            name: fresh_folder_name(&self.tree),
+            collapsed: false,
+            children: Vec::new(),
+        };
+        if insert_node(&mut self.tree, parent, 0, node).is_err() {
+            return None;
+        }
+        self.state_dirty = true;
+        Some(id)
+    }
+
+    pub fn rename_folder(&mut self, id: &str, name: &str) -> bool {
+        let name = name.trim();
+        if name.is_empty() {
+            return false;
+        }
+        let name = name.to_string();
+        let renamed = rename_folder(&mut self.tree, id, &name);
+        if renamed {
+            self.state_dirty = true;
+        }
+        renamed
+    }
+
+    pub fn toggle_folder(&mut self, id: &str) {
+        if set_collapsed(&mut self.tree, id, None) {
+            self.state_dirty = true;
+        }
+    }
+
+    /// Open a folder, including when a drag hovers it.
+    pub fn expand_folder(&mut self, id: &str) {
+        if set_collapsed(&mut self.tree, id, Some(false)) {
+            self.state_dirty = true;
+        }
+    }
+
+    /// Delete a folder. Every page inside it, including in a nested folder, moves
+    /// to Recently deleted. Returns the folder's name.
+    pub fn delete_folder(&mut self, id: &str) -> Option<String> {
+        let active_id = self.sheets.get(self.active).map(|s| s.id.clone());
+        let (parent, at, node) = take_node(&mut self.tree, id)?;
+        let Node::Folder { name, .. } = &node else {
+            let _ = insert_node(&mut self.tree, parent.as_deref(), at, node);
+            return None;
+        };
+        let name = name.clone();
+        let ids = page_ids_in(&node);
+        let mut kept = Vec::new();
+        let mut removed = Vec::new();
+        for sheet in self.sheets.drain(..) {
+            if ids.iter().any(|id| id == &sheet.id) {
+                removed.push(sheet);
+            } else {
+                kept.push(sheet);
+            }
+        }
+        removed.sort_by_key(|sheet| ids.iter().position(|id| id == &sheet.id).unwrap_or(0));
+        for sheet in &removed {
+            self.trash_sheet(sheet);
+        }
+        self.sheets = kept;
+        self.deleted = Some(Deleted {
+            parent,
+            at,
+            item: DeletedItem::Folder {
+                node,
+                sheets: removed,
+            },
+        });
+        if self.sheets.is_empty() {
+            self.new_sheet("");
+        } else if let Some(id) = active_id
+            && let Some(idx) = self.sheets.iter().position(|s| s.id == id)
+        {
+            self.active = idx;
+        } else {
+            self.active = 0;
+        }
+        self.state_dirty = true;
+        Some(name)
+    }
+
+    /// Move a page or folder. `index` is among the destination's children after
+    /// this item has been taken out. Returns whether it landed there.
+    pub fn move_item(&mut self, id: &str, parent: Option<&str>, index: usize) -> bool {
+        let Some((old_parent, old_at, node)) = take_node(&mut self.tree, id) else {
+            return false;
+        };
+        let parent_exists = parent.is_none_or(|p| folder_depth(&self.tree, p).is_some());
+        if !parent_exists || !can_place(&self.tree, &node, parent) {
+            let _ = insert_node(&mut self.tree, old_parent.as_deref(), old_at, node);
+            return false;
+        }
+        if old_parent.as_deref() == parent && old_at == index.min(children_len(&self.tree, parent))
+        {
+            let _ = insert_node(&mut self.tree, old_parent.as_deref(), old_at, node);
+            return true;
+        }
+        if let Err(node) = insert_node(&mut self.tree, parent, index, node) {
+            let _ = insert_node(&mut self.tree, old_parent.as_deref(), old_at, node);
+            return false;
+        }
+        self.align_sheets();
+        self.state_dirty = true;
+        true
+    }
+
+    /// Drop `id` at `spot`. A no-op drop (onto itself) still returns true.
+    pub fn place(&mut self, id: &str, spot: Place) -> bool {
+        let Some((src_parent, src_at, _)) = locate(&self.tree, id) else {
+            return false;
+        };
+        let (parent, mut index) = match &spot {
+            Place::Before(sib) | Place::After(sib) => {
+                if sib == id {
+                    return true;
+                }
+                let Some((p, i, _)) = locate(&self.tree, sib) else {
+                    return false;
+                };
+                let index = if matches!(spot, Place::After(_)) {
+                    i + 1
+                } else {
+                    i
+                };
+                (p, index)
+            }
+            Place::Into(folder) => {
+                if folder == id {
+                    return false;
+                }
+                (Some(folder.clone()), 0)
+            }
+            Place::RootEnd => (None, usize::MAX),
+        };
+        if src_parent == parent && src_at < index {
+            index -= 1;
+        }
+        self.move_item(id, parent.as_deref(), index)
     }
 
     /// Deleted sheets are moved to `trash/`, never destroyed.
@@ -251,35 +577,44 @@ impl Store {
         if idx >= self.sheets.len() {
             return;
         }
+        let id = self.sheets[idx].id.clone();
+        let (parent, at, _) =
+            take_node(&mut self.tree, &id).unwrap_or((None, idx, Node::Page { id: id.clone() }));
         let sheet = self.sheets.remove(idx);
-        if let Some(dir) = &self.dir {
-            // The trash gets the text as it is now, unsaved edits included.
-            let trash = dir.with_file_name("trash");
-            let _ = std::fs::create_dir_all(&trash);
-            if write_atomic(
-                &trash.join(format!("{}.txt", sheet.id)),
-                sheet.text.as_bytes(),
-            )
-            .is_ok()
-            {
-                let _ = std::fs::remove_file(dir.join(format!("{}.txt", sheet.id)));
-            }
-        }
-        self.deleted = Some((idx, sheet));
+        self.trash_sheet(&sheet);
+        self.deleted = Some(Deleted {
+            parent,
+            at,
+            item: DeletedItem::Page(sheet),
+        });
         if self.sheets.is_empty() {
             self.new_sheet("");
-        }
-        if self.active > idx || self.active >= self.sheets.len() {
+        } else if self.active > idx || self.active >= self.sheets.len() {
             self.active = self.active.saturating_sub(1);
         }
         self.state_dirty = true;
     }
 
+    /// Move the open page up or down among the pages and folders beside it.
     pub fn move_active(&mut self, step: isize) {
-        let to = self.active as isize + step;
-        if to >= 0 && (to as usize) < self.sheets.len() {
-            self.sheets.swap(self.active, to as usize);
-            self.active = to as usize;
+        let Some(id) = self.sheets.get(self.active).map(|s| s.id.clone()) else {
+            return;
+        };
+        let Some((parent, at, _)) = locate(&self.tree, &id) else {
+            return;
+        };
+        let dest = at as isize + step;
+        let len = children_len(&self.tree, parent.as_deref());
+        if dest < 0 || dest as usize >= len {
+            return;
+        }
+        if swap_siblings(&mut self.tree, parent.as_deref(), at, dest as usize) {
+            self.align_sheets();
+            self.active = self
+                .sheets
+                .iter()
+                .position(|s| s.id == id)
+                .unwrap_or(self.active);
             self.state_dirty = true;
         }
     }
@@ -344,13 +679,21 @@ impl Store {
                 }
                 // Deleted in the other window.
                 None => {
+                    let id = self.sheets[i].id.clone();
                     self.sheets.remove(i);
+                    let _ = take_node(&mut self.tree, &id);
                     synced.active_changed |= self.sheets.iter().all(|s| s.id != active);
                 }
             }
         }
         // Sheets made in the other window go to the top, like new ones here.
-        let deleted = self.deleted.as_ref().map(|(_, s)| s.id.as_str());
+        // A page this window just deleted is not one of them, even if its file
+        // is still in `pages/` because the trash move hasn't finished.
+        let skip = self
+            .deleted
+            .as_ref()
+            .map(Deleted::page_ids)
+            .unwrap_or_default();
         let new: Vec<Sheet> = std::fs::read_dir(&dir)
             .into_iter()
             .flatten()
@@ -362,12 +705,21 @@ impl Store {
                     .strip_suffix(".txt")
                     .map(String::from)
             })
-            .filter(|id| Some(id.as_str()) != deleted && self.sheets.iter().all(|s| &s.id != id))
+            .filter(|id| !skip.iter().any(|s| s == id) && self.sheets.iter().all(|s| &s.id != id))
             .filter_map(|id| read_sheet(&dir, &id))
             .collect();
         if !new.is_empty() {
             synced.changed = true;
+            for sheet in new.iter().rev() {
+                self.tree.insert(
+                    0,
+                    Node::Page {
+                        id: sheet.id.clone(),
+                    },
+                );
+            }
             self.sheets.splice(0..0, new);
+            self.align_sheets();
         }
         if self.sheets.is_empty() {
             self.new_sheet("");
@@ -378,6 +730,81 @@ impl Store {
 
     fn trash_dir(&self) -> Option<PathBuf> {
         self.dir.as_ref().map(|d| d.with_file_name("trash"))
+    }
+
+    fn trash_sheet(&self, sheet: &Sheet) {
+        let Some(dir) = &self.dir else {
+            return;
+        };
+        // The trash gets the text as it is now, unsaved edits included.
+        let trash = dir.with_file_name("trash");
+        let _ = std::fs::create_dir_all(&trash);
+        if write_atomic(
+            &trash.join(format!("{}.txt", sheet.id)),
+            sheet.text.as_bytes(),
+        )
+        .is_ok()
+        {
+            let _ = std::fs::remove_file(dir.join(format!("{}.txt", sheet.id)));
+        }
+    }
+
+    fn untrash(&self, id: &str) {
+        if let Some(dir) = &self.dir {
+            let _ = std::fs::remove_file(dir.with_file_name("trash").join(format!("{id}.txt")));
+        }
+    }
+
+    /// A deleted last page is replaced by an empty one. Undo drops that again.
+    fn drop_placeholder(&mut self) {
+        if self.sheets.len() == 1 && self.sheets[0].text.is_empty() {
+            let id = self.sheets[0].id.clone();
+            self.sheets.clear();
+            let _ = take_node(&mut self.tree, &id);
+        }
+    }
+
+    /// Open every folder between the root and this page, so a jump can show it.
+    fn expand_to(&mut self, page_id: &str) {
+        fn walk(nodes: &mut [Node], page_id: &str) -> bool {
+            for node in nodes {
+                if let Node::Folder {
+                    collapsed,
+                    children,
+                    ..
+                } = node
+                    && page_ids_in_nodes(children).iter().any(|id| id == page_id)
+                {
+                    *collapsed = false;
+                    walk(children, page_id);
+                    return true;
+                }
+            }
+            false
+        }
+        walk(&mut self.tree, page_id);
+    }
+
+    /// `sheets` follows the tree, depth-first, so indexes stay the sidebar's page order.
+    fn align_sheets(&mut self) {
+        let order = page_ids(&self.tree);
+        let active_id = self.sheets.get(self.active).map(|s| s.id.clone());
+        let mut by_id: HashMap<String, Sheet> =
+            self.sheets.drain(..).map(|s| (s.id.clone(), s)).collect();
+        let mut ordered = Vec::new();
+        for id in &order {
+            if let Some(sheet) = by_id.remove(id) {
+                ordered.push(sheet);
+            }
+        }
+        for (id, sheet) in by_id {
+            self.tree.push(Node::Page { id });
+            ordered.push(sheet);
+        }
+        self.sheets = ordered;
+        self.active = active_id
+            .and_then(|id| self.sheets.iter().position(|s| s.id == id))
+            .unwrap_or(0);
     }
 
     /// Sheets in `trash/`, newest first. Reading the directory is the caller's
@@ -419,12 +846,10 @@ impl Store {
         let path = self.trash_dir()?.join(format!("{id}.txt"));
         let text = std::fs::read_to_string(&path).ok()?;
         let _ = std::fs::remove_file(&path);
-        if self.deleted.as_ref().is_some_and(|(_, s)| s.id == id) {
+        if self.deleted.as_ref().is_some_and(|d| d.contains_page(id)) {
             self.deleted = None;
         }
-        if self.sheets.len() == 1 && self.sheets[0].text.is_empty() {
-            self.sheets.clear();
-        }
+        self.drop_placeholder();
         let sheet = Sheet {
             id: id.to_string(),
             text: text.clone(),
@@ -433,8 +858,10 @@ impl Store {
             stamp: None,
         };
         let title = sheet.title();
-        self.sheets.insert(0, sheet);
-        self.active = 0;
+        self.tree.insert(0, Node::Page { id: id.to_string() });
+        self.sheets.push(sheet);
+        self.align_sheets();
+        self.active = self.sheets.iter().position(|s| s.id == id).unwrap_or(0);
         self.state_dirty = true;
         Some(title)
     }
@@ -447,33 +874,56 @@ impl Store {
         if std::fs::remove_file(&path).is_err() {
             return false;
         }
-        if self.deleted.as_ref().is_some_and(|(_, s)| s.id == id) {
+        if self.deleted.as_ref().is_some_and(|d| d.contains_page(id)) {
             self.deleted = None;
         }
         true
     }
 
-    /// Put back the sheet deleted last, where it was. Returns its title.
+    /// Put back the page or folder deleted last, where it was. Returns its name.
     pub fn undo_delete(&mut self) -> Option<String> {
-        let (idx, mut sheet) = self.deleted.take()?;
-        if let Some(dir) = &self.dir {
-            let _ = std::fs::remove_file(
-                dir.with_file_name("trash")
-                    .join(format!("{}.txt", sheet.id)),
-            );
+        let deleted = self.deleted.take()?;
+        self.drop_placeholder();
+        match deleted.item {
+            DeletedItem::Page(mut sheet) => {
+                self.untrash(&sheet.id);
+                sheet.dirty = true;
+                sheet.stamp = None;
+                let title = sheet.title();
+                let id = sheet.id.clone();
+                let _ = insert_node(
+                    &mut self.tree,
+                    deleted.parent.as_deref(),
+                    deleted.at,
+                    Node::Page { id: id.clone() },
+                );
+                self.sheets.push(sheet);
+                self.align_sheets();
+                self.active = self.sheets.iter().position(|s| s.id == id).unwrap_or(0);
+                self.state_dirty = true;
+                Some(title)
+            }
+            DeletedItem::Folder { node, sheets } => {
+                let name = match &node {
+                    Node::Folder { name, .. } => name.clone(),
+                    Node::Page { .. } => "Folder".into(),
+                };
+                let first = sheets.first().map(|s| s.id.clone());
+                for mut sheet in sheets {
+                    self.untrash(&sheet.id);
+                    sheet.dirty = true;
+                    sheet.stamp = None;
+                    self.sheets.push(sheet);
+                }
+                let _ = insert_node(&mut self.tree, deleted.parent.as_deref(), deleted.at, node);
+                self.align_sheets();
+                if let Some(id) = first {
+                    self.active = self.sheets.iter().position(|s| s.id == id).unwrap_or(0);
+                }
+                self.state_dirty = true;
+                Some(name)
+            }
         }
-        sheet.dirty = true;
-        sheet.stamp = None;
-        let title = sheet.title();
-        // A deleted last sheet was replaced by an empty one; drop that again.
-        if self.sheets.len() == 1 && self.sheets[0].text.is_empty() {
-            self.sheets.clear();
-        }
-        let idx = idx.min(self.sheets.len());
-        self.sheets.insert(idx, sheet);
-        self.active = idx;
-        self.state_dirty = true;
-        Some(title)
     }
 
     /// Write changed sheets and the state. Keeps going past a failure, and returns
@@ -514,7 +964,7 @@ impl Store {
             return self.save().and(first_error.map_or(Ok(()), Err));
         }
         let state = State {
-            order: self.sheets.iter().map(|s| s.id.clone()).collect(),
+            order: page_ids(&self.tree),
             active: self.sheets[self.active].id.clone(),
             cursors: self
                 .sheets
@@ -523,6 +973,7 @@ impl Store {
                 .collect(),
             sidebar: Some(self.sidebar),
             sidebar_width: Some(self.sidebar_width),
+            tree: Some(self.tree.clone()),
         };
         if let Ok(json) = serde_json::to_vec_pretty(&state)
             && let Err(e) = write_atomic(&dir.with_file_name("state.json"), &json)
@@ -531,6 +982,401 @@ impl Store {
         }
         self.state_dirty = false;
         first_error.map_or(Ok(()), Err)
+    }
+}
+
+impl Deleted {
+    fn contains_page(&self, id: &str) -> bool {
+        self.page_ids().iter().any(|page| page == id)
+    }
+
+    fn page_ids(&self) -> Vec<String> {
+        match &self.item {
+            DeletedItem::Page(sheet) => vec![sheet.id.clone()],
+            DeletedItem::Folder { sheets, .. } => sheets.iter().map(|s| s.id.clone()).collect(),
+        }
+    }
+}
+
+fn page_ids(nodes: &[Node]) -> Vec<String> {
+    page_ids_in_nodes(nodes)
+}
+
+fn page_ids_in(node: &Node) -> Vec<String> {
+    match node {
+        Node::Page { id } => vec![id.clone()],
+        Node::Folder { children, .. } => page_ids_in_nodes(children),
+    }
+}
+
+fn page_ids_in_nodes(nodes: &[Node]) -> Vec<String> {
+    let mut ids = Vec::new();
+    for node in nodes {
+        match node {
+            Node::Page { id } => ids.push(id.clone()),
+            Node::Folder { children, .. } => ids.extend(page_ids_in_nodes(children)),
+        }
+    }
+    ids
+}
+
+fn side_entries(nodes: &[Node]) -> Vec<SideEntry> {
+    fn walk(nodes: &[Node], depth: usize, out: &mut Vec<SideEntry>) {
+        for node in nodes {
+            match node {
+                Node::Page { id } => out.push(SideEntry {
+                    depth,
+                    kind: SideKind::Page { id: id.clone() },
+                }),
+                Node::Folder {
+                    id,
+                    name,
+                    collapsed,
+                    children,
+                } => {
+                    out.push(SideEntry {
+                        depth,
+                        kind: SideKind::Folder {
+                            id: id.clone(),
+                            name: name.clone(),
+                            collapsed: *collapsed,
+                        },
+                    });
+                    if !*collapsed {
+                        walk(children, depth + 1, out);
+                    }
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(nodes, 0, &mut out);
+    out
+}
+
+/// Drop pages that aren't on disk, and folders nested past [`MAX_FOLDER_DEPTH`].
+/// Pages inside a too-deep folder move up to the deepest folder still allowed.
+fn sanitize_tree(nodes: Vec<Node>, known: &HashSet<String>) -> Vec<Node> {
+    fn walk(
+        nodes: Vec<Node>,
+        depth: usize,
+        known: &HashSet<String>,
+        seen: &mut HashSet<String>,
+    ) -> Vec<Node> {
+        let mut out = Vec::new();
+        for node in nodes {
+            match node {
+                Node::Page { id } => {
+                    if known.contains(&id) && seen.insert(id.clone()) {
+                        out.push(Node::Page { id });
+                    }
+                }
+                Node::Folder {
+                    id,
+                    name,
+                    collapsed,
+                    children,
+                } => {
+                    if depth >= MAX_FOLDER_DEPTH {
+                        out.extend(walk(children, depth, known, seen));
+                    } else if seen.insert(id.clone()) {
+                        out.push(Node::Folder {
+                            id,
+                            name,
+                            collapsed,
+                            children: walk(children, depth + 1, known, seen),
+                        });
+                    } else {
+                        out.extend(walk(children, depth, known, seen));
+                    }
+                }
+            }
+        }
+        out
+    }
+    walk(nodes, 0, known, &mut HashSet::new())
+}
+
+fn folder_depth(nodes: &[Node], id: &str) -> Option<usize> {
+    fn walk(nodes: &[Node], id: &str, depth: usize) -> Option<usize> {
+        for node in nodes {
+            if let Node::Folder {
+                id: fid, children, ..
+            } = node
+            {
+                if fid == id {
+                    return Some(depth + 1);
+                }
+                if let Some(found) = walk(children, id, depth + 1) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+    walk(nodes, id, 0)
+}
+
+fn find_folder(nodes: &[Node], id: &str) -> Option<(String, bool, usize)> {
+    fn walk(nodes: &[Node], id: &str, depth: usize) -> Option<(String, bool, usize)> {
+        for node in nodes {
+            if let Node::Folder {
+                id: fid,
+                name,
+                collapsed,
+                children,
+            } = node
+            {
+                if fid == id {
+                    return Some((name.clone(), *collapsed, depth + 1));
+                }
+                if let Some(found) = walk(children, id, depth + 1) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+    walk(nodes, id, 0)
+}
+
+fn children_len(nodes: &[Node], parent: Option<&str>) -> usize {
+    match parent {
+        None => nodes.len(),
+        Some(id) => {
+            fn walk(nodes: &[Node], id: &str) -> Option<usize> {
+                for node in nodes {
+                    if let Node::Folder {
+                        id: fid, children, ..
+                    } = node
+                    {
+                        if fid == id {
+                            return Some(children.len());
+                        }
+                        if let Some(n) = walk(children, id) {
+                            return Some(n);
+                        }
+                    }
+                }
+                None
+            }
+            walk(nodes, id).unwrap_or(0)
+        }
+    }
+}
+
+fn child_list<'a>(nodes: &'a mut Vec<Node>, parent: Option<&str>) -> Option<&'a mut Vec<Node>> {
+    let Some(parent) = parent else {
+        return Some(nodes);
+    };
+    for node in nodes.iter_mut() {
+        if let Node::Folder { id, children, .. } = node {
+            if id == parent {
+                return Some(children);
+            }
+            if let Some(found) = child_list(children, Some(parent)) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn insert_node(
+    nodes: &mut Vec<Node>,
+    parent: Option<&str>,
+    index: usize,
+    node: Node,
+) -> Result<(), Node> {
+    let Some(list) = child_list(nodes, parent) else {
+        return Err(node);
+    };
+    let index = index.min(list.len());
+    list.insert(index, node);
+    Ok(())
+}
+
+/// `(parent folder id, index among that parent's children, the node)`.
+fn locate(nodes: &[Node], id: &str) -> Option<(Option<String>, usize, ())> {
+    fn walk(nodes: &[Node], id: &str, parent: Option<&str>) -> Option<(Option<String>, usize)> {
+        for (i, node) in nodes.iter().enumerate() {
+            match node {
+                Node::Page { id: pid } if pid == id => {
+                    return Some((parent.map(str::to_string), i));
+                }
+                Node::Folder {
+                    id: fid, children, ..
+                } => {
+                    if fid == id {
+                        return Some((parent.map(str::to_string), i));
+                    }
+                    if let Some(found) = walk(children, id, Some(fid)) {
+                        return Some(found);
+                    }
+                }
+                Node::Page { .. } => {}
+            }
+        }
+        None
+    }
+    walk(nodes, id, None).map(|(p, i)| (p, i, ()))
+}
+
+fn take_node(nodes: &mut Vec<Node>, id: &str) -> Option<(Option<String>, usize, Node)> {
+    fn walk(
+        nodes: &mut Vec<Node>,
+        id: &str,
+        parent: Option<&str>,
+    ) -> Option<(Option<String>, usize, Node)> {
+        let mut i = 0;
+        while i < nodes.len() {
+            let hit = match &nodes[i] {
+                Node::Page { id: pid } => pid == id,
+                Node::Folder { id: fid, .. } => fid == id,
+            };
+            if hit {
+                return Some((parent.map(str::to_string), i, nodes.remove(i)));
+            }
+            if let Node::Folder {
+                id: fid, children, ..
+            } = &mut nodes[i]
+            {
+                let fid = fid.clone();
+                if let Some(found) = walk(children, id, Some(&fid)) {
+                    return Some(found);
+                }
+            }
+            i += 1;
+        }
+        None
+    }
+    walk(nodes, id, None)
+}
+
+fn node_contains(node: &Node, id: &str) -> bool {
+    match node {
+        Node::Page { id: pid } => pid == id,
+        Node::Folder {
+            id: fid, children, ..
+        } => fid == id || children.iter().any(|child| node_contains(child, id)),
+    }
+}
+
+fn has_subfolder(node: &Node) -> bool {
+    let Node::Folder { children, .. } = node else {
+        return false;
+    };
+    children
+        .iter()
+        .any(|child| matches!(child, Node::Folder { .. }))
+}
+
+fn can_place(nodes: &[Node], node: &Node, parent: Option<&str>) -> bool {
+    match node {
+        Node::Page { .. } => match parent {
+            None => true,
+            Some(id) => folder_depth(nodes, id).is_some_and(|d| d <= MAX_FOLDER_DEPTH),
+        },
+        Node::Folder { id, .. } => {
+            if parent.is_some_and(|p| p == id || node_contains(node, p)) {
+                return false;
+            }
+            let depth = match parent {
+                None => 1,
+                Some(p) => match folder_depth(nodes, p) {
+                    Some(d) => d + 1,
+                    None => return false,
+                },
+            };
+            depth <= MAX_FOLDER_DEPTH && (depth < MAX_FOLDER_DEPTH || !has_subfolder(node))
+        }
+    }
+}
+
+fn rename_folder(nodes: &mut [Node], id: &str, name: &str) -> bool {
+    for node in nodes {
+        if let Node::Folder {
+            id: fid,
+            name: current,
+            children,
+            ..
+        } = node
+        {
+            if fid == id {
+                *current = name.to_string();
+                return true;
+            }
+            if rename_folder(children, id, name) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// `collapsed = None` toggles. Returns whether a folder changed.
+fn set_collapsed(nodes: &mut [Node], id: &str, collapsed: Option<bool>) -> bool {
+    for node in nodes {
+        if let Node::Folder {
+            id: fid,
+            collapsed: flag,
+            children,
+            ..
+        } = node
+        {
+            if fid == id {
+                let next = collapsed.unwrap_or(!*flag);
+                if *flag == next {
+                    return false;
+                }
+                *flag = next;
+                return true;
+            }
+            if set_collapsed(children, id, collapsed) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn swap_siblings(nodes: &mut Vec<Node>, parent: Option<&str>, a: usize, b: usize) -> bool {
+    let Some(list) = child_list(nodes, parent) else {
+        return false;
+    };
+    if a >= list.len() || b >= list.len() || a == b {
+        return false;
+    }
+    list.swap(a, b);
+    true
+}
+
+fn folder_names(nodes: &[Node]) -> Vec<String> {
+    let mut names = Vec::new();
+    fn walk(nodes: &[Node], names: &mut Vec<String>) {
+        for node in nodes {
+            if let Node::Folder { name, children, .. } = node {
+                names.push(name.clone());
+                walk(children, names);
+            }
+        }
+    }
+    walk(nodes, &mut names);
+    names
+}
+
+fn fresh_folder_name(nodes: &[Node]) -> String {
+    let names = folder_names(nodes);
+    if !names.iter().any(|n| n == "New folder") {
+        return "New folder".into();
+    }
+    let mut n = 2;
+    loop {
+        let candidate = format!("New folder {n}");
+        if !names.iter().any(|name| name == &candidate) {
+            return candidate;
+        }
+        n += 1;
     }
 }
 
@@ -743,11 +1589,9 @@ mod tests {
         store.sheets[0].text = "# B\nlate edit".into();
         store.sheets[0].mark_dirty();
         store.delete(0);
-        let trashed = std::fs::read_to_string(
-            root.join("trash")
-                .join(format!("{}.txt", store.deleted.as_ref().unwrap().1.id)),
-        )
-        .unwrap();
+        let deleted_id = store.deleted.as_ref().unwrap().page_ids()[0].clone();
+        let trashed =
+            std::fs::read_to_string(root.join("trash").join(format!("{deleted_id}.txt"))).unwrap();
         assert_eq!(trashed, "# B\nlate edit");
 
         assert_eq!(store.undo_delete().as_deref(), Some("B"));
@@ -916,6 +1760,199 @@ mod tests {
         assert_eq!(again.restore(&id).as_deref(), Some("Gone"));
         assert_eq!(again.sheets[0].text, "# Gone\nmilk $3");
         assert!(again.trashed().is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn pages_without_a_tree_stay_at_the_root_in_order() {
+        let root = temp_root("root-order");
+        let pages = root.join("pages");
+        std::fs::create_dir_all(&pages).unwrap();
+        std::fs::write(pages.join("trip.txt"), "# Trip Budget\nferry $40").unwrap();
+        std::fs::write(pages.join("groceries.txt"), "# Groceries\nmilk $3").unwrap();
+        std::fs::write(pages.join("weekend.txt"), "# Weekend Plans\nhike 6 km").unwrap();
+        std::fs::write(
+            root.join("state.json"),
+            r#"{"order":["weekend","trip","groceries"],"active":"trip","cursors":{}}"#,
+        )
+        .unwrap();
+        let store = Store::load_in(Some(root.clone()), "");
+        assert_eq!(
+            store.sheets.iter().map(Sheet::heading).collect::<Vec<_>>(),
+            ["Weekend Plans", "Trip Budget", "Groceries"]
+        );
+        assert!(store.folders().is_empty());
+        assert!(store.folder_of("trip").is_none());
+        assert_eq!(store.sheets[store.active].heading(), "Trip Budget");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_folder_keeps_its_pages_and_comes_back_collapsed() {
+        let root = temp_root("folder-round");
+        let mut store = Store::load_in(Some(root.clone()), "# Groceries\nmilk $3");
+        store.new_sheet("# Trip Budget\nferry $40");
+        store.new_sheet("# Weekend Plans\nhike 6 km");
+        let folder = store.create_folder(None).unwrap();
+        assert_eq!(store.folder_name(&folder).as_deref(), Some("New folder"));
+        assert!(store.rename_folder(&folder, "Trip"));
+        // Newest page is active and at the root. Move Weekend Plans into the folder.
+        let weekend = store.sheets[0].id.clone();
+        assert!(store.place(&weekend, Place::Into(folder.clone())));
+        store.toggle_folder(&folder);
+        store.save().unwrap();
+
+        let again = Store::load_in(Some(root.clone()), "");
+        let entries = again.side_entries();
+        assert!(
+            entries.iter().any(|e| matches!(
+                &e.kind,
+                SideKind::Folder { name, collapsed, .. } if name == "Trip" && *collapsed
+            )),
+            "{entries:?}"
+        );
+        // Collapsed, so the page inside is not a visible row, but the text is still there.
+        assert!(
+            again
+                .side_entries()
+                .iter()
+                .all(|e| { !matches!(&e.kind, SideKind::Page { id } if id == &weekend) })
+        );
+        assert!(again.sheets.iter().any(|s| s.heading() == "Weekend Plans"));
+        assert_eq!(again.folder_of(&weekend).as_deref(), Some(folder.as_str()));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn deleting_a_folder_moves_its_pages_to_recently_deleted() {
+        let root = temp_root("folder-trash");
+        let mut store = Store::load_in(Some(root.clone()), "# Groceries");
+        let folder = store.create_folder(None).unwrap();
+        store.rename_folder(&folder, "Weekend");
+        store.new_sheet_in(Some(&folder), "# Weekend Plans");
+        store.new_sheet_in(Some(&folder), "# Trip Budget");
+        let nested = store.create_folder(Some(&folder)).unwrap();
+        store.new_sheet_in(Some(&nested), "# Groceries\ninside");
+        store.save().unwrap();
+        let inside = store
+            .sheets
+            .iter()
+            .find(|s| s.text.contains("inside"))
+            .unwrap()
+            .id
+            .clone();
+
+        assert_eq!(store.delete_folder(&folder).as_deref(), Some("Weekend"));
+        store.save().unwrap();
+        let mut again = Store::load_in(Some(root.clone()), "");
+        assert!(again.folders().is_empty());
+        assert!(again.sheets.iter().all(|s| s.id != inside));
+        let trash = again.trashed();
+        let titles: Vec<_> = trash.iter().map(|t| t.title.as_str()).collect();
+        assert!(titles.contains(&"Weekend Plans"), "{titles:?}");
+        assert!(titles.contains(&"Trip Budget"), "{titles:?}");
+        assert!(titles.contains(&"Groceries"), "{titles:?}");
+        // Restore puts the page back at the root. The folder itself is gone.
+        assert_eq!(again.restore(&inside).as_deref(), Some("Groceries"));
+        assert!(again.folder_of(&inside).is_none());
+        assert_eq!(again.sheets[0].text, "# Groceries\ninside");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn undo_puts_a_deleted_folder_back() {
+        let root = temp_root("folder-undo");
+        let mut store = Store::load_in(Some(root.clone()), "# Groceries");
+        let folder = store.create_folder(None).unwrap();
+        store.rename_folder(&folder, "Weekend");
+        store.new_sheet_in(Some(&folder), "# Weekend Plans\ntrain $20");
+        store.delete_folder(&folder);
+        assert_eq!(store.undo_delete().as_deref(), Some("Weekend"));
+        assert_eq!(store.folder_name(&folder).as_deref(), Some("Weekend"));
+        let page = store
+            .sheets
+            .iter()
+            .find(|s| s.heading() == "Weekend Plans")
+            .unwrap();
+        assert_eq!(store.folder_of(&page.id).as_deref(), Some(folder.as_str()));
+        assert!(store.trashed().is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_folder_cannot_be_nested_three_deep() {
+        let root = temp_root("folder-depth");
+        let mut store = Store::load_in(Some(root.clone()), "# Trip Budget");
+        let outer = store.create_folder(None).unwrap();
+        let inner = store.create_folder(Some(&outer)).unwrap();
+        assert!(store.create_folder(Some(&inner)).is_none());
+        // A folder that already holds a folder cannot move inside another folder.
+        let other = store.create_folder(None).unwrap();
+        assert!(!store.place(&outer, Place::Into(other.clone())));
+        assert!(store.place(&inner, Place::Into(other)));
+        let page = store.sheets[0].id.clone();
+        assert!(store.place(&page, Place::Into(inner.clone())));
+        store.save().unwrap();
+        let again = Store::load_in(Some(root.clone()), "");
+        assert_eq!(again.folder_of(&page).as_deref(), Some(inner.as_str()));
+        assert_eq!(again.folders().len(), 3);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn moving_a_page_out_of_a_folder_persists() {
+        let root = temp_root("folder-move");
+        let mut store = Store::load_in(Some(root.clone()), "# Groceries");
+        let groceries = store.sheets[0].id.clone();
+        store.new_sheet("# Weekend Plans");
+        let weekend = store.sheets[0].id.clone();
+        let folder = store.create_folder(None).unwrap();
+        assert!(store.place(&groceries, Place::Into(folder.clone())));
+        assert!(store.place(&weekend, Place::Before(groceries.clone())));
+        assert_eq!(store.folder_of(&weekend).as_deref(), Some(folder.as_str()));
+        assert!(store.place(&groceries, Place::RootEnd));
+        assert!(store.folder_of(&groceries).is_none());
+        store.save().unwrap();
+        let again = Store::load_in(Some(root.clone()), "");
+        assert!(again.folder_of(&groceries).is_none());
+        assert_eq!(again.folder_of(&weekend).as_deref(), Some(folder.as_str()));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_new_page_lands_in_the_open_pages_folder() {
+        let root = temp_root("folder-new");
+        let mut store = Store::load_in(Some(root.clone()), "# Groceries");
+        let folder = store.create_folder(None).unwrap();
+        store.new_sheet_in(Some(&folder), "# Trip Budget");
+        store.select(
+            store
+                .sheets
+                .iter()
+                .position(|s| s.heading() == "Trip Budget")
+                .unwrap(),
+        );
+        store.new_sheet("# Weekend Plans");
+        let weekend = store
+            .sheets
+            .iter()
+            .find(|s| s.heading() == "Weekend Plans")
+            .unwrap()
+            .id
+            .clone();
+        assert_eq!(store.folder_of(&weekend).as_deref(), Some(folder.as_str()));
+        // It sits above the page that was open, still inside the folder.
+        let ids = page_ids(&store.tree);
+        let folder_pages: Vec<_> = store
+            .tree
+            .iter()
+            .find_map(|n| match n {
+                Node::Folder { id, children, .. } if id == &folder => Some(page_ids(children)),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(folder_pages[0], weekend);
+        assert!(ids.contains(&weekend));
         let _ = std::fs::remove_dir_all(root);
     }
 }

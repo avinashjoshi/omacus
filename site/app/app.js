@@ -12,6 +12,11 @@ import {
   defaultKeymap, history as undoHistory, historyKeymap, autocompletion, acceptCompletion, closeCompletion,
   moveCompletionSelection, startCompletion, completionStatus,
 } from "./editor.js";
+import {
+  appendMissing, canNest, collectPageIds, createFolder, expandFolder, expandTo, folderOf, folders, fromPages,
+  insertNode, moveSibling, pageIds, place, removeNode, renameFolder, sanitize, siblingEnds, toggleFolder, validDrop,
+  visible,
+} from "./tree.js";
 
 const WASM = "/app/pkg/omacus_web_bg.wasm";
 const WORKER = new URL("./worker.js", import.meta.url).href;
@@ -73,6 +78,14 @@ const el = {
   settings: $("[data-settings]"),
   pagePreview: $("[data-page-preview]"),
   pagePreviewBody: $("[data-page-preview-body]"),
+  move: $("[data-move]"),
+  moveList: $("[data-move-list]"),
+  rename: $("[data-rename]"),
+  renameInput: $("[data-rename-input]"),
+  switcher: $("[data-switcher]"),
+  switcherQuery: $("[data-switcher-query]"),
+  switcherHits: $("[data-switcher-hits]"),
+  rowMenu: $("[data-row-menu]"),
 };
 
 // pageMarks and variables throw until init() finishes. The editor is created first.
@@ -84,7 +97,7 @@ let results = [];
 // they're all of that text's answers, fresh (not some still on their way).
 let resultsText = "";
 let resultsExact = false;
-const state = { order: [], active: null, texts: new Map(), shared: null };
+const state = { order: [], active: null, texts: new Map(), shared: null, tree: [] };
 
 // ---------------------------------------------------------------------------------
 // Storage: one localStorage entry per sheet, plus the order and the active one.
@@ -257,19 +270,38 @@ function migratePageKeys() {
   }
 }
 
+function storedPage(id) {
+  return typeof id === "string" && !!id && store.get("page:" + id) !== null;
+}
+
 function load() {
   migratePageKeys();
   let index = {};
   try {
     index = JSON.parse(store.get("index") ?? "{}");
   } catch {}
-  state.order = Array.isArray(index.order) ? index.order.filter((id) => store.get("page:" + id) !== null) : [];
-  state.texts = new Map(state.order.map((id) => [id, store.get("page:" + id)]));
+  const order = Array.isArray(index.order) ? index.order.filter((id) => storedPage(id)) : [];
+  const fromTree = pageIds(index.tree).filter((id) => storedPage(id));
+  const known = [...new Set([...order, ...fromTree])];
+  state.texts = new Map(known.map((id) => [id, store.get("page:" + id)]));
+  if (Array.isArray(index.tree)) {
+    state.tree = sanitize(index.tree, new Set(known));
+    appendMissing(state.tree, order);
+    appendMissing(state.tree, known);
+  } else {
+    state.tree = fromPages(order);
+  }
+  syncOrder();
   state.active = state.order.includes(index.active) ? index.active : state.order[0] ?? null;
 }
 
+function syncOrder() {
+  state.order = pageIds(state.tree);
+}
+
 function saveIndex() {
-  store.set("index", JSON.stringify({ order: state.order, active: state.active }));
+  syncOrder();
+  store.set("index", JSON.stringify({ order: state.order, active: state.active, tree: state.tree }));
 }
 
 let persistAsked = false;
@@ -287,12 +319,20 @@ function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
-function addSheet(text, { select = true } = {}) {
+function addSheet(text, { select = true, parent } = {}) {
   const id = newId();
   state.texts.set(id, text);
-  state.order.unshift(id);
+  let folder = parent;
+  if (parent === undefined) {
+    folder = state.active && state.active !== "shared" ? folderOf(state.tree, state.active) : null;
+  }
+  if (!insertNode(state.tree, folder, 0, { type: "page", id })) state.tree.unshift({ type: "page", id });
+  syncOrder();
   saveSheet(id);
-  if (select) state.active = id;
+  if (select) {
+    state.active = id;
+    expandTo(state.tree, id);
+  }
   saveIndex();
   return id;
 }
@@ -379,6 +419,7 @@ let shownId = null;
 function showSheet() {
   switchingPage = true;
   closeRename();
+  closeFolderRename();
   closeRefPrompt();
   closeRenameMenu();
   refBase = null;
@@ -405,6 +446,7 @@ function showSheet() {
 
 function select(id) {
   clearPreview();
+  if (id !== "shared" && expandTo(state.tree, id)) saveIndex();
   if (id === state.active) {
     showSheet();
     view.focus();
@@ -428,35 +470,84 @@ function flushSave() {
 }
 addEventListener("pagehide", flushSave);
 
+const CHEVRON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`;
+const DOTS = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/></svg>`;
+
 function renderSidebar() {
-  const items = [];
-  if (state.shared) items.push(["shared", state.shared.text, true]);
-  for (const id of state.order) items.push([id, state.texts.get(id), false]);
-  el.sheets.replaceChildren(
-    ...items.map(([id, text, shared]) => {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.dataset.id = id;
-      const name = document.createElement("span");
-      name.textContent = heading(text);
-      b.title = heading(text);
-      if (id === state.active && !preview) b.setAttribute("aria-current", "true");
-      b.append(name);
-      if (shared) {
-        const tag = document.createElement("i");
-        tag.className = "shared-tag";
-        tag.textContent = "shared";
-        b.append(tag);
-      }
-      b.addEventListener("click", () => select(id));
-      return b;
-    }),
-  );
+  const rows = [];
+  if (state.shared) rows.push(pageRow("shared", state.shared.text, true, 0));
+  for (const entry of visible(state.tree)) {
+    rows.push(entry.type === "folder" ? folderRow(entry) : pageRow(entry.id, state.texts.get(entry.id), false, entry.depth));
+  }
+  const fill = document.createElement("div");
+  fill.className = "side-fill";
+  el.sheets.replaceChildren(...rows, fill);
+  paintDrop();
   if (!preview) {
     el.title.textContent = title(currentText());
     document.title = `${title(currentText())} · Omacus`;
   }
   renderDeleted();
+}
+
+function sideRow(kind, id, depth) {
+  const row = document.createElement("div");
+  row.className = "side-row";
+  row.dataset.kind = kind;
+  row.dataset.id = id;
+  row.style.setProperty("--depth", String(depth));
+  return row;
+}
+
+function moreButton(label) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "row-more";
+  button.setAttribute("aria-label", label);
+  button.setAttribute("aria-haspopup", "menu");
+  button.innerHTML = DOTS;
+  return button;
+}
+
+function pageRow(id, text, shared, depth) {
+  const row = sideRow(shared ? "shared" : "page", id, depth);
+  const name = document.createElement("button");
+  name.type = "button";
+  name.className = "side-name";
+  const label = document.createElement("span");
+  label.textContent = heading(text);
+  name.title = heading(text);
+  name.append(label);
+  if (shared) {
+    const tag = document.createElement("i");
+    tag.className = "shared-tag";
+    tag.textContent = "shared";
+    name.append(tag);
+  }
+  row.append(name);
+  if (!shared) row.append(moreButton("Page menu"));
+  if (id === state.active && !preview) row.setAttribute("aria-current", "true");
+  return row;
+}
+
+function folderRow(entry) {
+  const row = sideRow("folder", entry.id, entry.depth);
+  if (entry.collapsed) row.dataset.collapsed = "1";
+  const chevron = document.createElement("button");
+  chevron.type = "button";
+  chevron.className = "chevron";
+  chevron.setAttribute("aria-expanded", String(!entry.collapsed));
+  chevron.setAttribute("aria-label", entry.collapsed ? "Expand folder" : "Collapse folder");
+  chevron.innerHTML = CHEVRON;
+  const name = document.createElement("button");
+  name.type = "button";
+  name.className = "side-name";
+  const label = document.createElement("span");
+  label.textContent = entry.name || "Folder";
+  name.title = entry.name || "Folder";
+  name.append(label);
+  row.append(chevron, name, moreButton("Folder menu"));
+  return row;
 }
 
 const TRASH_KEY = PREFIX + "trash";
@@ -586,8 +677,10 @@ function restoreTrashed(id) {
   if (!item) return;
   clearPreview();
   saveTrash(items.filter((t) => t.id !== id));
+  dropPlaceholder();
   state.texts.set(id, item.text);
-  state.order.unshift(id);
+  if (!pageIds(state.tree).includes(id)) state.tree.unshift({ type: "page", id });
+  syncOrder();
   saveSheet(id);
   state.active = id;
   saveIndex();
@@ -1583,6 +1676,7 @@ async function loadRates() {
 
 async function action(name) {
   closeMenu();
+  closeRowMenu();
   const text = currentText();
   if (name === "rename") {
     renameAtCaret();
@@ -1607,6 +1701,19 @@ async function action(name) {
     addSheet("");
     showSheet();
     view.focus();
+  } else if (name === "new-folder") {
+    addFolder(null);
+  } else if (name === "move-folder") {
+    if (state.active && state.active !== "shared" && pageIds(state.tree).includes(state.active)) openMove(state.active);
+    else toast("Open a page to move it.");
+  } else if (name === "close-move") {
+    closeMove();
+  } else if (name === "close-rename") {
+    closeFolderRename();
+  } else if (name === "rename-commit") {
+    commitFolderRename();
+  } else if (name === "close-switcher") {
+    closeSwitcher();
   } else if (name === "delete") {
     deleteSheet();
   } else if (name === "export") {
@@ -1661,18 +1768,28 @@ function deleteSheet() {
     state.active = state.order[0] ?? addSheet("");
     return showSheet();
   }
-  const id = state.active;
-  const at = state.order.indexOf(id);
-  const text = state.texts.get(id);
-  const name = title(text);
-  if (!el.confirm) return;
-  el.confirmText.textContent = `Delete “${name}”? You can restore it from Recently deleted.`;
+  deletePage(state.active);
+}
+
+function deletePage(id) {
+  if (!pageIds(state.tree).includes(id) || !el.confirm) return;
+  el.confirmText.textContent = `Delete “${title(state.texts.get(id))}”? You can restore it from Recently deleted.`;
   el.confirm.hidden = false;
   const yes = $("[data-confirm-yes]");
   if (yes) yes.textContent = "Delete";
   el.confirm.dataset.mode = "sheet";
   el.confirm.dataset.id = id;
-  el.confirm.dataset.at = String(at);
+}
+
+function deleteFolder(id) {
+  const name = folders(state.tree).find((folder) => folder.id === id)?.name || "Folder";
+  if (!el.confirm) return;
+  el.confirmText.textContent = `Delete “${name}”? Pages inside move to Recently deleted, where they can be restored.`;
+  el.confirm.hidden = false;
+  const yes = $("[data-confirm-yes]");
+  if (yes) yes.textContent = "Delete";
+  el.confirm.dataset.mode = "folder";
+  el.confirm.dataset.id = id;
 }
 
 function commitDelete() {
@@ -1689,28 +1806,96 @@ function commitDelete() {
     return;
   }
   el.confirm.hidden = true;
-  const at = Number(el.confirm.dataset.at);
+  if (el.confirm.dataset.mode === "folder") commitDeleteFolder(id);
+  else commitDeletePage(id);
+}
+
+function dropPlaceholder() {
+  if (state.order.length === 1 && (state.texts.get(state.order[0]) ?? "") === "") {
+    const blank = state.order[0];
+    removeNode(state.tree, blank);
+    state.texts.delete(blank);
+    store.remove("page:" + blank);
+    syncOrder();
+  }
+}
+
+function commitDeletePage(id) {
   const text = state.texts.get(id);
   if (text == null) return;
+  const wasActive = state.active === id;
+  const oldAt = state.order.indexOf(id);
+  const taken = removeNode(state.tree, id);
+  const parent = taken?.parent ?? null;
+  const at = taken?.index ?? 0;
   const trash = loadTrash().filter((t) => t.id !== id);
   trash.unshift({ id, text });
   saveTrash(trash);
   flushSave();
-  state.order.splice(at, 1);
   state.texts.delete(id);
   store.remove("page:" + id);
   store.remove("sheet:" + id);
-  state.active = state.order[Math.min(at, state.order.length - 1)] ?? addSheet("");
+  syncOrder();
+  if (wasActive) {
+    state.active = state.order[Math.min(Math.max(oldAt, 0), state.order.length - 1)] ?? null;
+    if (!state.active) addSheet("");
+  }
   saveIndex();
   showSheet();
   toast(`Deleted “${esc(title(text))}”.`, {
     label: "Undo",
     run() {
+      dropPlaceholder();
       saveTrash(loadTrash().filter((t) => t.id !== id));
       state.texts.set(id, text);
-      state.order.splice(at, 0, id);
+      insertNode(state.tree, parent, at, { type: "page", id });
+      syncOrder();
       saveSheet(id);
       state.active = id;
+      saveIndex();
+      showSheet();
+    },
+  });
+}
+
+function commitDeleteFolder(id) {
+  const taken = removeNode(state.tree, id);
+  if (!taken || taken.node.type !== "folder") {
+    if (taken) insertNode(state.tree, taken.parent, taken.index, taken.node);
+    return;
+  }
+  const name = taken.node.name || "Folder";
+  const ids = collectPageIds(taken.node);
+  const pages = ids.map((pid) => ({ id: pid, text: state.texts.get(pid) ?? "" }));
+  const trash = loadTrash().filter((t) => !ids.includes(t.id));
+  for (const page of [...pages].reverse()) trash.unshift({ id: page.id, text: page.text });
+  saveTrash(trash);
+  flushSave();
+  for (const pid of ids) {
+    state.texts.delete(pid);
+    store.remove("page:" + pid);
+    store.remove("sheet:" + pid);
+  }
+  const active = state.active;
+  syncOrder();
+  if (!state.order.includes(active)) {
+    state.active = state.order[0] ?? null;
+    if (!state.active) addSheet("");
+  }
+  saveIndex();
+  showSheet();
+  toast(`Deleted “${esc(name)}”.`, {
+    label: "Undo",
+    run() {
+      dropPlaceholder();
+      saveTrash(loadTrash().filter((t) => !ids.includes(t.id)));
+      for (const page of pages) {
+        state.texts.set(page.id, page.text);
+        saveSheet(page.id);
+      }
+      insertNode(state.tree, taken.parent, taken.index, taken.node);
+      syncOrder();
+      if (pages[0]) state.active = pages[0].id;
       saveIndex();
       showSheet();
     },
@@ -1776,7 +1961,450 @@ if (resize) {
   });
 }
 
+// ---------------------------------------------------------------------------------
+// Folders: the same tree the desktop app stores. Drag reorders; Move to folder
+// and Ctrl+J are the keyboard path, including on a phone.
+
+function newFolderCommand(query) {
+  const q = query.trim().toLowerCase();
+  return (q.length >= 2 && "new folder".startsWith(q)) || (q.length >= 3 && "folder".startsWith(q));
+}
+
+function moveFolderCommand(query) {
+  const q = query.trim().toLowerCase();
+  return q.length >= 2 && "move to folder".startsWith(q);
+}
+
+function addFolder(parent) {
+  const id = createFolder(state.tree, parent);
+  if (!id) {
+    toast("A folder can only sit inside one other folder.");
+    return;
+  }
+  if (el.workspace?.classList.contains("collapsed")) setSide(true);
+  saveIndex();
+  renderSidebar();
+  openFolderRename(id);
+}
+
+function openFolderRename(id) {
+  const folder = folders(state.tree).find((item) => item.id === id);
+  if (!folder || !el.rename) return;
+  closeRename();
+  el.rename.dataset.id = id;
+  el.renameInput.value = folder.name;
+  el.rename.hidden = false;
+  el.renameInput.focus();
+  el.renameInput.select();
+}
+
+function closeFolderRename() {
+  if (el.rename) el.rename.hidden = true;
+}
+
+function commitFolderRename() {
+  const id = el.rename?.dataset.id;
+  if (!id || !renameFolder(state.tree, id, el.renameInput.value)) return;
+  closeFolderRename();
+  saveIndex();
+  renderSidebar();
+}
+
+function closeMove() {
+  if (el.move) el.move.hidden = true;
+}
+
+function openMove(pageId) {
+  if (!el.move || !pageIds(state.tree).includes(pageId)) return;
+  closeRowMenu();
+  el.move.dataset.id = pageId;
+  const current = folderOf(state.tree, pageId);
+  el.moveList.replaceChildren();
+  const addChoice = (label, parent, depth) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.style.paddingLeft = `${8 + depth * 14}px`;
+    button.addEventListener("click", () => {
+      if (current !== parent) {
+        place(state.tree, pageId, parent ? { kind: "into", id: parent } : { kind: "root" });
+        syncOrder();
+        saveIndex();
+      }
+      closeMove();
+      renderSidebar();
+    });
+    el.moveList.append(button);
+  };
+  addChoice(current == null ? "No folder  ·  current" : "No folder", null, 0);
+  const list = folders(state.tree);
+  if (!list.length) {
+    const note = document.createElement("p");
+    note.className = "confirm-note";
+    note.textContent = "No folders yet. Create one from the sidebar.";
+    el.moveList.append(note);
+  }
+  for (const folder of list) {
+    const here = current === folder.id;
+    addChoice(here ? `${folder.name}  ·  current` : folder.name, folder.id, Math.max(0, folder.depth - 1));
+  }
+  el.move.hidden = false;
+}
+
+let switcherIndex = 0;
+
+function switcherItems(query) {
+  const hits = [];
+  if (newFolderCommand(query)) hits.push({ kind: "new-folder", label: "New folder" });
+  if (moveFolderCommand(query) && state.active && state.active !== "shared" && pageIds(state.tree).includes(state.active)) {
+    hits.push({ kind: "move", label: "Move to folder…" });
+  }
+  const q = query.trim().toLowerCase();
+  const addPage = (id, text) => {
+    const label = heading(text);
+    if (!q || label.toLowerCase().includes(q)) hits.push({ kind: "page", id, label });
+  };
+  if (state.shared) addPage("shared", state.shared.text);
+  for (const id of state.order) addPage(id, state.texts.get(id));
+  return hits;
+}
+
+function renderSwitcher() {
+  if (!el.switcherHits) return;
+  const hits = switcherItems(el.switcherQuery.value);
+  if (switcherIndex >= hits.length) switcherIndex = Math.max(0, hits.length - 1);
+  el.switcherHits.replaceChildren();
+  if (!hits.length) {
+    const empty = document.createElement("p");
+    empty.className = "confirm-note";
+    empty.textContent = "No matching page";
+    el.switcherHits.append(empty);
+    return;
+  }
+  hits.forEach((hit, i) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = hit.label;
+    if (i === switcherIndex) button.setAttribute("aria-selected", "true");
+    button.addEventListener("click", () => followSwitcher(hit));
+    el.switcherHits.append(button);
+  });
+}
+
+function openSwitcher() {
+  if (EMBED || !el.switcher) return;
+  closeMenu();
+  closeRowMenu();
+  closeMove();
+  switcherIndex = 0;
+  el.switcherQuery.value = "";
+  el.switcher.hidden = false;
+  renderSwitcher();
+  el.switcherQuery.focus();
+}
+
+function closeSwitcher() {
+  if (el.switcher) el.switcher.hidden = true;
+}
+
+function followSwitcher(hit) {
+  closeSwitcher();
+  if (hit.kind === "new-folder") addFolder(null);
+  else if (hit.kind === "move") openMove(state.active);
+  else if (hit.id) select(hit.id);
+}
+
+function closeRowMenu() {
+  if (el.rowMenu) el.rowMenu.hidden = true;
+}
+
+function openMenu(x, y, items) {
+  if (!el.rowMenu) return;
+  el.rowMenu.replaceChildren();
+  for (const item of items) {
+    if (item === "sep") {
+      el.rowMenu.append(document.createElement("hr"));
+      continue;
+    }
+    const button = document.createElement("button");
+    button.type = "button";
+    button.setAttribute("role", "menuitem");
+    button.textContent = item.label;
+    if (item.danger) button.className = "danger";
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      closeRowMenu();
+      item.run();
+    });
+    el.rowMenu.append(button);
+  }
+  el.rowMenu.hidden = false;
+  el.rowMenu.style.left = "0px";
+  el.rowMenu.style.top = "0px";
+  const rect = el.rowMenu.getBoundingClientRect();
+  el.rowMenu.style.left = `${Math.min(Math.max(8, x), window.innerWidth - rect.width - 8)}px`;
+  el.rowMenu.style.top = `${Math.min(Math.max(8, y), window.innerHeight - rect.height - 8)}px`;
+}
+
+function openBlankMenu(x, y) {
+  openMenu(x, y, [
+    { label: "New page", run: () => action("new") },
+    { label: "New folder", run: () => addFolder(null) },
+  ]);
+}
+
+function nudge(id, step) {
+  if (!moveSibling(state.tree, id, step)) return;
+  syncOrder();
+  saveIndex();
+  renderSidebar();
+}
+
+function openRowMenu(row, x, y) {
+  if (!row) return;
+  const id = row.dataset.id;
+  if (row.dataset.kind === "folder") {
+    const items = [{ label: "New page", run: () => { flushSave(); addSheet("", { parent: id }); showSheet(); view?.focus(); } }];
+    if (canNest(state.tree, id)) items.push({ label: "New folder", run: () => addFolder(id) });
+    items.push({ label: "Rename", run: () => openFolderRename(id) });
+    items.push("sep", { label: "Delete folder", danger: true, run: () => deleteFolder(id) });
+    openMenu(x, y, items);
+    return;
+  }
+  const ends = siblingEnds(state.tree, id);
+  const items = [];
+  if (!ends.first) items.push({ label: "Move up", run: () => nudge(id, -1) });
+  if (!ends.last) items.push({ label: "Move down", run: () => nudge(id, 1) });
+  items.push({ label: "Move to folder…", run: () => openMove(id) });
+  items.push("sep", { label: "Delete page", danger: true, run: () => deletePage(id) });
+  openMenu(x, y, items);
+}
+
+let drag = null;
+let ignoreClick = false;
+let expandHover = null;
+
+function ensureChip() {
+  let chip = document.querySelector(".drag-chip");
+  if (!chip) {
+    chip = document.createElement("div");
+    chip.className = "drag-chip";
+    chip.hidden = true;
+    document.body.append(chip);
+  }
+  return chip;
+}
+
+function showChip() {
+  const chip = ensureChip();
+  chip.textContent = drag.kind === "folder"
+    ? folders(state.tree).find((folder) => folder.id === drag.id)?.name || "Folder"
+    : heading(state.texts.get(drag.id));
+  chip.hidden = false;
+}
+
+function moveChip(x, y) {
+  const chip = ensureChip();
+  const width = chip.offsetWidth || 120;
+  chip.style.left = `${Math.max(8, Math.min(x + 12, window.innerWidth - width - 8))}px`;
+  chip.style.top = `${Math.max(8, Math.min(y + 14, window.innerHeight - 36))}px`;
+}
+
+function hideChip() {
+  const chip = document.querySelector(".drag-chip");
+  if (chip) chip.hidden = true;
+}
+
+function paintDrop() {
+  if (!el.sheets) return;
+  el.sheets.classList.remove("drop-end");
+  for (const row of el.sheets.querySelectorAll(".side-row")) {
+    row.classList.remove("drop-before", "drop-after", "drop-into");
+  }
+  if (!drag?.active || !drag.spot) return;
+  if (drag.spot.kind === "root") {
+    el.sheets.classList.add("drop-end");
+    return;
+  }
+  const row = [...el.sheets.querySelectorAll(".side-row")].find((item) => item.dataset.id === drag.spot.id);
+  if (!row) return;
+  row.classList.add(drag.spot.kind === "before" ? "drop-before" : drag.spot.kind === "after" ? "drop-after" : "drop-into");
+}
+
+function chooseSpot(row, clientY) {
+  const id = row.dataset.id;
+  if (id === drag.id) return null;
+  const rect = row.getBoundingClientRect();
+  const ratio = rect.height ? (clientY - rect.top) / rect.height : 0.5;
+  let spot = row.dataset.kind === "folder" && ratio > 0.28 && ratio < 0.72
+    ? { kind: "into", id }
+    : { kind: ratio < 0.5 ? "before" : "after", id };
+  if (spot.kind === "into" && !validDrop(state.tree, drag.id, spot)) {
+    spot = { kind: ratio < 0.5 ? "before" : "after", id };
+  }
+  return validDrop(state.tree, drag.id, spot) ? spot : null;
+}
+
+function spotAt(x, y) {
+  const hit = document.elementFromPoint(x, y);
+  const row = hit?.closest?.(".side-row");
+  if (row && el.sheets.contains(row) && row.dataset.kind !== "shared") return chooseSpot(row, y);
+  if (hit?.closest?.("[data-sheets]") && validDrop(state.tree, drag.id, { kind: "root" })) return { kind: "root" };
+  return null;
+}
+
+function noteExpand(x, y) {
+  const row = document.elementFromPoint(x, y)?.closest?.(".side-row");
+  if (!row || row.dataset.kind !== "folder" || row.dataset.collapsed !== "1" || row.dataset.id === drag.id) {
+    expandHover = null;
+    return;
+  }
+  const id = row.dataset.id;
+  const now = performance.now();
+  if (expandHover?.id !== id) expandHover = { id, at: now };
+  else if (now - expandHover.at >= 450 && expandFolder(state.tree, id)) {
+    saveIndex();
+    expandHover = { id, at: Infinity };
+    renderSidebar();
+  }
+}
+
+function trackDrag(on) {
+  const mode = on ? "addEventListener" : "removeEventListener";
+  window[mode]("pointermove", onSidePointerMove, { passive: false });
+  window[mode]("pointerup", onSidePointerUp);
+  window[mode]("pointercancel", onSidePointerUp);
+}
+
+function onSidePointerDown(e) {
+  if (e.button !== 0 || drag) return;
+  const row = e.target.closest?.(".side-row");
+  if (!row || (row.dataset.kind !== "page" && row.dataset.kind !== "folder")) return;
+  if (e.target.closest(".row-more, .chevron")) return;
+  drag = { id: row.dataset.id, kind: row.dataset.kind, pointerId: e.pointerId, x: e.clientX, y: e.clientY, active: false, spot: null };
+  trackDrag(true);
+}
+
+function onSidePointerMove(e) {
+  if (!drag || e.pointerId !== drag.pointerId) return;
+  const dx = e.clientX - drag.x;
+  const dy = e.clientY - drag.y;
+  if (!drag.active) {
+    if (Math.hypot(dx, dy) < 8) return;
+    if (e.pointerType === "touch" && Math.abs(dy) > Math.abs(dx)) {
+      trackDrag(false);
+      drag = null;
+      return;
+    }
+    drag.active = true;
+    el.sheets.setPointerCapture?.(e.pointerId);
+    document.body.classList.add("dragging-side");
+    showChip();
+  }
+  e.preventDefault();
+  moveChip(e.clientX, e.clientY);
+  const spot = spotAt(e.clientX, e.clientY);
+  if (JSON.stringify(spot) !== JSON.stringify(drag.spot)) {
+    drag.spot = spot;
+    paintDrop();
+  }
+  noteExpand(e.clientX, e.clientY);
+}
+
+function onSidePointerUp(e) {
+  if (!drag || e.pointerId !== drag.pointerId) return;
+  const finished = drag;
+  drag = null;
+  expandHover = null;
+  trackDrag(false);
+  hideChip();
+  document.body.classList.remove("dragging-side");
+  if (e.type === "pointercancel" || !finished.active) return;
+  ignoreClick = true;
+  if (finished.spot) {
+    place(state.tree, finished.id, finished.spot);
+    syncOrder();
+    saveIndex();
+  }
+  renderSidebar();
+}
+
+function onSideClick(e) {
+  if (ignoreClick) {
+    ignoreClick = false;
+    return;
+  }
+  const more = e.target.closest?.(".row-more");
+  if (more) {
+    e.stopPropagation();
+    e.preventDefault();
+    const row = more.closest(".side-row");
+    const rect = more.getBoundingClientRect();
+    openRowMenu(row, rect.left, rect.bottom + 4);
+    return;
+  }
+  const row = e.target.closest?.(".side-row");
+  if (!row) return;
+  if (row.dataset.kind === "folder") {
+    toggleFolder(state.tree, row.dataset.id);
+    saveIndex();
+    renderSidebar();
+    return;
+  }
+  select(row.dataset.id);
+}
+
+function onSideContext(e) {
+  if (!e.target.closest?.(".side-row, .side-fill, .sheet-list")) return;
+  e.preventDefault();
+  const row = e.target.closest?.(".side-row");
+  if (!row || row.dataset.kind === "shared") openBlankMenu(e.clientX, e.clientY);
+  else openRowMenu(row, e.clientX, e.clientY);
+}
+
+if (el.sheets) {
+  el.sheets.addEventListener("pointerdown", onSidePointerDown);
+  el.sheets.addEventListener("pointermove", onSidePointerMove, { passive: false });
+  el.sheets.addEventListener("pointerup", onSidePointerUp);
+  el.sheets.addEventListener("pointercancel", onSidePointerUp);
+  el.sheets.addEventListener("click", onSideClick);
+  el.sheets.addEventListener("contextmenu", onSideContext);
+}
+
+el.renameInput?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    commitFolderRename();
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+    closeFolderRename();
+  }
+});
+
+el.switcherQuery?.addEventListener("input", () => {
+  switcherIndex = 0;
+  renderSwitcher();
+});
+el.switcherQuery?.addEventListener("keydown", (e) => {
+  const hits = switcherItems(el.switcherQuery.value);
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (!hits.length) return;
+    switcherIndex = (switcherIndex + (e.key === "ArrowDown" ? 1 : hits.length - 1)) % hits.length;
+    renderSwitcher();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    if (hits[switcherIndex]) followSwitcher(hits[switcherIndex]);
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+    closeSwitcher();
+  }
+});
+
 document.addEventListener("click", (e) => {
+  if (!e.target.closest?.("[data-row-menu]")) closeRowMenu();
   const button = e.target.closest?.("[data-action]");
   const tab = e.target.closest?.("[data-settings-tab]");
   if (tab) showSettingsTab(tab.dataset.settingsTab);
@@ -1821,6 +2449,22 @@ addEventListener(
         setSide(el.workspace.classList.contains("collapsed"));
       }
     }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "j") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (el.switcher && !el.switcher.hidden) closeSwitcher();
+      else openSwitcher();
+    }
+    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if ((el.confirm && !el.confirm.hidden) || (el.rename && !el.rename.hidden) || (el.move && !el.move.hidden) || (el.switcher && !el.switcher.hidden)) return;
+      if (state.active && state.active !== "shared") {
+        e.preventDefault();
+        e.stopPropagation();
+        nudge(state.active, e.key === "ArrowUp" ? -1 : 1);
+      }
+    }
     // Ctrl+Shift+L copies a share link, as in the desktop app.
     if ((e.ctrlKey || e.metaKey) && !e.altKey && e.shiftKey && e.key.toLowerCase() === "l") {
       e.preventDefault();
@@ -1840,6 +2484,22 @@ addEventListener(
 );
 addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    if (el.switcher && !el.switcher.hidden) {
+      closeSwitcher();
+      return;
+    }
+    if (el.move && !el.move.hidden) {
+      closeMove();
+      return;
+    }
+    if (el.rename && !el.rename.hidden) {
+      closeFolderRename();
+      return;
+    }
+    if (el.rowMenu && !el.rowMenu.hidden) {
+      closeRowMenu();
+      return;
+    }
     if (el.settings && !el.settings.hidden) {
       closeSettings();
       return;

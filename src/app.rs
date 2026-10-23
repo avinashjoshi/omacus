@@ -1,6 +1,6 @@
 //! The calculator window: a sidebar of sheets, the sheet text, and live results on the right.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -18,7 +18,7 @@ use crate::pdf;
 use crate::preview;
 use crate::rates::Rates;
 use crate::settings::{self, Settings};
-use crate::sheets::{SIDEBAR_MAX, SIDEBAR_MIN, Store, Trashed, heading_of};
+use crate::sheets::{Place, SIDEBAR_MAX, SIDEBAR_MIN, SideKind, Store, Trashed, heading_of};
 use crate::theme::{self, Theme};
 use crate::update::{self, Method, State, Updates};
 use omacus_engine::{self as engine, Engine, Kind, LineResult, complete};
@@ -149,6 +149,42 @@ enum SheetAction {
     Settings,
     /// Rendered markdown, with each answer in brackets. Ctrl+P.
     Preview,
+    /// A folder at the root, or inside `Some` folder when that isn't already nested.
+    NewFolderAt(Option<String>),
+    /// A page at the top of a folder. `None` is the root.
+    NewIn(Option<String>),
+    MoveTo(usize),
+    ToggleFolder(String),
+    RenameFolder(String),
+    DeleteFolder(String),
+}
+
+/// What a sidebar drag is carrying.
+#[derive(Clone, Debug)]
+struct DragPayload {
+    id: String,
+    folder: bool,
+}
+
+/// Where a drag may land, filled in while the sidebar rows are drawn.
+struct DropTarget<'a> {
+    folder: bool,
+    collapsed: bool,
+    dropped: &'a mut Option<(String, Place)>,
+    expand_id: &'a mut Option<String>,
+}
+
+/// A folder whose name is being typed.
+#[derive(Clone)]
+struct FolderRename {
+    id: String,
+    text: String,
+}
+
+#[derive(Clone)]
+enum PendingDelete {
+    Page(usize),
+    Folder(String),
 }
 
 /// A message at the bottom of the window.
@@ -235,6 +271,8 @@ enum Jump {
     Sheet(usize),
     Trash(String),
     Settings,
+    NewFolder,
+    MoveToFolder,
 }
 
 struct Hit {
@@ -340,8 +378,14 @@ pub struct OmacusApp {
     synced_at: Instant,
     focused: bool,
     switcher: Option<Switcher>,
-    /// Sheet index waiting for a delete confirmation. Escape cancels.
-    pending_delete: Option<usize>,
+    /// A page or folder waiting for a delete confirmation. Escape cancels.
+    pending_delete: Option<PendingDelete>,
+    /// Page id whose Move-to-folder list is open.
+    move_page: Option<String>,
+    /// Folder rename field. The sheet keeps focus; keystrokes land here.
+    rename_folder: Option<FolderRename>,
+    /// Collapsed folder id a drag has been hovering, and since when.
+    drag_expand: Option<(String, Instant)>,
     /// Trash id shown read-only. Clicking a deleted sheet opens this; it does not restore.
     preview: Option<String>,
     /// Trash id waiting for a "delete forever" confirmation.
@@ -496,6 +540,9 @@ impl OmacusApp {
                     selected: 0,
                 }),
             pending_delete: None,
+            move_page: None,
+            rename_folder: None,
+            drag_expand: None,
             preview: None,
             purge_id: None,
             trash: Vec::new(),
@@ -643,10 +690,48 @@ rental = rent + 50
             SheetAction::New => self.store.new_sheet(""),
             SheetAction::Delete(i) => {
                 if i < self.store.sheets.len() {
-                    self.pending_delete = Some(i);
+                    self.pending_delete = Some(PendingDelete::Page(i));
                     self.switcher = None;
                     self.popup = None;
                 }
+                return;
+            }
+            SheetAction::NewFolderAt(parent) => {
+                if let Some(id) = self.store.create_folder(parent.as_deref()) {
+                    let text = self
+                        .store
+                        .folder_name(&id)
+                        .unwrap_or_else(|| "New folder".into());
+                    self.rename_folder = Some(FolderRename { id, text });
+                    self.switcher = None;
+                    self.touched();
+                }
+                return;
+            }
+            SheetAction::NewIn(parent) => self.store.new_sheet_in(parent.as_deref(), ""),
+            SheetAction::MoveTo(i) => {
+                if let Some(id) = self.store.sheets.get(i).map(|s| s.id.clone()) {
+                    self.move_page = Some(id);
+                    self.switcher = None;
+                    self.popup = None;
+                }
+                return;
+            }
+            SheetAction::ToggleFolder(id) => {
+                self.store.toggle_folder(&id);
+                self.touched();
+                return;
+            }
+            SheetAction::RenameFolder(id) => {
+                let text = self.store.folder_name(&id).unwrap_or_default();
+                self.rename_folder = Some(FolderRename { id, text });
+                self.switcher = None;
+                return;
+            }
+            SheetAction::DeleteFolder(id) => {
+                self.pending_delete = Some(PendingDelete::Folder(id));
+                self.switcher = None;
+                self.popup = None;
                 return;
             }
             SheetAction::Move(i, step) => {
@@ -837,6 +922,40 @@ rental = rent + 50
                 self.refresh_trash(false);
             }
             self.switcher_keys(ctx);
+            return;
+        }
+        if self.move_page.is_some() {
+            if dismiss {
+                self.move_page = None;
+                self.focus_editor = true;
+            }
+            return;
+        }
+        if self.rename_folder.is_some() {
+            let edits = ctx.input_mut(|i| take_switcher_edits(&mut i.events));
+            let mut commit = false;
+            let mut cancel = dismiss;
+            if let Some(rename) = &mut self.rename_folder {
+                for edit in edits {
+                    match edit {
+                        SwitcherEdit::Type(text) => rename.text.push_str(&text),
+                        SwitcherEdit::Backspace => {
+                            rename.text.pop();
+                        }
+                        SwitcherEdit::Confirm => commit = true,
+                        SwitcherEdit::Close => cancel = true,
+                        SwitcherEdit::Up | SwitcherEdit::Down => {}
+                    }
+                }
+            }
+            if cancel {
+                self.rename_folder = None;
+                self.focus_editor = true;
+            } else if commit && let Some(rename) = self.rename_folder.take() {
+                self.store.rename_folder(&rename.id, &rename.text);
+                self.touched();
+                self.focus_editor = true;
+            }
             return;
         }
         if self.purge_id.is_some() {
@@ -1051,17 +1170,27 @@ rental = rent + 50
     }
 
     fn commit_delete(&mut self) {
-        let Some(i) = self.pending_delete.take() else {
-            return;
-        };
-        if i >= self.store.sheets.len() {
-            return;
+        match self.pending_delete.take() {
+            Some(PendingDelete::Page(i)) => {
+                if i >= self.store.sheets.len() {
+                    return;
+                }
+                let title = self.store.sheets[i].title();
+                self.store.delete(i);
+                self.trash_at = None;
+                self.toast = Some(Toast::undo(format!("Deleted \u{201c}{title}\u{201d}")));
+                self.sheet_switched();
+            }
+            Some(PendingDelete::Folder(id)) => {
+                let Some(name) = self.store.delete_folder(&id) else {
+                    return;
+                };
+                self.trash_at = None;
+                self.toast = Some(Toast::undo(format!("Deleted \u{201c}{name}\u{201d}")));
+                self.sheet_switched();
+            }
+            None => {}
         }
-        let title = self.store.sheets[i].title();
-        self.store.delete(i);
-        self.trash_at = None;
-        self.toast = Some(Toast::undo(format!("Deleted \u{201c}{title}\u{201d}")));
-        self.sheet_switched();
     }
 
     fn restore_trashed(&mut self, id: &str) {
@@ -1304,6 +1433,20 @@ rental = rent + 50
                 badge: "command",
             });
         }
+        if new_folder_command(&sw.query) {
+            hits.push(Hit {
+                title: "New folder".to_string(),
+                jump: Jump::NewFolder,
+                badge: "command",
+            });
+        }
+        if move_folder_command(&sw.query) {
+            hits.push(Hit {
+                title: "Move to folder…".to_string(),
+                jump: Jump::MoveToFolder,
+                badge: "command",
+            });
+        }
         hits.extend(
             find_sheets(&titles, &texts, &sw.query)
                 .into_iter()
@@ -1336,6 +1479,8 @@ rental = rent + 50
             Jump::Sheet(i) => self.apply(SheetAction::Select(i)),
             Jump::Trash(id) => self.open_preview(id),
             Jump::Settings => self.open_settings(),
+            Jump::NewFolder => self.apply(SheetAction::NewFolderAt(None)),
+            Jump::MoveToFolder => self.apply(SheetAction::MoveTo(self.store.active)),
         }
     }
 
@@ -1686,7 +1831,6 @@ rental = rent + 50
     fn sheet_bar(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme.clone();
         let i = self.store.active;
-        let count = self.store.sheets.len();
         let mut action = None;
         let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
         // Framed, like the web app's: the one control above the sheet. Its right edge
@@ -1713,7 +1857,8 @@ rental = rent + 50
         for dx in [-6.0, 0.0, 6.0] {
             painter.circle_filled(dots_rect.center() + vec2(dx, 0.0), 2.0, color);
         }
-        menu.show(|ui| sheet_menu(ui, i, count, &mut action));
+        let (first, last) = self.store.at_sibling_edge(i);
+        menu.show(|ui| sheet_menu(ui, i, !first, !last, &mut action));
         dots.on_hover_text("Share, copy and more");
         ui.add_space(2.0);
 
@@ -1853,6 +1998,16 @@ rental = rent + 50
             &theme,
             Icon::Plus,
         );
+        let folder_btn = icon_button(
+            ui,
+            icon_slot(row, 2),
+            id.with("new-folder"),
+            &theme,
+            Icon::Folder,
+        );
+        if folder_btn.on_hover_text("New folder").clicked() {
+            action = Some(SheetAction::NewFolderAt(None));
+        }
         if plus
             .on_hover_text(format!("New page ({})", help::keys("Ctrl+N")))
             .clicked()
@@ -1868,35 +2023,137 @@ rental = rent + 50
         }
         ui.add_space(6.0);
 
-        let rows: Vec<(usize, String)> = self
+        let entries = self.store.side_entries();
+        let headings: HashMap<String, String> = self
+            .store
+            .sheets
+            .iter()
+            .map(|s| (s.id.clone(), s.heading()))
+            .collect();
+        let indexes: HashMap<String, usize> = self
             .store
             .sheets
             .iter()
             .enumerate()
-            .map(|(i, s)| (i, s.heading()))
+            .map(|(i, s)| (s.id.clone(), i))
             .collect();
-        let count = rows.len();
         let viewing = self.preview.clone();
+        let mut dropped: Option<(String, Place)> = None;
+        let mut expand_id: Option<String> = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .max_height(ui.available_height() - 38.0)
             .show(ui, |ui| {
-                for (i, heading) in rows {
-                    let active = i == self.store.active && viewing.is_none();
-                    let resp = sidebar_row(ui, &theme, &heading, active, true);
-                    let dots = sidebar_dots(ui, &resp.rect, ui.scope_id().with(("sheet-dots", i)));
-                    let menu = egui::Popup::menu(&dots);
-                    let open = menu.is_open();
-                    if active || resp.hovered() || dots.hovered() || open {
-                        dots_button(ui, &dots, &theme, open);
+                for entry in &entries {
+                    let indent = entry.depth as f32 * 14.0;
+                    match &entry.kind {
+                        SideKind::Folder {
+                            id: folder_id,
+                            name,
+                            collapsed,
+                        } => {
+                            let resp = sidebar_row(
+                                ui,
+                                &theme,
+                                RowLook {
+                                    heading: name,
+                                    selected: false,
+                                    accent: false,
+                                    indent,
+                                    chevron: Some(*collapsed),
+                                    drag: true,
+                                },
+                            );
+                            resp.dnd_set_drag_payload(DragPayload {
+                                id: folder_id.clone(),
+                                folder: true,
+                            });
+                            let dots = sidebar_dots(
+                                ui,
+                                &resp.rect,
+                                ui.scope_id().with(("folder-dots", folder_id.clone())),
+                            );
+                            let menu = egui::Popup::menu(&dots);
+                            let open = menu.is_open();
+                            if resp.hovered() || dots.hovered() || open {
+                                dots_button(ui, &dots, &theme, open);
+                            }
+                            let can_nest = self.store.can_nest_folder(Some(folder_id));
+                            let folder_id = folder_id.clone();
+                            menu.show(|ui| {
+                                folder_menu(ui, &folder_id, can_nest, &mut action);
+                            });
+                            let pick = resp.clicked() && !dots.clicked();
+                            dots.on_hover_text("Rename, or delete the folder");
+                            resp.context_menu(|ui| {
+                                folder_menu(ui, &folder_id, can_nest, &mut action);
+                            });
+                            if pick {
+                                action = Some(SheetAction::ToggleFolder(folder_id.clone()));
+                            }
+                            self.note_drop(
+                                ui,
+                                &resp,
+                                &folder_id,
+                                DropTarget {
+                                    folder: true,
+                                    collapsed: *collapsed,
+                                    dropped: &mut dropped,
+                                    expand_id: &mut expand_id,
+                                },
+                            );
+                        }
+                        SideKind::Page { id } => {
+                            let Some(&i) = indexes.get(id) else {
+                                continue;
+                            };
+                            let heading =
+                                headings.get(id).map(String::as_str).unwrap_or("Untitled");
+                            let active = i == self.store.active && viewing.is_none();
+                            let (first, last) = self.store.at_sibling_edge(i);
+                            let resp = sidebar_row(
+                                ui,
+                                &theme,
+                                RowLook {
+                                    heading,
+                                    selected: active,
+                                    accent: true,
+                                    indent,
+                                    chevron: None,
+                                    drag: true,
+                                },
+                            );
+                            resp.dnd_set_drag_payload(DragPayload {
+                                id: id.clone(),
+                                folder: false,
+                            });
+                            let dots =
+                                sidebar_dots(ui, &resp.rect, ui.scope_id().with(("sheet-dots", i)));
+                            let menu = egui::Popup::menu(&dots);
+                            let open = menu.is_open();
+                            if active || resp.hovered() || dots.hovered() || open {
+                                dots_button(ui, &dots, &theme, open);
+                            }
+                            menu.show(|ui| sheet_menu(ui, i, !first, !last, &mut action));
+                            let pick = resp.clicked() && !dots.clicked();
+                            dots.on_hover_text("Share, copy and more");
+                            if pick {
+                                action = Some(SheetAction::Select(i));
+                            }
+                            resp.context_menu(|ui| sheet_menu(ui, i, !first, !last, &mut action));
+                            self.note_drop(
+                                ui,
+                                &resp,
+                                id,
+                                DropTarget {
+                                    folder: false,
+                                    collapsed: false,
+                                    dropped: &mut dropped,
+                                    expand_id: &mut expand_id,
+                                },
+                            );
+                        }
                     }
-                    menu.show(|ui| sheet_menu(ui, i, count, &mut action));
-                    let pick = resp.clicked() && !dots.clicked();
-                    dots.on_hover_text("Share, copy and more");
-                    if pick {
-                        action = Some(SheetAction::Select(i));
-                    }
-                    resp.context_menu(|ui| sheet_menu(ui, i, count, &mut action));
                 }
                 if !self.trash.is_empty() {
                     ui.add_space(14.0);
@@ -1906,7 +2163,18 @@ rental = rent + 50
                     for item in trash {
                         let heading = heading_of(&item.text);
                         let selected = viewing.as_deref() == Some(item.id.as_str());
-                        let resp = sidebar_row(ui, &theme, &heading, selected, false);
+                        let resp = sidebar_row(
+                            ui,
+                            &theme,
+                            RowLook {
+                                heading: &heading,
+                                selected,
+                                accent: false,
+                                indent: 0.0,
+                                chevron: None,
+                                drag: false,
+                            },
+                        );
                         let dots = sidebar_dots(
                             ui,
                             &resp.rect,
@@ -1932,7 +2200,54 @@ rental = rent + 50
                         }
                     }
                 }
+                let (rest, filler) = ui.allocate_exact_size(
+                    vec2(ui.available_width(), ui.available_height().max(28.0)),
+                    Sense::click(),
+                );
+                filler.context_menu(|ui| {
+                    if ui.button("New page").clicked() {
+                        action = Some(SheetAction::New);
+                    }
+                    if ui.button("New folder").clicked() {
+                        action = Some(SheetAction::NewFolderAt(None));
+                    }
+                });
+                if let Some(payload) = filler.dnd_hover_payload::<DragPayload>() {
+                    paint_drop_line(ui.painter(), rest, true, theme.accent);
+                    let _ = payload;
+                }
+                if let Some(payload) = filler.dnd_release_payload::<DragPayload>() {
+                    dropped = Some((payload.id.clone(), Place::RootEnd));
+                }
             });
+
+        if let Some(id) = expand_id {
+            let due = match &self.drag_expand {
+                Some((hover, at)) if hover == &id => at.elapsed() >= Duration::from_millis(450),
+                _ => {
+                    self.drag_expand = Some((id, Instant::now()));
+                    false
+                }
+            };
+            if due {
+                let id = self.drag_expand.take().map(|(id, _)| id);
+                if let Some(id) = id {
+                    self.store.expand_folder(&id);
+                    self.touched();
+                }
+            }
+            ui.ctx().request_repaint_after(Duration::from_millis(50));
+        } else {
+            self.drag_expand = None;
+        }
+        if egui::DragAndDrop::payload::<DragPayload>(ui.ctx()).is_some() {
+            ui.ctx().request_repaint_after(Duration::from_millis(50));
+            self.paint_drag_chip(ui.ctx());
+        }
+        if let Some((id, spot)) = dropped {
+            let _ = self.store.place(&id, spot);
+            self.touched();
+        }
 
         ui.add_space(6.0);
         self.sidebar_footer(ui, &theme);
@@ -1949,6 +2264,94 @@ rental = rent + 50
         if let Some(id) = purge {
             self.purge_id = Some(id);
         }
+    }
+
+    /// A drag hovering `resp`. Paints the drop line or the folder highlight, and
+    /// remembers a collapsed folder so it can open after a short hover.
+    fn note_drop(&self, ui: &egui::Ui, resp: &egui::Response, id: &str, target: DropTarget) {
+        let Some(payload) = resp.dnd_hover_payload::<DragPayload>() else {
+            return;
+        };
+        if payload.id == id {
+            return;
+        }
+        let DropTarget {
+            folder,
+            collapsed,
+            dropped,
+            expand_id,
+        } = target;
+        let Some(pos) = ui.input(|i| i.pointer.interact_pos()) else {
+            return;
+        };
+        let rect = resp.rect;
+        let rel = ((pos.y - rect.top()) / rect.height().max(1.0)).clamp(0.0, 1.0);
+        let into = folder && (0.28..0.72).contains(&rel);
+        let spot = if into {
+            if collapsed {
+                *expand_id = Some(id.to_string());
+            }
+            ui.painter().rect_stroke(
+                rect,
+                CornerRadius::same(5),
+                egui::Stroke::new(1.5, self.theme.accent),
+                egui::StrokeKind::Inside,
+            );
+            Place::Into(id.to_string())
+        } else if rel < 0.5 {
+            paint_drop_line(ui.painter(), rect, true, self.theme.accent);
+            Place::Before(id.to_string())
+        } else {
+            paint_drop_line(ui.painter(), rect, false, self.theme.accent);
+            Place::After(id.to_string())
+        };
+        if resp.dnd_release_payload::<DragPayload>().is_some() {
+            *dropped = Some((payload.id.clone(), spot));
+        }
+    }
+
+    fn paint_drag_chip(&self, ctx: &egui::Context) {
+        let Some(payload) = egui::DragAndDrop::payload::<DragPayload>(ctx) else {
+            return;
+        };
+        let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) else {
+            return;
+        };
+        let label = if payload.folder {
+            self.store
+                .folder_name(&payload.id)
+                .unwrap_or_else(|| "Folder".into())
+        } else {
+            self.store
+                .sheets
+                .iter()
+                .find(|s| s.id == payload.id)
+                .map(|s| s.heading())
+                .unwrap_or_else(|| "Page".into())
+        };
+        let theme = &self.theme;
+        let galley = ctx.fonts_mut(|f| {
+            f.layout_job(sidebar_label_job(
+                &label,
+                FontId::proportional(13.0),
+                theme.foreground,
+                180.0,
+            ))
+        });
+        let size = galley.size() + vec2(16.0, 8.0);
+        let rect = Rect::from_min_size(pos + vec2(12.0, 12.0), size);
+        let painter = ctx.layer_painter(egui::LayerId::new(
+            Order::Tooltip,
+            egui::Id::unique("omacus-drag"),
+        ));
+        painter.rect_filled(rect, CornerRadius::same(6), theme.sidebar);
+        painter.rect_stroke(
+            rect,
+            CornerRadius::same(6),
+            egui::Stroke::new(1.0, theme.accent),
+            egui::StrokeKind::Inside,
+        );
+        painter.galley(rect.min + vec2(8.0, 4.0), galley, theme.foreground);
     }
 
     fn sheet(&mut self, ui: &mut egui::Ui) {
@@ -3029,14 +3432,31 @@ rental = rent + 50
     }
 
     fn show_delete(&mut self, ctx: &egui::Context) {
-        let Some(i) = self.pending_delete else {
+        let Some(pending) = self.pending_delete.clone() else {
             return;
         };
-        if i >= self.store.sheets.len() {
-            self.pending_delete = None;
-            return;
-        }
-        let title = self.store.sheets[i].title();
+        let (title, detail) = match &pending {
+            PendingDelete::Page(i) => {
+                if *i >= self.store.sheets.len() {
+                    self.pending_delete = None;
+                    return;
+                }
+                (
+                    self.store.sheets[*i].title(),
+                    "It's moved to Recently deleted, in the sidebar and the page switcher.",
+                )
+            }
+            PendingDelete::Folder(id) => {
+                let Some(name) = self.store.folder_name(id) else {
+                    self.pending_delete = None;
+                    return;
+                };
+                (
+                    name,
+                    "Pages inside move to Recently deleted, where they can be restored.",
+                )
+            }
+        };
         let theme = self.theme.clone();
         let mut delete = false;
         let mut cancel = false;
@@ -3056,13 +3476,7 @@ rental = rent + 50
                         .color(theme.foreground),
                 );
                 ui.add_space(6.0);
-                ui.label(
-                    egui::RichText::new(
-                        "It's moved to Recently deleted, in the sidebar and the page switcher.",
-                    )
-                    .size(13.0)
-                    .color(theme.dim),
-                );
+                ui.label(egui::RichText::new(detail).size(13.0).color(theme.dim));
                 ui.add_space(14.0);
                 ui.horizontal(|ui| {
                     delete = ui
@@ -3097,6 +3511,178 @@ rental = rent + 50
             self.commit_delete();
         } else if cancel {
             self.pending_delete = None;
+            self.focus_editor = true;
+        }
+    }
+
+    fn show_move(&mut self, ctx: &egui::Context) {
+        let Some(page_id) = self.move_page.clone() else {
+            return;
+        };
+        if self.store.sheets.iter().all(|s| s.id != page_id) {
+            self.move_page = None;
+            return;
+        }
+        let theme = self.theme.clone();
+        let folders = self.store.folders();
+        let current = self.store.folder_of(&page_id);
+        let mut picked: Option<Option<String>> = None;
+        let mut cancel = false;
+        let frame = Frame::NONE
+            .fill(theme.sidebar)
+            .stroke(egui::Stroke::new(1.0, theme.selection))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(Margin::symmetric(16, 14));
+        let modal = egui::Modal::new(egui::Id::unique("omacus-move"))
+            .frame(frame)
+            .backdrop_color(Color32::from_black_alpha(140))
+            .show(ctx, |ui| {
+                ui.set_width(300.0);
+                ui.label(
+                    egui::RichText::new("Move to folder")
+                        .size(16.0)
+                        .color(theme.foreground),
+                );
+                ui.add_space(8.0);
+                let root_label = if current.is_none() {
+                    "No folder  ·  current"
+                } else {
+                    "No folder"
+                };
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new(root_label)
+                                .size(13.5)
+                                .color(theme.foreground),
+                        )
+                        .min_size(vec2(ui.available_width(), 28.0)),
+                    )
+                    .clicked()
+                {
+                    picked = Some(None);
+                }
+                if folders.is_empty() {
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new("No folders yet. Create one from the sidebar.")
+                            .size(12.5)
+                            .color(theme.comment),
+                    );
+                }
+                for folder in &folders {
+                    let here = current.as_deref() == Some(folder.id.as_str());
+                    let name = if here {
+                        format!("{}  ·  current", folder.name)
+                    } else {
+                        folder.name.clone()
+                    };
+                    ui.add_space(2.0);
+                    let pad = (folder.depth.saturating_sub(1) as f32) * 14.0;
+                    ui.horizontal(|ui| {
+                        if pad > 0.0 {
+                            ui.add_space(pad);
+                        }
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new(name).size(13.5).color(theme.foreground),
+                                )
+                                .min_size(vec2(ui.available_width(), 28.0)),
+                            )
+                            .clicked()
+                        {
+                            picked = Some(Some(folder.id.clone()));
+                        }
+                    });
+                }
+                ui.add_space(8.0);
+                cancel = ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("Cancel")
+                                .size(13.5)
+                                .color(theme.foreground),
+                        )
+                        .corner_radius(CornerRadius::same(6))
+                        .min_size(vec2(0.0, 30.0)),
+                    )
+                    .clicked();
+            });
+        if modal.should_close() {
+            cancel = true;
+        }
+        if let Some(parent) = picked {
+            let moving = current.as_deref() != parent.as_deref();
+            if moving {
+                let spot = match parent {
+                    Some(id) => Place::Into(id),
+                    None => Place::RootEnd,
+                };
+                let _ = self.store.place(&page_id, spot);
+                self.touched();
+            }
+            self.move_page = None;
+            self.focus_editor = true;
+        } else if cancel {
+            self.move_page = None;
+            self.focus_editor = true;
+        }
+    }
+
+    fn show_rename(&mut self, ctx: &egui::Context) {
+        let Some(rename) = self.rename_folder.clone() else {
+            return;
+        };
+        let theme = self.theme.clone();
+        let mut cancel = false;
+        let frame = Frame::NONE
+            .fill(theme.sidebar)
+            .stroke(egui::Stroke::new(1.0, theme.selection))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(Margin::symmetric(16, 14));
+        let modal = egui::Modal::new(egui::Id::unique("omacus-rename-folder"))
+            .frame(frame)
+            .backdrop_color(Color32::from_black_alpha(140))
+            .show(ctx, |ui| {
+                ui.set_width(300.0);
+                ui.label(
+                    egui::RichText::new("Rename folder")
+                        .size(16.0)
+                        .color(theme.foreground),
+                );
+                ui.add_space(8.0);
+                // Display only. Keystrokes are applied in `handle_shortcuts`, the
+                // same way the page switcher types without moving the text cursor.
+                let mut shown = rename.text.clone();
+                ui.add(
+                    TextEdit::singleline(&mut shown)
+                        .interactive(false)
+                        .font(FontId::proportional(15.0))
+                        .text_color(theme.foreground)
+                        .desired_width(f32::INFINITY),
+                );
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new("Enter keeps the name. Esc cancels.")
+                        .size(12.0)
+                        .color(theme.comment),
+                );
+                ui.add_space(8.0);
+                cancel = ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("Cancel")
+                                .size(13.5)
+                                .color(theme.foreground),
+                        )
+                        .corner_radius(CornerRadius::same(6))
+                        .min_size(vec2(0.0, 30.0)),
+                    )
+                    .clicked();
+            });
+        if modal.should_close() || cancel {
+            self.rename_folder = None;
             self.focus_editor = true;
         }
     }
@@ -3240,6 +3826,8 @@ impl eframe::App for OmacusApp {
         self.show_help(&ctx);
         self.show_update(&ctx);
         self.show_delete(&ctx);
+        self.show_move(&ctx);
+        self.show_rename(&ctx);
         self.show_replace(&ctx);
         self.show_purge(&ctx);
         self.show_switcher(&ctx);
@@ -3264,7 +3852,13 @@ impl eframe::App for OmacusApp {
 }
 
 /// The actions for sheet `i`: the right-click menu, and the ⋯ on its row and above it.
-fn sheet_menu(ui: &mut egui::Ui, i: usize, count: usize, action: &mut Option<SheetAction>) {
+fn sheet_menu(
+    ui: &mut egui::Ui,
+    i: usize,
+    can_up: bool,
+    can_down: bool,
+    action: &mut Option<SheetAction>,
+) {
     let item = |ui: &mut egui::Ui, text: &str, keys: Option<&str>| {
         let mut button = egui::Button::new(text);
         if let Some(k) = keys {
@@ -3288,11 +3882,14 @@ fn sheet_menu(ui: &mut egui::Ui, i: usize, count: usize, action: &mut Option<She
     if item(ui, "New page", Some("Ctrl+N")) {
         *action = Some(SheetAction::New);
     }
-    if i > 0 && item(ui, "Move up", None) {
+    if can_up && item(ui, "Move up", None) {
         *action = Some(SheetAction::Move(i, -1));
     }
-    if i + 1 < count && item(ui, "Move down", None) {
+    if can_down && item(ui, "Move down", None) {
         *action = Some(SheetAction::Move(i, 1));
+    }
+    if item(ui, "Move to folder…", None) {
+        *action = Some(SheetAction::MoveTo(i));
     }
     ui.separator();
     if item(ui, "Delete page", Some("Ctrl+Shift+Delete")) {
@@ -3301,6 +3898,22 @@ fn sheet_menu(ui: &mut egui::Ui, i: usize, count: usize, action: &mut Option<She
     ui.separator();
     if item(ui, "Settings", Some("Ctrl+,")) {
         *action = Some(SheetAction::Settings);
+    }
+}
+
+fn folder_menu(ui: &mut egui::Ui, id: &str, can_nest: bool, action: &mut Option<SheetAction>) {
+    if ui.button("New page").clicked() {
+        *action = Some(SheetAction::NewIn(Some(id.to_string())));
+    }
+    if can_nest && ui.button("New folder").clicked() {
+        *action = Some(SheetAction::NewFolderAt(Some(id.to_string())));
+    }
+    if ui.button("Rename").clicked() {
+        *action = Some(SheetAction::RenameFolder(id.to_string()));
+    }
+    ui.separator();
+    if ui.button("Delete folder").clicked() {
+        *action = Some(SheetAction::DeleteFolder(id.to_string()));
     }
 }
 
@@ -3316,6 +3929,7 @@ enum Icon {
     Sidebar,
     Help,
     Gear,
+    Folder,
 }
 
 /// Drawn rather than typed, so they match each other, Share and ⋯ in any font.
@@ -3350,6 +3964,29 @@ fn paint_icon(painter: &egui::Painter, icon: Icon, c: Pos2, color: Color32) {
                 let d = vec2(a.cos(), a.sin());
                 painter.line_segment([c + d * 4.3, c + d * 7.0], stroke);
             }
+        }
+        // A tabbed folder, same stroke weight as the other icons.
+        Icon::Folder => {
+            let r = Rect::from_center_size(c + vec2(0.0, 1.0), vec2(15.0, 10.0));
+            painter.line_segment(
+                [pos2(r.left(), r.top()), pos2(r.left() + 5.0, r.top())],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    pos2(r.left() + 5.0, r.top()),
+                    pos2(r.left() + 7.0, r.top() - 3.0),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    pos2(r.left() + 7.0, r.top() - 3.0),
+                    pos2(r.right(), r.top() - 3.0),
+                ],
+                stroke,
+            );
+            painter.rect_stroke(r, CornerRadius::same(2), stroke, egui::StrokeKind::Middle);
         }
     }
 }
@@ -3429,6 +4066,18 @@ fn paint_hover_tip(ctx: &egui::Context, theme: &Theme, token: Rect, value: &str)
 fn settings_command(query: &str) -> bool {
     let q = query.trim().to_lowercase();
     q.len() >= 2 && "settings".starts_with(&q)
+}
+
+/// The switcher offers New folder once the query is the start of that command.
+fn new_folder_command(query: &str) -> bool {
+    let q = query.trim().to_lowercase();
+    (q.len() >= 2 && "new folder".starts_with(&q)) || (q.len() >= 3 && "folder".starts_with(&q))
+}
+
+/// The switcher offers Move to folder… for the open page.
+fn move_folder_command(query: &str) -> bool {
+    let q = query.trim().to_lowercase();
+    q.len() >= 2 && "move to folder".starts_with(&q)
 }
 
 /// The sidebar's button column: centered on the rows' ⋯, `slot` buttons in from the right.
@@ -3866,33 +4515,51 @@ enum TrashChoice {
     Forever,
 }
 
-fn sidebar_row(
-    ui: &mut egui::Ui,
-    theme: &Theme,
-    heading: &str,
+struct RowLook<'a> {
+    heading: &'a str,
     selected: bool,
     accent: bool,
-) -> egui::Response {
-    let (rect, resp) =
-        ui.allocate_exact_size(vec2(ui.available_width(), SIDEBAR_ROW), Sense::click());
+    indent: f32,
+    /// `Some(collapsed)` draws a disclosure triangle.
+    chevron: Option<bool>,
+    drag: bool,
+}
+
+fn sidebar_row(ui: &mut egui::Ui, theme: &Theme, look: RowLook<'_>) -> egui::Response {
+    let sense = if look.drag {
+        Sense::click_and_drag()
+    } else {
+        Sense::click()
+    };
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), SIDEBAR_ROW), sense);
     let painter = ui.painter();
-    if selected {
+    if look.selected {
         painter.rect_filled(rect, CornerRadius::same(5), theme.selection);
-        if accent {
+        if look.accent {
             painter.rect_filled(sidebar_accent(rect), CornerRadius::same(2), theme.accent);
         }
     } else if resp.hovered() {
         painter.rect_filled(rect, CornerRadius::same(5), theme.hover);
     }
-    let color = if selected {
+    let color = if look.selected {
         theme.foreground
     } else {
         theme.dim
     };
-    let text_width = (rect.width() - 14.0 - 30.0).max(24.0);
+    let mut text_x = rect.left() + 14.0 + look.indent;
+    if let Some(collapsed) = look.chevron {
+        paint_chevron(
+            painter,
+            pos2(text_x + 1.0, rect.center().y),
+            collapsed,
+            color,
+        );
+        text_x += 16.0;
+    }
+    let text_width = (rect.right() - text_x - 30.0).max(24.0);
     let galley = ui.ctx().fonts_mut(|f| {
         f.layout_job(sidebar_label_job(
-            heading,
+            look.heading,
             FontId::proportional(14.0),
             color,
             text_width,
@@ -3900,14 +4567,34 @@ fn sidebar_row(
     });
     let elided = galley.elided;
     painter.galley(
-        pos2(rect.left() + 14.0, rect.center().y - galley.size().y / 2.0),
+        pos2(text_x, rect.center().y - galley.size().y / 2.0),
         galley,
         color,
     );
     if elided {
-        resp.clone().on_hover_text(heading.to_owned());
+        resp.clone().on_hover_text(look.heading.to_owned());
     }
     resp
+}
+
+fn paint_chevron(painter: &egui::Painter, c: Pos2, collapsed: bool, color: Color32) {
+    let stroke = egui::Stroke::new(1.4, color);
+    if collapsed {
+        painter.line_segment([c + vec2(-3.0, -4.0), c + vec2(3.0, 0.0)], stroke);
+        painter.line_segment([c + vec2(3.0, 0.0), c + vec2(-3.0, 4.0)], stroke);
+    } else {
+        painter.line_segment([c + vec2(-4.0, -2.0), c + vec2(0.0, 3.0)], stroke);
+        painter.line_segment([c + vec2(0.0, 3.0), c + vec2(4.0, -2.0)], stroke);
+    }
+}
+
+fn paint_drop_line(painter: &egui::Painter, row: Rect, top: bool, color: Color32) {
+    let y = if top { row.top() } else { row.bottom() };
+    let line = Rect::from_center_size(
+        pos2(row.center().x, y),
+        vec2((row.width() - 16.0).max(8.0), 2.0),
+    );
+    painter.rect_filled(line, CornerRadius::same(1), color);
 }
 
 fn sidebar_dots(ui: &mut egui::Ui, row: &Rect, id: egui::Id) -> egui::Response {
@@ -3934,9 +4621,10 @@ mod tests {
     use super::find_sheets;
     use super::{
         BAR_ROW, HINT_IDLE, SIDEBAR_ROW, Shortcut, SwitcherEdit, apply_switcher_query,
-        empty_sheet_hint, hover_tip_rect, icon_slot, line_at, name_hint_visible, owns_key,
-        settings_command, sheet_event_filter, shortcut_for, sidebar_accent, sidebar_label_job,
-        switcher_takes_focus, take_chords, take_switcher_edits,
+        empty_sheet_hint, hover_tip_rect, icon_slot, line_at, move_folder_command,
+        name_hint_visible, new_folder_command, owns_key, settings_command, sheet_event_filter,
+        shortcut_for, sidebar_accent, sidebar_label_job, switcher_takes_focus, take_chords,
+        take_switcher_edits,
     };
     use eframe::egui::{Color32, Event, FontId, ImeEvent, Key, Modifiers, Rect, pos2, vec2};
     use std::time::Duration;
@@ -4231,6 +4919,15 @@ mod tests {
         assert!(settings_command("settings"));
         assert!(!settings_command("settingx"));
         assert!(!settings_command("page"));
+        assert!(!new_folder_command(""));
+        assert!(!new_folder_command("f"));
+        assert!(new_folder_command("ne"));
+        assert!(new_folder_command("folder"));
+        assert!(!new_folder_command("folders"));
+        assert!(!move_folder_command("m"));
+        assert!(move_folder_command("mo"));
+        assert!(move_folder_command("move to"));
+        assert!(!move_folder_command("movie"));
     }
 
     #[test]

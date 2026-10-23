@@ -66,6 +66,10 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
                 "Delete the page (asks first; kept in Recently deleted)",
             ),
             ("Ctrl+B", "Expand / collapse the sidebar"),
+            (
+                "Drag",
+                "Reorder a page or folder, or drop a page onto a folder",
+            ),
         ],
     ),
     (
