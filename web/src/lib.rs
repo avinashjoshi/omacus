@@ -345,6 +345,80 @@ pub fn variables(sheet: &str) -> String {
     serde_json::to_string(&vars).unwrap_or_default()
 }
 
+/// The variable under a UTF-16 cursor: `{name, start, end, references, spans}`
+/// or `null`. Offsets are UTF-16, which is what the browser editor uses.
+#[wasm_bindgen(js_name = bindingAt)]
+pub fn binding_at(text: &str, utf16_pos: u32) -> String {
+    let cursor = char_index_from_utf16(text, utf16_pos as usize);
+    match omacus_engine::rename::binding_at(text, cursor) {
+        Some(binding) => json!({
+            "name": binding.name,
+            "start": utf16_from_chars(text, binding.token_start),
+            "end": utf16_from_chars(text, binding.token_end),
+            "references": binding.references,
+            "definition": [
+                utf16_from_chars(text, binding.definition.start),
+                utf16_from_chars(text, binding.definition.end),
+            ],
+            "spans": utf16_spans(text, &binding.spans),
+        })
+        .to_string(),
+        None => "null".into(),
+    }
+}
+
+/// Rename the variable under a UTF-16 cursor. `{text, cursor}` on success
+/// (`cursor` is the UTF-16 index just after that token), or `{error, message}`.
+#[wasm_bindgen(js_name = renameVariable)]
+pub fn rename_variable(text: &str, utf16_pos: u32, new_name: &str) -> String {
+    let cursor = char_index_from_utf16(text, utf16_pos as usize);
+    match omacus_engine::rename::rename_variable(text, cursor, new_name) {
+        Ok(renamed) => json!({
+            "text": renamed.text,
+            "cursor": utf16_from_chars(&renamed.text, renamed.cursor),
+        })
+        .to_string(),
+        Err(err) => {
+            let code = match err {
+                omacus_engine::rename::RenameFail::NotAVariable => "none",
+                omacus_engine::rename::RenameFail::InvalidName => "invalid",
+                omacus_engine::rename::RenameFail::Collision { .. } => "collision",
+            };
+            json!({ "error": code, "message": err.message() }).to_string()
+        }
+    }
+}
+
+/// A definition name edited in place: `{oldName, newName, references, spans,
+/// collision, message}` or `null`. `spans` are the uses, in the new text.
+#[wasm_bindgen(js_name = definitionChange)]
+pub fn definition_change(old: &str, new: &str) -> String {
+    match omacus_engine::rename::definition_change(old, new) {
+        Some(edit) => json!({
+            "oldName": edit.old_name,
+            "newName": edit.new_name,
+            "references": edit.references,
+            "spans": utf16_spans(new, &edit.spans),
+            "collision": edit.collision,
+            "message": edit.message(),
+        })
+        .to_string(),
+        None => "null".into(),
+    }
+}
+
+fn utf16_spans(text: &str, spans: &[omacus_engine::rename::Span]) -> Vec<Vec<usize>> {
+    spans
+        .iter()
+        .map(|span| {
+            vec![
+                utf16_from_chars(text, span.start),
+                utf16_from_chars(text, span.end),
+            ]
+        })
+        .collect()
+}
+
 /// Answers as JSON for app.js.
 fn to_json(results: Vec<omacus_engine::LineResult>) -> String {
     let results: Vec<_> = results
@@ -411,6 +485,27 @@ mod tests {
         assert_eq!(tomorrow["kind"], "keyword");
         assert_eq!(tomorrow["detail"], "tomorrow's date");
         assert_eq!(suggest("x", ""), "null");
+    }
+
+    #[test]
+    fn rename_reports_utf16_and_refuses_a_collision() {
+        let text = "rent = 1\nrent + 1\nfee = 3\n";
+        let at = text.rfind("rent").unwrap() as u32;
+        let binding: serde_json::Value = serde_json::from_str(&binding_at(text, at)).unwrap();
+        assert_eq!(binding["name"], "rent");
+        assert_eq!(binding["references"], 1);
+        let renamed: serde_json::Value =
+            serde_json::from_str(&rename_variable(text, 0, "cost")).unwrap();
+        assert_eq!(renamed["text"], "cost = 1\ncost + 1\nfee = 3\n");
+        let refused: serde_json::Value =
+            serde_json::from_str(&rename_variable(text, 0, "fee")).unwrap();
+        assert_eq!(refused["error"], "collision");
+        assert_eq!(refused["message"], "fee is already used");
+        let edit: serde_json::Value =
+            serde_json::from_str(&definition_change("rent = 1\nrent\n", "fee = 1\nrent\n"))
+                .unwrap();
+        assert_eq!(edit["references"], 1);
+        assert_eq!(edit["message"], "Update 1 reference?");
     }
 
     #[test]

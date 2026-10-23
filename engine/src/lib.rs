@@ -17,6 +17,7 @@ pub mod complete;
 pub mod extras;
 pub mod markdown;
 mod rates;
+pub mod rename;
 pub mod share;
 pub mod time;
 
@@ -265,7 +266,7 @@ pub fn is_header(line: &str) -> bool {
 /// A prefixed line (heading, list, task, quote) is calculated only when the words
 /// after the marker are a calculation. A title like "Week 1" is not: the forgiving
 /// reader would otherwise turn it into the number 1 and stop it being a heading.
-fn looks_like_math(body: &str, vars: &HashSet<String>) -> bool {
+pub(crate) fn looks_like_math(body: &str, vars: &HashSet<String>) -> bool {
     let body = body.trim();
     if body.is_empty() {
         return false;
@@ -1560,7 +1561,7 @@ fn char_to_byte(line: &str, chars: usize) -> usize {
 
 /// `sum`, `total`, `avg`, `average` over the values since the last blank line or header.
 /// A line that's just `total` or `average`: whether it's an average.
-fn aggregate(line: &str) -> Option<bool> {
+pub(crate) fn aggregate(line: &str) -> Option<bool> {
     let lower = line.to_ascii_lowercase();
     match lower.trim_end_matches(':').trim() {
         "sum" | "total" => Some(false),
