@@ -373,20 +373,50 @@ lighter_background = "#1e1e1e"  # hover
 
 ## Command line
 
-The `omacus` command uses the same engine as the app.
+The `omacus` command uses the same engine, and the same pages, as the app. With no arguments it opens the window. A bare expression still prints one answer.
 
 ```
-omacus '$100 in EUR'  # one expression → prints the answer
-omacus '6pm PST in Tokyo'
-printf 'rent = $1450\nrent * 12\n' | omacus -  # a whole page from stdin, one result per line
+omacus '3.5 km in miles'  # 2.17 miles
+omacus eval '3.5 km in miles'
+omacus eval --json '2 + 2'  # JSON, one entry per line
+printf 'a = 5\na * 3\n' | omacus eval  # a whole page, one answer per line
+printf 'a = 5\na * 3\n' | omacus -
 omacus - < ~/notes/budget.txt
+omacus pages list
+omacus pages show 'Trip Budget'  # the page, with its answers
+omacus pages new 'Weekend Plans'
+omacus pages new Groceries --from-file list.txt
+omacus pages append Groceries 'milk $3'
+omacus pages rm 'Weekend Plans'  # moved to Recently deleted
+omacus pages export 'Trip Budget' --md  # a Markdown table on stdout
+omacus pages export 'Trip Budget' --pdf  # a PDF in the export folder
+omacus completions bash  # also zsh, fish, powershell
 omacus  # no arguments: open the window
 omacus --version  # which version you have
 omacus update  # install the latest version
 omacus open '<share link>'  # open a shared page in the window
 ```
 
-A single expression exits with status 1 when there's no answer, which makes it easy to use in scripts. On Windows, `omacus.exe "..."` works the same from a terminal.
+A page can be named by its title, its id, or a unique prefix, so `trip` is enough for Trip Budget. If more than one page fits, omacus lists them and changes nothing. `omacus pages --help` lists every page command. A single expression exits with status 1 when there's no answer, which makes it easy to use in scripts. On Windows, `omacus.exe "..."` works the same from a terminal.
+
+These commands read and write the pages in the [data folder](https://omacus.com/docs/#files). The window re-reads that folder every few seconds, and again when it regains focus, so an edit from the command line shows up in the app. Set `OMACUS_DATA_DIR` to use a different folder. A locked page is not printed, exported, or changed unless you pass `--password`.
+
+## MCP
+
+`omacus mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io) server on stdin and stdout, so Claude Desktop, Cursor, and other clients can calculate and use your pages. The tools are `evaluate`, `list_pages`, `read_page`, `create_page`, `append_page`, `update_page`, and `delete_page` (which moves a page to Recently deleted). Each page is also a resource at `omacus://page/{id}`. A locked page is not returned without its password. The server uses the same files as the app, so the window picks up the edits.
+
+Claude Desktop and Cursor take the same block. `omacus` has to be on `PATH`, which the installers arrange. For Claude, save it in `claude_desktop_config.json` (`~/Library/Application Support/Claude/` on macOS, `~/.config/Claude/` on Linux, `%APPDATA%\Claude\` on Windows). For Cursor, save it as `.cursor/mcp.json` in the project or in your home directory. Restart the client afterwards.
+
+```
+{
+  "mcpServers": {
+    "omacus": {
+      "command": "omacus",
+      "args": ["mcp"]
+    }
+  }
+}
+```
 
 ## Omarchy & Hyprland
 
@@ -481,6 +511,7 @@ The window is drawn with [egui](https://github.com/emilk/egui). The editor lays 
 | Exchange rates and their cache | `src/rates.rs` |
 | Pages, saving and restoring | `src/sheets.rs` |
 | The window, sidebar and results column | `src/app.rs` |
+| Command line and the MCP server | `src/cli.rs`, `src/mcp.rs` |
 | Syntax colors and autocomplete | `src/highlight.rs`, `src/complete.rs` |
 | Themes, live reloading | `src/theme.rs` |
 | The built-in help | `src/help.rs` |
