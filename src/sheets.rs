@@ -1210,18 +1210,27 @@ impl Store {
         Ok(())
     }
 
-    pub fn remove_page_lock(&mut self, id: &str) -> Result<(), String> {
+    /// Check `password`, then store the page as plaintext. A wrong password
+    /// changes nothing. An edit already on screen is kept once the password matches.
+    pub fn remove_page_lock(&mut self, id: &str, password: &str) -> Result<(), String> {
         let idx = self.idx(id).ok_or("That page is gone.")?;
         if self.sheets[idx].sealed.is_none() {
             return Err("This page isn't locked.".into());
-        }
-        if !self.sheets[idx].unlocked {
-            return Err("Unlock this page first.".into());
         }
         let cover = self.covering_folder(id);
         if self.encrypted_by(id, cover.as_deref()) {
             return Err("The folder is locked. Remove that lock instead.".into());
         }
+        let sealed = self.sheets[idx].sealed.clone().unwrap();
+        let (opened, _) = lock::open_password(password, &sealed, id.as_bytes())
+            .map_err(|e| e.message().to_string())?;
+        let text = if self.sheets[idx].unlocked {
+            self.sheets[idx].text.clone()
+        } else {
+            opened
+        };
+        let idx = self.idx(id).unwrap();
+        self.sheets[idx].text = text;
         self.sheets[idx].sealed = None;
         self.sheets[idx].unlocked = false;
         self.sheets[idx].dirty = true;
@@ -2992,10 +3001,50 @@ mod tests {
         let mut again = again;
         again.unlock_page(&id, "correct horse").unwrap();
         assert_eq!(again.sheets[0].text, "# Groceries\nmilk $3");
-        again.remove_page_lock(&id).unwrap();
+        again.remove_page_lock(&id, "correct horse").unwrap();
         again.save().unwrap();
         let plain = std::fs::read_to_string(root.join("pages").join(format!("{id}.txt"))).unwrap();
         assert_eq!(plain, "# Groceries\nmilk $3");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn removing_a_lock_needs_the_password_and_keeps_the_words() {
+        let root = temp_root("lock-remove");
+        let mut store = Store::load_in(Some(root.clone()), "# Groceries\nmilk $3");
+        let id = store.sheets[0].id.clone();
+        store.lock_page(&id, "correct horse").unwrap();
+        store.lock_now();
+        assert!(store.concealed(&id));
+        assert_eq!(
+            store.remove_page_lock(&id, "nope").unwrap_err(),
+            "Wrong password."
+        );
+        assert!(store.concealed(&id));
+        assert!(store.sheets[0].sealed.is_some());
+        let sealed = std::fs::read_to_string(root.join("pages").join(format!("{id}.txt"))).unwrap();
+        assert!(sealed.starts_with("OMACUS-LOCK/1\n"), "{sealed}");
+
+        store.remove_page_lock(&id, "correct horse").unwrap();
+        assert!(!store.concealed(&id));
+        assert!(store.sheets[0].sealed.is_none());
+        assert_eq!(store.sheets[0].text, "# Groceries\nmilk $3");
+        store.save().unwrap();
+        let plain = std::fs::read_to_string(root.join("pages").join(format!("{id}.txt"))).unwrap();
+        assert_eq!(plain, "# Groceries\nmilk $3");
+
+        store.lock_page(&id, "correct horse").unwrap();
+        store.sheets[0].text = "# Groceries\nmilk $4".into();
+        store.sheets[0].dirty = true;
+        assert_eq!(
+            store.remove_page_lock(&id, "nope").unwrap_err(),
+            "Wrong password."
+        );
+        assert_eq!(store.sheets[0].text, "# Groceries\nmilk $4");
+        assert!(store.sheets[0].sealed.is_some());
+        store.remove_page_lock(&id, "correct horse").unwrap();
+        assert_eq!(store.sheets[0].text, "# Groceries\nmilk $4");
+        assert!(store.sheets[0].sealed.is_none());
         let _ = std::fs::remove_dir_all(root);
     }
 
