@@ -15,7 +15,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +28,9 @@ const AT_LAUNCH: Duration = Duration::from_secs(60 * 60);
 const WHILE_OPEN: Duration = Duration::from_secs(4 * 60 * 60);
 /// How soon to try again after a failed check (offline, say).
 const RETRY_AFTER: Duration = Duration::from_secs(30 * 60);
+/// A check the user started. After this, the button works again even if the
+/// request never comes back.
+const MANUAL_CHECK_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub fn current() -> &'static str {
     env!("CARGO_PKG_VERSION")
@@ -108,21 +111,30 @@ pub struct Updates {
     /// When GitHub last answered, and when it was last asked.
     checked_at: Arc<Mutex<u64>>,
     tried_at: Arc<Mutex<u64>>,
+    /// Bumps each time a manual check starts, so a late answer can't overwrite a newer one.
+    generation: Arc<Mutex<u64>>,
+    /// When the manual check that's showing "Checking…" began.
+    started: Arc<Mutex<Option<Instant>>>,
 }
 
 impl Updates {
     /// Use the cached answer now, and ask GitHub in the background if it's over an hour old.
     pub fn check(on_update: impl Fn() + Send + 'static) -> Self {
-        let cache = read_cache();
-        let updates = Self {
+        let updates = Self::from_cache(read_cache());
+        updates.check_older_than(AT_LAUNCH, on_update);
+        updates
+    }
+
+    fn from_cache(cache: Cache) -> Self {
+        Self {
             latest: Arc::new(Mutex::new(cache.latest)),
             state: Arc::new(Mutex::new(State::Idle)),
             check: Arc::new(Mutex::new(Check::Idle)),
             checked_at: Arc::new(Mutex::new(cache.checked_at)),
             tried_at: Arc::new(Mutex::new(0)),
-        };
-        updates.check_older_than(AT_LAUNCH, on_update);
-        updates
+            generation: Arc::new(Mutex::new(0)),
+            started: Arc::new(Mutex::new(None)),
+        }
     }
 
     /// Called on every frame (cheaply), so a window that stays open still hears
@@ -168,29 +180,75 @@ impl Updates {
     }
 
     pub fn checked(&self) -> Check {
-        *self.check.lock().unwrap()
+        let check = *self.check.lock().unwrap();
+        if check == Check::Checking && self.manual_timed_out() {
+            // The request is still out, but it no longer owns the button.
+            Check::Failed
+        } else {
+            check
+        }
     }
 
     /// Ask GitHub now (the About pane's button), whatever the schedule says.
-    pub fn check_now(&self, on_done: impl Fn() + Send + 'static) {
-        *self.check.lock().unwrap() = Check::Checking;
-        let (latest, check, checked_at) = (
-            self.latest.clone(),
-            self.check.clone(),
-            self.checked_at.clone(),
-        );
+    /// A click while one is already running does nothing. `false` means that.
+    pub fn check_now(&self, on_done: impl Fn() + Send + 'static) -> bool {
+        let Some(token) = self.start_manual() else {
+            return false;
+        };
+        let updates = self.clone();
         std::thread::spawn(move || {
-            *check.lock().unwrap() = match fetch_latest() {
-                Ok(version) => {
-                    write_cache(&version);
-                    *checked_at.lock().unwrap() = now_secs();
-                    *latest.lock().unwrap() = Some(version);
-                    Check::Done
-                }
-                Err(_) => Check::Failed,
-            };
+            let result = fetch_latest().map_err(|e| e.to_string());
+            if let Some(version) = updates.finish_manual(token, result) {
+                write_cache(&version);
+            }
             on_done();
         });
+        true
+    }
+
+    /// Start a manual check. `None` while one is already in flight.
+    fn start_manual(&self) -> Option<u64> {
+        if self.manual_in_flight() {
+            return None;
+        }
+        let mut generation = self.generation.lock().unwrap();
+        *generation = generation.saturating_add(1);
+        *self.check.lock().unwrap() = Check::Checking;
+        *self.started.lock().unwrap() = Some(Instant::now());
+        Some(*generation)
+    }
+
+    /// Record `result` if `token` is still the check on screen. The version, when
+    /// this was the current check and GitHub answered.
+    fn finish_manual(&self, token: u64, result: Result<String, String>) -> Option<String> {
+        if *self.generation.lock().unwrap() != token {
+            return None;
+        }
+        let version = match result {
+            Ok(version) => {
+                *self.checked_at.lock().unwrap() = now_secs();
+                *self.latest.lock().unwrap() = Some(version.clone());
+                *self.check.lock().unwrap() = Check::Done;
+                Some(version)
+            }
+            Err(_) => {
+                *self.check.lock().unwrap() = Check::Failed;
+                None
+            }
+        };
+        *self.started.lock().unwrap() = None;
+        version
+    }
+
+    fn manual_in_flight(&self) -> bool {
+        *self.check.lock().unwrap() == Check::Checking && !self.manual_timed_out()
+    }
+
+    fn manual_timed_out(&self) -> bool {
+        self.started
+            .lock()
+            .unwrap()
+            .is_some_and(|t| t.elapsed() >= MANUAL_CHECK_TIMEOUT)
     }
 
     pub fn state(&self) -> State {
@@ -638,6 +696,48 @@ mod tests {
             sha256_hex(b"omacus"),
             "35c9293164625a75db5ee2dd57387bff729e1b6d28994eabd316f86104b366c5"
         );
+    }
+
+    #[test]
+    fn a_manual_check_can_run_again_after_it_finishes() {
+        let updates = Updates::from_cache(Cache::default());
+        let first = updates.start_manual().unwrap();
+        assert!(
+            updates.start_manual().is_none(),
+            "a second click while checking does nothing"
+        );
+        assert_eq!(updates.checked(), Check::Checking);
+        assert_eq!(
+            updates.finish_manual(first, Ok("9.9.9".into())).as_deref(),
+            Some("9.9.9")
+        );
+        assert_eq!(updates.checked(), Check::Done);
+        let second = updates.start_manual().unwrap();
+        assert_ne!(first, second);
+        // A late answer from the first check can't overwrite the one on screen.
+        assert!(updates.finish_manual(first, Ok("0.0.1".into())).is_none());
+        updates.finish_manual(second, Err("offline".into()));
+        assert_eq!(updates.checked(), Check::Failed);
+        assert!(
+            updates.start_manual().is_some(),
+            "an error doesn't lock the button"
+        );
+    }
+
+    #[test]
+    fn a_hung_check_unlocks_after_the_timeout() {
+        let updates = Updates::from_cache(Cache::default());
+        let token = updates.start_manual().unwrap();
+        let earlier = Instant::now()
+            .checked_sub(MANUAL_CHECK_TIMEOUT)
+            .expect("the clock has been running longer than the check timeout");
+        *updates.started.lock().unwrap() = Some(earlier);
+        assert_eq!(updates.checked(), Check::Failed);
+        let again = updates.start_manual().unwrap();
+        assert!(updates.finish_manual(token, Ok("9.9.9".into())).is_none());
+        assert_eq!(updates.checked(), Check::Checking);
+        updates.finish_manual(again, Ok("0.0.1".into()));
+        assert_eq!(updates.checked(), Check::Done);
     }
 
     #[test]

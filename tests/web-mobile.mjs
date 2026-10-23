@@ -77,6 +77,14 @@ check(/\.hover-value \{[^}]*white-space:\s*nowrap/.test(css), "a hover value sta
 check(/\.cm-tooltip\.cm-tooltip-hover \{[^}]*max-width:\s*none/.test(css), "the hover tooltip sizes to its text");
 check(html.includes("rail-settings"), "the collapsed rail has a settings gear");
 check(html.includes('class="side-tools"'), "the open sidebar has a settings gear");
+check(html.includes('data-settings-tab="about"'), "settings and about share one window");
+check(html.includes('data-action="about"'), "the menu opens About");
+check(css.includes("grid-template-rows: minmax(0, 1fr)"), "the workspace row cannot grow past the window");
+check(css.includes("overflow-y: auto !important"), "the editor scroller can scroll");
+check(css.includes(".line.blank") || css.includes("p.line.blank"), "blank lines keep their height");
+check(css.includes(".note"), "comments are styled in the preview");
+check(js.includes("showSettingsTab"), "settings and about are tabs");
+check(js.includes("afterprint"), "print restores the window title");
 check(css.includes("#1a3a5c"), "printed answers use a dark ink");
 check(/@page \{[^}]*margin:/.test(css), "printed pages have margins");
 check(js.includes("pill.dataset.value"), "clicking an answer copies the value, not the brackets");
@@ -326,6 +334,13 @@ if (pkg) {
   await evalJson(`document.querySelector('[data-action="settings"]').click()`);
   const settingsOpen = await evalJson(`!document.querySelector("[data-settings]").hidden`);
   check(settingsOpen === true, "settings did not open from the menu");
+  const tabs = await evalJson(`(() => {
+    const selected = document.querySelector('[data-settings-tab="settings"]')?.getAttribute("aria-selected");
+    const aboutHidden = document.querySelector('[data-settings-panel="about"]')?.hidden;
+    const settingsHidden = document.querySelector('[data-settings-panel="settings"]')?.hidden;
+    return { selected, aboutHidden, settingsHidden };
+  })()`);
+  check(tabs.selected === "true" && tabs.aboutHidden === true && tabs.settingsHidden === false, `settings did not open on the Settings tab (${JSON.stringify(tabs)})`);
   async function pickTheme(name) {
     return evalJson(`(() => {
       const select = document.querySelector("[data-setting=theme]");
@@ -418,6 +433,132 @@ if (pkg) {
   check(heading.headSize > heading.lineSize + 2, `heading is ${heading.headSize}px, line is ${heading.lineSize}px`);
   check(Number(heading.weight) >= 600, `heading weight is ${heading.weight}`);
 
+  // A long page has to scroll inside the editor, and the preview keeps each
+  // source line, blank line, comment, and a shared right edge for answers.
+  const mixed = ["# Northwind trip", "", "a = 5", "b = 6 # second", "", "", "// only a note", "- [x] packed", "", "| item | amount |", "| --- | --- |", "| flights | $4,720 |"];
+  for (let i = 0; i < 200; i++) mixed.push(`row ${i} = ${i + 1}`);
+  await evalJson(`(() => {
+    localStorage.setItem("omacus:page:scroll", ${JSON.stringify(mixed.join("\n"))});
+    localStorage.setItem("omacus:index", JSON.stringify({ order: ["scroll"], active: "scroll" }));
+    localStorage.removeItem("omacus:settings");
+    return true;
+  })()`);
+  await navigate(`http://127.0.0.1:${port}/app/`);
+  await waitFor(`document.querySelector(".cm-scroller") && document.querySelector(".cm-content")?.innerText?.includes("Northwind") && document.querySelector(".cm-scroller").scrollHeight > 2500`, 20000);
+  await waitFor(`[...document.querySelectorAll(".cm-line")].some((n) => n.textContent.includes("a = 5") && n.querySelector(".res"))`, 20000);
+  await evalJson(`document.querySelector(".cm-content")?.focus()`);
+  const beforeEnd = await evalJson(`document.querySelector(".cm-scroller").scrollTop`);
+  await page("Input.dispatchKeyEvent", { type: "keyDown", key: "End", code: "End", windowsVirtualKeyCode: 35, modifiers: 2 });
+  await page("Input.dispatchKeyEvent", { type: "keyUp", key: "End", code: "End", windowsVirtualKeyCode: 35, modifiers: 2 });
+  await new Promise((r) => setTimeout(r, 80));
+  const scrolled = await evalJson(`(() => {
+    const scroller = document.querySelector(".cm-scroller");
+    const sheet = document.querySelector(".sheet");
+    const at = scroller.scrollTop;
+    scroller.scrollTop = 0;
+    const box = scroller.getBoundingClientRect();
+    return {
+      taller: scroller.scrollHeight > scroller.clientHeight + 80,
+      caret: at > ${beforeEnd} + 40,
+      sheetFits: sheet.scrollHeight <= sheet.clientHeight + 2,
+      wheelX: box.x + Math.min(80, box.width / 2),
+      wheelY: box.y + Math.min(80, box.height / 2),
+    };
+  })()`);
+  check(scrolled.taller, "a long page does not overflow the editor scroller");
+  check(scrolled.caret, "Ctrl+End did not follow the caret");
+  check(scrolled.sheetFits, "the sheet grew with the page instead of scrolling inside it");
+  const moved = await evalJson(`(async () => {
+    const scroller = document.querySelector(".cm-scroller");
+    const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const place = () => {
+      const line = [...document.querySelectorAll(".cm-line")].find((n) => n.textContent.includes("a = 5"));
+      const answer = line?.querySelector(".res");
+      return answer ? answer.getBoundingClientRect().top : null;
+    };
+    scroller.scrollTop = 0;
+    await frame();
+    const before = place();
+    scroller.scrollTop = 120;
+    await frame();
+    const after = place();
+    scroller.scrollTop = 0;
+    return { before, after, delta: before != null && after != null ? before - after : null };
+  })()`);
+  check(moved.delta > 40, `the answers column did not move with the editor (${JSON.stringify(moved)})`);
+  const beforeWheel = await evalJson(`document.querySelector(".cm-scroller").scrollTop`);
+  await page("Input.dispatchMouseEvent", {
+    type: "mouseWheel",
+    x: scrolled.wheelX,
+    y: scrolled.wheelY,
+    deltaX: 0,
+    deltaY: 400,
+  });
+  await new Promise((r) => setTimeout(r, 100));
+  const afterWheel = await evalJson(`document.querySelector(".cm-scroller").scrollTop`);
+  check(afterWheel > beforeWheel + 20, `the mouse wheel did not scroll the editor (${beforeWheel} -> ${afterWheel})`);
+  if (shots) {
+    await evalJson(`(() => { const s = document.querySelector(".cm-scroller"); s.scrollTop = 400; return s.scrollTop; })()`);
+    await plainShot(join(shots, "editor-scrolled.png"));
+  }
+  const previewLines = await evalJson(`(() => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "p", ctrlKey: true }));
+    const root = document.querySelector("[data-page-preview-body]");
+    root.scrollTop = 0;
+    const html = root.innerHTML;
+    const pills = [...root.querySelectorAll("p.line .pill")].slice(0, 2).map((p) => Math.round(p.getBoundingClientRect().right));
+    const note = root.querySelector(".note");
+    const before = root.scrollTop;
+    root.scrollTop = root.scrollHeight;
+    const canPreview = root.scrollHeight > root.clientHeight + 40 && root.scrollTop > before + 40;
+    root.scrollTop = 0;
+    document.body.classList.add("answers-inline");
+    const inline = getComputedStyle(root.querySelector("p.line")).display;
+    document.body.classList.remove("answers-inline");
+    return {
+      blanks: (html.match(/class="line blank"/g) || []).length,
+      note: note?.textContent || "",
+      noteBeforeAnswer: html.indexOf("second") < html.indexOf("[ 6 ]") && html.indexOf("second") > html.indexOf("b = 6"),
+      heading: !!root.querySelector("h1"),
+      rights: pills,
+      canPreview,
+      inline,
+    };
+  })()`);
+  check(previewLines.blanks >= 2, `blank lines collapsed (${previewLines.blanks})`);
+  check(previewLines.note.includes("second") || previewLines.noteBeforeAnswer, `comment was ${previewLines.note}`);
+  check(previewLines.noteBeforeAnswer, "the comment is not between the expression and its answer");
+  check(previewLines.heading, "the heading was not rendered");
+  check(previewLines.rights.length === 2 && Math.abs(previewLines.rights[0] - previewLines.rights[1]) <= 1, `answers are not in one column (${previewLines.rights})`);
+  check(previewLines.canPreview, "the preview does not scroll");
+  check(previewLines.inline === "block", `inline answers stayed in a column (${previewLines.inline})`);
+  if (shots) {
+    await evalJson(`document.querySelector("[data-page-preview-body]").scrollTop = 0`);
+    await plainShot(join(shots, "preview-column.png"));
+    await evalJson(`document.body.classList.add("answers-inline")`);
+    await plainShot(join(shots, "preview-inline.png"));
+    await evalJson(`document.body.classList.remove("answers-inline")`);
+  }
+  await evalJson(`(() => {
+    document.querySelector("[data-page-preview]").hidden = true;
+    document.querySelector("[data-editor]").hidden = false;
+    return true;
+  })()`);
+  await page("Emulation.setDeviceMetricsOverride", { width: 390, height: 700, deviceScaleFactor: 1, mobile: true });
+  await new Promise((r) => setTimeout(r, 80));
+  const narrow = await evalJson(`(() => {
+    const scroller = document.querySelector(".cm-scroller");
+    return { taller: scroller.scrollHeight > scroller.clientHeight + 80, w: innerWidth, h: scroller.scrollHeight, c: scroller.clientHeight };
+  })()`);
+  check(narrow.taller && narrow.w <= 400, `narrow editor does not scroll (${JSON.stringify(narrow)})`);
+  if (shots) await plainShot(join(shots, "editor-narrow.png"));
+  await page("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+  await evalJson(`(() => {
+    document.querySelector("[data-page-preview]").hidden = true;
+    document.querySelector("[data-editor]").hidden = false;
+    return true;
+  })()`);
+
   // A page with a definition, a use, a keyword, a scaled number and a # comment.
   await evalJson(`(() => {
     localStorage.setItem("omacus:page:hover", "rent = $1,450 # monthly\\nrent * 2\\n1.5k\\ntotal\\nseats = 10\\nrevenue = $1,200 * seats");
@@ -505,6 +646,19 @@ if (pkg) {
     return opened;
   })()`);
   check(railOpened === true, "the collapsed-rail gear did not open settings");
+  const aboutTab = await evalJson(`(() => {
+    document.querySelector('[data-action="about"]').click();
+    const about = document.querySelector('[data-settings-tab="about"]')?.getAttribute("aria-selected");
+    const panel = document.querySelector('[data-settings-panel="about"]');
+    const settingsPanel = document.querySelector('[data-settings-panel="settings"]')?.hidden;
+    return { about, open: panel && !panel.hidden, text: panel?.innerText || "", settingsPanel };
+  })()`);
+  check(aboutTab.about === "true" && aboutTab.open === true && aboutTab.settingsPanel === true, `About tab did not open (${JSON.stringify(aboutTab)})`);
+  check(aboutTab.text.includes("omacus.com"), "About does not link to the site");
+  if (shots) await plainShot(join(shots, "about-tab.png"));
+  await evalJson(`document.querySelector('[data-settings-tab="settings"]').click()`);
+  if (shots) await plainShot(join(shots, "settings-tab.png"));
+  await evalJson(`document.querySelector("[data-settings]").hidden = true`);
   if (shots) await plainShot(join(shots, "settings-sidebar.png"));
 
   // A refresh that fails leaves the cached rates in use and says so. A cache younger

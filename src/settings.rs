@@ -96,6 +96,10 @@ pub struct Settings {
     pub check_for_updates: bool,
     pub theme: ThemeChoice,
     pub hide_answers: bool,
+    /// `None` is the OS Downloads folder.
+    pub export_dir: Option<PathBuf>,
+    /// Overwrite an existing PDF without asking.
+    pub replace_exports: bool,
 }
 
 impl Default for Settings {
@@ -104,6 +108,8 @@ impl Default for Settings {
             check_for_updates: true,
             theme: ThemeChoice::Auto,
             hide_answers: false,
+            export_dir: None,
+            replace_exports: false,
         }
     }
 }
@@ -116,6 +122,10 @@ struct Raw {
     theme: Option<String>,
     #[serde(default)]
     hide_answers: bool,
+    #[serde(default)]
+    export_dir: Option<String>,
+    #[serde(default)]
+    replace_exports: bool,
 }
 
 fn yes() -> bool {
@@ -135,20 +145,52 @@ impl Settings {
                 .map(ThemeChoice::parse)
                 .unwrap_or_default(),
             hide_answers: raw.hide_answers,
+            export_dir: raw.export_dir.and_then(|s| {
+                let s = s.trim();
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(PathBuf::from(s))
+                }
+            }),
+            replace_exports: raw.replace_exports,
         }
     }
 
     pub fn to_toml(&self) -> String {
-        format!(
+        let mut out = format!(
             "# Omacus settings. theme is auto, light, dark, paper, dusk, omarchy, or custom.\n\
              check_for_updates = {}\n\
              theme = \"{}\"\n\
-             hide_answers = {}\n",
+             hide_answers = {}\n\
+             replace_exports = {}\n",
             self.check_for_updates,
             self.theme.as_str(),
             self.hide_answers,
-        )
+            self.replace_exports,
+        );
+        if let Some(dir) = &self.export_dir {
+            out.push_str(&format!(
+                "export_dir = {}\n",
+                toml_string(&dir.display().to_string())
+            ));
+        }
+        out
     }
+}
+
+fn toml_string(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn memory() -> &'static Mutex<Option<Settings>> {
@@ -209,83 +251,92 @@ pub fn save(settings: &Settings) -> Result<(), String> {
     save_to(&path, settings)
 }
 
-/// What the settings window did this frame.
-pub struct Outcome {
-    pub changed: bool,
-    pub close: bool,
-}
-
-/// The settings window. `true` in [`Outcome::changed`] means a choice moved.
-pub fn show(ctx: &egui::Context, settings: &mut Settings, theme: &Theme) -> Outcome {
+/// The Settings tab. `true` means a choice moved this frame.
+pub fn controls(ui: &mut egui::Ui, settings: &mut Settings, theme: &Theme) -> bool {
     let before = settings.clone();
-    let mut close = false;
-    let screen = ctx.content_rect();
-    let width = (screen.width() - 80.0).clamp(360.0, 480.0);
-    let frame = egui::Frame::NONE
-        .fill(theme.background)
-        .stroke(egui::Stroke::new(1.0, theme.selection))
-        .corner_radius(egui::CornerRadius::same(12))
-        .inner_margin(egui::Margin::symmetric(22, 18));
-    let modal = egui::Modal::new(egui::Id::unique("omacus-settings"))
-        .frame(frame)
-        .backdrop_color(egui::Color32::from_black_alpha(150))
-        .show(ctx, |ui| {
-            ui.set_width(width);
-            ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("Settings")
-                        .size(19.0)
-                        .color(theme.foreground),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let button =
-                        egui::Button::new(egui::RichText::new("✕").color(theme.dim)).frame(false);
-                    if ui.add(button).on_hover_text("Close (Esc)").clicked() {
-                        close = true;
-                    }
-                });
-            });
-            ui.add_space(6.0);
-            ui.label(egui::RichText::new("Theme").size(14.0).color(theme.dim));
-            egui::ComboBox::from_id_salt("omacus-theme")
-                .width(width - 44.0)
-                .selected_text(settings.theme.label())
-                .show_ui(ui, |ui| {
-                    for choice in ThemeChoice::ALL {
-                        ui.selectable_value(&mut settings.theme, choice, choice.label());
-                    }
-                });
-            note(ui, theme, settings.theme.blurb());
-            if let Some(missing) = crate::theme::missing_note(settings.theme) {
-                note(ui, theme, missing);
-            }
-            ui.add_space(8.0);
-            ui.checkbox(&mut settings.hide_answers, "Hide the answers column");
-            note(
-                ui,
-                theme,
-                "Answers sit after each line. Ctrl+\\ toggles this.",
-            );
-            ui.add_space(8.0);
-            ui.checkbox(&mut settings.check_for_updates, "Check for updates");
-            note(
-                ui,
-                theme,
-                "Asks GitHub for the latest version number. Nothing about your pages is sent.",
-            );
-            if let Some(path) = path() {
-                ui.add_space(10.0);
-                note(ui, theme, &format!("Saved in {}", path.display()));
+    ui.label(egui::RichText::new("Theme").size(14.0).color(theme.dim));
+    egui::ComboBox::from_id_salt("omacus-theme")
+        .width(ui.available_width())
+        .selected_text(settings.theme.label())
+        .show_ui(ui, |ui| {
+            for choice in ThemeChoice::ALL {
+                ui.selectable_value(&mut settings.theme, choice, choice.label());
             }
         });
-    if modal.should_close() {
-        close = true;
+    note(ui, theme, settings.theme.blurb());
+    if let Some(missing) = crate::theme::missing_note(settings.theme) {
+        note(ui, theme, missing);
     }
-    Outcome {
-        changed: settings != &before,
-        close,
+    ui.add_space(8.0);
+    ui.checkbox(&mut settings.hide_answers, "Hide the answers column");
+    note(
+        ui,
+        theme,
+        "Answers sit after each line. Ctrl+\\ toggles this. The preview and PDF follow this too.",
+    );
+    ui.add_space(10.0);
+    ui.label(
+        egui::RichText::new("Export PDF")
+            .size(14.0)
+            .color(theme.dim),
+    );
+    let folder = settings
+        .export_dir
+        .clone()
+        .unwrap_or_else(crate::pdf::default_export_dir);
+    let where_saved = match &settings.export_dir {
+        Some(dir) => dir.display().to_string(),
+        None => "Downloads".to_string(),
+    };
+    note(
+        ui,
+        theme,
+        &format!("Each PDF is named after the page and saved in {where_saved}."),
+    );
+    ui.horizontal(|ui| {
+        if ui
+            .button("Choose folder…")
+            .on_hover_text("Where Export PDF writes")
+            .clicked()
+        {
+            let mut dialog = rfd::FileDialog::new().set_title("Export PDF folder");
+            if folder.is_dir() {
+                dialog = dialog.set_directory(&folder);
+            }
+            if let Some(dir) = dialog.pick_folder() {
+                settings.export_dir = Some(dir);
+            }
+        }
+        if settings.export_dir.is_some()
+            && ui
+                .button("Use Downloads")
+                .on_hover_text("The usual Downloads folder")
+                .clicked()
+        {
+            settings.export_dir = None;
+        }
+    });
+    ui.checkbox(
+        &mut settings.replace_exports,
+        "Always replace without asking",
+    );
+    note(
+        ui,
+        theme,
+        "When that PDF is already there, Omacus asks before replacing it.",
+    );
+    ui.add_space(10.0);
+    ui.checkbox(&mut settings.check_for_updates, "Check for updates");
+    note(
+        ui,
+        theme,
+        "Asks GitHub for the latest version number. Nothing about your pages is sent.",
+    );
+    if let Some(path) = path() {
+        ui.add_space(10.0);
+        note(ui, theme, &format!("Saved in {}", path.display()));
     }
+    settings != &before
 }
 
 fn note(ui: &mut egui::Ui, theme: &Theme, text: &str) {
@@ -302,6 +353,8 @@ mod tests {
         assert!(!settings.check_for_updates);
         assert_eq!(settings.theme, ThemeChoice::Auto);
         assert!(!settings.hide_answers);
+        assert!(settings.export_dir.is_none());
+        assert!(!settings.replace_exports);
     }
 
     #[test]
@@ -329,16 +382,21 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("omacus").join("settings.toml");
+        let export = dir.join("Northwind");
         let settings = Settings {
             check_for_updates: false,
             theme: ThemeChoice::Paper,
             hide_answers: true,
+            export_dir: Some(export.clone()),
+            replace_exports: true,
         };
         save_to(&path, &settings).unwrap();
         assert_eq!(load_from(&path), settings);
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("theme = \"paper\""));
         assert!(text.contains("hide_answers = true"));
+        assert!(text.contains("replace_exports = true"));
+        assert!(text.contains("export_dir = "));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
