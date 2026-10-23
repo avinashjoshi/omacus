@@ -142,10 +142,25 @@ fn token_colors(
         }
     }
     let s = code;
+    let refs = omacus_engine::xref::page_refs(s);
     let mut chars = s[rest_from..].char_indices();
     while let Some((rel, c)) = chars.next() {
         let start = rest_from + rel;
         let mut end = start + c.len_utf8();
+        // `@handle` is its own colour; the name after the dot is a variable.
+        // A bare `@name` with no dot is left to the ordinary word colours.
+        if let Some(r) = refs.iter().find(|r| r.byte_start == start) {
+            out.push((r.handle_bytes.0, r.handle_bytes.1, theme.accent));
+            out.push((r.name_bytes.0, r.name_bytes.1, theme.variable));
+            while chars
+                .clone()
+                .next()
+                .is_some_and(|(rel2, _)| rest_from + rel2 < r.byte_end)
+            {
+                chars.next();
+            }
+            continue;
+        }
         let color = if c == '"' {
             for (rel2, ch) in chars.by_ref() {
                 end = rest_from + rel2 + ch.len_utf8();

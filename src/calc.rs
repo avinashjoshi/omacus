@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
+use omacus_engine::xref::{self, Page};
 use omacus_engine::{Engine, LineResult, Sheet};
 
 /// Sheets whose calculations are kept; beyond this the worker starts afresh.
@@ -20,7 +21,9 @@ const SLICE: Duration = Duration::from_millis(100);
 struct Job {
     id: u64,
     sheet: String,
+    handle: String,
     text: String,
+    pages: Vec<Page>,
 }
 
 /// Answers for a sheet's text: all of them, or (`complete` false) the first lines'.
@@ -53,6 +56,8 @@ impl Calculator {
             .stack_size(8 * 1024 * 1024)
             .spawn(move || {
                 let mut sheets: HashMap<String, Sheet> = HashMap::new();
+                let mut book_fp = 0u64;
+                let mut book = None;
                 while let Ok(mut job) = inbox.recv() {
                     // Only the newest text matters.
                     while let Ok(next) = inbox.try_recv() {
@@ -61,7 +66,13 @@ impl Calculator {
                     if sheets.len() > KEEP && !sheets.contains_key(&job.sheet) {
                         sheets.clear();
                     }
+                    let fp = xref::fingerprint(&job.pages);
+                    if book.as_ref().is_none_or(|_| book_fp != fp) {
+                        book = Some(xref::resolve(&engine, &job.pages));
+                        book_fp = fp;
+                    }
                     let sheet = sheets.entry(job.sheet.clone()).or_default();
+                    let guard = xref::install_for(book.as_ref().unwrap(), &job.handle);
                     loop {
                         let newer = || newest.load(Ordering::Relaxed) != job.id;
                         let until = Instant::now() + SLICE;
@@ -85,6 +96,7 @@ impl Calculator {
                             break;
                         }
                     }
+                    drop(guard);
                 }
             })
             .expect("start the calculation thread");
@@ -92,12 +104,22 @@ impl Calculator {
     }
 
     /// Calculate `text` for `sheet`, replacing anything still waiting.
+    /// Tests call this; the window uses `request_with` so other pages are visible.
+    #[cfg(test)]
     pub fn request(&self, sheet: &str, text: &str) {
+        self.request_with(sheet, "", text, &[]);
+    }
+
+    /// `request`, with the other pages `@handle.name` can read. `handle` is
+    /// the page being calculated.
+    pub fn request_with(&self, sheet: &str, handle: &str, text: &str, pages: &[Page]) {
         let id = self.latest.fetch_add(1, Ordering::Relaxed) + 1;
         let _ = self.jobs.send(Job {
             id,
             sheet: sheet.to_string(),
+            handle: handle.to_string(),
             text: text.to_string(),
+            pages: pages.to_vec(),
         });
     }
 

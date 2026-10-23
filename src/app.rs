@@ -107,10 +107,32 @@ struct RenameSession {
 #[derive(Clone)]
 struct RefPrompt {
     spans: Vec<(usize, usize)>,
+    old_name: String,
     new_name: String,
     label: String,
     /// False when the message is a collision, which has no button.
     apply: bool,
+    collision: bool,
+}
+
+/// One undo restores every page a rename rewrote.
+#[derive(Clone)]
+struct CrossUndo {
+    id: String,
+    before_text: String,
+    before_handle: String,
+    after_text: String,
+    /// id, text, handle before the rename.
+    others: Vec<(String, String, String)>,
+    armed: bool,
+}
+
+/// The Handle… field for the page's short name.
+struct HandleEdit {
+    index: usize,
+    buffer: String,
+    error: Option<String>,
+    focus: bool,
 }
 
 fn ref_prompt_from(edit: engine::rename::DefinitionEdit) -> RefPrompt {
@@ -122,9 +144,11 @@ fn ref_prompt_from(edit: engine::rename::DefinitionEdit) -> RefPrompt {
             .iter()
             .map(|span| (span.start, span.end))
             .collect(),
+        old_name: edit.old_name,
         new_name: edit.new_name,
         label,
         apply,
+        collision: edit.collision,
     }
 }
 
@@ -149,6 +173,8 @@ enum SheetAction {
     Settings,
     /// Rendered markdown, with each answer in brackets. Ctrl+P.
     Preview,
+    /// Edit the page's `@handle` name.
+    Handle(usize),
     /// A folder at the root, or inside `Some` folder when that isn't already nested.
     NewFolderAt(Option<String>),
     /// A page at the top of a folder. `None` is the root.
@@ -411,6 +437,14 @@ pub struct OmacusApp {
     rename_menu_at: Option<usize>,
     /// "Update N references?" after a definition's name was edited.
     ref_prompt: Option<RefPrompt>,
+    /// Pages rewritten together, restored by one undo.
+    cross_undo: Option<CrossUndo>,
+    /// Handle… dialog.
+    handle_edit: Option<HandleEdit>,
+    /// Enter was pressed in the handle field this frame.
+    handle_commit: bool,
+    /// Open this page after the editor has finished drawing.
+    pending_open: Option<String>,
     /// The page before the definition rename started, so typing the new name
     /// one letter at a time still finds the original references.
     ref_base: Option<String>,
@@ -509,6 +543,10 @@ impl OmacusApp {
             rename_at: None,
             rename_menu_at: None,
             ref_prompt: None,
+            cross_undo: None,
+            handle_edit: None,
+            handle_commit: false,
+            pending_open: None,
             ref_base: None,
             ref_dismissed: false,
             editor_id: None,
@@ -590,10 +628,62 @@ rental = rent + 50
         app
     }
 
+    /// Every page a `@handle.name` can read, including Recently deleted.
+    /// `for_rename` marks a page another window has written since we read it.
+    fn page_catalog(&self, for_rename: bool) -> Vec<engine::xref::Page> {
+        let active = self.store.sheets[self.store.active].id.clone();
+        let mut seen = HashSet::new();
+        let mut pages = Vec::new();
+        for sheet in &self.store.sheets {
+            seen.insert(sheet.id.clone());
+            pages.push(engine::xref::Page {
+                id: sheet.id.clone(),
+                handle: sheet.handle.clone(),
+                title: sheet.heading(),
+                text: sheet.text.clone(),
+                locked: sheet.locked,
+                deleted: false,
+                elsewhere: for_rename && sheet.id != active && self.store.opened_elsewhere(sheet),
+            });
+        }
+        for sheet in self.store.pending_sheets() {
+            if !seen.insert(sheet.id.clone()) {
+                continue;
+            }
+            pages.push(engine::xref::Page {
+                id: sheet.id.clone(),
+                handle: sheet.handle.clone(),
+                title: sheet.heading(),
+                text: sheet.text.clone(),
+                locked: false,
+                deleted: true,
+                elsewhere: false,
+            });
+        }
+        for item in &self.trash {
+            if !seen.insert(item.id.clone()) {
+                continue;
+            }
+            pages.push(engine::xref::Page {
+                id: item.id.clone(),
+                handle: item.handle.clone(),
+                title: heading_of(&item.text),
+                text: item.text.clone(),
+                locked: false,
+                deleted: true,
+                elsewhere: false,
+            });
+        }
+        pages
+    }
+
     /// Ask for fresh answers; they arrive in `take_answers`.
     fn evaluate(&mut self) {
+        self.refresh_trash(false);
+        let pages = self.page_catalog(false);
         let sheet = self.store.current();
-        self.calc.request(&sheet.id, &sheet.text);
+        self.calc
+            .request_with(&sheet.id, &sheet.handle, &sheet.text, &pages);
         if self.results_text != sheet.text {
             self.results = engine::realign(&self.results_text, &self.results, &sheet.text);
             self.results_text = sheet.text.clone();
@@ -612,15 +702,17 @@ rental = rent + 50
         format: fn(&str, &[LineResult]) -> String,
         done: &'static str,
     ) {
-        let sheet = &self.store.sheets[i];
-        let text = sheet.text.clone();
+        let id = self.store.sheets[i].id.clone();
+        let handle = self.store.sheets[i].handle.clone();
+        let text = self.store.sheets[i].text.clone();
         if i == self.store.active && self.results_exact && self.results_text == text {
             self.copy = None;
             self.ctx.copy_text(format(&text, &self.results));
             self.toast = Some(Toast::info(done));
             return;
         }
-        self.copier.request(&sheet.id, &text);
+        let pages = self.page_catalog(false);
+        self.copier.request_with(&id, &handle, &text, &pages);
         self.copy = Some(PendingCopy {
             text,
             format,
@@ -759,6 +851,18 @@ rental = rent + 50
             }
             SheetAction::CopyMarkdown(i) => {
                 self.copy_with(i, engine::markdown_table, "Page copied as a Markdown table");
+                return;
+            }
+            SheetAction::Handle(i) => {
+                if i < self.store.sheets.len() {
+                    self.handle_edit = Some(HandleEdit {
+                        index: i,
+                        buffer: self.store.sheets[i].handle.clone(),
+                        error: None,
+                        focus: true,
+                    });
+                    self.popup = None;
+                }
                 return;
             }
             SheetAction::Settings => {
@@ -961,6 +1065,17 @@ rental = rent + 50
         if self.purge_id.is_some() {
             if dismiss {
                 self.purge_id = None;
+            }
+            return;
+        }
+        if self.handle_edit.is_some() {
+            let confirm = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
+            if dismiss {
+                self.handle_edit = None;
+                self.handle_commit = false;
+                self.focus_editor = true;
+            } else if confirm {
+                self.handle_commit = true;
             }
             return;
         }
@@ -1262,17 +1377,33 @@ rental = rent + 50
         let Some(popup) = self.popup.take() else {
             return;
         };
-        let Some(word) = popup.items.get(pick).map(|item| item.text.clone()) else {
+        let Some(item) = popup.items.get(pick).cloned() else {
             return;
         };
         let sheet = self.store.current();
         let chars: Vec<char> = sheet.text.chars().collect();
         let mut text: String = chars[..popup.start].iter().collect();
-        text.push_str(&word);
+        text.push_str(&item.text);
         text.extend(&chars[popup.end.min(chars.len())..]);
         sheet.text = text;
         sheet.mark_dirty();
-        self.pending_cursor = Some(popup.start + word.chars().count());
+        let cursor = popup.start + item.text.chars().count();
+        self.pending_cursor = Some(cursor);
+        if item.kind == "page" {
+            let pages = self.page_catalog(false);
+            let text = self.store.current().text.clone();
+            if let Some(next) = engine::xref::at_picks(&self.engine, &text, cursor, &pages) {
+                self.popup = Some(Popup {
+                    start: next.start,
+                    end: cursor,
+                    items: next.items,
+                    selected: 0,
+                    anchor: Pos2::ZERO,
+                    anchored: false,
+                    explicit: true,
+                });
+            }
+        }
         self.evaluate();
         self.touched();
     }
@@ -1695,7 +1826,9 @@ rental = rent + 50
         }
         if undone {
             self.toast = None;
-            if self.store.undo_delete().is_some() {
+            if self.cross_undo.is_some() {
+                self.restore_cross_undo();
+            } else if self.store.undo_delete().is_some() {
                 self.sheet_switched();
                 self.touched();
             }
@@ -2461,6 +2594,7 @@ rental = rent + 50
             self.touched();
             let after_edit = self.store.current().text.clone();
             self.note_definition_edit(&before_edit, &after_edit);
+            self.note_cross_undo();
         }
 
         let cursor = output
@@ -2480,20 +2614,36 @@ rental = rent + 50
         match cursor {
             Some(c) if changed && response.has_focus() => {
                 let explicit = self.popup.as_ref().is_some_and(|p| p.explicit);
-                let text = &self.store.sheets[self.store.active].text;
-                self.popup = complete::word_before(text, c).and_then(|(start, word)| {
-                    let items = complete::suggest(&word, &self.vars);
-                    let at = output.galley.pos_from_cursor(CCursor::new(c));
-                    (!items.is_empty()).then(|| Popup {
-                        start,
+                let text = self.store.sheets[self.store.active].text.clone();
+                let at = output.galley.pos_from_cursor(CCursor::new(c));
+                let anchor = output.galley_pos + at.left_bottom().to_vec2() + vec2(0.0, 2.0);
+                let pages = self.page_catalog(false);
+                if let Some(pick) = engine::xref::at_picks(&self.engine, &text, c, &pages) {
+                    // Enter accepts: choosing a page inserts `@handle.` and the
+                    // variable list opens on the next key only if we keep it up.
+                    self.popup = Some(Popup {
+                        start: pick.start,
                         end: c,
-                        items,
+                        items: pick.items,
                         selected: 0,
-                        anchor: output.galley_pos + at.left_bottom().to_vec2() + vec2(0.0, 2.0),
+                        anchor,
                         anchored: true,
-                        explicit,
-                    })
-                });
+                        explicit: true,
+                    });
+                } else {
+                    self.popup = complete::word_before(&text, c).and_then(|(start, word)| {
+                        let items = complete::suggest(&word, &self.vars);
+                        (!items.is_empty()).then_some(Popup {
+                            start,
+                            end: c,
+                            items,
+                            selected: 0,
+                            anchor,
+                            anchored: true,
+                            explicit,
+                        })
+                    });
+                }
             }
             Some(c) if self.popup.as_ref().is_some_and(|p| p.end == c) => {}
             _ => self.popup = None,
@@ -2505,6 +2655,15 @@ rental = rent + 50
             let at = output.galley.pos_from_cursor(CCursor::new(c));
             popup.anchor = output.galley_pos + at.left_bottom().to_vec2() + vec2(0.0, 2.0);
             popup.anchored = true;
+        }
+        if response.clicked()
+            && let Some(pos) = ui.input(|i| i.pointer.interact_pos())
+        {
+            let cc = output.galley.cursor_from_pos(pos - output.galley_pos);
+            let text = self.store.current().text.clone();
+            if let Some(r) = engine::xref::ref_at(&text, cc.index.0) {
+                self.pending_open = Some(r.handle);
+            }
         }
         if response.hovered() {
             self.show_hover(ui, &output.galley, output.galley_pos);
@@ -2566,6 +2725,9 @@ rental = rent + 50
                 self.paint_result(ui, line, anchor, y, h, &font);
             }
             line += 1;
+        }
+        if let Some(handle) = self.pending_open.take() {
+            self.open_handle(&handle);
         }
     }
 
@@ -2792,7 +2954,23 @@ rental = rent + 50
             self.hover_rename = None;
             return;
         }
-        paint_hover_tip(ui.ctx(), &self.theme, rect, &hit.value);
+        let mut extras = Vec::new();
+        if let Some(title) = &hit.source_title {
+            extras.push(title.clone());
+        }
+        match hit.used_by {
+            0 => {}
+            1 => extras.push("Used by 1 other page".to_string()),
+            n => extras.push(format!("Used by {n} other pages")),
+        }
+        let tip = paint_hover_tip(ui.ctx(), &self.theme, rect, &hit.value, &extras);
+        if let Some(handle) = hit.source_handle.clone()
+            && ui.input(|i| i.pointer.any_click())
+            && tip.contains(pointer)
+        {
+            self.pending_open = Some(handle);
+            return;
+        }
         if engine::rename::binding_at(&text, cc.index.0).is_some() {
             // Touching the token, so the pointer can move onto Rename without a gap.
             let anchor = pos2(rect.left(), rect.bottom() - 1.0);
@@ -2917,6 +3095,14 @@ rental = rent + 50
         let mut buffer = session.buffer.clone();
         let error = session.error.clone();
         let focus = session.focus;
+        let blurb = error.is_none().then(|| {
+            engine::xref::rename_preview(
+                &self.page_catalog(true),
+                self.store.active,
+                session.cursor,
+                &session.buffer,
+            )
+        });
         let mut written = None;
         egui::Area::new(egui::Id::unique("omacus-rename"))
             .order(Order::Foreground)
@@ -2945,6 +3131,8 @@ rental = rent + 50
                                     .size(12.5)
                                     .color(Color32::from_rgb(214, 90, 74)),
                             );
+                        } else if let Some(Some(blurb)) = &blurb {
+                            ui.label(egui::RichText::new(blurb).size(12.0).color(theme.dim));
                         }
                     });
                 written = Some(buffer);
@@ -3037,11 +3225,15 @@ rental = rent + 50
                 self.ref_dismissed = false;
             }
             self.ref_base = Some(base);
-            self.ref_prompt = (!self.ref_dismissed).then(|| ref_prompt_from(edit));
+            let mut prompt = ref_prompt_from(edit);
+            self.note_foreign_uses(&mut prompt);
+            self.ref_prompt = (!self.ref_dismissed).then_some(prompt);
         } else if let Some(edit) = engine::rename::definition_change(before, after) {
             self.ref_dismissed = false;
             self.ref_base = Some(before.to_string());
-            self.ref_prompt = Some(ref_prompt_from(edit));
+            let mut prompt = ref_prompt_from(edit);
+            self.note_foreign_uses(&mut prompt);
+            self.ref_prompt = Some(prompt);
         } else {
             self.ref_base = None;
             self.ref_dismissed = false;
@@ -3053,17 +3245,13 @@ rental = rent + 50
         let Some(session) = self.rename.clone() else {
             return;
         };
-        let text = self.store.current().text.clone();
-        match engine::rename::rename_variable(&text, session.cursor, &session.buffer) {
-            Ok(renamed) => {
-                if renamed.text != text {
-                    self.push_editor_undo(ctx, &text);
-                    let sheet = self.store.current();
-                    sheet.text = renamed.text;
-                    sheet.mark_dirty();
-                    self.pending_cursor = Some(renamed.cursor);
-                    self.evaluate();
-                    self.touched();
+        let pages = self.page_catalog(true);
+        let source = self.store.active;
+        match engine::xref::propagate_rename(&pages, source, session.cursor, &session.buffer) {
+            Ok(done) => {
+                self.apply_propagation(ctx, &done);
+                if let Some(cursor) = done.cursor {
+                    self.pending_cursor = Some(cursor);
                 }
                 self.rename = None;
                 self.ref_prompt = None;
@@ -3103,15 +3291,424 @@ rental = rent + 50
             })
             .collect();
         let text = engine::rename::rewrite(&old, &spans, &prompt.new_name);
+        let handle = self.store.current().handle.clone();
+        let (text, _) =
+            engine::xref::rewrite_var_refs(&text, &handle, &prompt.old_name, &prompt.new_name);
+        let mut edits = Vec::new();
         if text != old {
-            self.push_editor_undo(ctx, &old);
-            let sheet = self.store.current();
-            sheet.text = text;
-            sheet.mark_dirty();
-            self.evaluate();
-            self.touched();
+            edits.push(engine::xref::PageEdit {
+                id: self.store.current().id.clone(),
+                index: self.store.active,
+                text,
+                handle: handle.clone(),
+            });
         }
+        let pages = self.page_catalog(true);
+        for (index, page) in pages.iter().enumerate() {
+            if page.handle.eq_ignore_ascii_case(&handle) {
+                continue;
+            }
+            let (text, n) = engine::xref::rewrite_var_refs(
+                &page.text,
+                &handle,
+                &prompt.old_name,
+                &prompt.new_name,
+            );
+            if n == 0 || page.locked || page.elsewhere {
+                continue;
+            }
+            edits.push(engine::xref::PageEdit {
+                id: page.id.clone(),
+                index,
+                text,
+                handle: page.handle.clone(),
+            });
+        }
+        self.apply_propagation(
+            ctx,
+            &engine::xref::Propagation {
+                edits,
+                here: prompt.spans.len(),
+                elsewhere: 0,
+                skipped_locked: 0,
+                skipped_elsewhere: 0,
+                blurb: prompt.label,
+                cursor: None,
+            },
+        );
         self.focus_editor = true;
+    }
+
+    /// Count `@handle.old` on other pages and fold that into the prompt.
+    fn note_foreign_uses(&mut self, prompt: &mut RefPrompt) {
+        if prompt.collision {
+            return;
+        }
+        let handle = self.store.current().handle.clone();
+        let pages = self.page_catalog(true);
+        let mut elsewhere = 0;
+        let mut skipped_locked = 0;
+        let mut skipped_elsewhere = 0;
+        for page in &pages {
+            if page.handle.eq_ignore_ascii_case(&handle) {
+                continue;
+            }
+            let (_, n) = engine::xref::rewrite_var_refs(
+                &page.text,
+                &handle,
+                &prompt.old_name,
+                &prompt.new_name,
+            );
+            if n == 0 {
+                continue;
+            }
+            if page.locked {
+                skipped_locked += 1;
+            } else if page.elsewhere {
+                skipped_elsewhere += 1;
+            } else {
+                elsewhere += n;
+            }
+        }
+        if elsewhere == 0 && skipped_locked == 0 && skipped_elsewhere == 0 {
+            return;
+        }
+        prompt.label = engine::xref::rename_blurb(
+            &prompt.old_name,
+            &prompt.new_name,
+            prompt.spans.len(),
+            elsewhere,
+            skipped_locked,
+            skipped_elsewhere,
+        );
+        if elsewhere > 0 {
+            prompt.apply = true;
+        }
+    }
+
+    /// Switch to the page named `handle`, or open it from Recently deleted.
+    fn open_handle(&mut self, handle: &str) {
+        if let Some(i) = self
+            .store
+            .sheets
+            .iter()
+            .position(|s| s.handle.eq_ignore_ascii_case(handle))
+        {
+            self.preview = None;
+            if i != self.store.active {
+                self.store.select(i);
+                self.sheet_switched();
+            }
+            return;
+        }
+        self.refresh_trash(false);
+        if let Some(item) = self
+            .trash
+            .iter()
+            .find(|t| t.handle.eq_ignore_ascii_case(handle))
+        {
+            self.open_preview(item.id.clone());
+        }
+    }
+
+    /// After the editor undoes back to the text from before a cross-page rename,
+    /// put the other pages back too. That is one undo step.
+    fn note_cross_undo(&mut self) {
+        let Some(undo) = &self.cross_undo else {
+            return;
+        };
+        if self.store.current().id != undo.id || !undo.armed {
+            return;
+        }
+        if self.store.current().text != undo.before_text {
+            return;
+        }
+        let undo = self.cross_undo.take().expect("just checked");
+        let id = undo.id.clone();
+        let before_handle = undo.before_handle.clone();
+        self.restore_cross_pages(&undo);
+        if self.store.current().id == id && self.store.current().handle != before_handle {
+            self.store.remember_handle(&id, &before_handle);
+        }
+        self.toast = None;
+        self.trash_at = None;
+        self.evaluate();
+        self.touched();
+    }
+
+    fn restore_cross_pages(&mut self, undo: &CrossUndo) {
+        for (id, text, handle) in &undo.others {
+            if let Some(sheet) = self.store.sheets.iter_mut().find(|s| &s.id == id)
+                && &sheet.text != text
+            {
+                sheet.text = text.clone();
+                sheet.mark_dirty();
+            }
+            let now = self
+                .store
+                .sheets
+                .iter()
+                .find(|s| &s.id == id)
+                .map(|s| s.handle.clone());
+            if now.as_deref() != Some(handle.as_str()) {
+                self.store.remember_handle(id, handle);
+            }
+            self.store.rewrite_saved(id, text, handle);
+        }
+    }
+
+    /// Write a rename or handle change onto every page it touched.
+    fn apply_propagation(&mut self, ctx: &egui::Context, done: &engine::xref::Propagation) {
+        if done.edits.is_empty() {
+            return;
+        }
+        let active = self.store.active;
+        let active_id = self.store.sheets[active].id.clone();
+        let before_text = self.store.sheets[active].text.clone();
+        let before_handle = self.store.sheets[active].handle.clone();
+        let mut others = Vec::new();
+        for edit in &done.edits {
+            if edit.id == active_id {
+                continue;
+            }
+            if let Some(sheet) = self.store.sheets.iter().find(|s| s.id == edit.id) {
+                others.push((sheet.id.clone(), sheet.text.clone(), sheet.handle.clone()));
+            } else if let Some(sheet) = self
+                .store
+                .pending_sheets()
+                .iter()
+                .find(|sheet| sheet.id == edit.id)
+            {
+                others.push((sheet.id.clone(), sheet.text.clone(), sheet.handle.clone()));
+            } else if let Some(item) = self.trash.iter().find(|t| t.id == edit.id) {
+                others.push((item.id.clone(), item.text.clone(), item.handle.clone()));
+            }
+        }
+        let mut after_text = before_text.clone();
+        let mut current_text_changed = false;
+        for edit in &done.edits {
+            if edit.id == active_id {
+                if self.store.sheets[active].text != edit.text {
+                    self.store.sheets[active].text = edit.text.clone();
+                    self.store.sheets[active].mark_dirty();
+                    after_text = edit.text.clone();
+                    current_text_changed = true;
+                }
+                if self.store.sheets[active].handle != edit.handle {
+                    self.store.remember_handle(&edit.id, &edit.handle);
+                }
+            } else if self.store.sheets.iter().any(|s| s.id == edit.id) {
+                if let Some(sheet) = self.store.sheets.iter_mut().find(|s| s.id == edit.id)
+                    && sheet.text != edit.text
+                {
+                    sheet.text = edit.text.clone();
+                    sheet.mark_dirty();
+                }
+                let now = self
+                    .store
+                    .sheets
+                    .iter()
+                    .find(|s| s.id == edit.id)
+                    .map(|s| s.handle.clone());
+                if now.as_deref() != Some(edit.handle.as_str()) {
+                    self.store.remember_handle(&edit.id, &edit.handle);
+                }
+            } else {
+                self.store.rewrite_saved(&edit.id, &edit.text, &edit.handle);
+            }
+        }
+        self.cross_undo = Some(CrossUndo {
+            id: active_id,
+            before_text: before_text.clone(),
+            before_handle,
+            after_text,
+            others,
+            armed: true,
+        });
+        if current_text_changed {
+            self.push_editor_undo(ctx, &before_text);
+        } else {
+            self.toast = Some(Toast::undo(done.blurb.clone()));
+        }
+        self.trash_at = None;
+        self.evaluate();
+        self.touched();
+    }
+
+    /// Toast Undo, when the page on screen did not change and the editor has
+    /// nothing to undo.
+    fn restore_cross_undo(&mut self) {
+        let Some(undo) = self.cross_undo.take() else {
+            return;
+        };
+        let id = undo.id.clone();
+        let before_text = undo.before_text.clone();
+        let after_text = undo.after_text.clone();
+        let before_handle = undo.before_handle.clone();
+        if let Some(sheet) = self.store.sheets.iter_mut().find(|s| s.id == id)
+            && before_text != after_text
+            && sheet.text == after_text
+        {
+            sheet.text = before_text;
+            sheet.mark_dirty();
+        }
+        let now = self
+            .store
+            .sheets
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| s.handle.clone());
+        if now.as_deref() != Some(before_handle.as_str()) {
+            self.store.remember_handle(&id, &before_handle);
+        }
+        self.restore_cross_pages(&undo);
+        self.trash_at = None;
+        self.evaluate();
+        self.touched();
+    }
+
+    fn show_handle(&mut self, ctx: &egui::Context) {
+        let Some(edit) = &self.handle_edit else {
+            return;
+        };
+        let index = edit.index;
+        if index >= self.store.sheets.len() {
+            self.handle_edit = None;
+            return;
+        }
+        let theme = self.theme.clone();
+        let mut buffer = edit.buffer.clone();
+        let error = edit.error.clone();
+        let focus = edit.focus;
+        let current = self.store.sheets[index].handle.clone();
+        let title = self.store.sheets[index].title();
+        let pages = self.page_catalog(true);
+        let blurb = if buffer.trim().eq_ignore_ascii_case(&current) {
+            None
+        } else {
+            match engine::xref::propagate_handle(&pages, index, &buffer) {
+                Ok(done) => Some(done.blurb),
+                Err(err) => Some(err.message()),
+            }
+        };
+        let mut save = false;
+        let mut cancel = false;
+        let frame = Frame::NONE
+            .fill(theme.sidebar)
+            .stroke(egui::Stroke::new(1.0, theme.selection))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(Margin::symmetric(20, 16));
+        let modal = egui::Modal::new(egui::Id::unique("omacus-handle"))
+            .frame(frame)
+            .backdrop_color(Color32::from_black_alpha(140))
+            .show(ctx, |ui| {
+                ui.set_width(380.0);
+                ui.label(
+                    egui::RichText::new(format!("Handle for \u{201c}{title}\u{201d}"))
+                        .size(16.0)
+                        .color(theme.foreground),
+                );
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(
+                        "Other pages read this page as @handle.name. Renaming the page leaves the handle as it is.",
+                    )
+                    .size(13.0)
+                    .color(theme.dim),
+                );
+                ui.add_space(10.0);
+                let out = TextEdit::singleline(&mut buffer)
+                    .id(egui::Id::unique("omacus-handle-field"))
+                    .font(FontId::monospace(FONT_SIZE))
+                    .desired_width(ui.available_width())
+                    .hint_text("handle")
+                    .show(ui);
+                if focus {
+                    out.response.request_focus();
+                }
+                if let Some(note) = error.as_ref().or(blurb.as_ref()) {
+                    ui.add_space(6.0);
+                    let bad = error.is_some()
+                        || note.contains("already used")
+                        || note.contains("letters and digits");
+                    ui.label(
+                        egui::RichText::new(note)
+                            .size(12.5)
+                            .color(if bad {
+                                Color32::from_rgb(214, 90, 74)
+                            } else {
+                                theme.dim
+                            }),
+                    );
+                }
+                ui.add_space(14.0);
+                ui.horizontal(|ui| {
+                    save = ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("Save")
+                                    .size(13.5)
+                                    .color(theme.background),
+                            )
+                            .fill(theme.accent)
+                            .corner_radius(CornerRadius::same(6))
+                            .min_size(vec2(0.0, 30.0)),
+                        )
+                        .clicked();
+                    cancel = ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("Cancel")
+                                    .size(13.5)
+                                    .color(theme.foreground),
+                            )
+                            .corner_radius(CornerRadius::same(6))
+                            .min_size(vec2(0.0, 30.0)),
+                        )
+                        .clicked();
+                });
+            });
+        if let Some(edit) = &mut self.handle_edit {
+            edit.buffer = buffer;
+            edit.focus = false;
+        }
+        if modal.should_close() {
+            cancel = true;
+        }
+        let commit = std::mem::take(&mut self.handle_commit) || save;
+        if cancel {
+            self.handle_edit = None;
+            self.handle_commit = false;
+            self.focus_editor = true;
+        } else if commit {
+            self.commit_handle(ctx);
+        }
+    }
+
+    fn commit_handle(&mut self, ctx: &egui::Context) {
+        let Some(edit) = self.handle_edit.as_ref() else {
+            return;
+        };
+        let index = edit.index;
+        let buffer = edit.buffer.clone();
+        if index >= self.store.sheets.len() {
+            self.handle_edit = None;
+            return;
+        }
+        let pages = self.page_catalog(true);
+        match engine::xref::propagate_handle(&pages, index, &buffer) {
+            Ok(done) => {
+                self.apply_propagation(ctx, &done);
+                self.handle_edit = None;
+                self.focus_editor = true;
+            }
+            Err(err) => {
+                if let Some(edit) = &mut self.handle_edit {
+                    edit.error = Some(err.message());
+                    edit.focus = true;
+                }
+            }
+        }
     }
 
     /// One undo step: the page as it was before this rename.
@@ -3144,7 +3741,9 @@ rental = rent + 50
                 return None;
             }
         }
-        let hit = self.engine.hover_at(text, cursor);
+        let pages = self.page_catalog(false);
+        let handle = self.store.current().handle.clone();
+        let hit = self.engine.hover_with(text, cursor, &handle, &pages);
         self.hover = Some(HoverCache {
             text: text.to_string(),
             cursor,
@@ -3828,6 +4427,7 @@ impl eframe::App for OmacusApp {
         self.show_delete(&ctx);
         self.show_move(&ctx);
         self.show_rename(&ctx);
+        self.show_handle(&ctx);
         self.show_replace(&ctx);
         self.show_purge(&ctx);
         self.show_switcher(&ctx);
@@ -3877,6 +4477,9 @@ fn sheet_menu(
     }
     if item(ui, "Preview", Some("Ctrl+P")) {
         *action = Some(SheetAction::Preview);
+    }
+    if item(ui, "Handle\u{2026}", None) {
+        *action = Some(SheetAction::Handle(i));
     }
     ui.separator();
     if item(ui, "New page", Some("Ctrl+N")) {
@@ -4036,12 +4639,28 @@ fn hover_tip_rect(token: Rect, text_size: Vec2, bounds: Rect) -> Rect {
     Rect::from_min_size(pos2(x, y), size)
 }
 
-fn paint_hover_tip(ctx: &egui::Context, theme: &Theme, token: Rect, value: &str) {
-    let galley = ctx.fonts_mut(|fonts| {
-        fonts.layout_no_wrap(value.to_string(), FontId::monospace(14.0), theme.accent)
-    });
+fn paint_hover_tip(
+    ctx: &egui::Context,
+    theme: &Theme,
+    token: Rect,
+    value: &str,
+    extras: &[String],
+) -> Rect {
+    let font = FontId::monospace(14.0);
+    let galley =
+        ctx.fonts_mut(|fonts| fonts.layout_no_wrap(value.to_string(), font.clone(), theme.accent));
+    let extra: Vec<_> = extras
+        .iter()
+        .map(|line| {
+            ctx.fonts_mut(|fonts| {
+                fonts.layout_no_wrap(line.clone(), FontId::proportional(12.5), theme.dim)
+            })
+        })
+        .collect();
+    let width = extra.iter().fold(galley.size().x, |w, g| w.max(g.size().x));
+    let height = galley.size().y + extra.iter().map(|g| g.size().y + 2.0).sum::<f32>();
     let bounds = ctx.content_rect().shrink(8.0);
-    let tip = hover_tip_rect(token, galley.size(), bounds);
+    let tip = hover_tip_rect(token, vec2(width, height), bounds);
     let painter = ctx.layer_painter(egui::LayerId::new(
         Order::Tooltip,
         egui::Id::unique("omacus-hover"),
@@ -4058,7 +4677,15 @@ fn paint_hover_tip(ctx: &egui::Context, theme: &Theme, token: Rect, value: &str)
         egui::Stroke::new(1.0, theme.selection),
         egui::StrokeKind::Inside,
     );
-    painter.galley(tip.min + vec2(12.0, 8.0), galley, theme.accent);
+    painter.galley(tip.min + vec2(12.0, 8.0), galley.clone(), theme.accent);
+    let mut y = tip.min.y + 8.0 + galley.size().y;
+    for galley in extra {
+        y += 2.0;
+        let h = galley.size().y;
+        painter.galley(pos2(tip.min.x + 12.0, y), galley, theme.dim);
+        y += h;
+    }
+    tip
 }
 
 /// The switcher opens Settings when the query is the start of that word.
