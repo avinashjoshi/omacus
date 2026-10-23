@@ -309,7 +309,7 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "Share a page",
-        "Share (top right, or `Ctrl+Shift+L`) copies a link that opens the page, live, in any browser at omacus.com/app. The page is inside the link; nothing is uploaded. Paste a share link into a page to open it here.",
+        "Share (top right, or `Ctrl+Shift+L`) copies a link that opens the page, live, in any browser at app.omacus.com. The page is inside the link; nothing is uploaded. Paste a share link into a page to open it here.",
     ),
     (
         "Time zones",

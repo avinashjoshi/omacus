@@ -2,3 +2,7 @@
 /site/app/pkg
 __pycache__/
 installer/dmg-background.tiff
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/

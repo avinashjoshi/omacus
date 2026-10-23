@@ -1,15 +1,16 @@
 //! Share links: a sheet carried in the part of a URL after `#`, which browsers never
 //! send to a server. `v1.` then the text, deflated (raw, no header) and
-//! base64url-encoded without padding. omacus.com/app reads and writes the same thing
-//! with the browser's CompressionStream("deflate-raw").
+//! base64url-encoded without padding. app.omacus.com reads and writes the same thing
+//! with the browser's CompressionStream("deflate-raw"). Older links that still say
+//! omacus.com/app open too.
 
 /// Where share links open.
-pub const APP_URL: &str = "https://omacus.com/app";
+pub const APP_URL: &str = "https://app.omacus.com";
 const VERSION: &str = "v1.";
 /// A link may expand to at most this much text, so it can't unpack into gigabytes.
 pub const MAX_BYTES: usize = 1 << 20;
 
-/// The full link for a sheet: `https://omacus.com/app#v1.…`.
+/// The full link for a sheet: `https://app.omacus.com#v1.…`.
 pub fn link(text: &str) -> String {
     format!("{APP_URL}#{}", encode(text))
 }
@@ -26,8 +27,7 @@ pub fn decode(link: &str) -> Option<String> {
     let link = link.trim();
     let data = match link.rsplit_once('#') {
         Some((before, after)) => {
-            let ok = before.trim_end_matches('/').ends_with("omacus.com/app")
-                || before.starts_with("omacus://");
+            let ok = is_share_page(before) || before.starts_with("omacus://");
             if !ok {
                 return None;
             }
@@ -39,6 +39,13 @@ pub fn decode(link: &str) -> Option<String> {
     let packed = unbase64url(data)?;
     let bytes = miniz_oxide::inflate::decompress_to_vec_with_limit(&packed, MAX_BYTES).ok()?;
     String::from_utf8(bytes).ok()
+}
+
+fn is_share_page(before: &str) -> bool {
+    let before = before.trim_end_matches('/');
+    before == "https://app.omacus.com"
+        || before == "https://omacus.com/app"
+        || before == "https://www.omacus.com/app"
 }
 
 /// Whether some text is a share link (and nothing else), for pasting one into the app.
@@ -98,14 +105,18 @@ mod tests {
     fn round_trips() {
         let sheet = "# Kyoto\nFlights: 4 * $1,180\n¥68,000 in USD\n🍜 noodles ₹200";
         let link = link(sheet);
-        assert!(link.starts_with("https://omacus.com/app#v1."));
+        assert!(link.starts_with("https://app.omacus.com#v1."));
         assert_eq!(decode(&link).as_deref(), Some(sheet));
         assert_eq!(
-            decode(&link.replace("/app#", "/app/#")).as_deref(),
+            decode(&link.replace("https://app.omacus.com#", "https://app.omacus.com/#")).as_deref(),
             Some(sheet)
         );
         assert_eq!(
-            decode(&link.replace("https://omacus.com/app", "omacus://open")).as_deref(),
+            decode(&link.replace("https://app.omacus.com", "https://omacus.com/app")).as_deref(),
+            Some(sheet)
+        );
+        assert_eq!(
+            decode(&link.replace("https://app.omacus.com", "omacus://open")).as_deref(),
             Some(sheet)
         );
         assert_eq!(decode(&encode(sheet)).as_deref(), Some(sheet));
@@ -126,6 +137,14 @@ mod tests {
     fn rejects_other_links_and_bombs() {
         assert_eq!(
             decode("https://example.com/app#v1.U1bwySxLVShJLS7hUrEwUSguyMksUTBWKE"),
+            None
+        );
+        assert_eq!(
+            decode("https://evilomacus.com/app#v1.U1bwySxLVShJLS7hUrEwUSguyMksUTBWKE"),
+            None
+        );
+        assert_eq!(
+            decode("https://app.omacus.com.evil#v1.U1bwySxLVShJLS7hUrEwUSguyMksUTBWKE"),
             None
         );
         assert_eq!(decode("v2.abc"), None);

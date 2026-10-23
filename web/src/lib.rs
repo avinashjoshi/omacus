@@ -1,5 +1,5 @@
 //! The Omacus engine for JavaScript: the same code as the desktop app, compiled to
-//! WebAssembly for omacus.com/app. Results go back as JSON strings.
+//! WebAssembly for app.omacus.com. Results go back as JSON strings.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
