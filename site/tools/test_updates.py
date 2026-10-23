@@ -146,6 +146,15 @@ class UpdatesPage(unittest.TestCase):
         self.assertIn("--bg:", light)
         self.assertIn("--accent:", light)
 
+    def test_a_version_counts_once_it_is_listed(self):
+        listed = [{"tag_name": "v0.2.11"}]
+        self.assertTrue(updates.release_is_listed(listed, "0.2.11"))
+        self.assertTrue(updates.release_is_listed(listed, "v0.2.11"))
+        self.assertFalse(updates.release_is_listed(listed, "0.2.12"))
+        updates.os.environ.pop("OMACUS_EXPECT_WAIT", None)
+        self.assertEqual(updates.expect_wait_seconds(""), 0)
+        self.assertEqual(updates.expect_wait_seconds("0.2.11"), 60)
+
     def test_the_page_links_itself_in_the_nav(self):
         page, _, _, _ = build([release("v0.1.0", "- Omacus\n- Pages\n- Themes")])
         self.assertIn('href="/updates/" aria-current="page"', page)
