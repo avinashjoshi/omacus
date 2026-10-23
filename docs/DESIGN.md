@@ -327,11 +327,11 @@ Don't: collect an email, or describe sync as something the app already does. The
 
 ### Foldable showcase
 
-The homepage section after "Nothing to install" shows Omacus on a generic unfolded phone. The screen is near square and slightly taller than wide, with a thin metal rim, a vertical hinge crease, and a punch-hole camera. The halves sit a few degrees open, so the device reads as a book-style foldable rather than a tablet. Inside is the web app in its wide layout: Trip Budget, pages to the left of the crease and the answers to the right, type at the app's own size so a line does not wrap. The light screenshot replaces the dark one when the system is light. The marketing page itself stays near-black.
+The homepage section after "Nothing to install" shows Omacus on a generic unfolded phone, and the phone is the hero of that section. Unfolded, the device is landscape, about 4:3, wider than it is tall. Two halves meet at a vertical crease and tip toward the viewer a few degrees, so the top and bottom edges form a shallow chevron rather than a flat slab. The rim is polished stainless (`--metal-hi` through `--metal-edge` in `tokens.css`): a metallic gradient, a very thin black bezel, large corner radii, two small buttons on the right edge, a tiny punch-hole camera on the right half, and a status time at the top right of that half. A soft shadow sits under the device. Inside is the web app in its wide layout: Trip Budget, pages on the left of the crease and the page on the right, type at the app's own size so a line does not wrap. The light screenshot replaces the dark one when the system is light. The marketing page itself stays near-black. The device scales with the column, so it stays large on a desktop and still reads on a tablet and a phone.
 
-Do: use the marketing tokens for the rim, the crease, and the copy. The paragraph under the heading uses `--prose-gap`. Pictures have width, height, lazy loading, and alt text that names the page and the two panes. Corners and padding stay on the radius and 4px scales.
+Do: use the metal tokens for the rim and the buttons, and the marketing tokens for the crease, the time, and the copy. The paragraph under the heading uses `--prose-gap`. Pictures have width, height, lazy loading, and alt text that names the page and the two panes. Corners and padding stay on the radius and 4px scales.
 
-Don't: name a phone brand, say "PWA", or point the section type or the rim at `--app-*`. The screen fill behind the picture may use `--app-bg`, and `--white` when the system is light, because that fill is the app. Don't reuse the `.shot` crop. Don't put a hex color in `site.css`.
+Don't: name a phone brand, say "PWA", or point the section type at `--app-*`. The screen fill behind the picture may use `--app-bg`, and `--white` when the system is light, because that fill is the app. Don't reuse the `.shot` crop. Don't put a hex color in `site.css`.
 
 ### Preview and PDF typography
 

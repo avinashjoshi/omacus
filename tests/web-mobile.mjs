@@ -179,7 +179,9 @@ check(css.includes("img.cm-widgetBuffer"), "the answer spacer stays inline so a 
   check(start >= 0, "the homepage has an unfolded-phone section");
   check(unfold.includes("Unfold it and your notes spread out"), "the foldable section says what opening the phone does");
   check(unfold.includes("unfold-light.webp") && unfold.includes("unfold-dark.webp"), "the foldable section has light and dark screenshots");
-  check(!/iPhone|iPad|Samsung|Pixel|Galaxy|PWA|Cactus/i.test(unfold), "the foldable section stays generic");
+  check(unfold.includes("foldable-clock") && unfold.includes("foldable-buttons"), "the unfolded phone has a status time and side buttons");
+  check(siteCss.includes("aspect-ratio: 4 / 3"), "the unfolded phone is landscape, about 4:3");
+  check(!/iPhone|iPad|Apple|Duo|Samsung|Pixel|Galaxy|PWA|Cactus/i.test(unfold), "the foldable section stays generic");
 }
 check(
   /@media \(max-width: 620px\)[\s\S]*?\.features \{[\s\S]*?overflow-x:\s*auto/.test(siteCss),
