@@ -120,6 +120,7 @@ jobs:
           node tests/folders.mjs
           node tests/lock.mjs
           node tests/migrate.mjs
+          node tests/seed.mjs
           node tests/web-mobile.mjs
       - name: Web app offline
         run: |

@@ -22,6 +22,7 @@ import {
   ready as storeReady, get as storeGet, set as storeSet, remove as storeRemove, adopt as storeAdopt,
   drained as storeDrained, keys as storeKeys, persistGranted, selfTab,
 } from "./store.js";
+import { allocateHandle, freshLibrary, seedAction } from "./seed.js";
 
 const WASM = new URL("pkg/omacus_web_bg.wasm", import.meta.url).href;
 const WORKER = new URL("./worker.js", import.meta.url).href;
@@ -34,6 +35,7 @@ const HINT_IDLE = 600;
 
 const WELCOME = `# Welcome to Omacus
 // Write math the way you'd write a note. Answers appear on the right.
+// The Examples folder has a few short pages. Monthly budget reads @trip.total.
 
 Flights: 4 * $1,180
 Hotel ¥68,000 * 5 in USD
@@ -840,6 +842,7 @@ function load() {
   }
   syncOrder();
   state.active = state.order.includes(index.active) ? index.active : state.order[0] ?? null;
+  librarySeeded = index.seeded === true;
   state.handles = new Map();
   const saved = index.handles && typeof index.handles === "object" ? index.handles : {};
   for (const [id, handle] of Object.entries(saved)) {
@@ -852,6 +855,8 @@ function syncOrder() {
   state.order = pageIds(state.tree);
 }
 
+let librarySeeded = false;
+
 function saveIndex() {
   syncOrder();
   store.set("index", JSON.stringify({
@@ -859,7 +864,19 @@ function saveIndex() {
     active: state.active,
     tree: state.tree,
     handles: Object.fromEntries(state.handles),
+    seeded: librarySeeded,
   }));
+}
+
+function installLibrary(lib) {
+  state.texts = new Map(Object.entries(lib.texts));
+  state.tree = lib.tree;
+  state.handles = new Map(Object.entries(lib.handles));
+  state.active = lib.active;
+  librarySeeded = true;
+  syncOrder();
+  for (const [id, text] of state.texts) store.set("page:" + id, text);
+  saveIndex();
 }
 
 function saveSheet(id) {
@@ -906,28 +923,6 @@ function addSheet(text, { select = true, parent } = {}) {
   }
   saveIndex();
   return id;
-}
-
-// Keep in step with xref::allocate_handle in engine/src/xref.rs.
-// The first word that starts with a letter, then the words joined, then trip2.
-function allocateHandle(title, taken) {
-  const have = new Set([...taken].map((h) => String(h).toLowerCase()));
-  const words = String(title ?? "").split(/\s+/).map((word) => word.replace(/[^A-Za-z0-9]/g, "").toLowerCase()).filter(Boolean);
-  const start = words.findIndex((word) => /^[a-z]/.test(word));
-  let base = "page";
-  if (start >= 0) {
-    const word = words[start].replace(/^[^a-z]+/, "");
-    if (word) base = word;
-  }
-  if (!/^[a-z][a-z0-9]*$/.test(base)) base = "page";
-  if (!have.has(base)) return base;
-  if (start >= 0) {
-    const longer = words.slice(start).join("").replace(/^[^a-z]+/, "");
-    if (/^[a-z][a-z0-9]*$/.test(longer) && longer !== base && !have.has(longer)) return longer;
-  }
-  let n = 2;
-  while (have.has(base + n)) n += 1;
-  return base + n;
 }
 
 // Existing pages keep the handle already stored. A title change does not allocate again.
@@ -4175,7 +4170,15 @@ async function start() {
     open.addEventListener("click", () => (open.href = sharePageUrl(shareEncode(currentText()))));
   } else {
     load();
-    if (!state.order.length) addSheet(WELCOME);
+    const action = seedAction({
+      pages: state.order.length,
+      seeded: librarySeeded,
+      trash: loadTrash().length,
+    });
+    if (action === "welcome-mark" || action === "mark") librarySeeded = true;
+    if (action === "examples") installLibrary(freshLibrary(WELCOME));
+    else if (action === "welcome" || action === "welcome-mark") addSheet(WELCOME);
+    else if (action === "mark") saveIndex();
   }
   await init({ module_or_path: WASM });
   engineReady = true;

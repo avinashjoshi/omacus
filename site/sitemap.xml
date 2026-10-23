@@ -4,6 +4,8 @@
   <url>
     <loc>https://omacus.com/</loc>
     <lastmod>{{lastmod}}</lastmod>
+    <image:image><image:loc>https://omacus.com/img/screens/examples-dark.webp</image:loc></image:image>
+    <image:image><image:loc>https://omacus.com/img/screens/web-examples.webp</image:loc></image:image>
     <image:image><image:loc>https://omacus.com/img/screens/matte-black.webp</image:loc></image:image>
     <image:image><image:loc>https://omacus.com/img/screens/tokyo-night.webp</image:loc></image:image>
     <image:image><image:loc>https://omacus.com/img/screens/help-syntax.webp</image:loc></image:image>
@@ -18,6 +20,10 @@
   </url>
   <url>
     <loc>https://omacus.com/story/</loc>
+    <lastmod>{{lastmod}}</lastmod>
+  </url>
+  <url>
+    <loc>https://omacus.com/sync/</loc>
     <lastmod>{{lastmod}}</lastmod>
   </url>
   <url>
