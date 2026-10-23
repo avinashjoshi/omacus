@@ -34,12 +34,21 @@ To try the web app (`site/app`), build the engine for it first:
     cargo build -p omacus-web --release --target wasm32-unknown-unknown
     wasm-bindgen --target web --no-typescript --out-dir site/app/pkg target/wasm32-unknown-unknown/release/omacus_web.wasm
 
-Releasing does not push straight to `main`. Run the Release workflow with
-action `prepare` (see `.github/workflows/release.yml`). It opens a pull request
-that bumps `version` in `Cargo.toml` and prepends a changelog section. With
-auto-merge allowed and the CI checks required on `main`, that pull request
-merges when the checks pass, and the workflow then tags `v<version>` and
-publishes the GitHub release. The checks to require are `test (ubuntu-22.04)`,
-`test (windows-latest)`, `test (macos-latest)`, and `wasm`. The monthly example
-refresh opens a pull request with auto-merge (`.github/workflows/freshen.yml`)
-instead of pushing to `main`.
+Releasing does not push straight to `main`. Write the notes first, under
+`## Unreleased` in `CHANGELOG.md`: a short title in bold, then one or two
+sentences for someone using Omacus (see Voice in `docs/DESIGN.md`). Run the
+Release workflow with action `prepare` (see `.github/workflows/release.yml`).
+It opens a pull request that bumps `version` in `Cargo.toml` and renames that
+section to the version. With auto-merge allowed and the CI checks required on
+`main`, that pull request merges when the checks pass, and the workflow then
+tags `v<version>` and publishes the GitHub release from those notes. The checks
+to require are `test (ubuntu-22.04)`, `test (windows-latest)`,
+`test (macos-latest)`, and `wasm`.
+
+If `## Unreleased` is missing, the pull request drafts notes from commit
+subjects, and CI rejects them (`tests/check_release_notes.py`). Notes that are
+only commit titles, or that mention pull requests, CI, or other plumbing, fail
+that check. A small fix can add `<!-- minor -->`, and a release with nothing
+new in the app can add `<!-- internal -->`, so the updates page folds it under
+the next entry. The monthly example refresh opens a pull request with
+auto-merge (`.github/workflows/freshen.yml`) instead of pushing to `main`.

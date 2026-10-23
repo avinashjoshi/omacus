@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Write release notes for a version to stdout: what changed since the previous
-# release (from commit subjects), then how to install it on each platform.
+# Write release notes for a version to stdout: the changelog section written
+# for users, then how to install on each platform. With no changelog section,
+# fall back to commit subjects (a release pull request's CI rejects that).
 #
 #   .github/scripts/release-notes.sh 0.2.0 owner/repo
 set -euo pipefail
@@ -11,35 +12,45 @@ tag="v$version"
 dl="https://github.com/$repo/releases/download/$tag"
 
 previous="$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)"
-range="${previous:+$previous..}HEAD"
 
 echo "## What's new"
 echo
-# One bullet per commit subject, with any "- " bullets from the commit body nested
-# under it. Version bumps, chores, trailers and website-only commits are left out.
-notes="$(
-  git log --no-merges --pretty='format:%s%n%b%x1e' "$range" -- . ':!site' ':!.github/workflows/site.yml' ':!.github/workflows/freshen.yml' ':!video' |
-    awk -v RS='\x1e' '
-      {
-        n = split($0, lines, "\n"); subject = ""
-        for (i = 1; i <= n; i++) {
-          line = lines[i]
-          if (subject == "") {
-            if (line == "") continue
-            subject = line
-            if (tolower(subject) ~ /^(release|bump|chore)([:( ]|$)/ || subject ~ /^v?[0-9]+\.[0-9]+\.[0-9]+$/) next
-            print "- " subject
-          } else if (line ~ /^- /) {
-            print "  " line
-          } else if (line ~ /^  [^ ]/ && last ~ /^  - /) {
-            print "  " line   # wrapped continuation of a body bullet
-            continue
+set +e
+written="$(python3 .github/scripts/release_notes.py extract "$version")"
+status=$?
+set -e
+if [[ $status -eq 0 ]]; then
+  printf '%s\n' "$written"
+elif [[ $status -eq 2 ]]; then
+  # One bullet per commit subject, with any "- " bullets from the commit body nested
+  # under it. Version bumps, chores, trailers and website-only commits are left out.
+  range="${previous:+$previous..}HEAD"
+  notes="$(
+    git log --no-merges --pretty='format:%s%n%b%x1e' "$range" -- . ':!site' ':!.github/workflows/site.yml' ':!.github/workflows/freshen.yml' ':!video' |
+      awk -v RS='\x1e' '
+        {
+          n = split($0, lines, "\n"); subject = ""
+          for (i = 1; i <= n; i++) {
+            line = lines[i]
+            if (subject == "") {
+              if (line == "") continue
+              subject = line
+              if (tolower(subject) ~ /^(release|bump|chore)([:( ]|$)/ || subject ~ /^v?[0-9]+\.[0-9]+\.[0-9]+$/) next
+              print "- " subject
+            } else if (line ~ /^- /) {
+              print "  " line
+            } else if (line ~ /^  [^ ]/ && last ~ /^  - /) {
+              print "  " line   # wrapped continuation of a body bullet
+              continue
+            }
+            last = (line ~ /^- / ? "  " line : "")
           }
-          last = (line ~ /^- / ? "  " line : "")
-        }
-      }'
-)"
-echo "${notes:-- Maintenance release}"
+        }'
+  )"
+  echo "${notes:-- Maintenance release}"
+else
+  exit "$status"
+fi
 echo
 echo
 
@@ -81,5 +92,5 @@ EOF
 
 if [[ -n "$previous" ]]; then
   echo
-  echo "**Full changelog:** https://github.com/$repo/compare/$previous...$tag"
+  echo "**Details:** https://github.com/$repo/compare/$previous...$tag"
 fi

@@ -1,10 +1,12 @@
 name: Release
 
 # Releasing opens a pull request. Run this workflow by hand with action `prepare`
-# (Actions → Release → Run workflow). That bumps `version` in Cargo.toml, prepends
-# a changelog section, and opens a pull request that auto-merges once the required
-# checks on main pass. Main is protected, so the version bump is never pushed there
-# directly.
+# (Actions → Release → Run workflow). That bumps `version` in Cargo.toml, renames
+# the changelog's Unreleased section (notes written for users) to the version, and
+# opens a pull request that auto-merges once the required checks on main pass.
+# Main is protected, so the version bump is never pushed there directly. A pull
+# request whose notes are commit titles, or mention pull requests and CI, fails
+# the release-notes check.
 #
 # After that pull request merges, this same run tags `v<version>` and publishes the
 # GitHub release. A push to main does the same when the merged version has no tag
