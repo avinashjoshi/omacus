@@ -4,6 +4,7 @@
 mod app;
 mod calc;
 mod cli;
+mod design;
 mod help;
 mod highlight;
 mod library;

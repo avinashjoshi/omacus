@@ -1,3 +1,5 @@
+@import url("tokens.css");
+
 /* Fonts (self-hosted, SIL Open Font License; see /fonts/OFL.txt) */
 /* latin-ext */
 @font-face {
@@ -166,43 +168,11 @@
 }
 
 :root {
-  color-scheme: dark;
-
-  --bg: #090909;
-  --bg-raise: #101010;
-  --panel: #131313;
-  --panel-2: #181818;
-  --line: #222222;
-  --line-2: #2e2e2e;
-
-  --text: #ecebe8;
-  --text-2: #b8b6b1;
-  --muted: #9a9893;
-  --faint: #807e79;
-
-  --accent: #f0a12a;
-  --accent-hi: #ffc061;
-  --accent-ink: #1a1104;
-  --accent-glow: rgba(240, 161, 42, 0.16);
-
-  /* The app's matte-black theme, for the live demo. */
-  --app-bg: #121212;
-  --app-side: #0d0d0d;
-  --app-fg: #bebebe;
-  --app-dim: #8a8a8d;
-  --app-comment: #555555;
-  --app-accent: #e68e0d;
-  --app-var: #d35f5f;
-  --app-sel: #2a2a2a;
-  --app-hover: #1e1e1e;
-
   --sans: "Inter", "Inter Fallback", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --display: "Inter Tight", "Inter Fallback", var(--sans);
   --serif: "Instrument Serif", ui-serif, Georgia, serif;
   --mono: "JetBrains Mono", "Mono Fallback", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  --radius: 14px;
-  --radius-sm: 9px;
   --wrap: 1160px;
   --gutter: 24px;
 }
@@ -257,7 +227,7 @@ pre {
 
 ::selection {
   background: rgba(240, 161, 42, 0.32);
-  color: #fff;
+  color: var(--white);
 }
 
 :focus-visible {
@@ -517,8 +487,8 @@ pre {
 
 .btn:hover {
   color: var(--text);
-  border-color: #3d3d3d;
-  background: #1d1d1d;
+  border-color: var(--line-hover);
+  background: var(--edge);
 }
 
 .btn:active {
@@ -561,8 +531,8 @@ pre {
   background-image: linear-gradient(var(--line) 1px, transparent 1px),
     linear-gradient(90deg, var(--line) 1px, transparent 1px);
   background-size: 56px 56px;
-  mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, #000 30%, transparent 75%);
-  -webkit-mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, #000 30%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, var(--black) 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, var(--black) 30%, transparent 75%);
   opacity: 0.55;
 }
 
@@ -679,8 +649,8 @@ em.serif,
   padding: 7px 7px 7px 18px;
   border: 1px solid var(--line-2);
   border-radius: 12px;
-  background: linear-gradient(180deg, #151515, #101010);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 20px 40px -24px #000;
+  background: linear-gradient(180deg, var(--panel-raise), var(--bg-raise));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 20px 40px -24px var(--black);
   font-family: var(--mono);
   font-size: 15px;
 }
@@ -722,7 +692,7 @@ em.serif,
 
 .copy:hover {
   color: var(--text);
-  border-color: #3d3d3d;
+  border-color: var(--line-hover);
 }
 
 .copy.done {
@@ -784,7 +754,7 @@ em.serif,
   border-radius: 14px;
   overflow: hidden;
   background: var(--app-bg);
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--line-strong);
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.6),
     0 1px 0 rgba(255, 255, 255, 0.05) inset,
@@ -804,7 +774,7 @@ em.serif,
 
 .win-side {
   background: var(--app-side);
-  border-right: 1px solid #1d1d1d;
+  border-right: 1px solid var(--edge);
   padding: 16px 10px;
   display: flex;
   flex-direction: column;
@@ -925,7 +895,7 @@ em.serif,
   border-radius: 7px;
   background: var(--app-side);
   border: 1px solid var(--app-sel);
-  box-shadow: 0 14px 30px -12px #000;
+  box-shadow: 0 14px 30px -12px var(--black);
   font-size: 13px;
   opacity: 0;
   transform: translateY(-4px);
@@ -1128,8 +1098,8 @@ section {
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--line-2);
-  box-shadow: 0 40px 90px -40px #000, 0 0 0 1px rgba(0, 0, 0, 0.5);
-  background: #0a0a0a;
+  box-shadow: 0 40px 90px -40px var(--black), 0 0 0 1px rgba(0, 0, 0, 0.5);
+  background: var(--bg-deep);
 }
 
 .film video {
@@ -1161,7 +1131,7 @@ section {
 }
 
 .feature:hover {
-  background: #131313;
+  background: var(--panel);
 }
 
 .feature h3 {
@@ -1191,7 +1161,7 @@ section {
   padding: 8px 12px;
   border-radius: 8px;
   background: var(--app-bg);
-  border: 1px solid #1c1c1c;
+  border: 1px solid var(--line-faint);
   white-space: nowrap;
 }
 
@@ -1288,7 +1258,7 @@ section {
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--line-2);
-  box-shadow: 0 40px 90px -40px #000, 0 0 0 1px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 40px 90px -40px var(--black), 0 0 0 1px rgba(0, 0, 0, 0.5);
   background: var(--panel);
 }
 
@@ -1317,7 +1287,7 @@ section {
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid var(--line-2);
-  box-shadow: 0 50px 110px -45px #000;
+  box-shadow: 0 50px 110px -45px var(--black);
   background: var(--panel);
 }
 
@@ -1359,7 +1329,7 @@ section {
 
 .theme-picker button:hover {
   color: var(--text);
-  border-color: #3d3d3d;
+  border-color: var(--line-hover);
 }
 
 .theme-picker button[aria-pressed="true"] {
@@ -1427,9 +1397,9 @@ kbd {
 .terminal {
   border-radius: 12px;
   border: 1px solid var(--line-2);
-  background: #0c0c0c;
+  background: var(--bg-sink);
   overflow: hidden;
-  box-shadow: 0 40px 90px -40px #000;
+  box-shadow: 0 40px 90px -40px var(--black);
 }
 
 .terminal .bar {
@@ -1437,14 +1407,14 @@ kbd {
   gap: 7px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--line);
-  background: #111;
+  background: var(--bg-chip);
 }
 
 .terminal .bar i {
   width: 11px;
   height: 11px;
   border-radius: 50%;
-  background: #2b2b2b;
+  background: var(--track);
 }
 
 .terminal pre {
@@ -1520,7 +1490,7 @@ kbd {
   padding: 26px;
   border-radius: var(--radius);
   border: 1px solid var(--line);
-  background: linear-gradient(180deg, var(--bg-raise), #0c0c0c);
+  background: linear-gradient(180deg, var(--bg-raise), var(--bg-sink));
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -2097,7 +2067,7 @@ kbd {
   margin: 0 0 20px;
   padding: 16px 18px;
   border-radius: 10px;
-  background: #0d0d0d;
+  background: var(--bg-ink);
   border: 1px solid var(--line);
   overflow-x: auto;
   font-size: 14px;
@@ -2113,7 +2083,7 @@ kbd {
   margin: 0 0 20px;
   padding: 16px 18px;
   border-radius: 10px;
-  background: #0d0d0d;
+  background: var(--bg-ink);
   border: 1px solid var(--line);
   overflow-x: auto;
   font: 14px/1.7 var(--mono);
@@ -2392,9 +2362,9 @@ kbd {
   margin: 8px 0 22px;
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--line-strong);
   background: var(--app-bg);
-  box-shadow: 0 30px 70px -40px #000;
+  box-shadow: 0 30px 70px -40px var(--black);
   font: 14px/1.75 var(--mono);
 }
 
@@ -2403,7 +2373,7 @@ kbd {
   align-items: center;
   gap: 7px;
   padding: 10px 14px;
-  border-bottom: 1px solid #1f1f1f;
+  border-bottom: 1px solid var(--line-soft);
   background: var(--app-side);
   font: 500 12.5px/1 var(--sans);
   color: var(--app-dim);
@@ -2413,7 +2383,7 @@ kbd {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #2b2b2b;
+  background: var(--track);
 }
 
 .sheet-card figcaption span {
@@ -2468,7 +2438,7 @@ kbd {
 }
 
 .sheet-card .t-com {
-  color: #8a8a8d;
+  color: var(--ink-dim);
 }
 
 .shot-figure {
@@ -2495,7 +2465,7 @@ kbd {
   padding: 20px 22px;
   border-radius: var(--radius);
   border: 1px solid var(--line);
-  background: linear-gradient(180deg, var(--bg-raise), #0c0c0c);
+  background: linear-gradient(180deg, var(--bg-raise), var(--bg-sink));
   transition: border-color 0.2s, transform 0.2s;
 }
 

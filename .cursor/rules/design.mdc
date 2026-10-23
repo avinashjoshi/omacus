@@ -1,0 +1,12 @@
+---
+description: Omacus design language for the app and the website
+alwaysApply: true
+---
+
+Read `docs/DESIGN.md` before any UI or site change (desktop, web app, or marketing pages).
+
+Use tokens only. Desktop colors, type, spacing, and radii come from `src/theme.rs`. Frames and buttons come from `src/design.rs`. The website and the web shell use the custom properties in `site/css/tokens.css`. Do not add `Color32::from_rgb` literals, `hex("#…")`, or raw hex colors anywhere else. A justified exception needs a `design-allow` comment or a line in `tests/design-allow.txt`.
+
+When you add a component, update `docs/DESIGN.md` in the same change. A pull request that changes UI attaches before and after screenshots (light and dark when both themes are affected).
+
+Do not change behavior to restyle a screen. Popup anchors stay where they are; style the frame, not the placement.

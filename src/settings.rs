@@ -12,7 +12,8 @@ use std::sync::Mutex;
 use eframe::egui;
 use serde::Deserialize;
 
-use crate::theme::Theme;
+use crate::design;
+use crate::theme::{self, Theme};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ThemeChoice {
@@ -266,124 +267,182 @@ pub fn save(settings: &Settings) -> Result<(), String> {
 /// The Settings tab. `true` means a choice moved this frame.
 pub fn controls(ui: &mut egui::Ui, settings: &mut Settings, theme: &Theme) -> bool {
     let before = settings.clone();
-    ui.label(egui::RichText::new("Theme").size(14.0).color(theme.dim));
-    egui::ComboBox::from_id_salt("omacus-theme")
-        .width(ui.available_width())
-        .selected_text(settings.theme.label())
-        .show_ui(ui, |ui| {
-            for choice in ThemeChoice::ALL {
-                ui.selectable_value(&mut settings.theme, choice, choice.label());
-            }
+    ui.spacing_mut().item_spacing.y = theme::token::SPACE_3;
+
+    group(ui, theme, "Appearance", |ui| {
+        let blurb = settings.theme.blurb().to_string();
+        labeled(ui, theme, "Theme", &blurb, |ui| {
+            egui::ComboBox::from_id_salt("omacus-theme")
+                .width(148.0)
+                .selected_text(settings.theme.label())
+                .show_ui(ui, |ui| {
+                    for choice in ThemeChoice::ALL {
+                        ui.selectable_value(&mut settings.theme, choice, choice.label());
+                    }
+                });
         });
-    note(ui, theme, settings.theme.blurb());
-    if let Some(missing) = crate::theme::missing_note(settings.theme) {
-        note(ui, theme, missing);
-    }
-    ui.add_space(8.0);
-    ui.checkbox(&mut settings.hide_answers, "Hide the answers column");
-    note(
-        ui,
-        theme,
-        "Answers sit after each line. Ctrl+\\ toggles this. The preview and PDF follow this too.",
-    );
-    ui.add_space(10.0);
-    ui.label(
-        egui::RichText::new("Lock again after")
-            .size(14.0)
-            .color(theme.dim),
-    );
-    let lock_label = match settings.lock_minutes {
-        0 => "Never".to_string(),
-        1 => "1 minute".to_string(),
-        n => format!("{n} minutes"),
-    };
-    egui::ComboBox::from_id_salt("omacus-lock-minutes")
-        .width(ui.available_width())
-        .selected_text(lock_label)
-        .show_ui(ui, |ui| {
-            for (minutes, label) in [
-                (1, "1 minute"),
-                (5, "5 minutes"),
-                (15, "15 minutes"),
-                (30, "30 minutes"),
-                (60, "60 minutes"),
-                (0, "Never"),
-            ] {
-                ui.selectable_value(&mut settings.lock_minutes, minutes, label);
-            }
-        });
-    note(
-        ui,
-        theme,
-        "Unlocked pages and folders lock again after this long with nothing typed. Quitting locks them too. A forgotten password can't be recovered.",
-    );
-    ui.add_space(10.0);
-    ui.label(
-        egui::RichText::new("Export PDF")
-            .size(14.0)
-            .color(theme.dim),
-    );
-    let folder = settings
-        .export_dir
-        .clone()
-        .unwrap_or_else(crate::pdf::default_export_dir);
-    let where_saved = match &settings.export_dir {
-        Some(dir) => dir.display().to_string(),
-        None => "Downloads".to_string(),
-    };
-    note(
-        ui,
-        theme,
-        &format!("Each PDF is named after the page and saved in {where_saved}."),
-    );
-    ui.horizontal(|ui| {
-        if ui
-            .button("Choose folder…")
-            .on_hover_text("Where Export PDF writes")
-            .clicked()
-        {
-            let mut dialog = rfd::FileDialog::new().set_title("Export PDF folder");
-            if folder.is_dir() {
-                dialog = dialog.set_directory(&folder);
-            }
-            if let Some(dir) = dialog.pick_folder() {
-                settings.export_dir = Some(dir);
-            }
-        }
-        if settings.export_dir.is_some()
-            && ui
-                .button("Use Downloads")
-                .on_hover_text("The usual Downloads folder")
-                .clicked()
-        {
-            settings.export_dir = None;
+        if let Some(missing) = theme::missing_note(settings.theme) {
+            caption(ui, theme, missing);
         }
     });
-    ui.checkbox(
-        &mut settings.replace_exports,
-        "Always replace without asking",
-    );
-    note(
-        ui,
-        theme,
-        "When that PDF is already there, Omacus asks before replacing it.",
-    );
-    ui.add_space(10.0);
-    ui.checkbox(&mut settings.check_for_updates, "Check for updates");
-    note(
-        ui,
-        theme,
-        "Asks GitHub for the latest version number. Nothing about your pages is sent.",
-    );
+
+    group(ui, theme, "Answers", |ui| {
+        switch_row(
+            ui,
+            theme,
+            "Hide the answers column",
+            "Answers sit after each line. Ctrl+\\ toggles this. The preview and PDF follow this too.",
+            &mut settings.hide_answers,
+        );
+    });
+
+    group(ui, theme, "Lock", |ui| {
+        let lock_label = match settings.lock_minutes {
+            0 => "Never".to_string(),
+            1 => "1 minute".to_string(),
+            n => format!("{n} minutes"),
+        };
+        labeled(
+            ui,
+            theme,
+            "Lock again after",
+            "Unlocked pages and folders lock again after this long with nothing typed. Quitting locks them too. A forgotten password can't be recovered.",
+            |ui| {
+                egui::ComboBox::from_id_salt("omacus-lock-minutes")
+                    .width(148.0)
+                    .selected_text(lock_label)
+                    .show_ui(ui, |ui| {
+                        for (minutes, label) in [
+                            (1, "1 minute"),
+                            (5, "5 minutes"),
+                            (15, "15 minutes"),
+                            (30, "30 minutes"),
+                            (60, "60 minutes"),
+                            (0, "Never"),
+                        ] {
+                            ui.selectable_value(&mut settings.lock_minutes, minutes, label);
+                        }
+                    });
+            },
+        );
+    });
+
+    group(ui, theme, "Export", |ui| {
+        let folder = settings
+            .export_dir
+            .clone()
+            .unwrap_or_else(crate::pdf::default_export_dir);
+        let where_saved = match &settings.export_dir {
+            Some(dir) => dir.display().to_string(),
+            None => "Downloads".to_string(),
+        };
+        labeled(
+            ui,
+            theme,
+            "PDF folder",
+            &format!("Each PDF is named after the page and saved in {where_saved}."),
+            |ui| {
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = theme::token::SPACE_2;
+                    if design::quiet(ui, theme, "Choose folder…")
+                        .on_hover_text("Where Export PDF writes")
+                        .clicked()
+                    {
+                        let mut dialog = rfd::FileDialog::new().set_title("Export PDF folder");
+                        if folder.is_dir() {
+                            dialog = dialog.set_directory(&folder);
+                        }
+                        if let Some(dir) = dialog.pick_folder() {
+                            settings.export_dir = Some(dir);
+                        }
+                    }
+                    if settings.export_dir.is_some()
+                        && design::quiet(ui, theme, "Use Downloads")
+                            .on_hover_text("The usual Downloads folder")
+                            .clicked()
+                    {
+                        settings.export_dir = None;
+                    }
+                });
+            },
+        );
+        ui.add_space(theme::token::SPACE_2);
+        switch_row(
+            ui,
+            theme,
+            "Always replace without asking",
+            "When that PDF is already there, Omacus asks before replacing it.",
+            &mut settings.replace_exports,
+        );
+    });
+
+    group(ui, theme, "Updates", |ui| {
+        switch_row(
+            ui,
+            theme,
+            "Check for updates",
+            "Asks GitHub for the latest version number. Nothing about your pages is sent.",
+            &mut settings.check_for_updates,
+        );
+    });
+
     if let Some(path) = path() {
-        ui.add_space(10.0);
-        note(ui, theme, &format!("Saved in {}", path.display()));
+        caption(ui, theme, &format!("Saved in {}", path.display()));
     }
     settings != &before
 }
 
-fn note(ui: &mut egui::Ui, theme: &Theme, text: &str) {
-    ui.label(egui::RichText::new(text).size(13.0).color(theme.comment));
+fn group(ui: &mut egui::Ui, theme: &Theme, title: &str, body: impl FnOnce(&mut egui::Ui)) {
+    ui.label(
+        egui::RichText::new(title)
+            .size(theme::token::TYPE_CAPTION)
+            .color(theme.text_muted()),
+    );
+    egui::Frame::NONE
+        .fill(theme.surface())
+        .stroke(egui::Stroke::new(1.0, theme.border()))
+        .corner_radius(egui::CornerRadius::same(theme::token::RADIUS_LG))
+        .inner_margin(egui::Margin::symmetric(16, 12))
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = theme::token::SPACE_2;
+            body(ui);
+        });
+}
+
+fn labeled(
+    ui: &mut egui::Ui,
+    theme: &Theme,
+    title: &str,
+    help: &str,
+    control: impl FnOnce(&mut egui::Ui),
+) {
+    ui.horizontal_top(|ui| {
+        let width = ui.available_width();
+        ui.vertical(|ui| {
+            ui.set_max_width((width - 180.0).max(140.0));
+            ui.label(
+                egui::RichText::new(title)
+                    .size(theme::token::TYPE_LABEL)
+                    .color(theme.text()),
+            );
+            caption(ui, theme, help);
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), control);
+    });
+}
+
+fn switch_row(ui: &mut egui::Ui, theme: &Theme, title: &str, help: &str, on: &mut bool) {
+    labeled(ui, theme, title, help, |ui| {
+        design::toggle(ui, theme, on);
+    });
+}
+
+fn caption(ui: &mut egui::Ui, theme: &Theme, text: &str) {
+    ui.label(
+        egui::RichText::new(text)
+            .size(theme::token::TYPE_CAPTION)
+            .color(theme.text_muted()),
+    );
 }
 
 #[cfg(test)]

@@ -44,8 +44,8 @@ impl Theme {
             background: hex("#1a1b26"),
             sidebar: hex("#16161e"),
             foreground: hex("#c0caf5"),
-            dim: hex("#787c99"),
-            comment: hex("#565f89"),
+            dim: hex("#9499b8"),
+            comment: hex("#8087a4"),
             accent: hex("#7aa2f7"),
             number: hex("#e0e6ff"),
             keyword: hex("#7dcfff"),
@@ -62,8 +62,8 @@ impl Theme {
             background: hex("#ffffff"),
             sidebar: hex("#f6f8fa"),
             foreground: hex("#24292f"),
-            dim: hex("#6e7781"),
-            comment: hex("#8c959f"),
+            dim: hex("#57606a"),
+            comment: hex("#636e79"),
             accent: hex("#0969da"),
             number: hex("#1f2328"),
             keyword: hex("#8250df"),
@@ -81,9 +81,9 @@ impl Theme {
             background: hex("#f6f1e7"),
             sidebar: hex("#efe6d6"),
             foreground: hex("#3c3226"),
-            dim: hex("#8a7b68"),
-            comment: hex("#a89880"),
-            accent: hex("#b45309"),
+            dim: hex("#746454"),
+            comment: hex("#786754"),
+            accent: hex("#aa4a07"),
             number: hex("#2a2118"),
             keyword: hex("#0f766e"),
             variable: hex("#9f1239"),
@@ -101,7 +101,7 @@ impl Theme {
             sidebar: hex("#151b28"),
             foreground: hex("#d7e0f0"),
             dim: hex("#8b9bb3"),
-            comment: hex("#64748b"),
+            comment: hex("#7d8da6"),
             accent: hex("#8eb4ff"),
             number: hex("#f1f5ff"),
             keyword: hex("#7ddea0"),
@@ -294,7 +294,141 @@ fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
 }
 
 fn luminance(c: Color32) -> f32 {
-    (0.299 * f32::from(c.r()) + 0.587 * f32::from(c.g()) + 0.114 * f32::from(c.b())) / 255.0
+    let channel = |v: u8| {
+        let c = f32::from(v) / 255.0;
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * channel(c.r()) + 0.7152 * channel(c.g()) + 0.0722 * channel(c.b())
+}
+
+/// How much of the text colour is mixed into the background for a hairline.
+/// Dark surfaces need a stronger mix; light surfaces a lighter one.
+/// `site/css/tokens.css` bakes the result for the four built-in themes.
+pub const BORDER_MIX_DARK: f32 = 0.22;
+pub const BORDER_MIX_LIGHT: f32 = 0.20;
+pub const BORDER_STRONG_DARK: f32 = 0.36;
+pub const BORDER_STRONG_LIGHT: f32 = 0.34;
+
+/// Status colors. Dark themes share one pair. Paper is warm, so its red and
+/// amber are darker than the plain light theme's. `site/css/tokens.css` copies these.
+pub const DANGER_DARK: &str = "#f7768e";
+pub const DANGER_PAPER: &str = "#a61b1b";
+pub const DANGER_LIGHT: &str = "#b42318";
+pub const WARNING_DARK: &str = "#e0af68";
+pub const WARNING_PAPER: &str = "#7a5200";
+pub const WARNING_LIGHT: &str = "#9a6700";
+/// Ink on a filled control when the theme is not dark and not paper.
+pub const INK_LIGHT: &str = "#1a1b26";
+/// Paper's own foreground, used as ink on a filled control.
+pub const INK_PAPER: &str = "#3c3226";
+const PAPER_BG: &str = "#f6f1e7";
+
+/// Spacing, type and radii. Every screen uses these. See `docs/DESIGN.md`.
+pub mod token {
+    pub const SPACE_1: f32 = 4.0;
+    pub const SPACE_2: f32 = 8.0;
+    pub const SPACE_3: f32 = 12.0;
+    pub const SPACE_4: f32 = 16.0;
+    pub const SPACE_5: f32 = 24.0;
+    pub const SPACE_6: f32 = 32.0;
+    pub const RADIUS_SM: u8 = 6;
+    pub const RADIUS_MD: u8 = 8;
+    pub const RADIUS_LG: u8 = 12;
+    pub const TYPE_CAPTION: f32 = 12.0;
+    pub const TYPE_BODY: f32 = 13.5;
+    pub const TYPE_LABEL: f32 = 14.0;
+    pub const TYPE_TITLE: f32 = 16.0;
+    pub const TYPE_DISPLAY: f32 = 22.0;
+    pub const HIT: f32 = 32.0;
+}
+
+impl Theme {
+    pub fn text(&self) -> Color32 {
+        self.foreground
+    }
+
+    pub fn text_secondary(&self) -> Color32 {
+        self.dim
+    }
+
+    pub fn text_muted(&self) -> Color32 {
+        self.comment
+    }
+
+    pub fn surface(&self) -> Color32 {
+        self.sidebar
+    }
+
+    pub fn border(&self) -> Color32 {
+        let t = if self.dark {
+            BORDER_MIX_DARK
+        } else {
+            BORDER_MIX_LIGHT
+        };
+        mix(self.foreground, self.background, t)
+    }
+
+    pub fn border_strong(&self) -> Color32 {
+        let t = if self.dark {
+            BORDER_STRONG_DARK
+        } else {
+            BORDER_STRONG_LIGHT
+        };
+        mix(self.foreground, self.background, t)
+    }
+
+    pub fn danger(&self) -> Color32 {
+        if self.dark {
+            hex(DANGER_DARK)
+        } else if self.background == hex(PAPER_BG) {
+            hex(DANGER_PAPER)
+        } else {
+            hex(DANGER_LIGHT)
+        }
+    }
+
+    pub fn warning(&self) -> Color32 {
+        if self.dark {
+            hex(WARNING_DARK)
+        } else if self.background == hex(PAPER_BG) {
+            hex(WARNING_PAPER)
+        } else {
+            hex(WARNING_LIGHT)
+        }
+    }
+
+    /// Ink that stays readable on `fill`.
+    pub fn ink_on(&self, fill: Color32) -> Color32 {
+        let dark_ink = if self.background == hex(PAPER_BG) {
+            hex(INK_PAPER)
+        } else if self.dark {
+            self.background
+        } else {
+            hex(INK_LIGHT)
+        };
+        if contrast(dark_ink, fill) >= contrast(Color32::WHITE, fill) {
+            dark_ink
+        } else {
+            Color32::WHITE
+        }
+    }
+
+    /// Ink that stays readable on `accent`.
+    pub fn on_accent(&self) -> Color32 {
+        self.ink_on(self.accent)
+    }
+}
+
+fn contrast(a: Color32, b: Color32) -> f32 {
+    let (hi, lo) = {
+        let (x, y) = (luminance(a), luminance(b));
+        if x > y { (x, y) } else { (y, x) }
+    };
+    (hi + 0.05) / (lo + 0.05)
 }
 
 #[cfg(test)]
@@ -372,5 +506,43 @@ mod tests {
             from_omarchy.background,
             Theme::parse(omarchy).unwrap().background
         );
+    }
+
+    #[test]
+    fn text_and_status_colors_clear_aa_on_every_built_in() {
+        for theme in [Theme::dark(), Theme::light(), Theme::paper(), Theme::dusk()] {
+            for (name, color) in [
+                ("text", theme.text()),
+                ("secondary", theme.text_secondary()),
+                ("muted", theme.text_muted()),
+                ("danger", theme.danger()),
+                ("warning", theme.warning()),
+                ("accent", theme.accent),
+            ] {
+                assert!(
+                    contrast(color, theme.background) >= 4.5,
+                    "{name} on {} is {:.2}",
+                    if theme.dark { "dark" } else { "light" },
+                    contrast(color, theme.background)
+                );
+            }
+            assert!(
+                contrast(theme.on_accent(), theme.accent) >= 4.5,
+                "on-accent contrast {:.2}",
+                contrast(theme.on_accent(), theme.accent)
+            );
+            assert!(
+                contrast(theme.ink_on(theme.danger()), theme.danger()) >= 4.5,
+                "ink on danger {:.2}",
+                contrast(theme.ink_on(theme.danger()), theme.danger())
+            );
+            assert_ne!(theme.border(), theme.selection);
+            assert_ne!(theme.border_strong(), theme.border());
+        }
+        assert_eq!(token::SPACE_2, token::SPACE_1 * 2.0);
+        assert_eq!(token::SPACE_4, token::SPACE_2 * 2.0);
+        assert_eq!(token::HIT, token::SPACE_6);
+        assert_eq!(token::RADIUS_MD, 8);
+        assert_eq!(token::RADIUS_LG, 12);
     }
 }

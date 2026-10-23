@@ -1,0 +1,236 @@
+/* Omacus design tokens. The only stylesheet that may contain hex colors.
+   Desktop palettes live in src/theme.rs and must match the app themes below.
+   See docs/DESIGN.md. */
+
+:root {
+  color-scheme: dark;
+
+  /* Shared scale. 4px grid, one radius set, one motion curve. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius: var(--radius-lg);
+  --radius-pill: 999px;
+  --hit: 32px;
+  --dur-fast: 120ms;
+  --dur: 180ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --type-caption: 12px;
+  --type-body: 14px;
+  --type-title: 16px;
+  --type-display: 22px;
+
+  --black: #000000;
+  --white: #ffffff;
+
+  /* Marketing site. Warm gold on near-black. Not an app theme. */
+  --bg: #090909;
+  --bg-raise: #101010;
+  --bg-deep: #0a0a0a;
+  --bg-sink: #0c0c0c;
+  --bg-ink: #0d0d0d;
+  --bg-chip: #111111;
+  --panel: #131313;
+  --panel-raise: #151515;
+  --panel-2: #181818;
+  --edge: #1d1d1d;
+  --line: #222222;
+  --line-faint: #1c1c1c;
+  --line-soft: #1f1f1f;
+  --line-2: #2e2e2e;
+  --line-strong: #2a2a2a;
+  --line-hover: #3d3d3d;
+  --track: #2b2b2b;
+  --text: #ecebe8;
+  --text-2: #b8b6b1;
+  --muted: #9a9893;
+  --faint: #807e79;
+  --ink-dim: #8a8a8d;
+  --accent: #f0a12a;
+  --accent-hi: #ffc061;
+  --accent-ink: #1a1104;
+  --accent-glow: color-mix(in srgb, var(--accent) 16%, transparent);
+  --danger: #f7768e;
+  --warning: #e0af68;
+  --success: #3d9a56;
+  --shadow-color: color-mix(in srgb, var(--black) 28%, transparent);
+  --shadow-sm: 0 1px 2px color-mix(in srgb, var(--black) 16%, transparent);
+  --shadow-md: 0 8px 24px color-mix(in srgb, var(--black) 22%, transparent);
+  --shadow-lg: 0 24px 48px -12px var(--shadow-color);
+
+  /* App dark theme. Same numbers as Theme::dark in src/theme.rs.
+     The homepage demo uses these until a page sets data-app-theme. */
+  --app-bg: #1a1b26;
+  --app-side: #16161e;
+  --app-fg: #c0caf5;
+  --app-dim: #9499b8;
+  --app-comment: #8087a4;
+  --app-accent: #7aa2f7;
+  --app-var: #bb9af7;
+  --app-def: #9ece6a;
+  --app-kw: #7dcfff;
+  --app-num: #e0e6ff;
+  --app-sel: #33467c;
+  --app-hover: #24283b;
+  --app-line: #3f4254;
+  --app-line-strong: #565a71;
+  --app-danger: #f7768e;
+  --app-warning: #e0af68;
+  --app-on-accent: #1a1b26;
+  --app-accent-hover: color-mix(in srgb, var(--app-accent) 86%, var(--white));
+  --app-accent-soft: color-mix(in srgb, var(--app-accent) 14%, transparent);
+
+  /* Print / PDF. Ink on paper, not a screen theme. */
+  --print-paper: #ffffff;
+  --print-ink: #111111;
+  --print-stone: #1c1917;
+  --print-muted: #6b6560;
+  --print-quote: #44403c;
+  --print-rule: #d6d3d1;
+  --print-strong: #292524;
+  --print-accent: #1a3a5c;
+  --print-pill: #e8eef5;
+}
+
+[data-app-theme="dark"] {
+  color-scheme: dark;
+  --app-bg: #1a1b26;
+  --app-side: #16161e;
+  --app-fg: #c0caf5;
+  --app-dim: #9499b8;
+  --app-comment: #8087a4;
+  --app-accent: #7aa2f7;
+  --app-var: #bb9af7;
+  --app-def: #9ece6a;
+  --app-kw: #7dcfff;
+  --app-num: #e0e6ff;
+  --app-sel: #33467c;
+  --app-hover: #24283b;
+  --app-line: #3f4254;
+  --app-line-strong: #565a71;
+  --app-danger: #f7768e;
+  --app-warning: #e0af68;
+  --app-on-accent: #1a1b26;
+  --text: var(--app-fg);
+  --text-2: var(--app-dim);
+  --muted: var(--app-comment);
+  --line: var(--app-line);
+  --line-2: var(--app-line-strong);
+  --panel: var(--app-side);
+  --panel-2: var(--app-hover);
+  --bg: var(--app-bg);
+  --accent: var(--app-accent);
+  --accent-hi: var(--app-accent-hover);
+  --accent-ink: var(--app-on-accent);
+  --danger: var(--app-danger);
+  --warning: var(--app-warning);
+}
+
+[data-app-theme="light"] {
+  color-scheme: light;
+  --app-bg: #ffffff;
+  --app-side: #f6f8fa;
+  --app-fg: #24292f;
+  --app-dim: #57606a;
+  --app-comment: #636e79;
+  --app-accent: #0969da;
+  --app-var: #cf222e;
+  --app-def: #1a7f37;
+  --app-kw: #8250df;
+  --app-num: #1f2328;
+  --app-sel: #ddf4ff;
+  --app-hover: #eaeef2;
+  --app-line: #d3d4d5;
+  --app-line-strong: #b5b6b8;
+  --app-danger: #b42318;
+  --app-warning: #9a6700;
+  --app-on-accent: #ffffff;
+  --text: var(--app-fg);
+  --text-2: var(--app-dim);
+  --muted: var(--app-comment);
+  --line: var(--app-line);
+  --line-2: var(--app-line-strong);
+  --panel: var(--app-side);
+  --panel-2: var(--app-hover);
+  --bg: var(--app-bg);
+  --accent: var(--app-accent);
+  --accent-hi: var(--app-accent-hover);
+  --accent-ink: var(--app-on-accent);
+  --danger: var(--app-danger);
+  --warning: var(--app-warning);
+}
+
+[data-app-theme="paper"] {
+  color-scheme: light;
+  --app-bg: #f6f1e7;
+  --app-side: #efe6d6;
+  --app-fg: #3c3226;
+  --app-dim: #746454;
+  --app-comment: #786754;
+  --app-accent: #aa4a07;
+  --app-var: #9f1239;
+  --app-def: #1d4ed8;
+  --app-kw: #0f766e;
+  --app-num: #2a2118;
+  --app-sel: #eadcc4;
+  --app-hover: #e7dcc8;
+  --app-line: #d1cbc0;
+  --app-line-strong: #b7b0a5;
+  --app-danger: #a61b1b;
+  --app-warning: #7a5200;
+  --app-on-accent: #ffffff;
+  --text: var(--app-fg);
+  --text-2: var(--app-dim);
+  --muted: var(--app-comment);
+  --line: var(--app-line);
+  --line-2: var(--app-line-strong);
+  --panel: var(--app-side);
+  --panel-2: var(--app-hover);
+  --bg: var(--app-bg);
+  --accent: var(--app-accent);
+  --accent-hi: var(--app-accent-hover);
+  --accent-ink: var(--app-on-accent);
+  --danger: var(--app-danger);
+  --warning: var(--app-warning);
+}
+
+[data-app-theme="dusk"] {
+  color-scheme: dark;
+  --app-bg: #1c2433;
+  --app-side: #151b28;
+  --app-fg: #d7e0f0;
+  --app-dim: #8b9bb3;
+  --app-comment: #7d8da6;
+  --app-accent: #8eb4ff;
+  --app-var: #f0a27a;
+  --app-def: #c4b5fd;
+  --app-kw: #7ddea0;
+  --app-num: #f1f5ff;
+  --app-sel: #2c3d5c;
+  --app-hover: #243044;
+  --app-line: #454d5d;
+  --app-line-strong: #5f6877;
+  --app-danger: #f7768e;
+  --app-warning: #e0af68;
+  --app-on-accent: #1c2433;
+  --text: var(--app-fg);
+  --text-2: var(--app-dim);
+  --muted: var(--app-comment);
+  --line: var(--app-line);
+  --line-2: var(--app-line-strong);
+  --panel: var(--app-side);
+  --panel-2: var(--app-hover);
+  --bg: var(--app-bg);
+  --accent: var(--app-accent);
+  --accent-hi: var(--app-accent-hover);
+  --accent-ink: var(--app-on-accent);
+  --danger: var(--app-danger);
+  --warning: var(--app-warning);
+}

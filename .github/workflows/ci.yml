@@ -34,6 +34,9 @@ jobs:
       - name: Linux build dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libwayland-dev libx11-dev
+      - name: Design tokens
+        if: runner.os == 'Linux'
+        run: python3 tests/check_design.py
       - run: cargo test --workspace --locked
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # Answers checked against exact maths and unit definitions, not fend.
