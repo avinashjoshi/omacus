@@ -1320,6 +1320,8 @@ section {
   width: 700px;
   max-width: 100%;
   margin-inline: auto;
+  /* One shadow for the whole phone. A shadow on each half paints across the crease. */
+  filter: drop-shadow(0 var(--space-4) var(--space-5) color-mix(in srgb, var(--black) 42%, transparent));
 }
 
 .foldable-ground {
@@ -1352,8 +1354,7 @@ section {
     var(--metal-deep) 100%);
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--white) 82%, transparent),
-    inset 0 -1px 0 var(--metal-edge),
-    0 var(--space-4) var(--space-5) color-mix(in srgb, var(--black) 42%, transparent);
+    inset 0 -1px 0 var(--metal-edge);
 }
 
 .foldable-half-left::before {
@@ -1380,7 +1381,6 @@ section {
   overflow: hidden;
   background: var(--app-bg);
   border: 1px solid var(--black);
-  box-shadow: inset 0 0 0 1px var(--black);
 }
 
 .foldable-status {
@@ -1397,11 +1397,21 @@ section {
 }
 
 .foldable-half-left .foldable-screen {
+  border-right: 0;
   border-radius: calc(var(--radius-lg) + var(--space-5)) 0 0 calc(var(--radius-lg) + var(--space-5));
+  box-shadow:
+    inset 1px 0 0 var(--black),
+    inset 0 1px 0 var(--black),
+    inset 0 -1px 0 var(--black);
 }
 
 .foldable-half-right .foldable-screen {
+  border-left: 0;
   border-radius: 0 calc(var(--radius-lg) + var(--space-5)) calc(var(--radius-lg) + var(--space-5)) 0;
+  box-shadow:
+    inset -1px 0 0 var(--black),
+    inset 0 1px 0 var(--black),
+    inset 0 -1px 0 var(--black);
 }
 
 .foldable-screen img {
@@ -1426,8 +1436,8 @@ section {
   z-index: 3;
   width: 1px;
   transform: translateX(-50%);
-  background: color-mix(in srgb, var(--black) 32%, transparent);
-  box-shadow: 1px 0 0 color-mix(in srgb, var(--white) 16%, transparent);
+  background: color-mix(in srgb, var(--white) 8%, transparent);
+  box-shadow: 1px 0 0 color-mix(in srgb, var(--black) 8%, transparent);
   pointer-events: none;
 }
 

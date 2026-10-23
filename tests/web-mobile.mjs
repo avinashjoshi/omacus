@@ -184,6 +184,10 @@ check(css.includes("img.cm-widgetBuffer"), "the answer spacer stays inline so a 
   check(foldCss.includes("aspect-ratio: 4 / 3"), "the unfolded phone is landscape, about 4:3");
   check(foldCss.includes("width: 700px"), "the unfolded phone stays a showpiece on a desktop");
   check(unfold.includes("foldable-status"), "the camera and time sit in a status strip");
+  check(foldCss.includes("color-mix(in srgb, var(--black) 8%, transparent)"), "the crease is a faint hairline");
+  check(foldCss.includes("border-right: 0"), "the halves do not draw a bar between them");
+  check(/\.foldable-device \{[^}]*drop-shadow\(/.test(foldCss), "the phone shadow belongs to the whole device");
+  check(!/\.foldable-half::before \{[^}]*var\(--space-5\)/.test(foldCss), "a half does not cast its shadow across the crease");
   check(!/rotate[XY]/.test(foldCss), "the unfolded phone lies flat");
   check(!/iPhone|iPad|Apple|Duo|Samsung|Pixel|Galaxy|PWA|Cactus/i.test(unfold), "the foldable section stays generic");
 }
