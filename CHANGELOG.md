@@ -2,11 +2,13 @@
 
 ## 0.2.12
 
-**Clearer release notes**
+**The web app works offline**
 
-What's new is written for you: a short title, then a sentence or two about what changed. The same words show on the updates page, in the app, and on GitHub.
+The web app is now at app.omacus.com. After the first visit it keeps working with no connection, including a reload, and your pages stay in the browser. A new version waits and asks before it reloads, so an unsaved edit is not lost.
 
-- A release that only changes how updates ship stays grouped with the next one
+- Opening omacus.com/app brings your saved pages along, then opens the app.
+- Opening or switching a page no longer draws a frame around the sheet.
+- What's new is a short title and a sentence or two, on the updates page and in the app.
 
 ## 0.2.11
 
