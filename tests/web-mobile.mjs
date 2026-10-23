@@ -161,39 +161,53 @@ function stopServer() {
   server.closeAllConnections?.();
 }
 
-const profile = join("/tmp", `omacus-chrome-${process.pid}`);
-const browser = spawn(chrome, [
-  "--headless=new",
-  "--disable-gpu",
-  "--no-sandbox",
-  "--disable-dev-shm-usage",
-  `--remote-debugging-port=0`,
-  `--user-data-dir=${profile}`,
-  "about:blank",
-], { stdio: ["ignore", "ignore", "ignore"] });
-
 // Chrome writes the port into the profile once DevTools is up. Reading stdout
-// for the "DevTools listening" line deadlocks when that pipe fills.
-const portFile = join(profile, "DevToolsActivePort");
-const started = Date.now();
-let version = null;
-while (!version && Date.now() - started < 20000) {
-  if (existsSync(portFile)) {
-    const port = readFileSync(portFile, "utf8").split("\n")[0].trim();
-    try {
-      version = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json());
-    } catch {
-      version = null;
+// for the "DevTools listening" line deadlocks when that pipe fills. The first
+// launch on a CI runner sometimes exits before that file exists, so try once more.
+async function launchChrome(attempt) {
+  const profile = join("/tmp", `omacus-chrome-${process.pid}-${attempt}`);
+  const child = spawn(chrome, [
+    "--headless=new",
+    "--disable-gpu",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--no-first-run",
+    `--remote-debugging-port=0`,
+    `--user-data-dir=${profile}`,
+    "about:blank",
+  ], { stdio: ["ignore", "ignore", "ignore"] });
+  const portFile = join(profile, "DevToolsActivePort");
+  const started = Date.now();
+  let version = null;
+  while (!version && Date.now() - started < 20000) {
+    if (child.exitCode != null) break;
+    if (existsSync(portFile)) {
+      const port = readFileSync(portFile, "utf8").split("\n")[0].trim();
+      try {
+        version = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json());
+      } catch {
+        version = null;
+      }
     }
+    if (!version) await new Promise((r) => setTimeout(r, 50));
   }
-  if (!version) await new Promise((r) => setTimeout(r, 50));
+  return { child, version };
 }
-if (!version?.webSocketDebuggerUrl) {
-  browser.kill();
+
+let launched = await launchChrome(1);
+if (!launched.version?.webSocketDebuggerUrl) {
+  launched.child.kill();
+  console.error("Chrome did not expose DevTools; trying again");
+  launched = await launchChrome(2);
+}
+if (!launched.version?.webSocketDebuggerUrl) {
+  launched.child.kill();
   server.close();
   console.error("Chrome did not expose DevTools");
   process.exit(1);
 }
+const browser = launched.child;
+const version = launched.version;
 
 const ws = new WebSocket(version.webSocketDebuggerUrl);
 await new Promise((resolve, reject) => {

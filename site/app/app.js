@@ -386,6 +386,8 @@ function openLock(mode, id) {
     el.lockError.textContent = "";
   }
   el.lock.hidden = false;
+  // Drop a value card that was already open. The lock dialog is the only popup.
+  view.dispatch({});
   const focus = change ? el.lockCurrent : el.lockPassword;
   if (!remove) focus?.focus();
 }
@@ -1706,7 +1708,7 @@ let explicitCompletion = false;
 let armingExplicit = false;
 
 function hoverBlocked() {
-  return !!renamePop || !!renameMenu || !!refPrompt;
+  return !!renamePop || !!renameMenu || !!refPrompt || !!(el.lock && !el.lock.hidden);
 }
 
 function hoverSource(view, pos) {
@@ -2213,7 +2215,7 @@ const editorExtensions = [
   hoverTooltip(hoverSource, {
     hoverTime: 250,
     hideOn(tr) {
-      return tr.docChanged || completionOpen(tr.state) || !!renamePop || !!renameMenu || !!refPrompt;
+      return tr.docChanged || completionOpen(tr.state) || hoverBlocked();
     },
   }),
   EditorView.updateListener.of((update) => {

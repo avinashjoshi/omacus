@@ -3293,7 +3293,8 @@ rental = rent + 50
                 || self.help.is_some()
                 || self.page_preview
                 || self.pending_delete.is_some()
-                || self.move_page.is_some(),
+                || self.move_page.is_some()
+                || self.lock_ask.is_some(),
         }
     }
 
@@ -5369,7 +5370,7 @@ struct PopState {
     value: bool,
     /// The page changed in the last moment. Value tips stay hidden.
     typing: bool,
-    /// A dialog is covering the page (switcher, help, preview, delete, move).
+    /// A dialog is covering the page (switcher, help, preview, delete, move, lock).
     dialog: bool,
 }
 
