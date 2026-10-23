@@ -131,7 +131,10 @@ check(css.includes(".note"), "comments are styled in the preview");
 check(js.includes("showSettingsTab"), "settings and about are tabs");
 check(js.includes("afterprint"), "print restores the window title");
 check(css.includes("var(--print-accent)") && tokens.includes("#1a3a5c"), "printed answers use a dark ink");
-check(/@page \{[^}]*margin:/.test(css), "printed pages have margins");
+check(/@page \{[^}]*margin:\s*0\.55in/.test(css), "printed pages use a slim margin");
+check(css.includes("pre.code") && css.includes("overflow-wrap: anywhere"), "a code block wraps a long line");
+check(tokens.includes("--print-code"), "printed code sits on a paper fill");
+check(css.includes(".page-preview-body") && /@media print[\s\S]*\.page-preview-body \{[^}]*padding:\s*0/.test(css), "print does not add the on-screen preview padding");
 check(js.includes("pill.dataset.value"), "clicking an answer copies the value, not the brackets");
 check(css.includes("body.answers-inline .res"), "hiding the column places answers inline");
 check(

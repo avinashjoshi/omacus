@@ -102,6 +102,7 @@
   --print-strong: #292524;
   --print-accent: #1a3a5c;
   --print-pill: #e8eef5;
+  --print-code: #f4f3f1;
 }
 
 /* Updates page, when the system is light. Same gold, on warm paper, darkened

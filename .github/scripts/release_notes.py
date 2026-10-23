@@ -19,6 +19,9 @@ import sys
 from pathlib import Path
 
 TITLE = re.compile(r"^\*\*(.+)\*\*$")
+# The GitHub release title is the notes' headline. A bare version is the
+# placeholder the workflow used to publish, and it fails the check.
+GENERIC_TITLE = re.compile(r"^Omacus v\d+\.\d+\.\d+$")
 UNRELEASED = re.compile(r"^## Unreleased[ \t]*$", re.M)
 COMMENT = re.compile(r"<!--.*?-->", re.S)
 
@@ -38,6 +41,10 @@ JARGON = (
     (re.compile(r"\bfend\b", re.I), "engine jargon"),
     (re.compile(r"\bstdio\b", re.I), "tooling jargon"),
     (re.compile(r"Co-authored-by|Signed-off-by"), "a commit trailer"),
+    (
+        re.compile(r"a short title and a sentence or two", re.I),
+        "a note about the notes",
+    ),
 )
 
 
@@ -91,6 +98,8 @@ def problems(body):
         found.append("a short title in bold, on the first line")
     if title and not 8 <= len(title) <= 80:
         found.append("a title of one short line")
+    if title and GENERIC_TITLE.match(title):
+        found.append("a title that is just the version")
     sentences = sum(1 for line in lines[1:] if _sentence(line))
     bullets = sum(1 for line in lines if line.startswith("- "))
     if sentences < 1:
@@ -100,22 +109,44 @@ def problems(body):
     return list(dict.fromkeys(found))
 
 
+def headline(body):
+    """The bold title on the first line, or empty when there isn't one."""
+    text = COMMENT.sub("", body or "").strip()
+    lines = _lines(text)
+    if lines and (match := TITLE.match(lines[0])):
+        return match.group(1).strip()
+    return ""
+
+
 def _path(argv):
     return Path(argv[3]) if len(argv) > 3 else Path("CHANGELOG.md")
 
 
 def main(argv):
-    if len(argv) < 3 or argv[1] not in ("promote", "extract"):
-        print("usage: release_notes.py promote|extract VERSION [CHANGELOG]", file=sys.stderr)
+    if len(argv) < 3 or argv[1] not in ("promote", "extract", "headline"):
+        print(
+            "usage: release_notes.py promote|extract|headline VERSION [CHANGELOG]",
+            file=sys.stderr,
+        )
         return 2
     path = _path(argv)
     text = path.read_text()
     version = argv[2]
-    if argv[1] == "extract":
+    if argv[1] in ("extract", "headline"):
         body = section(text, version)
         if not body:
             return 2
-        print(body)
+        if argv[1] == "extract":
+            print(body)
+            return 0
+        title = headline(body)
+        if not title or GENERIC_TITLE.match(title):
+            print(
+                "release title must be the notes' headline, not Omacus vX.Y.Z",
+                file=sys.stderr,
+            )
+            return 1
+        print(title)
         return 0
     try:
         updated = promote(text, version)
