@@ -208,26 +208,50 @@ fn tools_evaluate_and_read_pages() {
     let got = resource.to_string();
     assert!(got.contains("milk"), "{resource}");
 
+    let path = root.join("pages").join(format!("{id}.txt"));
+    let plain = std::fs::read_to_string(&path).unwrap();
+    let (key, wrap) = omacus_engine::lock::create("open-sesame").unwrap();
+    let sealed = omacus_engine::lock::seal(&key, &plain, &wrap, id.as_bytes()).unwrap();
+    std::fs::write(&path, &sealed).unwrap();
+    let on_disk = std::fs::read_to_string(&path).unwrap();
+    assert!(on_disk.starts_with("OMACUS-LOCK/1\n"), "{on_disk}");
+    assert!(
+        !on_disk.contains("milk") && !on_disk.contains("Groceries"),
+        "{on_disk}"
+    );
     std::fs::write(
         root.join("pages").join(format!("{id}.lock")),
-        "\"open-sesame\"\n",
+        "\"side-secret\"\n",
     )
     .unwrap();
+
     let hidden = client.request(
         8,
         "tools/call",
         serde_json::json!({
             "name": "read_page",
-            "arguments": { "name": "Groceries" }
+            "arguments": { "name": id }
         }),
     );
     let hidden_text = tool_text(&hidden);
     assert_eq!(hidden["result"]["isError"], true, "{hidden}");
     assert!(!hidden_text.contains("milk"), "{hidden_text}");
+    assert!(!hidden_text.contains("OMACUS-LOCK"), "{hidden_text}");
     assert!(hidden_text.contains("locked"), "{hidden_text}");
 
-    let opened = client.request(
+    let resource = client.request(
         9,
+        "resources/read",
+        serde_json::json!({ "uri": format!("omacus://page/{id}") }),
+    );
+    let got = resource.to_string();
+    assert!(
+        !got.contains("milk") && !got.contains("OMACUS-LOCK"),
+        "{resource}"
+    );
+
+    let opened = client.request(
+        10,
         "tools/call",
         serde_json::json!({
             "name": "read_page",
@@ -235,5 +259,8 @@ fn tools_evaluate_and_read_pages() {
         }),
     );
     assert!(tool_text(&opened).contains("milk $3"), "{opened}");
+    let again = std::fs::read_to_string(&path).unwrap();
+    assert!(again.starts_with("OMACUS-LOCK/1\n"), "{again}");
+    assert!(!again.contains("milk"), "{again}");
     let _ = std::fs::remove_dir_all(root);
 }

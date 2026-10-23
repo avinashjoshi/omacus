@@ -75,7 +75,7 @@ check(js.includes('e.key === ","') && js.includes('e.key === "\\\\"'), "settings
 check(js.includes("previewHtml"), "preview renders from the engine");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-4"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('const CACHE = "omacus-app-5"'), "the app cache name moved past the cache-first shell");
 check(sw.includes('"/app/tree.js"'), "the folder tree is part of the offline shell");
 check(!sw.includes("omacus-app-2"), "the old app cache name is gone");
 check(sw.includes("if (res.ok)") && sw.includes("cache.put"), "only a successful response is stored for offline");
@@ -860,8 +860,8 @@ async function waitForAppCache() {
     try {
       last = await evalJson(`(async () => {
         const keys = await caches.keys();
-        if (!keys.includes("omacus-app-4")) return "no-cache";
-        const urls = (await (await caches.open("omacus-app-4")).keys()).map((k) => new URL(k.url).pathname);
+        if (!keys.includes("omacus-app-5")) return "no-cache";
+        const urls = (await (await caches.open("omacus-app-5")).keys()).map((k) => new URL(k.url).pathname);
         const need = ["/app/", "/app/app.js", "/app/pkg/omacus_web_bg.wasm"];
         const missing = need.filter((path) => !urls.includes(path));
         return missing.length ? "missing " + missing.join(",") : "ready";

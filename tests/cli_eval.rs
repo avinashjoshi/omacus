@@ -212,20 +212,61 @@ fn a_locked_page_is_not_printed() {
         .next()
         .unwrap()
         .to_string();
+    let path = root.join("pages").join(format!("{id}.txt"));
+    let plain = std::fs::read_to_string(&path).unwrap();
+    assert!(plain.contains("cabin $400"), "{plain}");
+    let (key, wrap) = omacus_engine::lock::create("open-sesame").unwrap();
+    let sealed = omacus_engine::lock::seal(&key, &plain, &wrap, id.as_bytes()).unwrap();
+    std::fs::write(&path, &sealed).unwrap();
+    let on_disk = std::fs::read_to_string(&path).unwrap();
+    assert!(on_disk.starts_with("OMACUS-LOCK/1\n"), "{on_disk}");
+    assert!(
+        !on_disk.contains("cabin") && !on_disk.contains("Weekend"),
+        "{on_disk}"
+    );
+    // A sidecar or a password string in state.json must not open the page.
     std::fs::write(
         root.join("pages").join(format!("{id}.lock")),
-        "\"open-sesame\"\n",
+        "\"side-secret\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("state.json"),
+        format!(r#"{{"locks":{{"{id}":"side-secret"}}}}"#),
     )
     .unwrap();
 
-    let hidden = omacus(&root, &["pages", "show", "Weekend"]);
+    let hidden = omacus(&root, &["pages", "show", &id]);
     assert!(!hidden.status.success());
     let err = String::from_utf8_lossy(&hidden.stderr);
     let shown = String::from_utf8_lossy(&hidden.stdout);
     assert!(err.contains("locked"), "{err}");
     assert!(
-        !err.contains("cabin") && !shown.contains("cabin"),
+        !err.contains("cabin") && !shown.contains("cabin") && !shown.contains("OMACUS-LOCK"),
         "{err} {shown}"
+    );
+
+    let listed = omacus(&root, &["pages", "list"]);
+    let listed = text(&listed);
+    assert!(listed.contains("locked"), "{listed}");
+    assert!(
+        !listed.contains("cabin") && !listed.contains("Weekend"),
+        "{listed}"
+    );
+
+    let decoy = omacus(
+        &root,
+        &["pages", "show", "--password", "side-secret", "Weekend"],
+    );
+    assert!(!decoy.status.success());
+    let decoy_out = format!(
+        "{} {}",
+        String::from_utf8_lossy(&decoy.stderr),
+        String::from_utf8_lossy(&decoy.stdout)
+    );
+    assert!(
+        !decoy_out.contains("cabin") && !decoy_out.contains("OMACUS-LOCK"),
+        "{decoy_out}"
     );
 
     let opened = omacus(

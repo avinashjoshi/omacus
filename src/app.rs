@@ -183,6 +183,34 @@ enum SheetAction {
     ToggleFolder(String),
     RenameFolder(String),
     DeleteFolder(String),
+    LockPage(usize),
+    LockFolder(String),
+    UnlockFolder(String),
+    ChangePage(usize),
+    ChangeFolder(String),
+    RemovePage(usize),
+    RemoveFolder(String),
+    LockNow,
+}
+
+/// Password dialog. Unlocking the page on screen uses the page itself, not this.
+#[derive(Clone)]
+enum LockAsk {
+    CreatePage(String),
+    CreateFolder(String),
+    UnlockFolder(String),
+    ChangePage(String),
+    ChangeFolder(String),
+    RemovePage(String),
+    RemoveFolder(String),
+}
+
+/// What the page menu needs to know about a lock. `lock` is `Some(true)` when closed.
+#[derive(Clone, Copy)]
+struct PageMenu {
+    covered: bool,
+    lock: Option<bool>,
+    any_open: bool,
 }
 
 /// What a sidebar drag is carrying.
@@ -469,6 +497,20 @@ pub struct OmacusApp {
     /// Developer option for the website: `OMACUS_SCREENSHOT=out.png` saves the window's
     /// own pixels (nothing behind it) and quits.
     screenshot: Option<(std::path::PathBuf, u32)>,
+    lock_ask: Option<LockAsk>,
+    lock_password: String,
+    lock_confirm: String,
+    lock_current: String,
+    lock_error: String,
+    /// The password field takes focus on the frame the dialog opens.
+    lock_focus: bool,
+    /// Folder to add a page to once its password is entered.
+    pending_new: Option<String>,
+    /// Password typed into the locked-page prompt.
+    gate_password: String,
+    gate_error: String,
+    /// Last key or pointer, for the idle lock.
+    last_input: Instant,
 }
 
 impl OmacusApp {
@@ -596,6 +638,16 @@ impl OmacusApp {
                 Some(name) => Some(help::Tab::from_name(name)),
             },
             screenshot: std::env::var_os("OMACUS_SCREENSHOT").map(|p| (p.into(), 0)),
+            lock_ask: None,
+            lock_password: String::new(),
+            lock_confirm: String::new(),
+            lock_current: String::new(),
+            lock_error: String::new(),
+            lock_focus: false,
+            pending_new: None,
+            gate_password: String::new(),
+            gate_error: String::new(),
+            last_input: Instant::now(),
         };
         if let Ok(mode) = std::env::var("OMACUS_SCREENSHOT_HELP")
             && (mode == "rename" || mode == "renamed")
@@ -640,8 +692,12 @@ rental = rent + 50
                 id: sheet.id.clone(),
                 handle: sheet.handle.clone(),
                 title: sheet.heading(),
-                text: sheet.text.clone(),
-                locked: sheet.locked,
+                text: if sheet.revealed() {
+                    sheet.text.clone()
+                } else {
+                    String::new()
+                },
+                locked: !sheet.revealed(),
                 deleted: false,
                 elsewhere: for_rename && sheet.id != active && self.store.opened_elsewhere(sheet),
             });
@@ -654,8 +710,12 @@ rental = rent + 50
                 id: sheet.id.clone(),
                 handle: sheet.handle.clone(),
                 title: sheet.heading(),
-                text: sheet.text.clone(),
-                locked: false,
+                text: if sheet.revealed() {
+                    sheet.text.clone()
+                } else {
+                    String::new()
+                },
+                locked: !sheet.revealed(),
                 deleted: true,
                 elsewhere: false,
             });
@@ -667,9 +727,9 @@ rental = rent + 50
             pages.push(engine::xref::Page {
                 id: item.id.clone(),
                 handle: item.handle.clone(),
-                title: heading_of(&item.text),
+                title: item.title.clone(),
                 text: item.text.clone(),
-                locked: false,
+                locked: item.locked,
                 deleted: true,
                 elsewhere: false,
             });
@@ -779,7 +839,11 @@ rental = rent + 50
     fn apply(&mut self, action: SheetAction) {
         match action {
             SheetAction::Select(i) => self.store.select(i),
-            SheetAction::New => self.store.new_sheet(""),
+            SheetAction::New => {
+                if !self.try_new_page(None) {
+                    return;
+                }
+            }
             SheetAction::Delete(i) => {
                 if i < self.store.sheets.len() {
                     self.pending_delete = Some(PendingDelete::Page(i));
@@ -800,7 +864,11 @@ rental = rent + 50
                 }
                 return;
             }
-            SheetAction::NewIn(parent) => self.store.new_sheet_in(parent.as_deref(), ""),
+            SheetAction::NewIn(parent) => {
+                if !self.try_new_page(Some(parent)) {
+                    return;
+                }
+            }
             SheetAction::MoveTo(i) => {
                 if let Some(id) = self.store.sheets.get(i).map(|s| s.id.clone()) {
                     self.move_page = Some(id);
@@ -831,10 +899,16 @@ rental = rent + 50
                 self.store.move_active(step);
             }
             SheetAction::Copy(i) => {
+                if self.refuse_locked(i) {
+                    return;
+                }
                 self.copy_with(i, engine::with_answers, "Page copied with answers");
                 return;
             }
             SheetAction::Share(i) => {
+                if self.refuse_locked(i) {
+                    return;
+                }
                 let link = omacus_engine::share::link(&self.store.sheets[i].text);
                 let note = match link.len() {
                     n if n > 8000 => " (long: some apps may cut it off)",
@@ -850,6 +924,9 @@ rental = rent + 50
                 return;
             }
             SheetAction::CopyMarkdown(i) => {
+                if self.refuse_locked(i) {
+                    return;
+                }
                 self.copy_with(i, engine::markdown_table, "Page copied as a Markdown table");
                 return;
             }
@@ -870,6 +947,13 @@ rental = rent + 50
                 return;
             }
             SheetAction::Preview => {
+                if self
+                    .store
+                    .concealed(&self.store.sheets[self.store.active].id)
+                {
+                    self.toast = Some(Toast::info("Unlock this page to preview or print it."));
+                    return;
+                }
                 self.page_preview = !self.page_preview;
                 self.popup = None;
                 if !self.page_preview {
@@ -877,11 +961,232 @@ rental = rent + 50
                 }
                 return;
             }
+            SheetAction::LockPage(i) => {
+                if let Some(id) = self.store.sheets.get(i).map(|s| s.id.clone()) {
+                    self.open_lock(LockAsk::CreatePage(id));
+                }
+                return;
+            }
+            SheetAction::LockFolder(id) => {
+                self.open_lock(LockAsk::CreateFolder(id));
+                return;
+            }
+            SheetAction::UnlockFolder(id) => {
+                self.open_lock(LockAsk::UnlockFolder(id));
+                return;
+            }
+            SheetAction::ChangePage(i) => {
+                if let Some(id) = self.store.sheets.get(i).map(|s| s.id.clone()) {
+                    self.open_lock(LockAsk::ChangePage(id));
+                }
+                return;
+            }
+            SheetAction::ChangeFolder(id) => {
+                self.open_lock(LockAsk::ChangeFolder(id));
+                return;
+            }
+            SheetAction::RemovePage(i) => {
+                if let Some(id) = self.store.sheets.get(i).map(|s| s.id.clone()) {
+                    self.open_lock(LockAsk::RemovePage(id));
+                }
+                return;
+            }
+            SheetAction::RemoveFolder(id) => {
+                self.open_lock(LockAsk::RemoveFolder(id));
+                return;
+            }
+            SheetAction::LockNow => {
+                self.lock_everything();
+                return;
+            }
         }
         self.sheet_switched();
     }
 
+    /// `None` is a page in the open page's folder. `Some` is an explicit folder
+    /// (`Some(None)` is the root). `false` when a locked folder has to be opened first.
+    fn try_new_page(&mut self, parent: Option<Option<String>>) -> bool {
+        let created = match &parent {
+            None => self.store.new_sheet(""),
+            Some(folder) => self.store.new_sheet_in(folder.as_deref(), ""),
+        };
+        if created {
+            return true;
+        }
+        let folder = match parent {
+            None => self
+                .store
+                .sheets
+                .get(self.store.active)
+                .and_then(|s| self.store.folder_of(&s.id)),
+            Some(folder) => folder,
+        };
+        if let Some(id) = self.store.needs_unlock(folder.as_deref()) {
+            self.pending_new = Some(id.clone());
+            self.open_lock(LockAsk::UnlockFolder(id));
+            self.toast = Some(Toast::info("Unlock the folder before adding a page."));
+        }
+        false
+    }
+
+    fn refuse_locked(&mut self, i: usize) -> bool {
+        let locked = self
+            .store
+            .sheets
+            .get(i)
+            .is_some_and(|s| self.store.concealed(&s.id));
+        if locked {
+            self.toast = Some(Toast::info("Unlock this page first."));
+        }
+        locked
+    }
+
+    fn open_lock(&mut self, ask: LockAsk) {
+        self.lock_ask = Some(ask);
+        self.lock_password.clear();
+        self.lock_confirm.clear();
+        self.lock_current.clear();
+        self.lock_error.clear();
+        self.lock_focus = true;
+        self.focus_editor = false;
+        self.switcher = None;
+        self.popup = None;
+    }
+
+    fn lock_everything(&mut self) {
+        self.store.lock_now();
+        self.gate_password.clear();
+        self.gate_error.clear();
+        self.page_preview = false;
+        self.save();
+        self.sheet_switched();
+        self.toast = Some(Toast::info("Locked"));
+        self.last_input = Instant::now();
+    }
+
+    fn page_menu(&self, i: usize) -> PageMenu {
+        let id = self
+            .store
+            .sheets
+            .get(i)
+            .map(|s| s.id.as_str())
+            .unwrap_or("");
+        PageMenu {
+            covered: self.store.folder_covers_page(id),
+            lock: self.store.page_lock(id),
+            any_open: self.store.any_unlocked(),
+        }
+    }
+
+    /// Move a page or folder. A closed locked folder refuses plaintext dropped into it.
+    fn place_page(&mut self, id: &str, spot: Place) {
+        let into_locked = match &spot {
+            Place::Into(folder) => self.store.folder_lock(folder) == Some(true),
+            _ => false,
+        };
+        if self.store.place(id, spot) {
+            self.touched();
+        } else if into_locked {
+            self.toast = Some(Toast::info(
+                "Unlock the folder before moving a page into it.",
+            ));
+        }
+    }
+
+    fn submit_lock(&mut self) {
+        let Some(ask) = self.lock_ask.clone() else {
+            return;
+        };
+        let mismatch = "Those passwords don't match.";
+        let result = match &ask {
+            LockAsk::CreatePage(id) => {
+                if self.lock_password != self.lock_confirm {
+                    Err(mismatch.into())
+                } else {
+                    self.store.lock_page(id, &self.lock_password)
+                }
+            }
+            LockAsk::CreateFolder(id) => {
+                if self.lock_password != self.lock_confirm {
+                    Err(mismatch.into())
+                } else {
+                    self.store.lock_folder(id, &self.lock_password)
+                }
+            }
+            LockAsk::UnlockFolder(id) => self.store.unlock_folder(id, &self.lock_password),
+            LockAsk::ChangePage(id) => {
+                if self.lock_password != self.lock_confirm {
+                    Err(mismatch.into())
+                } else {
+                    self.store
+                        .change_page_password(id, &self.lock_current, &self.lock_password)
+                }
+            }
+            LockAsk::ChangeFolder(id) => {
+                if self.lock_password != self.lock_confirm {
+                    Err(mismatch.into())
+                } else {
+                    self.store
+                        .change_folder_password(id, &self.lock_current, &self.lock_password)
+                }
+            }
+            LockAsk::RemovePage(id) => self.store.remove_page_lock(id),
+            LockAsk::RemoveFolder(id) => self.store.remove_folder_lock(id),
+        };
+        match result {
+            Ok(()) => {
+                let unlocked = matches!(ask, LockAsk::UnlockFolder(_));
+                let folder = self.pending_new.clone();
+                self.lock_ask = None;
+                self.focus_editor = true;
+                if unlocked && let Some(id) = folder {
+                    self.pending_new = None;
+                    self.store.new_sheet_in(Some(&id), "");
+                }
+                self.sheet_switched();
+                self.touched();
+            }
+            Err(e) => self.lock_error = e,
+        }
+    }
+
+    fn submit_gate(&mut self) {
+        let id = self.store.sheets[self.store.active].id.clone();
+        match self.store.unlock_page(&id, &self.gate_password) {
+            Ok(()) => {
+                self.gate_password.clear();
+                self.gate_error.clear();
+                self.focus_editor = true;
+                self.last_input = Instant::now();
+                self.sheet_switched();
+            }
+            Err(e) => self.gate_error = e,
+        }
+    }
+
     fn handle_background_updates(&mut self, ctx: &egui::Context) {
+        let busy = ctx.input(|i| {
+            i.pointer.any_pressed()
+                || i.pointer.delta() != egui::Vec2::ZERO
+                || i.events.iter().any(|e| {
+                    matches!(
+                        e,
+                        egui::Event::Key { pressed: true, .. }
+                            | egui::Event::Text(_)
+                            | egui::Event::PointerMoved(_)
+                    )
+                })
+        });
+        if busy {
+            self.last_input = Instant::now();
+        }
+        let minutes = self.settings.lock_minutes;
+        if minutes > 0
+            && self.store.any_unlocked()
+            && self.last_input.elapsed() >= Duration::from_secs(u64::from(minutes) * 60)
+        {
+            self.lock_everything();
+        }
         let system_dark = is_system_dark(ctx);
         if self.theme_changed.swap(false, Ordering::Relaxed) || system_dark != self.system_dark {
             self.system_dark = system_dark;
@@ -940,6 +1245,15 @@ rental = rent + 50
 
     /// Keys are consumed here, before the editor sees them.
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        // The password dialog wants the keystrokes, including Esc to close.
+        if self.lock_ask.is_some() {
+            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+                self.lock_ask = None;
+                self.pending_new = None;
+                self.focus_editor = true;
+            }
+            return;
+        }
         let chords = ctx.input_mut(|i| take_chords(&mut i.events));
         let mut toggle_switcher = false;
         let mut prev_sheet = false;
@@ -962,6 +1276,7 @@ rental = rent + 50
             }
         }
         if quit {
+            self.store.lock_now();
             self.save();
             ctx.send_viewport_cmd(ViewportCommand::Close);
             return;
@@ -1991,13 +2306,16 @@ rental = rent + 50
             painter.circle_filled(dots_rect.center() + vec2(dx, 0.0), 2.0, color);
         }
         let (first, last) = self.store.at_sibling_edge(i);
-        menu.show(|ui| sheet_menu(ui, i, !first, !last, &mut action));
+        let page_menu = self.page_menu(i);
+        menu.show(|ui| sheet_menu(ui, i, !first, !last, page_menu, &mut action));
         dots.on_hover_text("Share, copy and more");
         ui.add_space(2.0);
 
         if let Some(a) = action {
             self.apply(a);
-            self.focus_editor = true;
+            if self.lock_ask.is_none() {
+                self.focus_editor = true;
+            }
         }
     }
 
@@ -2195,6 +2513,7 @@ rental = rent + 50
                                     indent,
                                     chevron: Some(*collapsed),
                                     drag: true,
+                                    lock: self.store.folder_lock(folder_id),
                                 },
                             );
                             resp.dnd_set_drag_payload(DragPayload {
@@ -2212,14 +2531,16 @@ rental = rent + 50
                                 dots_button(ui, &dots, &theme, open);
                             }
                             let can_nest = self.store.can_nest_folder(Some(folder_id));
+                            let flock = self.store.folder_lock(folder_id);
+                            let any_open = self.store.any_unlocked();
                             let folder_id = folder_id.clone();
                             menu.show(|ui| {
-                                folder_menu(ui, &folder_id, can_nest, &mut action);
+                                folder_menu(ui, &folder_id, can_nest, flock, any_open, &mut action);
                             });
                             let pick = resp.clicked() && !dots.clicked();
                             dots.on_hover_text("Rename, or delete the folder");
                             resp.context_menu(|ui| {
-                                folder_menu(ui, &folder_id, can_nest, &mut action);
+                                folder_menu(ui, &folder_id, can_nest, flock, any_open, &mut action);
                             });
                             if pick {
                                 action = Some(SheetAction::ToggleFolder(folder_id.clone()));
@@ -2244,6 +2565,7 @@ rental = rent + 50
                                 headings.get(id).map(String::as_str).unwrap_or("Untitled");
                             let active = i == self.store.active && viewing.is_none();
                             let (first, last) = self.store.at_sibling_edge(i);
+                            let page_menu = self.page_menu(i);
                             let resp = sidebar_row(
                                 ui,
                                 &theme,
@@ -2254,6 +2576,7 @@ rental = rent + 50
                                     indent,
                                     chevron: None,
                                     drag: true,
+                                    lock: self.store.page_lock(id),
                                 },
                             );
                             resp.dnd_set_drag_payload(DragPayload {
@@ -2267,13 +2590,17 @@ rental = rent + 50
                             if active || resp.hovered() || dots.hovered() || open {
                                 dots_button(ui, &dots, &theme, open);
                             }
-                            menu.show(|ui| sheet_menu(ui, i, !first, !last, &mut action));
+                            menu.show(|ui| {
+                                sheet_menu(ui, i, !first, !last, page_menu, &mut action)
+                            });
                             let pick = resp.clicked() && !dots.clicked();
                             dots.on_hover_text("Share, copy and more");
                             if pick {
                                 action = Some(SheetAction::Select(i));
                             }
-                            resp.context_menu(|ui| sheet_menu(ui, i, !first, !last, &mut action));
+                            resp.context_menu(|ui| {
+                                sheet_menu(ui, i, !first, !last, page_menu, &mut action);
+                            });
                             self.note_drop(
                                 ui,
                                 &resp,
@@ -2294,7 +2621,11 @@ rental = rent + 50
                     ui.add_space(4.0);
                     let trash = self.trash.clone();
                     for item in trash {
-                        let heading = heading_of(&item.text);
+                        let heading = if item.locked {
+                            "Locked".to_string()
+                        } else {
+                            heading_of(&item.text)
+                        };
                         let selected = viewing.as_deref() == Some(item.id.as_str());
                         let resp = sidebar_row(
                             ui,
@@ -2306,6 +2637,7 @@ rental = rent + 50
                                 indent: 0.0,
                                 chevron: None,
                                 drag: false,
+                                lock: item.locked.then_some(true),
                             },
                         );
                         let dots = sidebar_dots(
@@ -2378,8 +2710,7 @@ rental = rent + 50
             self.paint_drag_chip(ui.ctx());
         }
         if let Some((id, spot)) = dropped {
-            let _ = self.store.place(&id, spot);
-            self.touched();
+            self.place_page(&id, spot);
         }
 
         ui.add_space(6.0);
@@ -3852,7 +4183,11 @@ rental = rent + 50
 
     fn preview_sheet(&mut self, ui: &mut egui::Ui, item: &Trashed) {
         let theme = self.theme.clone();
-        let heading = heading_of(&item.text);
+        let heading = if item.locked {
+            "Locked".to_string()
+        } else {
+            heading_of(&item.text)
+        };
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new(heading)
@@ -3893,6 +4228,16 @@ rental = rent + 50
                 .color(theme.comment),
         );
         ui.add_space(8.0);
+        if item.locked {
+            ui.label(
+                egui::RichText::new(
+                    "This page is locked. Restore it and enter the password to read it.",
+                )
+                .size(13.5)
+                .color(theme.dim),
+            );
+            return;
+        }
         let mut text = item.text.clone();
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -4114,6 +4459,200 @@ rental = rent + 50
         }
     }
 
+    fn show_lock_gate(&mut self, ui: &mut egui::Ui) {
+        let theme = self.theme.clone();
+        ui.add_space(36.0);
+        ui.label(
+            egui::RichText::new("This page is locked")
+                .size(18.0)
+                .color(theme.foreground),
+        );
+        ui.add_space(6.0);
+        ui.label(
+            egui::RichText::new("Enter the password to open it.")
+                .size(13.5)
+                .color(theme.dim),
+        );
+        ui.add_space(12.0);
+        let mut password = self.gate_password.clone();
+        let resp = ui.add(
+            TextEdit::singleline(&mut password)
+                .password(true)
+                .hint_text("Password")
+                .desired_width(280.0)
+                .font(FontId::proportional(15.0)),
+        );
+        if std::mem::take(&mut self.focus_editor) {
+            resp.request_focus();
+        }
+        let submit = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if password != self.gate_password {
+            self.gate_error.clear();
+        }
+        self.gate_password = password;
+        if !self.gate_error.is_empty() {
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new(&self.gate_error)
+                    .size(12.5)
+                    .color(theme.keyword),
+            );
+        }
+        ui.add_space(10.0);
+        let button = ui
+            .add(
+                egui::Button::new(
+                    egui::RichText::new("Unlock")
+                        .size(13.5)
+                        .color(theme.background),
+                )
+                .fill(theme.accent)
+                .corner_radius(CornerRadius::same(6))
+                .min_size(vec2(0.0, 30.0)),
+            )
+            .clicked();
+        if submit || button {
+            self.submit_gate();
+        }
+    }
+
+    fn show_lock(&mut self, ctx: &egui::Context) {
+        let Some(ask) = self.lock_ask.clone() else {
+            return;
+        };
+        let theme = self.theme.clone();
+        let mut password = self.lock_password.clone();
+        let mut confirm = self.lock_confirm.clone();
+        let mut current = self.lock_current.clone();
+        let error = self.lock_error.clone();
+        let mut grab = self.lock_focus;
+        let mut submit = false;
+        let mut cancel = false;
+        let (title, detail, confirm_label, fields) = match &ask {
+            LockAsk::CreatePage(_) => (
+                "Lock page",
+                "A forgotten password can't be recovered.",
+                "Lock",
+                LockFields::New,
+            ),
+            LockAsk::CreateFolder(_) => (
+                "Lock folder",
+                "One password locks every page in this folder. A forgotten password can't be recovered.",
+                "Lock",
+                LockFields::New,
+            ),
+            LockAsk::UnlockFolder(_) => (
+                "Unlock folder",
+                "Enter the password to open the pages in this folder.",
+                "Unlock",
+                LockFields::Password,
+            ),
+            LockAsk::ChangePage(_) | LockAsk::ChangeFolder(_) => (
+                "Change password",
+                "A forgotten password can't be recovered.",
+                "Change",
+                LockFields::Change,
+            ),
+            LockAsk::RemovePage(_) => (
+                "Remove lock",
+                "This page will be stored without a password.",
+                "Remove lock",
+                LockFields::None,
+            ),
+            LockAsk::RemoveFolder(_) => (
+                "Remove lock",
+                "Pages in this folder will be stored without a password.",
+                "Remove lock",
+                LockFields::None,
+            ),
+        };
+        let frame = Frame::NONE
+            .fill(theme.sidebar)
+            .stroke(egui::Stroke::new(1.0, theme.selection))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(Margin::symmetric(16, 14));
+        let modal = egui::Modal::new(egui::Id::unique("omacus-lock"))
+            .frame(frame)
+            .backdrop_color(Color32::from_black_alpha(140))
+            .show(ctx, |ui| {
+                ui.set_width(320.0);
+                ui.label(
+                    egui::RichText::new(title)
+                        .size(16.0)
+                        .color(theme.foreground),
+                );
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new(detail).size(13.0).color(theme.dim));
+                ui.add_space(10.0);
+                let enter = match fields {
+                    LockFields::None => false,
+                    LockFields::Password => {
+                        password_field(ui, &mut password, "Password", &mut grab)
+                    }
+                    LockFields::New => {
+                        let first = password_field(ui, &mut password, "Password", &mut grab);
+                        ui.add_space(6.0);
+                        let second =
+                            password_field(ui, &mut confirm, "Confirm password", &mut grab);
+                        first || second
+                    }
+                    LockFields::Change => {
+                        let first = password_field(ui, &mut current, "Current password", &mut grab);
+                        ui.add_space(6.0);
+                        let second = password_field(ui, &mut password, "New password", &mut grab);
+                        ui.add_space(6.0);
+                        let third = password_field(ui, &mut confirm, "Confirm password", &mut grab);
+                        first || second || third
+                    }
+                };
+                if !error.is_empty() {
+                    ui.add_space(6.0);
+                    ui.label(egui::RichText::new(&error).size(12.5).color(theme.keyword));
+                }
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    submit = ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(confirm_label)
+                                    .size(13.5)
+                                    .color(theme.background),
+                            )
+                            .fill(theme.accent)
+                            .corner_radius(CornerRadius::same(6))
+                            .min_size(vec2(0.0, 30.0)),
+                        )
+                        .clicked()
+                        || enter;
+                    cancel = ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("Cancel")
+                                    .size(13.5)
+                                    .color(theme.foreground),
+                            )
+                            .corner_radius(CornerRadius::same(6))
+                            .min_size(vec2(0.0, 30.0)),
+                        )
+                        .clicked();
+                });
+            });
+        self.lock_password = password;
+        self.lock_confirm = confirm;
+        self.lock_current = current;
+        self.lock_focus = grab;
+        if modal.should_close() {
+            cancel = true;
+        }
+        if submit {
+            self.submit_lock();
+        } else if cancel {
+            self.lock_ask = None;
+            self.pending_new = None;
+            self.focus_editor = true;
+        }
+    }
+
     fn show_move(&mut self, ctx: &egui::Context) {
         let Some(page_id) = self.move_page.clone() else {
             return;
@@ -4218,8 +4757,7 @@ rental = rent + 50
                     Some(id) => Place::Into(id),
                     None => Place::RootEnd,
                 };
-                let _ = self.store.place(&page_id, spot);
-                self.touched();
+                self.place_page(&page_id, spot);
             }
             self.move_page = None;
             self.focus_editor = true;
@@ -4294,7 +4832,13 @@ rental = rent + 50
             .trash
             .iter()
             .find(|t| t.id == id)
-            .map(|t| heading_of(&t.text))
+            .map(|t| {
+                if t.locked {
+                    "Locked".into()
+                } else {
+                    heading_of(&t.text)
+                }
+            })
             .unwrap_or_else(|| "this page".into());
         let theme = self.theme.clone();
         let mut purge = false;
@@ -4408,10 +4952,17 @@ impl eframe::App for OmacusApp {
                 bottom: 20,
             });
         egui::CentralPanel::default().frame(frame).show(ui, |ui| {
+            let concealed = self
+                .store
+                .sheets
+                .get(self.store.active)
+                .is_some_and(|s| self.store.concealed(&s.id));
             if self.page_preview {
                 self.show_page_preview(ui);
             } else if let Some(item) = self.current_preview() {
                 self.preview_sheet(ui, &item);
+            } else if concealed {
+                self.show_lock_gate(ui);
             } else {
                 self.sheet_bar(ui);
                 egui::ScrollArea::vertical()
@@ -4426,6 +4977,7 @@ impl eframe::App for OmacusApp {
         self.show_update(&ctx);
         self.show_delete(&ctx);
         self.show_move(&ctx);
+        self.show_lock(&ctx);
         self.show_rename(&ctx);
         self.show_handle(&ctx);
         self.show_replace(&ctx);
@@ -4438,11 +4990,13 @@ impl eframe::App for OmacusApp {
     // (see Cargo.toml), and eframe's trait takes no context then.
     #[cfg(not(windows))]
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.store.lock_now();
         self.save();
     }
 
     #[cfg(windows)]
     fn on_exit(&mut self) {
+        self.store.lock_now();
         self.save();
     }
 
@@ -4457,6 +5011,7 @@ fn sheet_menu(
     i: usize,
     can_up: bool,
     can_down: bool,
+    menu: PageMenu,
     action: &mut Option<SheetAction>,
 ) {
     let item = |ui: &mut egui::Ui, text: &str, keys: Option<&str>| {
@@ -4495,6 +5050,8 @@ fn sheet_menu(
         *action = Some(SheetAction::MoveTo(i));
     }
     ui.separator();
+    lock_page_items(ui, i, menu, action);
+    ui.separator();
     if item(ui, "Delete page", Some("Ctrl+Shift+Delete")) {
         *action = Some(SheetAction::Delete(i));
     }
@@ -4504,7 +5061,37 @@ fn sheet_menu(
     }
 }
 
-fn folder_menu(ui: &mut egui::Ui, id: &str, can_nest: bool, action: &mut Option<SheetAction>) {
+fn lock_page_items(ui: &mut egui::Ui, i: usize, menu: PageMenu, action: &mut Option<SheetAction>) {
+    let item = |ui: &mut egui::Ui, text: &str| ui.add(egui::Button::new(text)).clicked();
+    if menu.lock == Some(true) {
+        if item(ui, "Unlock…") {
+            *action = Some(SheetAction::Select(i));
+        }
+    } else if !menu.covered && menu.lock.is_none() {
+        if item(ui, "Lock…") {
+            *action = Some(SheetAction::LockPage(i));
+        }
+    } else if !menu.covered {
+        if item(ui, "Change password…") {
+            *action = Some(SheetAction::ChangePage(i));
+        }
+        if item(ui, "Remove lock…") {
+            *action = Some(SheetAction::RemovePage(i));
+        }
+    }
+    if menu.any_open && item(ui, "Lock now") {
+        *action = Some(SheetAction::LockNow);
+    }
+}
+
+fn folder_menu(
+    ui: &mut egui::Ui,
+    id: &str,
+    can_nest: bool,
+    lock: Option<bool>,
+    any_open: bool,
+    action: &mut Option<SheetAction>,
+) {
     if ui.button("New page").clicked() {
         *action = Some(SheetAction::NewIn(Some(id.to_string())));
     }
@@ -4515,9 +5102,56 @@ fn folder_menu(ui: &mut egui::Ui, id: &str, can_nest: bool, action: &mut Option<
         *action = Some(SheetAction::RenameFolder(id.to_string()));
     }
     ui.separator();
+    match lock {
+        None => {
+            if ui.button("Lock…").clicked() {
+                *action = Some(SheetAction::LockFolder(id.to_string()));
+            }
+        }
+        Some(true) => {
+            if ui.button("Unlock…").clicked() {
+                *action = Some(SheetAction::UnlockFolder(id.to_string()));
+            }
+        }
+        Some(false) => {
+            if ui.button("Change password…").clicked() {
+                *action = Some(SheetAction::ChangeFolder(id.to_string()));
+            }
+            if ui.button("Remove lock…").clicked() {
+                *action = Some(SheetAction::RemoveFolder(id.to_string()));
+            }
+        }
+    }
+    if any_open && ui.button("Lock now").clicked() {
+        *action = Some(SheetAction::LockNow);
+    }
+    ui.separator();
     if ui.button("Delete folder").clicked() {
         *action = Some(SheetAction::DeleteFolder(id.to_string()));
     }
+}
+
+enum LockFields {
+    None,
+    Password,
+    New,
+    Change,
+}
+
+/// A masked single-line field. Enter submits. `grab` focuses the first field once.
+fn password_field(ui: &mut egui::Ui, text: &mut String, hint: &str, grab: &mut bool) -> bool {
+    let resp = ui.add(
+        TextEdit::singleline(text)
+            .password(true)
+            .hint_text(hint)
+            .desired_width(f32::INFINITY)
+            .font(FontId::proportional(15.0)),
+    );
+    if *grab {
+        resp.request_focus();
+        *grab = false;
+    }
+    resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
 }
 
 fn paint_dots(painter: &egui::Painter, center: Pos2, color: Color32) {
@@ -5150,6 +5784,8 @@ struct RowLook<'a> {
     /// `Some(collapsed)` draws a disclosure triangle.
     chevron: Option<bool>,
     drag: bool,
+    /// `Some(true)` is a closed lock, `Some(false)` an open one.
+    lock: Option<bool>,
 }
 
 fn sidebar_row(ui: &mut egui::Ui, theme: &Theme, look: RowLook<'_>) -> egui::Response {
@@ -5183,7 +5819,8 @@ fn sidebar_row(ui: &mut egui::Ui, theme: &Theme, look: RowLook<'_>) -> egui::Res
         );
         text_x += 16.0;
     }
-    let text_width = (rect.right() - text_x - 30.0).max(24.0);
+    let lock_room = if look.lock.is_some() { 18.0 } else { 0.0 };
+    let text_width = (rect.right() - text_x - 30.0 - lock_room).max(24.0);
     let galley = ui.ctx().fonts_mut(|f| {
         f.layout_job(sidebar_label_job(
             look.heading,
@@ -5198,10 +5835,37 @@ fn sidebar_row(ui: &mut egui::Ui, theme: &Theme, look: RowLook<'_>) -> egui::Res
         galley,
         color,
     );
+    if let Some(closed) = look.lock {
+        paint_lock(
+            painter,
+            pos2(rect.right() - 28.0, rect.center().y),
+            closed,
+            color,
+        );
+    }
     if elided {
         resp.clone().on_hover_text(look.heading.to_owned());
     }
     resp
+}
+
+fn paint_lock(painter: &egui::Painter, c: Pos2, closed: bool, color: Color32) {
+    let stroke = egui::Stroke::new(1.3, color);
+    let body = Rect::from_center_size(c + vec2(0.0, 2.2), vec2(8.0, 6.0));
+    painter.rect_stroke(
+        body,
+        CornerRadius::same(1),
+        stroke,
+        egui::StrokeKind::Middle,
+    );
+    let left = c + vec2(-2.4, 0.0);
+    let right = c + vec2(2.4, if closed { -3.2 } else { -4.6 });
+    painter.line_segment([left, left + vec2(0.0, -3.2)], stroke);
+    painter.line_segment([left + vec2(0.0, -3.2), right], stroke);
+    painter.line_segment(
+        [right, right + vec2(0.0, if closed { 3.2 } else { 2.0 })],
+        stroke,
+    );
 }
 
 fn paint_chevron(painter: &egui::Painter, c: Pos2, collapsed: bool, color: Color32) {
