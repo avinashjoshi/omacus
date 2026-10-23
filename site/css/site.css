@@ -2392,7 +2392,7 @@ kbd {
   margin-left: 8px;
 }
 
-/* "Open in the web app": the sheet, live, in omacus.com/app. */
+/* "Open in the web app": the sheet, live, at app.omacus.com. */
 .sheet-card .open-sheet {
   display: inline-flex;
   align-items: center;

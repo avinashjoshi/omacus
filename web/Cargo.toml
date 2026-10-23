@@ -2,7 +2,7 @@
 name = "omacus-web"
 version = "0.0.0"
 edition = "2024"
-description = "The Omacus engine for the browser (omacus.com/app)"
+description = "The Omacus engine for the browser (app.omacus.com)"
 license = "MIT"
 publish = false  # internal; the app's version is the one in ../Cargo.toml
 

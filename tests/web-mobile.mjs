@@ -18,6 +18,7 @@ const tokens = readFileSync(join(site, "css/tokens.css"), "utf8");
 const js = readFileSync(join(site, "app/app.js"), "utf8");
 const html = readFileSync(join(site, "app/index.html"), "utf8");
 const sw = readFileSync(join(site, "app/sw.js"), "utf8");
+const siteJs = readFileSync(join(site, "js/site.js"), "utf8");
 
 const failures = [];
 function check(cond, message) {
@@ -80,13 +81,20 @@ check(js.includes('e.key === ","') && js.includes('e.key === "\\\\"'), "settings
 check(js.includes("previewHtml"), "preview renders from the engine");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-5"'), "the app cache name moved past the cache-first shell");
-check(sw.includes('"/app/tree.js"'), "the folder tree is part of the offline shell");
+check(sw.includes('const CACHE = "omacus-app-6"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
 check(!sw.includes("omacus-app-2"), "the old app cache name is gone");
 check(sw.includes("if (res.ok)") && sw.includes("cache.put"), "only a successful response is stored for offline");
 check(sw.includes("e.waitUntil(fetched"), "the shell is refreshed in the background");
-check(sw.includes('"/app/pkg/omacus_web_bg.wasm"'), "the engine is precached for offline");
+check(sw.includes('"pkg/omacus_web_bg.wasm"'), "the engine is precached for offline");
+check(sw.includes("ignoreSearch"), "a hashed asset still matches the cached shell");
+check(sw.includes('type === "skip-waiting"') && sw.includes("self.skipWaiting()"), "a new version waits until the page asks");
 check(!sw.includes("self.registration.unregister"), "the worker stays registered so an offline check can use it");
+check(html.includes("Update ready") && html.includes('data-action="apply-update"'), "an update offers a reload");
+check(js.includes("async function applyUpdate") && js.includes("await flushSave()"), "reload waits until the open edit is saved");
+check((js.match(/innerHTML/g) || []).length === 1 && js.includes("el.pagePreviewBody.innerHTML = previewHtml"), "only the sanitized preview assigns innerHTML");
+check(!siteJs.includes("innerHTML") && !siteJs.includes("insertAdjacentHTML"), "the marketing site builds nodes without HTML strings");
+check(siteJs.includes("migrateStoredPages"), "a visit to the site copies saved pages to the app");
 check(js.includes('has("sw")'), "a local preview can register the worker with ?sw=1");
 check(html.includes("rates may be stale") && html.includes("data-rates-note"), "a failed rates refresh says rates may be stale");
 check(js.includes('note.dataset.ratesState = state'), "the rates note records whether the refresh succeeded");
@@ -150,7 +158,10 @@ const server = createServer((req, res) => {
     res.end("not found");
     return;
   }
-  res.writeHead(200, { "content-type": types[extname(file)] || "application/octet-stream" });
+  res.writeHead(200, {
+    "content-type": types[extname(file)] || "application/octet-stream",
+    "cache-control": "no-store",
+  });
   res.end(readFileSync(file));
 });
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -472,6 +483,7 @@ if (pkg) {
   // source line, blank line, comment, and a shared right edge for answers.
   const mixed = ["# Northwind trip", "", "a = 5", "b = 6 # second", "", "", "// only a note", "- [x] packed", "", "| item | amount |", "| --- | --- |", "| flights | $4,720 |"];
   for (let i = 0; i < 200; i++) mixed.push(`row ${i} = ${i + 1}`);
+  await resetStore();
   await evalJson(`(() => {
     localStorage.setItem("omacus:page:scroll", ${JSON.stringify(mixed.join("\n"))});
     localStorage.setItem("omacus:index", JSON.stringify({ order: ["scroll"], active: "scroll" }));
@@ -595,6 +607,7 @@ if (pkg) {
   })()`);
 
   // A page with a definition, a use, a keyword, a scaled number and a # comment.
+  await resetStore();
   await evalJson(`(() => {
     localStorage.setItem("omacus:page:hover", "rent = $1,450 # monthly\\nrent * 2\\n1.5k\\ntotal\\nseats = 10\\ncost = $40 * seats");
     localStorage.setItem("omacus:index", JSON.stringify({ order: ["hover"], active: "hover" }));
@@ -813,6 +826,7 @@ if (pkg) {
 
   // A cross-page reference is one card: the value, then "from Trip Budget",
   // above the line rather than loose text on the next row.
+  await resetStore();
   await evalJson(`(() => {
     localStorage.setItem("omacus:page:trip", "# Trip Budget\\ntotal = $40");
     localStorage.setItem("omacus:page:groceries", "# Groceries\\ncost = @trip.total");
@@ -912,6 +926,7 @@ if (pkg) {
   await page("Fetch.enable", {
     patterns: [{ urlPattern: "https://open.er-api.com/*", requestStage: "Request" }],
   });
+  await resetStore();
   await evalJson(`localStorage.setItem("omacus:rates", JSON.stringify({ at: 0, rates: { EUR: 0.5, USD: 1 } }))`);
   await navigate(`http://127.0.0.1:${port}/app/`);
   await waitFor(`document.querySelector("[data-rates-note]")?.dataset.ratesState === "stale"`, 20000);
@@ -921,6 +936,7 @@ if (pkg) {
   })()`);
   check(staleRates.state === "stale" && staleRates.hidden === false && staleRates.text.includes("rates may be stale"), `stale rates note was ${JSON.stringify(staleRates)}`);
   if (shots) await plainShot(join(shots, "rates-stale.png"));
+  await resetStore();
   await evalJson(`localStorage.setItem("omacus:rates", JSON.stringify({ at: Date.now(), rates: { EUR: 0.5, USD: 1 } }))`);
   await navigate(`http://127.0.0.1:${port}/app/`);
   await waitFor(`document.querySelector("[data-rates-note]")?.dataset.ratesState === "fresh"`, 20000);
@@ -1033,15 +1049,15 @@ if (pkg) {
     deviceScaleFactor: 1,
     mobile: false,
   });
-  await evalJson(`localStorage.setItem("omacus:rates", JSON.stringify({ at: 0, rates: { EUR: 0.85, USD: 1 } }))`);
-  await navigate(`http://127.0.0.1:${port}/app/?sw=1`);
-  await waitFor(`document.querySelector(".cm-content")`, 20000);
-  await waitForAppCache();
+  await resetStore();
   await evalJson(`localStorage.setItem("omacus:rates", JSON.stringify({ at: 0, rates: { EUR: 0.85, USD: 1 } }))`);
   failRates = true;
   await page("Fetch.enable", {
     patterns: [{ urlPattern: "https://open.er-api.com/*", requestStage: "Request" }],
   });
+  await navigate(`http://127.0.0.1:${port}/app/?sw=1`);
+  await waitFor(`document.querySelector(".cm-content")`, 20000);
+  await waitForAppCache();
   stopServer();
   await navigate(`http://127.0.0.1:${port}/app/?sw=1`);
   await waitFor(`document.querySelector(".cm-content") && document.querySelector("[data-rates-note]")?.dataset.ratesState === "stale"`, 20000);
@@ -1074,6 +1090,22 @@ if (failures.length) {
 }
 console.log("browser checks ok");
 
+async function resetStore() {
+  await navigate(`http://127.0.0.1:${port}/404.html`);
+  await evalJson(`(async () => {
+    await new Promise((resolve) => {
+      const req = indexedDB.deleteDatabase("omacus");
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      req.onblocked = () => setTimeout(resolve, 200);
+    });
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i));
+    for (const key of keys) if (key?.startsWith("omacus:")) localStorage.removeItem(key);
+    return true;
+  })()`);
+}
+
 async function evalJson(expression) {
   const { result, exceptionDetails } = await page("Runtime.evaluate", {
     expression,
@@ -1091,8 +1123,8 @@ async function waitForAppCache() {
     try {
       last = await evalJson(`(async () => {
         const keys = await caches.keys();
-        if (!keys.includes("omacus-app-5")) return "no-cache";
-        const urls = (await (await caches.open("omacus-app-5")).keys()).map((k) => new URL(k.url).pathname);
+        if (!keys.includes("omacus-app-6")) return "no-cache";
+        const urls = (await (await caches.open("omacus-app-6")).keys()).map((k) => new URL(k.url).pathname);
         const need = ["/app/", "/app/app.js", "/app/pkg/omacus_web_bg.wasm"];
         const missing = need.filter((path) => !urls.includes(path));
         return missing.length ? "missing " + missing.join(",") : "ready";

@@ -1,4 +1,4 @@
-/* omacus.com/app: the notepad calculator in the browser. Colours and fonts come
+/* app.omacus.com: the notepad calculator in the browser. Colours and fonts come
    from site.css; this is the app's layout. */
 
 /* Elements styled with a display value still hide with the hidden attribute. */
@@ -66,7 +66,7 @@ html:has(body.app-page) {
   border-color: var(--app-accent-hover);
 }
 
-.app-page :focus-visible {
+.app-page :focus-visible:not(.cm-content):not(.cm-scroller):not(.cm-editor) {
   outline: 2px solid var(--app-accent);
   outline-offset: 2px;
 }
@@ -631,11 +631,27 @@ body.dragging-side .sheet-list {
 
 .rates-note {
   margin: 0;
-  padding: 8px 18px;
-  border-bottom: 1px solid var(--line);
-  background: linear-gradient(90deg, var(--app-accent-soft), transparent);
-  color: var(--text);
-  font-size: 13.5px;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--app-line);
+  background: var(--app-accent-soft);
+  color: var(--app-fg);
+  font-size: var(--type-body);
+}
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--app-line);
+  background: var(--app-accent-soft);
+  color: var(--app-fg);
+  font-size: var(--type-body);
+}
+
+.update-banner p {
+  flex: 1;
+  margin: 0;
 }
 
 .shared-banner b {
@@ -694,8 +710,22 @@ body.dragging-side .sheet-list {
   font: inherit;
 }
 
-.cm-editor.cm-focused {
+/* The page is the surface. A focus ring here is a frame around the whole sheet,
+   and iOS rounds it. The caret is the focus indicator. Controls keep their ring. */
+.app-page .cm-editor,
+.app-page .cm-editor:focus,
+.app-page .cm-editor:focus-visible,
+.app-page .cm-editor.cm-focused,
+.app-page .cm-scroller,
+.app-page .cm-scroller:focus,
+.app-page .cm-scroller:focus-visible,
+.app-page .cm-content,
+.app-page .cm-content:focus,
+.app-page .cm-content:focus-visible {
   outline: none;
+  box-shadow: none;
+  border-radius: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .cm-editor .cm-scroller {
@@ -1511,6 +1541,7 @@ body.answers-inline .md .pill {
   body.app-page:has(.page-preview:not([hidden])) .editor,
   body.app-page .shared-banner,
   body.app-page .rates-note,
+  body.app-page .update-banner,
   body.app-page .install-banner,
   body.app-page .confirm,
   body.app-page .loading,
