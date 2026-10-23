@@ -27,5 +27,12 @@ To try the web app (`site/app`), build the engine for it first:
     cargo build -p omacus-web --release --target wasm32-unknown-unknown
     wasm-bindgen --target web --no-typescript --out-dir site/app/pkg target/wasm32-unknown-unknown/release/omacus_web.wasm
 
-Bumping `version` in `Cargo.toml` on `main` releases it (see
-`.github/workflows/release.yml`).
+Releasing does not push straight to `main`. Run the Release workflow with
+action `prepare` (see `.github/workflows/release.yml`). It opens a pull request
+that bumps `version` in `Cargo.toml` and prepends a changelog section. With
+auto-merge allowed and the CI checks required on `main`, that pull request
+merges when the checks pass, and the workflow then tags `v<version>` and
+publishes the GitHub release. The checks to require are `test (ubuntu-22.04)`,
+`test (windows-latest)`, `test (macos-latest)`, and `wasm`. The monthly example
+refresh still commits to `main` (`.github/workflows/freshen.yml`), so it needs a
+bypass once `main` is protected.

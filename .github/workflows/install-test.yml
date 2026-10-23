@@ -8,6 +8,11 @@ on:
   # The release workflow calls this once a release is published. (A release made
   # with GITHUB_TOKEN doesn't trigger a `release` event.)
   workflow_call:
+    inputs:
+      ref:
+        description: Commit whose install.sh to try. Defaults to the workflow's SHA.
+        type: string
+        default: ""
   schedule:
     - cron: "0 6 * * 1" # weekly, to catch a broken release or download URL
 
@@ -25,6 +30,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref || github.sha }}
       - name: Run the installer as curl | bash would
         working-directory: ${{ runner.temp }}
         run: bash -s -- --no-hyprland < "$GITHUB_WORKSPACE/install.sh"

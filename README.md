@@ -290,12 +290,16 @@ Ideas and feature requests are welcome too, and so are pull requests.
 
 ## Releasing
 
-Bump `version` in `Cargo.toml` and push to `main`. The
-[Release workflow](.github/workflows/release.yml) notices the new version, runs the tests on
-Linux, Windows and macOS, builds every package, then tags `v<version>` and publishes a GitHub
-release with notes written from the commits since the last release
-([`release-notes.sh`](.github/scripts/release-notes.sh)). Commit body lines starting with `- `
-show up as sub-points in the notes.
+Run the [Release workflow](.github/workflows/release.yml) (Actions → Release → Run workflow)
+and leave the action on `prepare`. It opens a pull request that bumps `version` in `Cargo.toml`
+and prepends a changelog section. Auto-merge has to be allowed, and these checks have to be
+required on `main`: `test (ubuntu-22.04)`, `test (windows-latest)`, `test (macos-latest)`, and
+`wasm`. The pull request merges when they pass. The workflow then tags `v<version>`, builds
+every package, and publishes a GitHub release with notes written from the commits since the
+last release ([`release-notes.sh`](.github/scripts/release-notes.sh)). Commit body lines
+starting with `- ` show up as sub-points in the notes.
+
+Action `build` packages the current `main` without opening a pull request.
 
 ## License
 
