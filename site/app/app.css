@@ -2001,6 +2001,56 @@ body.answers-inline .md .pill {
   background: var(--app-bg);
 }
 
+/* CodeMirror announces edits here. Its own rule is an inline style, which this
+   page does not allow, so the words would sit on the sheet. */
+.cm-announced {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.boot-fail {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: auto;
+  padding: 28px 22px 48px;
+  background: var(--app-bg);
+  color: var(--app-fg);
+}
+
+.boot-fail p {
+  margin: 0 0 16px;
+  color: var(--app-dim);
+  font: 15px / 1.5 var(--sans);
+}
+
+.boot-fail button.boot-page {
+  display: block;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--app-line);
+  border-radius: var(--radius-sm);
+  background: var(--app-side);
+  color: var(--app-fg);
+  font: 500 15px / 1.3 var(--sans);
+}
+
+.boot-fail pre {
+  margin: 4px 0 16px;
+  white-space: pre-wrap;
+  font: 14px / 1.6 var(--mono);
+  color: var(--app-fg);
+}
+
 /* ---------- Toast ---------- */
 
 .toast {

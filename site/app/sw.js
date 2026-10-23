@@ -2,7 +2,7 @@
 // so a reload — including one that bypasses the HTTP cache — still opens offline.
 // A new version waits. The page saves the open edit, then asks this worker to take over.
 
-const CACHE = "omacus-app-8";
+const CACHE = "omacus-app-9";
 
 const APP_FILES = [
   "./",
@@ -16,6 +16,7 @@ const APP_FILES = [
   "worker.js",
   "store.js",
   "trust.js",
+  "recover.js",
   "backup.js",
   "migrate.js",
   "migrate-client.js",
@@ -59,10 +60,35 @@ self.addEventListener("activate", (e) => {
   );
 });
 
+function isScript(req) {
+  const path = new URL(req.url).pathname;
+  return path.endsWith(".js") || path.endsWith(".mjs") || path.endsWith(".wasm");
+}
+
+// A missing file on the host comes back as the app page. That is not a script,
+// and caching it would leave the next launch stuck on the loading line.
+function honest(res, req) {
+  if (!res || !res.ok) return false;
+  if (!isScript(req)) return true;
+  return !(res.headers.get("content-type") || "").includes("text/html");
+}
+
+async function keep(cache, url) {
+  const req = new Request(url);
+  const hit = await cache.match(req);
+  if (hit && honest(hit, req)) return;
+  try {
+    const res = await fetch(req);
+    if (honest(res, req)) await cache.put(req, res);
+  } catch {
+    // The shell can be short a file. Pages in the browser are a different store.
+  }
+}
+
 async function precache(extra = []) {
   const cache = await caches.open(CACHE);
   const urls = [...new Set([...shellUrls(), ...extra])];
-  await Promise.all(urls.map((url) => cache.match(url).then((hit) => hit || cache.add(url).catch(() => {}))));
+  await Promise.all(urls.map((url) => keep(cache, url)));
   return cache;
 }
 
@@ -93,10 +119,9 @@ self.addEventListener("fetch", (e) => {
   const cachePromise = caches.open(CACHE);
   const fetched = fetchFresh(req)
     .then(async (res) => {
-      if (res.ok) {
-        const cache = await cachePromise;
-        await cache.put(req, res.clone());
-      }
+      if (!honest(res, req)) return null;
+      const cache = await cachePromise;
+      await cache.put(req, res.clone());
       return res;
     })
     .catch(() => null);
@@ -105,8 +130,8 @@ self.addEventListener("fetch", (e) => {
     (async () => {
       const cache = await cachePromise;
       const hit = (await cache.match(req)) || (await cache.match(req, { ignoreSearch: true }));
-      if (hit) return hit;
-      return (await fetched) || offline();
+      if (hit && honest(hit, req)) return hit;
+      return (await fetched) || (hit && honest(hit, req) ? hit : null) || offline();
     })(),
   );
 });

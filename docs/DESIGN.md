@@ -279,9 +279,16 @@ A surface card, border, radius 12, centered at the bottom. It fades. Errors use 
 
 The web install banner, the shared-page banner, the rates note, and the update banner use `--app-accent-soft` (the accent at 14%) and the border token. The update banner says "Update ready" and its button is Reload. It stays up until the open page has been saved. One banner does not cover the first line of the page. Dismiss is a quiet control. The rates note says when cached exchange rates could not be refreshed. A short note in About says when this browser refused to keep saved pages, and points at Export.
 
+### Saved pages when the app cannot start
+
+If the web app cannot start, the loading line is replaced by the pages already in this browser. The note says the pages are still in this browser. Each page is a full-width row on the sidebar surface, with the border and the small radius. The open page is plain text under the list. Export everything saves a copy. A locked page is named Locked page and its words stay hidden. The panel uses the page background and the secondary text color. It only reads the saved pages.
+
+Do: keep the page list and the export button on screen until the app itself is up.
+Don't: clear the saved pages, or hide the list behind another spinner.
+
 ### Editor
 
-The page fills the sheet. Focusing it shows the caret, not a ring, a shadow, or a tap highlight. Otherwise the contenteditable's focus outline, including the one from the site stylesheet, becomes a rounded frame around the whole page on iPhone Safari.
+The page fills the sheet. Focusing it shows the caret, not a ring, a shadow, or a tap highlight. Otherwise the contenteditable's focus outline, including the one from the site stylesheet, becomes a rounded frame around the whole page on iPhone Safari. A screen-reader announcement stays in the page and is clipped so it is not drawn on the sheet.
 
 Do: keep the accent focus ring on buttons, menus, sidebar rows, and fields.
 Don't: outline the editor, or restyle the empty-page hint. It stays secondary text.
