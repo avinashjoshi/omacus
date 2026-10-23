@@ -58,9 +58,47 @@ const data = {
     one: { cmd: "omacus '$100 in EUR'", out: [execFileSync(bin, ["$100 in EUR"], { encoding: "utf8" }).trim()] },
     pipe: { cmd: "printf 'rent = $1,450\\nrent * 12\\nprev in EUR\\n' | omacus -", out: evaluate(["rent = $1,450", "rent * 12", "prev in EUR"]) },
   },
+  // The first-run examples. Monthly budget's @ references are resolved with the
+  // totals the engine just produced, because one page on stdin cannot see another.
+  trip: sheet([
+    "# Trip Budget",
+    "// Four nights, three currencies.",
+    "flights = $640",
+    "hotel = 4 nights * €120 in USD",
+    "food = ¥8,000 in USD",
+    "total = sum",
+  ]),
+  groceries: sheet([
+    "# Groceries",
+    "// This week's shop.",
+    "milk $3.40",
+    "bread $2.80",
+    "apples $4.50",
+    "total = sum",
+  ]),
   sheets: ["Kyoto in autumn", "Quick math", "Invoice — October", "Standup times", "Monthly budget", "Kitchen"],
   version: execFileSync(bin, ["--version"], { encoding: "utf8" }).trim().replace("omacus ", ""),
 };
+const amount = (page) => page.results[page.lines.findIndex((l) => l.startsWith("total ="))];
+data.monthly = (() => {
+  const lines = [
+    "# Monthly budget",
+    "// Food and travel come from the other example pages.",
+    "rent = $1,450",
+    "food = @groceries.total",
+    "travel = @trip.total",
+    "spent = rent + food + travel",
+  ];
+  const resolved = sheet([
+    lines[0],
+    lines[1],
+    lines[2],
+    `food = ${amount(data.groceries)}`,
+    `travel = ${amount(data.trip)}`,
+    lines[5],
+  ]);
+  return { lines, results: resolved.results };
+})();
 mkdirSync(new URL("build/", import.meta.url), { recursive: true });
 writeFileSync(new URL("build/data.json", import.meta.url), JSON.stringify(data, null, 1));
 for (const [k, v] of Object.entries(data)) {

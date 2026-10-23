@@ -1,11 +1,20 @@
 // Narration with ElevenLabs: one clip per scene, with word timings for captions.
 //
-//   node voice.mjs                list voices, then generate any clips that changed
-//   VOICE="Name" node voice.mjs   use a specific voice from your library
-//   VOICE_ID=... MODEL=... node voice.mjs   any voice id, and another model (e.g. eleven_v3)
+//   cd video && node voice.mjs
 //
 // The API key is read from ~/.config/elevenlabs/api_key and only sent to ElevenLabs.
+// Voice: Jessica Anne Bogart, id lxYfHSkYm1EzQzGhdbfc. Model: eleven_v4 (override with MODEL).
+// Spoken spellings stay in SAY below: Omacus is "O-mah-cus", Omarchy is "Omahchee".
+// Captions keep the spelling in each scene's `vo`.
+//
+// Writes, for every scene id in composition.js:
+//   video/build/vo/<id>.mp3
+//   video/build/vo/<id>.json
+//   video/build/timings.json
+//
 // Clips are cached by text and voice, so re-running costs nothing unless a line changed.
+//   VOICE="Name" node voice.mjs              a voice from your own library
+//   VOICE_ID=... MODEL=... node voice.mjs    another voice id or model
 import { readFile, writeFile, mkdir, access } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
@@ -33,7 +42,7 @@ const unspoken = (word) => Object.entries(SAY).reduce((w, [real, say]) => w.repl
 
 const voices = (await (await fetch(`${API}/voices`, { headers })).json()).voices ?? [];
 if (!voices.length) throw new Error("couldn't list voices; check the API key");
-// The narrator: Jessica Anne Bogart from the shared Voice Library, on eleven_v3.
+// The narrator: Jessica Anne Bogart from the shared Voice Library, on eleven_v4.
 // VOICE="Name" picks one from your own voices instead; VOICE_ID any voice by id.
 const NARRATOR = { name: "Jessica Anne Bogart", voice_id: "lxYfHSkYm1EzQzGhdbfc" };
 const named = process.env.VOICE && voices.find((v) => v.name.split(" ")[0].toLowerCase() === process.env.VOICE.toLowerCase());
