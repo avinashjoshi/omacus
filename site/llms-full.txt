@@ -285,7 +285,7 @@ The **⋯** above a page, the **⋯** on its row in the sidebar, and a right-cli
 
 ## Sharing & the web app
 
-Any page can travel as a link. *Share link* in the **⋯** menu, or `Ctrl Shift L`, copies one like `omacus.com/app#v1.U1bwyS…`. Whoever opens it sees the page in [Omacus in the browser](https://omacus.com/app), with every answer worked out live by the same engine as the desktop app.
+Any page can travel as a link. *Share link* in the **⋯** menu, or `Ctrl Shift L`, copies one like `app.omacus.com#v1.U1bwyS…`. Whoever opens it sees the page in [Omacus in the browser](https://app.omacus.com), with every answer worked out live by the same engine as the desktop app.
 
 - **The page is the link.** It's compressed into the part after `#`, which browsers never send to a server, so Omacus never sees or stores it. Anyone who has the link can read the page, so share it the way you'd share a document.
 - **Answers are recalculated when it's opened.** Currencies use that day's rates, and `today` or `days until` count from the day it's opened.
@@ -299,11 +299,11 @@ A shared page opens as a new page (or switches to it, if you already have it):
 - On the web page, choose **Open in Omacus**. The installer and the macOS app register `omacus://` links, and Windows registers them the first time Omacus runs.
 - Paste a link into any page: it opens the shared page instead of pasting the text.
 
-- From a terminal: `omacus open 'https://omacus.com/app#v1.…'`.
+- From a terminal: `omacus open 'https://app.omacus.com#v1.…'`.
 
 ### The web app
 
-[omacus.com/app](https://omacus.com/app) is Omacus in any modern browser, on a computer or a phone, with nothing to install. Pages you make there are saved in that browser on that device, and are never uploaded. Export them from the ⋯ menu as a `.zip` of `.txt` files, the same format as the desktop app's pages folder, and import them anywhere.
+[app.omacus.com](https://app.omacus.com) is Omacus in any modern browser, on a computer or a phone, with nothing to install. Pages you make there are saved in that browser on that device, and are never uploaded. Export them from the ⋯ menu as a `.zip` of `.txt` files, the same format as the desktop app's pages folder, and import them anywhere.
 
 Chrome, Edge and Android can install it as an app (⋯ → *Install as an app*), and it works offline once opened. Cached exchange rates keep currency math working, and the page says when rates may be stale. On iPhone and iPad, choose Share → *Add to Home Screen*: Safari otherwise clears a site's data after seven days without a visit.
 

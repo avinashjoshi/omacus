@@ -358,3 +358,12 @@ jobs:
       contents: read
       pages: write
       id-token: write
+
+  # Same as the site: a merge made with GITHUB_TOKEN does not start app.yml.
+  deploy-app:
+    needs: [publish, wait, check]
+    if: always() && needs.publish.result == 'success' && needs.wait.result == 'success'
+    uses: ./.github/workflows/app.yml
+    with:
+      ref: ${{ needs.wait.outputs.sha }}
+    secrets: inherit

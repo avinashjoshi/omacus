@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Omacus in your browser: a notepad calculator</title>
   <meta name="description" content="Omacus, the notepad calculator, in your browser: write prices, units, currencies, time zones and dates in plain words and see answers as you type. Share any page as a link. Free, no sign-up.">
-  <link rel="canonical" href="https://omacus.com/app">
-  <meta name="theme-color" content="#0d0d0d">
+  <link rel="canonical" href="https://app.omacus.com/">
+  <meta name="theme-color" content="#1a1b26">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Omacus">
-  <meta property="og:url" content="https://omacus.com/app">
+  <meta property="og:url" content="https://app.omacus.com/">
   <meta property="og:title" content="Omacus in your browser">
   <meta property="og:description" content="A notepad calculator: write math in plain words, answers line up as you type. Share any page as a link.">
   <meta property="og:image" content="https://omacus.com/img/og.png?v=2">
   <meta name="twitter:card" content="summary_large_image">
-  <link rel="manifest" href="/app/manifest.webmanifest">
+  <link rel="manifest" href="manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Omacus">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -23,14 +23,14 @@
   <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/css/site.css">
-  <link rel="stylesheet" href="/app/app.css">
+  <link rel="stylesheet" href="app.css">
 </head>
 <body class="app-page">
   <header class="bar">
     <button class="icon-btn sheets-toggle" type="button" aria-label="Pages" aria-controls="side" aria-expanded="false">
       <span></span><span></span><span></span>
     </button>
-    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="24" height="24">omacus</a>
+    <a class="brand" href="https://omacus.com/"><img src="/img/icon.svg" alt="" width="24" height="24">omacus</a>
     <span class="bar-title" data-title></span>
     <button class="private-chip" type="button" data-action="privacy" aria-label="Private: your pages stay on this device">
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span>Private</span>
@@ -62,9 +62,9 @@
           <button role="menuitem" data-action="settings">Settings</button>
           <button role="menuitem" data-action="about">About</button>
           <button role="menuitem" data-action="install" hidden data-install>Install as an app</button>
-          <a role="menuitem" href="/download/">Get the desktop app</a>
+          <a role="menuitem" href="https://omacus.com/download/">Get the desktop app</a>
           <button role="menuitem" data-action="privacy" class="phone-only">Private: saved on this device</button>
-          <a role="menuitem" href="/privacy/">Privacy</a>
+          <a role="menuitem" href="https://omacus.com/privacy/">Privacy</a>
         </div>
       </div>
     </div>
@@ -86,6 +86,7 @@
         <details class="side-foot">
           <summary>Saved in this browser</summary>
           <p>Pages stay on this device, in this browser; nothing is uploaded. Export them (⋯ menu) to keep a copy. On iPhone and iPad, Safari clears a site's data after a week without a visit, unless you add Omacus to your Home Screen.</p>
+          <p data-persist-note hidden>This browser may clear saved pages. Export a copy from the ⋯ menu to keep one.</p>
         </details>
         <div class="side-tools">
           <button class="side-btn" type="button" data-action="settings" aria-label="Settings" title="Settings (Ctrl+,)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3.2v2.3M12 18.5v2.3M3.2 12h2.3M18.5 12h2.3M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/></svg></button>
@@ -107,6 +108,10 @@
         <button class="btn small primary" type="button" data-action="save-shared">Save to my pages</button>
       </div>
       <p class="rates-note" hidden data-rates-note>Exchange rates may be stale.</p>
+      <div class="update-banner" hidden data-update-banner>
+        <p>Update ready</p>
+        <button class="btn small primary" type="button" data-action="apply-update">Reload</button>
+      </div>
       <div class="install-banner" hidden data-install-banner>
         <img src="/img/apple-touch-icon.png" alt="" width="36" height="36">
         <p data-install-text></p>
@@ -274,6 +279,6 @@
   <div class="toast" role="status" aria-live="polite" hidden data-toast></div>
   <input type="file" accept=".txt,.zip,text/plain,application/zip" multiple hidden data-import>
 
-  <script type="module" src="/app/app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
