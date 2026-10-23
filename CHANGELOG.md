@@ -6,6 +6,10 @@
 
 Export everything in Settings saves your pages, folders, settings, and Recently deleted in one file. Locked pages are included, and they stay locked.
 
+Exported pages have slimmer margins, so more of the sheet is the note itself. A code block sits with the text, in a monospace face, and a long line wraps instead of running off the page.
+
+On a phone, the top bar matches the page, with no tint in the Home Screen app. Settings opens below the top bar, and the sidebar lists your pages cleanly. The privacy note is in About.
+
 - Settings shows the hash of this web app. The same hash is on the release page, so you can confirm this copy matches the one that was published.
 - A locked page is named Locked page in the list, and a reference to it stays locked until you open it.
 - On iPhone, Add to Home Screen is offered as soon as the app opens.
