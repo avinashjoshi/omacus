@@ -70,6 +70,13 @@
   --shadow-md: 0 8px 24px color-mix(in srgb, var(--black) 22%, transparent);
   --shadow-lg: 0 24px 48px -12px var(--shadow-color);
 
+  /* Unfolded-phone rim. Polished stainless, marketing site only. */
+  --metal-hi: #f5f6f8;
+  --metal: #d7dbe0;
+  --metal-mid: #b4bac1;
+  --metal-deep: #7e868e;
+  --metal-edge: #525960;
+
   /* App dark theme. Same numbers as Theme::dark in src/theme.rs.
      The homepage demo uses these until a page sets data-app-theme. */
   --app-bg: #1a1b26;

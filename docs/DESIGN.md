@@ -290,7 +290,7 @@ Don't: clear the saved pages, or hide the list behind another spinner.
 
 The page fills the sheet. Focusing it shows the caret, not a ring, a shadow, or a tap highlight. Otherwise the contenteditable's focus outline, including the one from the site stylesheet, becomes a rounded frame around the whole page on iPhone Safari. A screen-reader announcement stays in the page and is clipped so it is not drawn on the sheet.
 
-Do: keep the accent focus ring on buttons, menus, sidebar rows, and fields.
+Do: keep the accent focus ring on buttons, menus, sidebar rows, and fields. Keep `img.cm-widgetBuffer` inline, so a short line holds its answer beside the text.
 Don't: outline the editor, or restyle the empty-page hint. It stays secondary text.
 
 ### Empty states
@@ -333,6 +333,14 @@ Don't: hardcode a count or a date in the page, point the page at `--app-*`, or p
 
 Do: use the marketing tokens. One accent. Say that this version does not sync. Paragraphs on the sync page and in this band use `--prose-gap`. Don't give them a margin of their own.
 Don't: collect an email, or describe sync as something the app already does. The launch video may show it as a feature; the website does not.
+
+### Foldable showcase
+
+Under "Nothing to install" the homepage shows one small unfolded phone, about 440px wide and centered, with a one-line caption. It is not its own headline. Unfolded, the device lies flat, landscape, about 4:3. The rim is polished stainless (`--metal-hi` through `--metal-edge` in `tokens.css`), with a thin black bezel, large corner radii, two small buttons on the right edge, and a soft shadow. A status strip sits above the app on both halves: the punch-hole camera and the time live in that strip on the right, clear of the app's own bar. The halves meet at a barely-there crease: one pixel of highlight and one pixel of shadow, each at 8% opacity. The black bezel stops at the outer edges, so the crease is not a bar through the note. The soft shadow belongs to the whole phone; each half does not cast one, or it would fall across the page. Inside, the page list is the slim sidebar and Trip Budget fills the rest, so the note continues across the crease. The picture is the dark app, rendered near 720px wide, with the page list about 30% of that width, so the type stays proportional and the page names fit. A line does not wrap. The marketing page itself stays near-black.
+
+Do: use the metal tokens for the rim and the buttons, and the marketing tokens for the crease, the time, and the caption. The caption uses `--type-caption`, `--faint`, and `--prose-gap`. The picture has width, height, lazy loading, and alt text that names the page and the two panes. Corners and padding stay on the radius and 4px scales.
+
+Don't: give it a kicker or a serif headline, name a phone brand, say "PWA", or point the type at `--app-*`. The screen fill behind the picture may use `--app-bg`, because that fill is the app. Don't reuse the `.shot` crop. Don't put a hex color in `site.css`. Don't ship a second, light screenshot.
 
 ### Preview and PDF typography
 
