@@ -66,7 +66,7 @@ html:has(body.app-page) {
   border-color: var(--app-accent-hover);
 }
 
-.app-page :focus-visible {
+.app-page :focus-visible:not(.cm-content):not(.cm-scroller):not(.cm-editor) {
   outline: 2px solid var(--app-accent);
   outline-offset: 2px;
 }
@@ -710,8 +710,22 @@ body.dragging-side .sheet-list {
   font: inherit;
 }
 
-.cm-editor.cm-focused {
+/* The page is the surface. A focus ring here is a frame around the whole sheet,
+   and iOS rounds it. The caret is the focus indicator. Controls keep their ring. */
+.app-page .cm-editor,
+.app-page .cm-editor:focus,
+.app-page .cm-editor:focus-visible,
+.app-page .cm-editor.cm-focused,
+.app-page .cm-scroller,
+.app-page .cm-scroller:focus,
+.app-page .cm-scroller:focus-visible,
+.app-page .cm-content,
+.app-page .cm-content:focus,
+.app-page .cm-content:focus-visible {
   outline: none;
+  box-shadow: none;
+  border-radius: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .cm-editor .cm-scroller {
