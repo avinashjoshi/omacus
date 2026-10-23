@@ -1277,6 +1277,215 @@ section {
   }
 }
 
+/* Unfolded phone. A small aside under "Nothing to install": landscape, about
+   4:3, lying flat. A thin stainless rim, a hairline crease, and the real app
+   continuing across that crease. The screen fill is the app; the rim uses
+   the metal tokens. */
+
+.foldable {
+  width: min(100%, calc(440px + 2 * var(--space-4)));
+  margin: var(--space-6) auto 0;
+}
+
+.foldable figcaption {
+  margin: var(--prose-gap) 0 0;
+  color: var(--faint);
+  font-size: var(--type-caption);
+  line-height: 1.4;
+  text-align: center;
+}
+
+.foldable-stage {
+  position: relative;
+  padding: var(--space-5) var(--space-4) var(--space-6);
+}
+
+.foldable-device {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  aspect-ratio: 4 / 3;
+  width: min(440px, 100%);
+  max-width: 100%;
+  margin-inline: auto;
+  /* One shadow for the whole phone. A shadow on each half paints across the crease. */
+  filter: drop-shadow(0 var(--space-4) var(--space-5) color-mix(in srgb, var(--black) 42%, transparent));
+}
+
+.foldable-ground {
+  position: absolute;
+  z-index: 0;
+  left: 10%;
+  right: 10%;
+  bottom: var(--space-4);
+  height: var(--space-6);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--black) 72%, transparent);
+  filter: blur(var(--space-4));
+  pointer-events: none;
+}
+
+.foldable-half {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.foldable-half::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  background: linear-gradient(180deg,
+    var(--metal-hi) 0%,
+    var(--metal) 18%,
+    var(--metal-mid) 52%,
+    var(--metal-deep) 100%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--white) 82%, transparent),
+    inset 0 -1px 0 var(--metal-edge);
+}
+
+.foldable-half-left::before {
+  top: calc(var(--space-2) * -1);
+  right: 0;
+  bottom: calc(var(--space-2) * -1);
+  left: calc(var(--space-2) * -1);
+  border-radius: calc(var(--radius-lg) + var(--space-6)) 0 0 calc(var(--radius-lg) + var(--space-6));
+}
+
+.foldable-half-right::before {
+  top: calc(var(--space-2) * -1);
+  right: calc(var(--space-2) * -1);
+  bottom: calc(var(--space-2) * -1);
+  left: 0;
+  border-radius: 0 calc(var(--radius-lg) + var(--space-6)) calc(var(--radius-lg) + var(--space-6)) 0;
+}
+
+.foldable-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--app-bg);
+  border: 1px solid var(--black);
+}
+
+.foldable-status {
+  position: relative;
+  flex: none;
+  height: var(--space-6);
+  border-bottom: 1px solid color-mix(in srgb, var(--black) 16%, transparent);
+}
+
+.foldable-shot {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.foldable-half-left .foldable-screen {
+  border-right: 0;
+  border-radius: calc(var(--radius-lg) + var(--space-5)) 0 0 calc(var(--radius-lg) + var(--space-5));
+  box-shadow:
+    inset 1px 0 0 var(--black),
+    inset 0 1px 0 var(--black),
+    inset 0 -1px 0 var(--black);
+}
+
+.foldable-half-right .foldable-screen {
+  border-left: 0;
+  border-radius: 0 calc(var(--radius-lg) + var(--space-5)) calc(var(--radius-lg) + var(--space-5)) 0;
+  box-shadow:
+    inset -1px 0 0 var(--black),
+    inset 0 1px 0 var(--black),
+    inset 0 -1px 0 var(--black);
+}
+
+.foldable-screen img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 200%;
+  max-width: none;
+  height: 100%;
+  object-fit: fill;
+}
+
+.foldable-half-right .foldable-screen img {
+  left: -100%;
+}
+
+.foldable-hinge {
+  position: absolute;
+  top: calc(var(--space-1) * -1);
+  bottom: calc(var(--space-1) * -1);
+  left: 50%;
+  z-index: 3;
+  width: 1px;
+  transform: translateX(-50%);
+  background: color-mix(in srgb, var(--white) 8%, transparent);
+  box-shadow: 1px 0 0 color-mix(in srgb, var(--black) 8%, transparent);
+  pointer-events: none;
+}
+
+.foldable-camera {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  left: 50%;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-pill);
+  transform: translate(-50%, -50%);
+  background:
+    radial-gradient(circle at 36% 32%,
+      var(--metal-mid),
+      var(--metal-edge) 42%,
+      var(--black) 72%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--white) 40%, transparent);
+  pointer-events: none;
+}
+
+.foldable-clock {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  right: var(--space-4);
+  color: var(--white);
+  font: 600 var(--type-caption) / 1 var(--sans);
+  letter-spacing: 0.02em;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.foldable-buttons {
+  position: absolute;
+  z-index: 2;
+  top: 22%;
+  right: calc(var(--space-3) * -1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  pointer-events: none;
+}
+
+.foldable-buttons span {
+  display: block;
+  width: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--metal-deep), var(--metal-hi) 45%, var(--metal-edge));
+  box-shadow: 1px 0 0 var(--metal-edge);
+}
+
+.foldable-buttons span:first-child {
+  height: var(--space-5);
+}
+
+.foldable-buttons span:last-child {
+  height: calc(var(--space-6) + var(--space-3));
+}
+
 /* Theme gallery */
 
 .themes {

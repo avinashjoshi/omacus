@@ -795,6 +795,16 @@ body.dragging-side .sheet-list {
   padding: 0;
 }
 
+/* CodeMirror's cursor spacer is an img. The site rule `img { display: block }`
+   would put that spacer on its own row and drop the floated answer under the line. */
+img.cm-widgetBuffer {
+  display: inline;
+  width: 0;
+  max-width: none;
+  height: 1em;
+  vertical-align: text-top;
+}
+
 /* A line grows to hold an answer that dropped below it. */
 .cm-editor .cm-line::after {
   content: "";
