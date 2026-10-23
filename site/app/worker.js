@@ -51,7 +51,12 @@ async function run() {
           calc.forkSheet(job.sheet, id);
           job.forked = true;
         }
-        const out = JSON.parse(calc.evaluateSheetFor(id, job.text, SLICE_MS));
+        const pages = JSON.stringify(job.pages || []);
+        const out = JSON.parse(
+          job.pages
+            ? calc.evaluateSheetForWith(id, job.handle || "", job.text, pages, SLICE_MS)
+            : calc.evaluateSheetFor(id, job.text, SLICE_MS),
+        );
         if (out.done) {
           copies.shift();
           calc.dropSheet(id);
@@ -61,7 +66,12 @@ async function run() {
         }
       } else {
         const job = latest;
-        const out = JSON.parse(calc.evaluateSheetFor(job.sheet, job.text, SLICE_MS));
+        const pages = JSON.stringify(job.pages || []);
+        const out = JSON.parse(
+          job.pages
+            ? calc.evaluateSheetForWith(job.sheet, job.handle || "", job.text, pages, SLICE_MS)
+            : calc.evaluateSheetFor(job.sheet, job.text, SLICE_MS),
+        );
         if (out.done && latest === job) latest = null;
         self.postMessage({
           type: "sheet", seq: job.seq, sheet: job.sheet, text: job.text, done: out.done, results: out.results,

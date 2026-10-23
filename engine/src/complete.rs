@@ -56,7 +56,7 @@ pub struct Suggestion {
     pub text: String,
     /// `variable`, `keyword`, `unit`, or `zone`.
     pub kind: &'static str,
-    pub detail: &'static str,
+    pub detail: String,
 }
 
 impl Suggestion {
@@ -87,21 +87,21 @@ pub fn suggest(prefix: &str, vars: &HashSet<String>) -> Vec<Suggestion> {
         candidates.push(Suggestion {
             text: name,
             kind: "variable",
-            detail: "a name on this page",
+            detail: "a name on this page".to_string(),
         });
     }
     for word in KEYWORDS.iter().copied().filter(|k| starts(k)) {
         candidates.push(Suggestion {
             text: word.to_string(),
             kind: "keyword",
-            detail: keyword_detail(word),
+            detail: keyword_detail(word).to_string(),
         });
     }
     for zone in crate::time::completion_words().filter(|z| starts(z)) {
         candidates.push(Suggestion {
             text: zone.to_string(),
             kind: "zone",
-            detail: "a time zone",
+            detail: "a time zone".to_string(),
         });
     }
     for unit in units
@@ -112,7 +112,7 @@ pub fn suggest(prefix: &str, vars: &HashSet<String>) -> Vec<Suggestion> {
         candidates.push(Suggestion {
             text: unit,
             kind: "unit",
-            detail: "a unit",
+            detail: "a unit".to_string(),
         });
     }
 

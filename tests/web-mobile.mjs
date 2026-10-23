@@ -64,6 +64,12 @@ check(js.includes("definitionChange") && js.includes("ref-update"), "editing a d
 check(js.includes("touchstart") && js.includes("renameAtCaret") && html.includes('data-action="rename"'), "a phone can long-press a name or tap Rename");
 check(!js.includes('console.log("rename-'), "rename diagnostics stay out of the page");
 check(js.includes("hoverValue") && js.includes("t-def"), "hover values and definition colours are wired up");
+check(html.includes('data-action="handle"'), "the menu can edit a page handle");
+check(js.includes("function allocateHandle"), "pages get a handle before the engine loads");
+check(js.includes("Keep in step with xref::allocate_handle"), "the handle rules stay with the engine");
+check(css.includes(".cm-editor .t-ref"), "a page reference is coloured on its own");
+check(js.includes("hoverValueWith") && js.includes("suggestAt"), "cross-page hover and the @ picker use the engine");
+check(js.includes("lockedPages"), "a locked page is a hook until passwords land");
 check(css.includes(".cm-editor .t-def") && css.includes(".hover-value"), "definition and hover styles exist");
 check(js.includes('e.key === ","') && js.includes('e.key === "\\\\"'), "settings and the answers column have shortcuts");
 check(js.includes("previewHtml"), "preview renders from the engine");

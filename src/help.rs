@@ -272,7 +272,7 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "Name things",
-        "`rent = $1,450` defines a variable for the rest of the page. The name where you define it is one colour, a later use is another, and keywords and units have a third. Hover a name or a number (`1.5k`) to see its value. F2, Rename variable on hover, or the right-click menu renames that name everywhere on the page. On a phone, long-press the name or tap Rename. Autocomplete offers names as you type, with a short description.",
+        "`rent = $1,450` defines a variable for the rest of the page. The name where you define it is one colour, a later use is another, and keywords and units have a third. Hover a name or a number (`1.5k`) to see its value. F2, Rename variable on hover, or the right-click menu renames that name everywhere on the page, including `@handle.name` on other pages. On a phone, long-press the name or tap Rename. A name from another page is `@handle.name`, for example `@trip.total`. Typing `@` lists pages. Autocomplete offers names as you type, with a short description.",
     ),
     (
         "One page per thing",

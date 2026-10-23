@@ -4,8 +4,8 @@
 // part after "#", which browsers never send to the server.
 
 import init, {
-  Calc, suggest, shareEncode, shareDecode, layoutAnswers, realignMap, pageMarks, previewHtml, variables, wordKind,
-  bindingAt, renameVariable, definitionChange,
+  Calc, shareEncode, shareDecode, layoutAnswers, realignMap, pageMarks, previewHtml, variables, wordKind,
+  bindingAt, renameVariable, definitionChange, pageRefAt, rewriteVarRefs, renameBlurb, propagateRename, propagateHandle,
 } from "./pkg/omacus_web.js";
 import {
   EditorState, StateField, StateEffect, RangeSetBuilder, Prec, EditorView, Decoration, WidgetType, keymap, hoverTooltip,
@@ -70,6 +70,10 @@ const el = {
   deleted: $("[data-deleted]"),
   confirm: $("[data-confirm]"),
   confirmText: $("[data-confirm-text]"),
+  handleDialog: $("[data-handle]"),
+  handleTitle: $("[data-handle-title]"),
+  handleInput: $("[data-handle-input]"),
+  handleNote: $("[data-handle-note]"),
   workspace: $("[data-workspace]"),
   editor: $("[data-editor]"),
   preview: $("[data-preview]"),
@@ -97,7 +101,10 @@ let results = [];
 // they're all of that text's answers, fresh (not some still on their way).
 let resultsText = "";
 let resultsExact = false;
-const state = { order: [], active: null, texts: new Map(), shared: null, tree: [] };
+const state = { order: [], active: null, texts: new Map(), shared: null, tree: [], handles: new Map() };
+// Password lock is a hook for a feature that has not landed. Nothing sets this.
+// A reference to a locked page shows "🔒 locked" instead of the value.
+const lockedPages = new Map();
 
 // ---------------------------------------------------------------------------------
 // Storage: one localStorage entry per sheet, plus the order and the active one.
@@ -293,6 +300,12 @@ function load() {
   }
   syncOrder();
   state.active = state.order.includes(index.active) ? index.active : state.order[0] ?? null;
+  state.handles = new Map();
+  const saved = index.handles && typeof index.handles === "object" ? index.handles : {};
+  for (const [id, handle] of Object.entries(saved)) {
+    if (typeof handle === "string" && handle) state.handles.set(id, handle);
+  }
+  ensureHandles();
 }
 
 function syncOrder() {
@@ -301,7 +314,12 @@ function syncOrder() {
 
 function saveIndex() {
   syncOrder();
-  store.set("index", JSON.stringify({ order: state.order, active: state.active, tree: state.tree }));
+  store.set("index", JSON.stringify({
+    order: state.order,
+    active: state.active,
+    tree: state.tree,
+    handles: Object.fromEntries(state.handles),
+  }));
 }
 
 let persistAsked = false;
@@ -328,6 +346,8 @@ function addSheet(text, { select = true, parent } = {}) {
   }
   if (!insertNode(state.tree, folder, 0, { type: "page", id })) state.tree.unshift({ type: "page", id });
   syncOrder();
+  const taken = new Set([...state.handles.values()].map((h) => h.toLowerCase()));
+  state.handles.set(id, allocateHandle(heading(text), taken));
   saveSheet(id);
   if (select) {
     state.active = id;
@@ -335,6 +355,244 @@ function addSheet(text, { select = true, parent } = {}) {
   }
   saveIndex();
   return id;
+}
+
+// Keep in step with xref::allocate_handle in engine/src/xref.rs.
+// The first word that starts with a letter, then the words joined, then trip2.
+function allocateHandle(title, taken) {
+  const have = new Set([...taken].map((h) => String(h).toLowerCase()));
+  const words = String(title ?? "").split(/\s+/).map((word) => word.replace(/[^A-Za-z0-9]/g, "").toLowerCase()).filter(Boolean);
+  const start = words.findIndex((word) => /^[a-z]/.test(word));
+  let base = "page";
+  if (start >= 0) {
+    const word = words[start].replace(/^[^a-z]+/, "");
+    if (word) base = word;
+  }
+  if (!/^[a-z][a-z0-9]*$/.test(base)) base = "page";
+  if (!have.has(base)) return base;
+  if (start >= 0) {
+    const longer = words.slice(start).join("").replace(/^[^a-z]+/, "");
+    if (/^[a-z][a-z0-9]*$/.test(longer) && longer !== base && !have.has(longer)) return longer;
+  }
+  let n = 2;
+  while (have.has(base + n)) n += 1;
+  return base + n;
+}
+
+// Existing pages keep the handle already stored. A title change does not allocate again.
+function ensureHandles() {
+  const taken = new Set([...state.handles.values()].map((h) => h.toLowerCase()));
+  let dirty = false;
+  const assign = (id, title) => {
+    if (state.handles.has(id)) return;
+    const handle = allocateHandle(title, taken);
+    state.handles.set(id, handle);
+    taken.add(handle.toLowerCase());
+    dirty = true;
+  };
+  for (const id of state.order) assign(id, heading(state.texts.get(id) || ""));
+  for (const item of loadTrash()) {
+    if (item.handle && !state.handles.has(item.id)) {
+      const handle = String(item.handle).toLowerCase();
+      if (/^[a-z][a-z0-9]*$/.test(handle) && !taken.has(handle)) {
+        state.handles.set(item.id, handle);
+        taken.add(handle);
+        dirty = true;
+      }
+    }
+    assign(item.id, heading(item.text || ""));
+  }
+  if (dirty) saveIndex();
+}
+
+function currentHandle() {
+  return state.handles.get(state.active) || "";
+}
+
+// Every page a `@handle.name` can read. `elsewhere` stays false: this tab does
+// not compare file stamps on each keystroke. `locked` is the password-lock hook.
+function pageCatalog() {
+  const pages = [];
+  const doc = typeof view !== "undefined" && view ? view.state.doc.toString() : null;
+  for (const id of state.order) {
+    const text = id === state.active && doc != null ? doc : (state.texts.get(id) ?? "");
+    pages.push({
+      id,
+      handle: state.handles.get(id) || "",
+      title: heading(text),
+      text,
+      locked: lockedPages.get(id) === true,
+      deleted: false,
+      elsewhere: false,
+    });
+  }
+  for (const item of loadTrash()) {
+    if (state.order.includes(item.id)) continue;
+    pages.push({
+      id: item.id,
+      handle: item.handle || state.handles.get(item.id) || "",
+      title: heading(item.text),
+      text: item.text,
+      locked: false,
+      deleted: true,
+      elsewhere: false,
+    });
+  }
+  return pages;
+}
+
+function pageIndex(id) {
+  return pageCatalog().findIndex((page) => page.id === id);
+}
+
+let crossUndo = null;
+
+function writePageEdit(edit) {
+  if (state.texts.has(edit.id)) {
+    state.texts.set(edit.id, edit.text);
+    state.handles.set(edit.id, edit.handle);
+    saveSheet(edit.id);
+    if (edit.id !== state.active) editorStates.delete(edit.id);
+    return;
+  }
+  const items = loadTrash();
+  const item = items.find((t) => t.id === edit.id);
+  if (item) {
+    item.text = edit.text;
+    item.handle = edit.handle;
+    saveTrash(items);
+  }
+  if (edit.handle) state.handles.set(edit.id, edit.handle);
+}
+
+function snapshotOthers(edits) {
+  const others = [];
+  for (const edit of edits) {
+    if (edit.id === state.active) continue;
+    if (state.texts.has(edit.id)) {
+      others.push({ id: edit.id, text: state.texts.get(edit.id), handle: state.handles.get(edit.id) || "" });
+    } else {
+      const item = loadTrash().find((t) => t.id === edit.id);
+      if (item) others.push({ id: edit.id, text: item.text, handle: item.handle || state.handles.get(edit.id) || "" });
+    }
+  }
+  return others;
+}
+
+// One undo restores every page a rename rewrote. When the page on screen
+// changed, the editor's own undo is that step; otherwise the toast is.
+function applyEdits(edits, blurb, cursor) {
+  if (!edits?.length) return;
+  const id = state.active;
+  const beforeText = view.state.doc.toString();
+  const beforeHandle = state.handles.get(id) || "";
+  const others = snapshotOthers(edits);
+  const mine = edits.find((edit) => edit.id === id);
+  const afterText = mine ? mine.text : beforeText;
+  crossUndo = { id, beforeText, afterText, beforeHandle, others, armed: true };
+  for (const edit of edits) {
+    if (edit.id === id) {
+      if (edit.handle) state.handles.set(id, edit.handle);
+    } else {
+      writePageEdit(edit);
+    }
+  }
+  saveIndex();
+  if (afterText !== beforeText) {
+    applyingRename = true;
+    const change = { changes: { from: 0, to: view.state.doc.length, insert: afterText } };
+    if (cursor != null) change.selection = { anchor: cursor };
+    view.dispatch(change);
+    applyingRename = false;
+  } else {
+    toast(esc(blurb || "Updated"), { label: "Undo", run: restoreCrossUndo });
+    evaluate();
+  }
+}
+
+function restoreCrossUndo() {
+  const undo = crossUndo;
+  crossUndo = null;
+  if (!undo) return;
+  if (state.active === undo.id && undo.beforeText !== undo.afterText && view.state.doc.toString() === undo.afterText) {
+    applyingRename = true;
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: undo.beforeText } });
+    applyingRename = false;
+  }
+  if ((state.handles.get(undo.id) || "") !== undo.beforeHandle) state.handles.set(undo.id, undo.beforeHandle);
+  for (const other of undo.others) writePageEdit(other);
+  saveIndex();
+  renderSidebar();
+  evaluate();
+}
+
+function noteCrossUndo(update) {
+  if (!crossUndo?.armed || crossUndo.id !== state.active) return;
+  const undone = update.transactions.some((tr) => tr.isUserEvent("undo"));
+  if (!undone || update.state.doc.toString() !== crossUndo.beforeText) return;
+  const undo = crossUndo;
+  crossUndo = null;
+  if ((state.handles.get(undo.id) || "") !== undo.beforeHandle) state.handles.set(undo.id, undo.beforeHandle);
+  for (const other of undo.others) writePageEdit(other);
+  saveIndex();
+  renderSidebar();
+}
+
+function openHandle(handle) {
+  const want = String(handle || "").toLowerCase();
+  if (!want) return;
+  for (const id of state.order) {
+    if ((state.handles.get(id) || "").toLowerCase() === want) {
+      if (id !== state.active) select(id);
+      return;
+    }
+  }
+  const trashed = loadTrash().find((item) => (item.handle || state.handles.get(item.id) || "").toLowerCase() === want);
+  if (trashed) showPreview(trashed);
+}
+
+function rewriteSpans(text, spans, name) {
+  const ordered = [...(spans || [])].sort((a, b) => b[0] - a[0]);
+  let out = text;
+  for (const [from, to] of ordered) out = out.slice(0, from) + name + out.slice(to);
+  return out;
+}
+
+function withForeign(edit) {
+  if (!edit || edit.collision) return edit;
+  const handle = currentHandle();
+  if (!handle) return edit;
+  let elsewhere = 0;
+  let locked = 0;
+  let away = 0;
+  for (const page of pageCatalog()) {
+    if (page.handle.toLowerCase() === handle.toLowerCase()) continue;
+    const again = JSON.parse(rewriteVarRefs(page.text, handle, edit.oldName, edit.newName));
+    if (!again.count) continue;
+    if (page.locked) locked += 1;
+    else if (page.elsewhere) away += 1;
+    else elsewhere += again.count;
+  }
+  if (!elsewhere && !locked && !away) return edit;
+  edit.message = renameBlurb(edit.oldName, edit.newName, edit.references, elsewhere, locked, away);
+  edit.references += elsewhere;
+  return edit;
+}
+
+function applyDefinition(view, edit) {
+  const handle = currentHandle();
+  let text = rewriteSpans(view.state.doc.toString(), edit.spans, edit.newName);
+  if (handle) text = JSON.parse(rewriteVarRefs(text, handle, edit.oldName, edit.newName)).text;
+  const edits = [];
+  if (text !== view.state.doc.toString()) edits.push({ id: state.active, text, handle });
+  if (!edit.collision && handle) {
+    for (const page of pageCatalog()) {
+      if (page.id === state.active || page.locked || page.elsewhere) continue;
+      const again = JSON.parse(rewriteVarRefs(page.text, handle, edit.oldName, edit.newName));
+      if (again.count) edits.push({ id: page.id, text: again.text, handle: page.handle });
+    }
+  }
+  applyEdits(edits, edit.message);
 }
 
 function heading(text) {
@@ -803,15 +1061,32 @@ const sheetField = StateField.define({
 function completions(ctx) {
   if (!calc) return null;
   const doc = ctx.state.doc.toString();
-  const found = JSON.parse(suggest(doc.slice(0, ctx.pos), doc));
+  const found = JSON.parse(calc.suggestAt(doc, ctx.pos, JSON.stringify(pageCatalog())));
   if (!found) return null;
+  // Enter accepts the page picker and the variables that follow `@handle.`.
+  const atPick = /(?:^|[^A-Za-z0-9_])@[A-Za-z0-9]*\.?[A-Za-z0-9_]*$/.test(doc.slice(0, ctx.pos));
+  if (atPick) explicitCompletion = true;
   return {
     from: found.start,
     filter: false,
     options: found.items.map((item) => ({
       label: item.text,
-      detail: `${item.kind === "zone" ? "time zone" : item.kind} · ${item.detail}`,
+      detail: item.kind === "page" || (atPick && item.kind === "variable")
+        ? item.detail
+        : `${item.kind === "zone" ? "time zone" : item.kind} · ${item.detail}`,
       type: item.kind,
+      apply(view, completion, from, to) {
+        const insert = completion.label;
+        view.dispatch({
+          changes: { from, to, insert },
+          selection: { anchor: from + insert.length },
+          userEvent: "input",
+        });
+        if (completion.type === "page") {
+          explicitCompletion = true;
+          requestAnimationFrame(() => startCompletion(view));
+        }
+      },
     })),
   };
 }
@@ -823,9 +1098,10 @@ let armingExplicit = false;
 
 function hoverSource(view, pos) {
   if (!calc) return null;
-  const found = JSON.parse(calc.hoverValue(view.state.doc.toString(), pos));
+  const doc = view.state.doc.toString();
+  const found = JSON.parse(calc.hoverValueWith(doc, pos, currentHandle(), JSON.stringify(pageCatalog())));
   if (!found) return null;
-  const binding = JSON.parse(bindingAt(view.state.doc.toString(), pos));
+  const binding = JSON.parse(bindingAt(doc, pos));
   return {
     pos: found.start,
     end: found.end,
@@ -837,6 +1113,25 @@ function hoverSource(view, pos) {
       value.className = "hover-value";
       value.textContent = found.value;
       dom.append(value);
+      if (found.sourceTitle || found.sourceHandle) {
+        const src = document.createElement("div");
+        src.className = "hover-source";
+        src.textContent = found.sourceTitle || found.sourceHandle;
+        dom.append(src);
+      }
+      if (found.usedBy) {
+        const used = document.createElement("div");
+        used.className = "hover-source";
+        used.textContent = found.usedBy === 1 ? "Used by 1 other page" : `Used by ${found.usedBy} other pages`;
+        dom.append(used);
+      }
+      if (found.sourceHandle) {
+        dom.addEventListener("mousedown", (event) => {
+          if (event.target.closest(".hover-rename")) return;
+          event.preventDefault();
+          openHandle(found.sourceHandle);
+        });
+      }
       if (binding) {
         const btn = document.createElement("button");
         btn.type = "button";
@@ -905,7 +1200,9 @@ function openRename(view, utf16) {
         view.focus();
         return;
       }
-      const result = JSON.parse(renameVariable(view.state.doc.toString(), utf16, input.value));
+      const pages = JSON.stringify(pageCatalog());
+      const source = pageIndex(state.active);
+      const result = JSON.parse(propagateRename(pages, source, utf16, input.value));
       if (result.error) {
         if (result.error === "none") {
           closeRename();
@@ -916,13 +1213,7 @@ function openRename(view, utf16) {
         input.focus();
         return;
       }
-      const current = JSON.parse(bindingAt(view.state.doc.toString(), utf16));
-      applyingRename = true;
-      view.dispatch({
-        changes: current.spans.map(([from, to]) => ({ from, to, insert: input.value.trim() })),
-        selection: { anchor: result.cursor },
-      });
-      applyingRename = false;
+      applyEdits(result.edits, result.blurb, result.cursor);
       closeRename();
       view.focus();
     } else if (event.key === "Escape") {
@@ -932,9 +1223,20 @@ function openRename(view, utf16) {
       view.focus();
     }
   });
-  input.addEventListener("input", () => {
+  const note = document.createElement("div");
+  note.className = "rename-note";
+  host.append(note);
+  const showBlurb = () => {
     err.textContent = "";
-  });
+    note.textContent = "";
+    if (!calc || input.value.trim() === found.name) return;
+    try {
+      const result = JSON.parse(propagateRename(JSON.stringify(pageCatalog()), pageIndex(state.active), utf16, input.value));
+      if (result.error) err.textContent = result.message;
+      else if (result.blurb) note.textContent = result.blurb;
+    } catch {}
+  };
+  input.addEventListener("input", showBlurb);
   renamePop = host;
   return true;
 }
@@ -986,11 +1288,7 @@ function showRefPrompt(view, edit) {
       event.preventDefault();
       const current = host._edit;
       if (!current) return;
-      applyingRename = true;
-      view.dispatch({
-        changes: current.spans.map(([from, to]) => ({ from, to, insert: current.newName })),
-      });
-      applyingRename = false;
+      applyDefinition(view, current);
       refBase = null;
       refDismissed = false;
       closeRefPrompt();
@@ -1028,14 +1326,14 @@ function noteDefinitionEdit(view, before, after) {
     if (!continued) refDismissed = false;
     refBase = base;
     if (refDismissed) closeRefPrompt();
-    else showRefPrompt(view, edit);
+    else showRefPrompt(view, withForeign(edit));
     return;
   }
   const fresh = JSON.parse(definitionChange(before, after));
   if (fresh) {
     refDismissed = false;
     refBase = before;
-    showRefPrompt(view, fresh);
+    showRefPrompt(view, withForeign(fresh));
     return;
   }
   refBase = null;
@@ -1222,6 +1520,16 @@ const editorKeys = [
       return acceptCompletion(view);
     },
   },
+  {
+    key: "Mod-z",
+    run(view) {
+      if (crossUndo && crossUndo.beforeText === crossUndo.afterText && view.state.doc.toString() === crossUndo.beforeText) {
+        restoreCrossUndo();
+        return true;
+      }
+      return false;
+    },
+  },
   { key: "Mod-Shift-s", run: () => (action("copy"), true) },
   { key: "Mod-Shift-m", run: () => (action("markdown"), true) },
   {
@@ -1241,6 +1549,22 @@ const editorExtensions = [
   undoHistory(),
   Prec.highest(keymap.of(editorKeys)),
   keymap.of([...defaultKeymap, ...historyKeymap]),
+  EditorView.domEventHandlers({
+    click(event, view) {
+      if (!calc) return false;
+      const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+      if (pos == null) return false;
+      let ref = null;
+      try {
+        ref = JSON.parse(pageRefAt(view.state.doc.toString(), pos));
+      } catch {
+        return false;
+      }
+      if (!ref) return false;
+      openHandle(ref.handle);
+      return false;
+    },
+  }),
   EditorView.lineWrapping,
   sheetField,
   autocompletion({ override: [completions], defaultKeymap: false, icons: false }),
@@ -1250,6 +1574,7 @@ const editorExtensions = [
     // completionStatus wants the state; passing the view throws, which used to
     // skip this and leave the new line blank and the lines below it dimmed.
     if (update.docChanged) {
+      noteCrossUndo(update);
       if (!committingTyped && !switchingPage) {
         noteDefinitionEdit(update.view, update.startState.doc.toString(), update.state.doc.toString());
       }
@@ -1392,7 +1717,9 @@ function startWorker() {
   worker.postMessage({ type: "init", wasm: new URL(WASM, location.href).href, rates: ratesJson });
   // Messages wait in the worker until its engine is ready.
   if (latest && answered < latest.seq) worker.postMessage({ type: "sheet", ...latest });
-  for (const [id, c] of copies) worker.postMessage({ type: "copy", seq: id, sheet: c.sheet, text: c.text });
+  for (const [id, c] of copies) {
+    worker.postMessage({ type: "copy", seq: id, sheet: c.sheet, handle: c.handle, text: c.text, pages: c.pages });
+  }
 }
 
 function onWorker(m) {
@@ -1433,11 +1760,13 @@ function evaluate() {
   frame = requestAnimationFrame(() => {
     const text = view.state.doc.toString();
     const sheet = state.active ?? "";
+    const pages = pageCatalog();
+    const handle = currentHandle();
     if (worker) {
-      latest = { seq: ++seq, sheet, text };
+      latest = { seq: ++seq, sheet, handle, text, pages };
       worker.postMessage({ type: "sheet", ...latest });
     } else if (calc) {
-      show(JSON.parse(calc.evaluateSheet(sheet, text)), text, true);
+      show(JSON.parse(calc.evaluateSheetWith(sheet, handle, text, JSON.stringify(pages))), text, true);
     }
   });
 }
@@ -1449,13 +1778,15 @@ function laidOut(text, markdown) {
   if (resultsExact && resultsText === text) return Promise.resolve(lay(JSON.stringify(results)));
   if (!worker) return Promise.resolve(lay(pageLayout(text)));
   const id = ++seq;
-  worker.postMessage({ type: "copy", seq: id, sheet: state.active ?? "", text });
-  return new Promise((resolve) => copies.set(id, { sheet: state.active ?? "", text, resolve })).then(lay);
+  const handle = currentHandle();
+  const pages = pageCatalog();
+  worker.postMessage({ type: "copy", seq: id, sheet: state.active ?? "", handle, text, pages });
+  return new Promise((resolve) => copies.set(id, { sheet: state.active ?? "", handle, text, pages, resolve })).then(lay);
 }
 
 // Without a worker: the answers worked out here.
 function pageLayout(text) {
-  return calc.evaluate(text);
+  return calc.evaluateSheetWith(state.active ?? "", currentHandle(), text, JSON.stringify(pageCatalog()));
 }
 
 let varCache = { text: "", vars: new Set() };
@@ -1491,9 +1822,11 @@ function lineSpans(line, vars) {
   };
   if (marks.heading) paint(0, line.length, `t-h${marks.heading}`);
   else {
-    for (const [from, to, name] of tokens(line.slice(0, marks.comment ?? line.length), vars, marks.define)) {
+    const code = line.slice(0, marks.comment ?? line.length);
+    for (const [from, to, name] of tokens(code, vars, marks.define)) {
       paint(from, to, name);
     }
+    for (const [from, to, name] of pageRefSpans(code)) paint(from, to, name);
   }
   if (marks.comment != null) paint(marks.comment, line.length, "t-com");
   for (const [from, to] of marks.bold) add(from, to, "t-bold");
@@ -1534,6 +1867,30 @@ function isKeywordOrUnit(word) {
 }
 
 // The same colours as the desktop app, as [from, to, class] spans.
+// `@handle` is its own colour. A bare `@name` with no dot is left alone so it
+// can later be a person mention. `mail@trip.total` is not a reference.
+function pageRefSpans(line) {
+  const spans = [];
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (quoted || ch !== "@") continue;
+    if (i > 0 && /[A-Za-z0-9_]/.test(line[i - 1])) continue;
+    const match = /^@([A-Za-z][A-Za-z0-9]*)\.([A-Za-z_][A-Za-z0-9_]*)/.exec(line.slice(i));
+    if (!match) continue;
+    const handleEnd = i + 1 + match[1].length;
+    spans.push([i, handleEnd, "t-ref"]);
+    const nameAt = handleEnd + 1;
+    spans.push([nameAt, nameAt + match[2].length, "t-var"]);
+    i = nameAt + match[2].length - 1;
+  }
+  return spans;
+}
+
 function tokens(line, vars, define) {
   const out = [];
   const code = line;
@@ -1680,6 +2037,8 @@ async function action(name) {
   const text = currentText();
   if (name === "rename") {
     renameAtCaret();
+  } else if (name === "handle") {
+    openHandleDialog();
   } else if (name === "copy") {
     await copyLater(laidOut(text, false));
     toast("Page copied with answers.");
@@ -1800,6 +2159,8 @@ function commitDelete() {
     const items = loadTrash();
     const item = items.find((t) => t.id === id);
     saveTrash(items.filter((t) => t.id !== id));
+    state.handles.delete(id);
+    saveIndex();
     if (preview?.id === id) clearPreview();
     renderDeleted();
     if (item) toast(`Deleted “${esc(heading(item.text))}” forever.`);
@@ -1829,7 +2190,7 @@ function commitDeletePage(id) {
   const parent = taken?.parent ?? null;
   const at = taken?.index ?? 0;
   const trash = loadTrash().filter((t) => t.id !== id);
-  trash.unshift({ id, text });
+  trash.unshift({ id, text, handle: state.handles.get(id) || "" });
   saveTrash(trash);
   flushSave();
   state.texts.delete(id);
@@ -2500,6 +2861,10 @@ addEventListener("keydown", (e) => {
       closeRowMenu();
       return;
     }
+    if (el.handleDialog && !el.handleDialog.hidden) {
+      closeHandleDialog();
+      return;
+    }
     if (el.settings && !el.settings.hidden) {
       closeSettings();
       return;
@@ -2517,6 +2882,68 @@ addEventListener("keydown", (e) => {
     setDrawer(false);
   }
 });
+function openHandleDialog() {
+  if (!el.handleDialog || state.active === "shared" || !state.active) return;
+  const handle = currentHandle();
+  el.handleTitle.textContent = `Handle for “${title(currentText())}”`;
+  el.handleInput.value = handle;
+  el.handleNote.textContent = "";
+  el.handleNote.classList.remove("handle-error");
+  el.handleDialog.hidden = false;
+  el.handleInput.focus();
+  el.handleInput.select();
+}
+
+function closeHandleDialog() {
+  if (el.handleDialog) el.handleDialog.hidden = true;
+  view?.focus();
+}
+
+function previewHandle(next) {
+  const current = currentHandle();
+  if (!next || next.toLowerCase() === current.toLowerCase()) {
+    el.handleNote.textContent = "";
+    el.handleNote.classList.remove("handle-error");
+    return;
+  }
+  const source = pageIndex(state.active);
+  let result;
+  try {
+    result = JSON.parse(propagateHandle(JSON.stringify(pageCatalog()), source, next));
+  } catch {
+    return;
+  }
+  el.handleNote.textContent = result.message || result.blurb || "";
+  el.handleNote.classList.toggle("handle-error", !!result.error);
+}
+
+function commitHandle() {
+  const next = el.handleInput.value;
+  const source = pageIndex(state.active);
+  const result = JSON.parse(propagateHandle(JSON.stringify(pageCatalog()), source, next));
+  if (result.error) {
+    el.handleNote.textContent = result.message;
+    el.handleNote.classList.add("handle-error");
+    el.handleInput.focus();
+    return;
+  }
+  closeHandleDialog();
+  applyEdits(result.edits, result.blurb);
+}
+
+el.handleInput?.addEventListener("input", () => previewHandle(el.handleInput.value.trim()));
+el.handleInput?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    commitHandle();
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    closeHandleDialog();
+  }
+});
+$("[data-handle-save]")?.addEventListener("click", commitHandle);
+$("[data-handle-cancel]")?.addEventListener("click", closeHandleDialog);
+
 $("[data-confirm-yes]")?.addEventListener("click", commitDelete);
 $("[data-confirm-no]")?.addEventListener("click", () => {
   if (el.confirm) el.confirm.hidden = true;

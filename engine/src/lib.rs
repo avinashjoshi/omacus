@@ -20,6 +20,7 @@ mod rates;
 pub mod rename;
 pub mod share;
 pub mod time;
+pub mod xref;
 
 pub use rates::Rates;
 
@@ -89,6 +90,10 @@ pub struct Sheet {
     /// line ("z is defined below") depends on them, so a new assignment can't
     /// reuse those lines.
     defs: HashSet<String>,
+    /// Fingerprint of the other pages last used for `@handle.name`. A change
+    /// there (or a reference anywhere in this page) drops the saved answers:
+    /// a later edit can change an earlier line.
+    xref_fp: u64,
 }
 
 impl Sheet {
@@ -287,6 +292,11 @@ pub(crate) fn looks_like_math(body: &str, vars: &HashSet<String>) -> bool {
         .next()
         .is_some_and(|c| c.is_ascii_digit() || matches!(c, '(' | '.' | '-'))
     {
+        return true;
+    }
+    // `@handle.name` is a value from another page. A bare `@name` (no dot) is
+    // not math: it is left unparsed so it can later be a person mention.
+    if crate::xref::contains_page_ref(body) {
         return true;
     }
     if body.contains('(') && body.chars().any(|c| c.is_ascii_digit()) {
@@ -672,19 +682,25 @@ impl Engine {
         let defs_changed = sheet.defs != defs;
         sheet.defs = defs.clone();
         let version = self.rates.version();
-        let same = if sheet.rates_version == version && !defs_changed {
-            lines
-                .iter()
-                .zip(&sheet.lines)
-                .take_while(|(a, b)| **a == b.as_str())
-                .count()
-        } else {
-            0
-        };
+        // A page reference reads the final value, which a later line or another
+        // page can change, so the prefix above an edit is not reusable.
+        let fp = crate::xref::current_fingerprint();
+        let refs = crate::xref::contains_page_ref(text);
+        let same =
+            if !refs && sheet.xref_fp == fp && sheet.rates_version == version && !defs_changed {
+                lines
+                    .iter()
+                    .zip(&sheet.lines)
+                    .take_while(|(a, b)| **a == b.as_str())
+                    .count()
+            } else {
+                0
+            };
         sheet.lines.truncate(same);
         sheet.results.truncate(same);
         sheet.after.truncate(same);
         sheet.rates_version = version;
+        sheet.xref_fp = fp;
         // Answers from the clock ("today", "time in Tokyo") are fresh every time;
         // they never change the state the lines below see.
         for (line, result) in sheet.lines.iter().zip(sheet.results.iter_mut()) {
@@ -720,7 +736,15 @@ impl Engine {
     /// Line `i` of a sheet, given the state the lines above it left.
     fn eval_in(&self, st: &mut State, i: usize, line: &str, defs: &HashSet<String>) -> LineResult {
         let normalized = normalize_typing(line);
-        let line = normalized.as_ref();
+        // `@handle.name` becomes that page's final value before markdown and
+        // fend see the line, so `- cost = @trip.total` still assigns `cost`.
+        // A bare `@name` with no dot is left as written.
+        let prepared = match crate::xref::prepare(normalized.as_ref()) {
+            crate::xref::Prepared::Hint(note) => return LineResult::hint(note),
+            crate::xref::Prepared::Wait => return LineResult::error(None),
+            crate::xref::Prepared::Ready(text) => text,
+        };
+        let line = prepared.as_str();
         let class = markdown::classify(line);
         match class.form {
             markdown::Form::Blank => {
@@ -1203,12 +1227,29 @@ impl Engine {
             .map(|r| r.display)
     }
 
+    /// `hover_at` with other pages installed, so `@handle.name` can show its value
+    /// and where it came from, and a definition can say how many pages use it.
+    pub fn hover_with(
+        &self,
+        text: &str,
+        cursor: usize,
+        handle: &str,
+        pages: &[xref::Page],
+    ) -> Option<Hover> {
+        let book = xref::resolve(self, pages);
+        let _guard = xref::install_for(&book, handle);
+        self.hover_at(text, cursor)
+    }
+
     /// The value under a cursor (a char index): a variable, the name being
     /// defined on this line, or a number whose formatted value differs (`1.5k`
     /// is `1,500`). Lines above the cursor are the context, so a name defined
     /// later is not visible yet. `None` for prose, comments, and a number that
     /// already shows its own value.
     pub fn hover_at(&self, text: &str, cursor: usize) -> Option<Hover> {
+        if let Some(hit) = crate::xref::hover_ref(text, cursor) {
+            return Some(hit);
+        }
         let (line_idx, line_at, token) = token_at(text, cursor)?;
         let lines: Vec<&str> = text.split('\n').collect();
         let line = *lines.get(line_idx)?;
@@ -1233,10 +1274,18 @@ impl Engine {
         } else {
             return None;
         };
+        let used_by = if token_is_definition(line, &token) {
+            crate::xref::used_by_here(&token.text)
+        } else {
+            0
+        };
         Some(Hover {
             start: line_at + token.start,
             end: line_at + token.end,
             value,
+            source_title: None,
+            source_handle: None,
+            used_by,
         })
     }
 }
@@ -1248,6 +1297,12 @@ pub struct Hover {
     pub start: usize,
     pub end: usize,
     pub value: String,
+    /// Title of the page a `@handle.name` reference reads, when it has one.
+    pub source_title: Option<String>,
+    /// Handle of that page. Set when the hover is a cross-page reference.
+    pub source_handle: Option<String>,
+    /// Other pages that reference this definition (`0` for a use or a number).
+    pub used_by: usize,
 }
 
 /// Where each line of `new` text was in `old`, for moving answers along with their

@@ -4,6 +4,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use omacus_engine::xref::{self, Page};
 use omacus_engine::{Engine, Kind, LineResult, Rates, Sheet, complete};
 use serde_json::json;
 use wasm_bindgen::prelude::*;
@@ -23,6 +24,9 @@ pub struct Calc {
     /// Each sheet's last calculation, so an edit redoes only the lines from the
     /// first one that changed.
     sheets: RefCell<HashMap<String, Sheet>>,
+    /// The last resolved catalog, so a slice doesn't resolve every page again.
+    book: RefCell<Option<xref::Book>>,
+    book_fp: RefCell<u64>,
 }
 
 impl Default for Calc {
@@ -43,6 +47,8 @@ impl Calc {
             engine,
             rates,
             sheets: RefCell::default(),
+            book: RefCell::default(),
+            book_fp: RefCell::new(0),
         }
     }
 
@@ -53,6 +59,7 @@ impl Calc {
         match serde_json::from_str::<HashMap<String, f64>>(json) {
             Ok(table) if !table.is_empty() => {
                 self.rates.set(table);
+                *self.book.borrow_mut() = None;
                 true
             }
             _ => false,
@@ -69,16 +76,52 @@ impl Calc {
     /// `start` and `end` are UTF-16 offsets of the token.
     #[wasm_bindgen(js_name = hoverValue)]
     pub fn hover_value(&self, text: &str, utf16_pos: u32) -> String {
+        self.hover_value_with(text, utf16_pos, "", "[]")
+    }
+
+    /// `hoverValue` with the other pages, so `@handle.name` includes its value
+    /// and the source page. `pages_json` is an array of page objects.
+    #[wasm_bindgen(js_name = hoverValueWith)]
+    pub fn hover_value_with(
+        &self,
+        text: &str,
+        utf16_pos: u32,
+        handle: &str,
+        pages_json: &str,
+    ) -> String {
         let cursor = char_index_from_utf16(text, utf16_pos as usize);
-        match self.engine.hover_at(text, cursor) {
+        let pages = parse_pages(pages_json);
+        match self.engine.hover_with(text, cursor, handle, &pages) {
             Some(hit) => json!({
                 "start": utf16_from_chars(text, hit.start),
                 "end": utf16_from_chars(text, hit.end),
                 "value": hit.value,
+                "sourceTitle": hit.source_title,
+                "sourceHandle": hit.source_handle,
+                "usedBy": hit.used_by,
             })
             .to_string(),
             None => "null".into(),
         }
+    }
+
+    /// Suggestions at a UTF-16 cursor. A `@` offers pages, then that page's
+    /// variables; otherwise the word being typed, as `suggest` does.
+    #[wasm_bindgen(js_name = suggestAt)]
+    pub fn suggest_at(&self, text: &str, utf16_pos: u32, pages_json: &str) -> String {
+        let cursor = char_index_from_utf16(text, utf16_pos as usize);
+        let pages = parse_pages(pages_json);
+        if let Some(pick) = xref::at_picks(&self.engine, text, cursor, &pages) {
+            return suggestion_json(text, pick.start, &pick.items);
+        }
+        let Some((start, word)) = complete::word_before(text, cursor) else {
+            return "null".into();
+        };
+        let items = complete::suggest(&word, &omacus_engine::defined_variables(text));
+        if items.is_empty() {
+            return "null".into();
+        }
+        suggestion_json(text, start, &items)
     }
 
     /// `evaluate`, reusing the last calculation of the sheet `id`.
@@ -115,6 +158,33 @@ impl Calc {
         )
     }
 
+    /// `evaluateSheet` with other pages installed, so `@handle.name` resolves.
+    #[wasm_bindgen(js_name = evaluateSheetWith)]
+    pub fn evaluate_sheet_with(
+        &self,
+        id: &str,
+        handle: &str,
+        text: &str,
+        pages_json: &str,
+    ) -> String {
+        let _guard = self.install_pages(handle, pages_json);
+        self.evaluate_sheet(id, text)
+    }
+
+    /// `evaluateSheetFor` with other pages installed.
+    #[wasm_bindgen(js_name = evaluateSheetForWith)]
+    pub fn evaluate_sheet_for_with(
+        &self,
+        id: &str,
+        handle: &str,
+        text: &str,
+        pages_json: &str,
+        ms: f64,
+    ) -> String {
+        let _guard = self.install_pages(handle, pages_json);
+        self.evaluate_sheet_for(id, text, ms)
+    }
+
     /// Start sheet `to` from sheet `from`'s saved work (for a copy of text that may
     /// differ from what's being edited, without losing either's progress).
     #[wasm_bindgen(js_name = forkSheet)]
@@ -139,6 +209,25 @@ impl Calc {
     #[wasm_bindgen(js_name = markdownTable)]
     pub fn markdown_table(&self, text: &str) -> String {
         omacus_engine::markdown_table(text, &self.engine.eval_document(text))
+    }
+}
+
+impl Calc {
+    /// Resolve `pages_json` (reusing the last book when nothing changed) and
+    /// install it for the page being calculated.
+    fn install_pages(&self, handle: &str, pages_json: &str) -> xref::Guard {
+        let pages = parse_pages(pages_json);
+        let fp = xref::fingerprint(&pages);
+        let book = {
+            let mut slot = self.book.borrow_mut();
+            let mut seen = self.book_fp.borrow_mut();
+            if slot.is_none() || *seen != fp {
+                *slot = Some(xref::resolve(&self.engine, &pages));
+                *seen = fp;
+            }
+            slot.clone().expect("book was just stored")
+        };
+        xref::install_for(&book, handle)
     }
 }
 
@@ -219,6 +308,42 @@ fn kind(k: &Kind) -> &'static str {
         Kind::Value => "value",
         Kind::Error => "none",
     }
+}
+
+fn suggestion_json(
+    text: &str,
+    start: usize,
+    items: &[omacus_engine::complete::Suggestion],
+) -> String {
+    let start = utf16_from_chars(text, start);
+    let items: Vec<_> = items
+        .iter()
+        .map(|item| {
+            json!({
+                "text": item.text,
+                "kind": item.kind,
+                "detail": item.detail,
+            })
+        })
+        .collect();
+    json!({ "start": start, "items": items }).to_string()
+}
+
+fn parse_pages(json: &str) -> Vec<Page> {
+    let Ok(raw) = serde_json::from_str::<Vec<serde_json::Value>>(json) else {
+        return Vec::new();
+    };
+    raw.into_iter()
+        .map(|v| Page {
+            id: v["id"].as_str().unwrap_or("").to_string(),
+            handle: v["handle"].as_str().unwrap_or("").to_string(),
+            title: v["title"].as_str().unwrap_or("").to_string(),
+            text: v["text"].as_str().unwrap_or("").to_string(),
+            locked: v["locked"].as_bool().unwrap_or(false),
+            deleted: v["deleted"].as_bool().unwrap_or(false),
+            elsewhere: v["elsewhere"].as_bool().unwrap_or(false),
+        })
+        .collect()
 }
 
 /// Suggestions for the word being typed. `before` is the sheet up to the cursor;
@@ -407,6 +532,120 @@ pub fn definition_change(old: &str, new: &str) -> String {
     }
 }
 
+/// The `@handle.name` under a UTF-16 cursor, or `null`. A bare `@name` is not one.
+#[wasm_bindgen(js_name = pageRefAt)]
+pub fn page_ref_at(text: &str, utf16_pos: u32) -> String {
+    let cursor = char_index_from_utf16(text, utf16_pos as usize);
+    match xref::ref_at(text, cursor) {
+        Some(r) => json!({ "handle": r.handle, "name": r.name }).to_string(),
+        None => "null".into(),
+    }
+}
+
+/// Same rules as `xref::allocate_handle`. `taken_json` is a JSON array of handles.
+#[wasm_bindgen(js_name = allocateHandle)]
+pub fn allocate_handle(title: &str, taken_json: &str) -> String {
+    let taken: Vec<String> = serde_json::from_str(taken_json).unwrap_or_default();
+    let set: std::collections::HashSet<String> = taken.into_iter().collect();
+    xref::allocate_handle(title, &set)
+}
+
+/// Replace `@handle.old` with `@handle.new`. `{text, count}`.
+#[wasm_bindgen(js_name = rewriteVarRefs)]
+pub fn rewrite_var_refs(text: &str, handle: &str, old: &str, new_name: &str) -> String {
+    let (text, count) = xref::rewrite_var_refs(text, handle, old, new_name);
+    json!({ "text": text, "count": count }).to_string()
+}
+
+#[wasm_bindgen(js_name = renameBlurb)]
+pub fn rename_blurb(
+    old: &str,
+    new_name: &str,
+    here: u32,
+    elsewhere: u32,
+    locked: u32,
+    away: u32,
+) -> String {
+    xref::rename_blurb(
+        old,
+        new_name,
+        here as usize,
+        elsewhere as usize,
+        locked as usize,
+        away as usize,
+    )
+}
+
+/// Rename the variable under a UTF-16 cursor on `pages_json[source]`, and
+/// `@handle.old` on the other pages. `{edits, blurb, cursor}` or `{error, message}`.
+#[wasm_bindgen(js_name = propagateRename)]
+pub fn propagate_rename(pages_json: &str, source: u32, utf16_pos: u32, new_name: &str) -> String {
+    let pages = parse_pages(pages_json);
+    let Some(page) = pages.get(source as usize) else {
+        return json!({ "error": "none", "message": "Put the cursor on a variable name." })
+            .to_string();
+    };
+    let cursor = char_index_from_utf16(&page.text, utf16_pos as usize);
+    let source_text = page.text.clone();
+    match xref::propagate_rename(&pages, source as usize, cursor, new_name) {
+        Ok(done) => {
+            let cursor = done.cursor.map(|at| {
+                let text = done
+                    .edits
+                    .iter()
+                    .find(|edit| edit.index == source as usize)
+                    .map(|edit| edit.text.as_str())
+                    .unwrap_or(source_text.as_str());
+                utf16_from_chars(text, at)
+            });
+            let edits: Vec<_> = done
+                .edits
+                .iter()
+                .map(|edit| json!({ "id": edit.id, "text": edit.text, "handle": edit.handle }))
+                .collect();
+            json!({
+                "edits": edits,
+                "blurb": done.blurb,
+                "cursor": cursor,
+                "here": done.here,
+                "elsewhere": done.elsewhere,
+            })
+            .to_string()
+        }
+        Err(err) => {
+            let code = match err {
+                omacus_engine::rename::RenameFail::NotAVariable => "none",
+                omacus_engine::rename::RenameFail::InvalidName => "invalid",
+                omacus_engine::rename::RenameFail::Collision { .. } => "collision",
+            };
+            json!({ "error": code, "message": err.message() }).to_string()
+        }
+    }
+}
+
+/// Change the handle of `pages_json[source]` and rewrite `@old.` everywhere.
+#[wasm_bindgen(js_name = propagateHandle)]
+pub fn propagate_handle(pages_json: &str, source: u32, new_handle: &str) -> String {
+    let pages = parse_pages(pages_json);
+    match xref::propagate_handle(&pages, source as usize, new_handle) {
+        Ok(done) => {
+            let edits: Vec<_> = done
+                .edits
+                .iter()
+                .map(|edit| json!({ "id": edit.id, "text": edit.text, "handle": edit.handle }))
+                .collect();
+            json!({
+                "edits": edits,
+                "blurb": done.blurb,
+                "here": done.here,
+                "elsewhere": done.elsewhere,
+            })
+            .to_string()
+        }
+        Err(err) => json!({ "error": "handle", "message": err.message() }).to_string(),
+    }
+}
+
 fn utf16_spans(text: &str, spans: &[omacus_engine::rename::Span]) -> Vec<Vec<usize>> {
     spans
         .iter()
@@ -570,5 +809,34 @@ mod tests {
         );
         assert!(html.contains("pack sunscreen"), "{html}");
         assert!(!html.contains("# monthly"), "{html}");
+    }
+
+    #[test]
+    fn a_page_reference_uses_the_other_page() {
+        let calc = Calc::new();
+        assert!(calc.set_rates(r#"{"USD": 1}"#));
+        let pages = r#"[{"id":"a","handle":"trip","title":"Trip Budget","text":"total = $40","locked":false,"deleted":false},{"id":"b","handle":"groceries","title":"Groceries","text":"cost = @trip.total * 2","locked":false,"deleted":false}]"#;
+        let out: serde_json::Value = serde_json::from_str(&calc.evaluate_sheet_with(
+            "b",
+            "groceries",
+            "cost = @trip.total * 2",
+            pages,
+        ))
+        .unwrap();
+        assert_eq!(out[0]["display"], "$80");
+        let hover: serde_json::Value = serde_json::from_str(&calc.hover_value_with(
+            "cost = @trip.total * 2",
+            10,
+            "groceries",
+            pages,
+        ))
+        .unwrap();
+        assert_eq!(hover["value"], "$40");
+        assert_eq!(hover["sourceTitle"], "Trip Budget");
+        let picks: serde_json::Value =
+            serde_json::from_str(&calc.suggest_at("@tr", 3, pages)).unwrap();
+        assert_eq!(picks["items"][0]["text"], "@trip.");
+        assert_eq!(allocate_handle("Trip Budget", "[]"), "trip");
+        assert_eq!(allocate_handle("Trip Budget", r#"["trip"]"#), "tripbudget");
     }
 }

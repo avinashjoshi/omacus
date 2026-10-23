@@ -16,12 +16,18 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use omacus_engine::xref;
 use serde::{Deserialize, Serialize};
 
 pub struct Sheet {
     pub id: String,
     pub text: String,
     pub cursor: usize,
+    /// Short name for `@handle.variable`. Renaming the page does not change it.
+    pub handle: String,
+    /// Password lock. Nothing sets this until that feature stores a password;
+    /// a reference to a locked page then shows a lock instead of the value.
+    pub locked: bool,
     dirty: bool,
     /// The file as this window last read or wrote it; `None` until it's on disk.
     stamp: Option<Stamp>,
@@ -153,6 +159,9 @@ struct State {
     sidebar_width: Option<f32>,
     /// Absent until the first save that knows about folders.
     tree: Option<Vec<Node>>,
+    /// Page id to handle. Kept for pages in Recently deleted, so a reference
+    /// still names them. Absent in older `state.json`; those pages get one.
+    handles: HashMap<String, String>,
 }
 
 /// Expanded sidebar width, and the range a drag is allowed to land in.
@@ -166,6 +175,7 @@ pub struct Trashed {
     pub id: String,
     pub title: String,
     pub text: String,
+    pub handle: String,
 }
 
 /// The last delete, so Undo can put the page or the folder back where it was.
@@ -192,6 +202,7 @@ pub struct Store {
     pub active: usize,
     pub sidebar: bool,
     pub sidebar_width: f32,
+    handles: HashMap<String, String>,
     state_dirty: bool,
     deleted: Option<Deleted>,
     /// Titles of sheets that two windows changed at once, to tell the user.
@@ -309,11 +320,13 @@ impl Store {
                 .clamp(SIDEBAR_MIN, SIDEBAR_MAX),
             sheets,
             tree,
+            handles: state.handles,
             state_dirty: false,
             deleted: None,
             conflicts: Vec::new(),
         };
         store.align_sheets();
+        store.ensure_handles();
         if store.sheets.is_empty()
             && let Some(welcome) = welcome
         {
@@ -437,10 +450,14 @@ impl Store {
     pub fn new_sheet_in(&mut self, parent: Option<&str>, text: &str) {
         let id = self.unused_id();
         let parent = parent.filter(|id| self.folder_name(id).is_some());
+        let handle = self.fresh_handle(&heading_of(text));
+        self.handles.insert(id.clone(), handle.clone());
         let sheet = Sheet {
             id: id.clone(),
             text: text.to_string(),
             cursor: text.chars().count(),
+            handle,
+            locked: false,
             dirty: true,
             stamp: None,
         };
@@ -752,6 +769,7 @@ impl Store {
             }
             self.sheets.splice(0..0, new);
             self.align_sheets();
+            self.ensure_handles();
         }
         if self.sheets.is_empty() {
             self.new_sheet("");
@@ -857,15 +875,21 @@ impl Store {
                     .metadata()
                     .and_then(|m| m.modified())
                     .unwrap_or(UNIX_EPOCH);
-                let title = Sheet {
-                    id: id.clone(),
-                    text: text.clone(),
-                    cursor: 0,
-                    dirty: false,
-                    stamp: None,
-                }
-                .title();
-                Some((modified, Trashed { id, title, text }))
+                let title = heading_of(&text);
+                let handle = self
+                    .handles
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(|| xref::allocate_handle(&title, &self.taken_handles()));
+                Some((
+                    modified,
+                    Trashed {
+                        id,
+                        title,
+                        text,
+                        handle,
+                    },
+                ))
             })
             .collect();
         items.sort_by_key(|item| std::cmp::Reverse(item.0));
@@ -882,10 +906,18 @@ impl Store {
             self.deleted = None;
         }
         self.drop_placeholder();
+        let handle = self
+            .handles
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| self.fresh_handle(&heading_of(&text)));
+        self.handles.insert(id.to_string(), handle.clone());
         let sheet = Sheet {
             id: id.to_string(),
             text: text.clone(),
             cursor: text.chars().count(),
+            handle,
+            locked: false,
             dirty: true,
             stamp: None,
         };
@@ -909,6 +941,8 @@ impl Store {
         if self.deleted.as_ref().is_some_and(|d| d.contains_page(id)) {
             self.deleted = None;
         }
+        self.handles.remove(id);
+        self.state_dirty = true;
         true
     }
 
@@ -1006,6 +1040,7 @@ impl Store {
             sidebar: Some(self.sidebar),
             sidebar_width: Some(self.sidebar_width),
             tree: Some(self.tree.clone()),
+            handles: self.handles.clone(),
         };
         if let Ok(json) = serde_json::to_vec_pretty(&state)
             && let Err(e) = write_atomic(&dir.with_file_name("state.json"), &json)
@@ -1448,9 +1483,137 @@ fn read_sheet(dir: &Path, id: &str) -> Option<Sheet> {
         id: id.to_string(),
         cursor: text.chars().count(),
         text,
+        handle: String::new(),
+        locked: false,
         dirty: false,
         stamp,
     })
+}
+
+impl Store {
+    /// Give every page a handle, including ones already in Recently deleted.
+    /// A title change later does not call this again.
+    fn ensure_handles(&mut self) {
+        let mut missing: Vec<(String, String)> = Vec::new();
+        for sheet in &self.sheets {
+            if sheet.handle.is_empty() && !self.handles.contains_key(&sheet.id) {
+                missing.push((sheet.id.clone(), heading_of(&sheet.text)));
+            }
+        }
+        if let Some(dir) = self.trash_dir()
+            && let Ok(entries) = std::fs::read_dir(dir)
+        {
+            for entry in entries.flatten() {
+                let Some(name) = entry.file_name().into_string().ok() else {
+                    continue;
+                };
+                let Some(id) = name.strip_suffix(".txt") else {
+                    continue;
+                };
+                if self.handles.contains_key(id) {
+                    continue;
+                }
+                let Ok(text) = std::fs::read_to_string(entry.path()) else {
+                    continue;
+                };
+                missing.push((id.to_string(), heading_of(&text)));
+            }
+        }
+        if missing.is_empty() {
+            for sheet in &mut self.sheets {
+                if sheet.handle.is_empty()
+                    && let Some(handle) = self.handles.get(&sheet.id)
+                {
+                    sheet.handle = handle.clone();
+                }
+            }
+            return;
+        }
+        for (id, title) in missing {
+            let handle = self.fresh_handle(&title);
+            self.handles.insert(id, handle);
+        }
+        for sheet in &mut self.sheets {
+            if let Some(handle) = self.handles.get(&sheet.id).cloned() {
+                sheet.handle = handle;
+            }
+        }
+        self.state_dirty = true;
+    }
+
+    fn taken_handles(&self) -> HashSet<String> {
+        let mut taken: HashSet<String> = self.handles.values().cloned().collect();
+        for sheet in &self.sheets {
+            if !sheet.handle.is_empty() {
+                taken.insert(sheet.handle.clone());
+            }
+        }
+        taken
+    }
+
+    fn fresh_handle(&self, title: &str) -> String {
+        xref::allocate_handle(title, &self.taken_handles())
+    }
+
+    pub fn remember_handle(&mut self, id: &str, handle: &str) {
+        if let Some(sheet) = self.sheets.iter_mut().find(|s| s.id == id) {
+            sheet.handle = handle.to_string();
+        }
+        self.handles.insert(id.to_string(), handle.to_string());
+        self.state_dirty = true;
+    }
+
+    /// Write `text` back over a page that is not in the open list: the one just
+    /// deleted, or a file in Recently deleted. Used when a handle or variable
+    /// rename reaches a page that is not on screen.
+    pub fn rewrite_saved(&mut self, id: &str, text: &str, handle: &str) -> bool {
+        let mut wrote = false;
+        if let Some(deleted) = &mut self.deleted {
+            let sheets = match &mut deleted.item {
+                DeletedItem::Page(sheet) => std::slice::from_mut(sheet),
+                DeletedItem::Folder { sheets, .. } => sheets.as_mut_slice(),
+            };
+            if let Some(sheet) = sheets.iter_mut().find(|sheet| sheet.id == id) {
+                sheet.text = text.to_string();
+                sheet.handle = handle.to_string();
+                wrote = true;
+            }
+        }
+        if let Some(path) = self.trash_dir().map(|d| d.join(format!("{id}.txt")))
+            && path.exists()
+        {
+            wrote = write_atomic(&path, text.as_bytes()).is_ok() || wrote;
+        }
+        if wrote {
+            self.handles.insert(id.to_string(), handle.to_string());
+            self.state_dirty = true;
+        }
+        wrote
+    }
+
+    /// Pages deleted a moment ago, still available to undo, before the trash
+    /// listing is read again.
+    pub fn pending_sheets(&self) -> &[Sheet] {
+        let Some(deleted) = &self.deleted else {
+            return &[];
+        };
+        match &deleted.item {
+            DeletedItem::Page(sheet) => std::slice::from_ref(sheet),
+            DeletedItem::Folder { sheets, .. } => sheets,
+        }
+    }
+
+    /// Another window wrote this file since we read it. A rename skips the page.
+    pub fn opened_elsewhere(&self, sheet: &Sheet) -> bool {
+        let Some(dir) = &self.dir else {
+            return false;
+        };
+        let path = dir.join(format!("{}.txt", sheet.id));
+        match (sheet.stamp, stamp(&path)) {
+            (Some(saved), Some(now)) => saved != now,
+            _ => false,
+        }
+    }
 }
 
 /// `pages/`, or the older `sheets/` folder when it can't be renamed.
@@ -1865,6 +2028,20 @@ mod tests {
     }
 
     #[test]
+    fn a_page_keeps_its_handle_when_the_title_changes() {
+        let root = temp_root("handles");
+        let mut store = Store::load_in(Some(root.clone()), "# Trip Budget\ntotal = 5");
+        assert_eq!(store.sheets[0].handle, "trip");
+        store.sheets[0].text = "# Weekend Plans\ntotal = 5".into();
+        store.sheets[0].mark_dirty();
+        store.save().unwrap();
+        let again = Store::load_in(Some(root.clone()), "");
+        assert_eq!(again.sheets[0].handle, "trip");
+        assert_eq!(again.sheets[0].title(), "Weekend Plans");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn deleting_a_folder_moves_its_pages_to_recently_deleted() {
         let root = temp_root("folder-trash");
         let mut store = Store::load_in(Some(root.clone()), "# Groceries");
@@ -1994,6 +2171,16 @@ mod tests {
             .unwrap();
         assert_eq!(folder_pages[0], weekend);
         assert!(ids.contains(&weekend));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_next_page_with_the_same_title_gets_another_handle() {
+        let root = temp_root("handle-collision");
+        let mut store = Store::load_in(Some(root.clone()), "# Trip Budget");
+        store.new_sheet("# Trip Budget");
+        assert_eq!(store.sheets[0].handle, "tripbudget");
+        assert_eq!(store.sheets[1].handle, "trip");
         let _ = std::fs::remove_dir_all(root);
     }
 }
