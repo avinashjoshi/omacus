@@ -1,8 +1,10 @@
 name: Freshen site
 
 # Once a month, recalculate every example on omacus.com with the real engine, so
-# exchange rates and daylight-saving answers stay current, and redeploy if
-# anything changed.
+# exchange rates and daylight-saving answers stay current. Main is protected, so
+# a change opens a pull request and auto-merges when the required checks pass.
+# A merge made with GITHUB_TOKEN does not start other workflows, so this run
+# deploys the site after that pull request merges.
 on:
   schedule:
     - cron: "17 6 1 * *"
@@ -14,10 +16,13 @@ permissions:
 jobs:
   regenerate:
     runs-on: ubuntu-22.04
+    timeout-minutes: 90
     permissions:
       contents: write
+      pull-requests: write
     outputs:
       changed: ${{ steps.commit.outputs.changed }}
+      sha: ${{ steps.commit.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -29,10 +34,11 @@ jobs:
       - run: cargo build --release --locked
       - run: python3 site/tools/gen.py
       - id: commit
-        name: Commit
+        name: Open a pull request
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           if git diff --quiet; then
             echo "Examples are current."
             echo changed=false >> "$GITHUB_OUTPUT"
@@ -41,9 +47,33 @@ jobs:
           git diff --stat
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="freshen/examples-${GITHUB_RUN_ID}"
+          git checkout -b "$branch"
           git commit -qam "Refresh website examples"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
-          echo changed=true >> "$GITHUB_OUTPUT"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${branch}"
+          url="$(gh pr create --base main --head "$branch" --title "Refresh website examples" --body "Recalculates the examples on the website with the current engine. Auto-merge is enabled.")"
+          echo "Opened $url"
+          if ! gh pr merge --auto --squash "$url"; then
+            echo "Could not enable auto-merge. Allow auto-merge on the repository, require the CI checks on main, then enable auto-merge on this pull request."
+            exit 1
+          fi
+          for _ in $(seq 1 80); do
+            state="$(gh pr view "$url" --json state --jq .state)"
+            echo "pull request state: $state"
+            if [[ "$state" == "MERGED" ]]; then
+              sha="$(gh pr view "$url" --json mergeCommit --jq .mergeCommit.oid)"
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              echo "sha=$sha" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [[ "$state" == "CLOSED" ]]; then
+              echo "The refresh pull request was closed without merging."
+              exit 1
+            fi
+            sleep 60
+          done
+          echo "Timed out waiting for the refresh pull request to merge."
+          exit 1
 
   # A push made with GITHUB_TOKEN doesn't start other workflows, so deploy here.
   deploy:
@@ -51,7 +81,7 @@ jobs:
     if: needs.regenerate.outputs.changed == 'true'
     uses: ./.github/workflows/site.yml
     with:
-      ref: main
+      ref: ${{ needs.regenerate.outputs.sha }}
     permissions:
       contents: read
       pages: write
