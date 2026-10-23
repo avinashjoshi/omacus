@@ -6,6 +6,8 @@
 
 Exported pages have slimmer margins, so more of the sheet is the note itself. A code block sits with the text, in a monospace face, and a long line wraps instead of running off the page.
 
+On a phone, the top bar matches the page, Settings opens below it, and the sidebar lists your pages.
+
 ## 0.2.13
 
 **A clearer app on your phone**

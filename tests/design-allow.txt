@@ -6,6 +6,6 @@
 #
 # src/pdf.rs keeps answer ink as a PDF operator string ("0.102 0.227 0.357").
 # That is not a hex literal, so this file does not need to list it.
-# HTML theme-color in site/**/*.html is the colour the browser chrome shows
-# before CSS loads. It is not a stylesheet, so this check does not scan it.
-# Keep it equal to --bg-ink in site/css/tokens.css.
+# HTML theme-color is not a stylesheet, so this check does not scan it.
+# Marketing pages match their page background. The app's tags match --app-bg
+# (light #ffffff, dark #1a1b26). app.js keeps a chosen theme in step.
