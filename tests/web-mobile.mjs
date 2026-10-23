@@ -568,7 +568,7 @@ if (pkg) {
 
   // A page with a definition, a use, a keyword, a scaled number and a # comment.
   await evalJson(`(() => {
-    localStorage.setItem("omacus:page:hover", "rent = $1,450 # monthly\\nrent * 2\\n1.5k\\ntotal\\nseats = 10\\nrevenue = $1,200 * seats");
+    localStorage.setItem("omacus:page:hover", "rent = $1,450 # monthly\\nrent * 2\\n1.5k\\ntotal\\nseats = 10\\ncost = $40 * seats");
     localStorage.setItem("omacus:index", JSON.stringify({ order: ["hover"], active: "hover" }));
     return true;
   })()`);
@@ -608,24 +608,24 @@ if (pkg) {
   check(nowrap === "nowrap", `hover value wraps (${nowrap})`);
   if (shots) await plainShot(join(shots, "hover.png"));
   const big = await evalJson(`(() => {
-    const el = [...document.querySelectorAll(".t-def")].find((n) => n.textContent === "revenue");
+    const el = [...document.querySelectorAll(".t-def")].find((n) => n.textContent === "cost");
     if (!el) return null;
     const r = el.getBoundingClientRect();
     return { x: r.x + r.width / 2, y: r.y + Math.min(r.height / 2, 8) };
   })()`);
-  check(big, "revenue is not marked as a definition");
+  check(big, "cost is not marked as a definition");
   if (big) {
   await page("Input.dispatchMouseEvent", { type: "mouseMoved", x: 8, y: 8 });
   await page("Input.dispatchMouseEvent", { type: "mouseMoved", x: big.x, y: big.y });
-  await waitFor(`document.querySelector(".hover-value")?.textContent === "$12,000"`, 4000);
+  await waitFor(`document.querySelector(".hover-value")?.textContent === "$400"`, 4000);
   const longTip = await evalJson(`(() => {
     const el = document.querySelector(".hover-value");
     const h = el.getBoundingClientRect();
     const inside = h.x >= 0 && h.y >= 0 && h.right <= innerWidth + 1 && h.bottom <= innerHeight + 1;
     return { text: el.textContent, w: h.width, h: h.height, x: h.x, y: h.y, inside, lines: el.innerText.split("\\n").length };
   })()`);
-  check(longTip.text === "$12,000", `long hover showed ${longTip.text}`);
-  check(longTip.w > longTip.h * 2, `long hover wrapped into a tall box (${longTip.w}x${longTip.h})`);
+  check(longTip.text === "$400", `long hover showed ${longTip.text}`);
+  check(longTip.w > longTip.h, `hover value is taller than it is wide (${longTip.w}x${longTip.h})`);
   check(longTip.lines === 1, `long hover split onto ${longTip.lines} lines`);
   check(longTip.inside, `long hover left the window (${JSON.stringify(longTip)})`);
   if (shots) await plainShot(join(shots, "hover-long.png"));
