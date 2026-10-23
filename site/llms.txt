@@ -9,7 +9,7 @@ Key facts:
 - Examples: `6pm PST in Tokyo` gives `10:00 AM JST (next day)`; `3pm PST on Dec 1 in London` gives `11:00 PM GMT, Tue 1 Dec`; `15% off $1,299` gives `$1,104.15`; `3.5 km in miles` gives `2.17 miles`; `rate = $85/hour` then `rate * 30 hours` gives `$2,550`.
 - Works offline; the network is only used to refresh exchange rates and, on launch and every few hours, to check for a new version (which can be turned off). No account, no telemetry.
 - Updating: `omacus update`, the version at the bottom of the app's sidebar (a dot marks a new one), or Check for updates in About.
-- Command line: `omacus '$100 in INR'` prints one answer; `omacus -` evaluates a page from standard input; `omacus open <link>` opens a shared page.
+- Command line: `omacus '3.5 km in miles'` or `omacus eval '3.5 km in miles'` prints one answer; `omacus eval --json` prints JSON; `omacus eval` and `omacus -` evaluate a page from standard input; `omacus pages` lists, shows, creates, appends, removes and exports pages; `omacus open <link>` opens a shared page. `omacus mcp` is a stdio MCP server (evaluate, list, read, create, append, update, delete) for Claude Desktop and Cursor, using the same pages as the app.
 - Web app: https://omacus.com/app runs the same engine in any browser (WebAssembly), saves pages in the browser, installs as an app and works offline. If exchange rates can't be refreshed, it says rates may be stale. Ctrl+P previews a page as rendered notes (headings, lists, tables) with each answer in brackets; that view is what prints. Settings is a tab beside About: Ctrl+, or the gear at the bottom of the sidebar (and the collapsed strip) opens it. Export PDF writes the page title into Downloads, or a folder chosen there, and asks before replacing an existing file. In the browser the browser chooses the folder. Preview keeps each source line, blank lines, and # or // comments, and lines answers up on the right when the answers column is on.
 - A markdown prefix (`#`, `-`, `*`, `1.`, `- [ ]`, `>`) comes off before the math, so `- hotel = 3 nights * $180` defines hotel. `#` at the start of a line is a heading; `#` later on the line is a comment, drawn in the comment colour. A defined name, a use of it, and keywords or units are three colours. Hover a name or a number to see its value. Variables carry across prose. Table cells are not calculated.
 - Autocomplete shows a kind and a short description. Tab accepts. Enter accepts only after Ctrl+Space; otherwise Enter is a new line. Click an answer to copy it.
@@ -24,7 +24,7 @@ Key facts:
 - [Percentages](https://omacus.com/docs/#percentages), [Units](https://omacus.com/docs/#units), [Currencies](https://omacus.com/docs/#currency), [Time zones](https://omacus.com/docs/#timezones), [Dates](https://omacus.com/docs/#dates)
 - [Variables](https://omacus.com/docs/#variables) and [Totals](https://omacus.com/docs/#totals)
 - [Keyboard shortcuts](https://omacus.com/docs/#shortcuts)
-- [Command line](https://omacus.com/docs/#cli)
+- [Command line](https://omacus.com/docs/#cli) and [MCP](https://omacus.com/docs/#mcp)
 - [Omarchy and Hyprland](https://omacus.com/docs/#omarchy)
 - [FAQ](https://omacus.com/docs/#faq)
 - [How it works](https://omacus.com/docs/#how-it-works)

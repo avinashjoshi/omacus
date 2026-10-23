@@ -3,9 +3,13 @@
 
 mod app;
 mod calc;
+mod cli;
 mod help;
 mod highlight;
+mod library;
 mod links;
+mod lock;
+mod mcp;
 mod pdf;
 mod preview;
 mod rates;
@@ -14,55 +18,25 @@ mod sheets;
 mod theme;
 mod update;
 
-use std::io::Read;
-
-const HELP: &str = "\
-omacus — a notepad calculator
-
-USAGE:
-    omacus                 open the calculator window
-    omacus <expression>    evaluate one expression and print the result
-    cat page | omacus -    evaluate a page from stdin, one result per line
-    omacus open <link>     open a share link (omacus.com/app#…) as a page
-    omacus update          install the latest version
-    omacus --version       print the version
-";
-
 fn main() {
     update::init();
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // A share link, from `omacus open <link>` or the OS opening an omacus:// link.
-    let link = match args.as_slice() {
-        [cmd, link] if cmd == "open" => Some(link),
-        [link] => Some(link),
-        _ => None,
-    };
-    if let Some(text) = link.and_then(|l| links::from_arg(l)) {
+    if args.is_empty() {
+        return run_app();
+    }
+    // A share link on its own (or one the OS hands over) opens the window.
+    // `omacus open <link>` is handled with the other commands, after a console
+    // is attached, so a bad link can be reported.
+    if args.len() == 1
+        && let Some(text) = links::from_arg(&args[0])
+    {
         links::push(text);
         return run_app();
     }
-    if args.first().is_some_and(|a| a == "open") {
-        attach_console();
-        eprintln!("omacus: that isn't an Omacus share link");
-        std::process::exit(1);
-    }
-    if !args.is_empty() {
-        attach_console();
-    }
-    match args.first().map(String::as_str) {
-        Some("-h" | "--help") => print!("{HELP}"),
-        Some("-V" | "--version") => println!("omacus {}", env!("CARGO_PKG_VERSION")),
-        Some("update" | "--update") if args.len() == 1 => std::process::exit(update::cli()),
-        Some("help" | "version") if args.len() == 1 => {
-            if args[0] == "help" {
-                print!("{HELP}");
-            } else {
-                println!("omacus {}", env!("CARGO_PKG_VERSION"));
-            }
-        }
-        Some("-") => run_stdin(),
-        Some(_) => run_expr(&args.join(" ")),
-        None => run_app(),
+    attach_console();
+    match cli::run(&args) {
+        cli::Outcome::Launch => run_app(),
+        cli::Outcome::Exit(code) => std::process::exit(code),
     }
 }
 
@@ -95,26 +69,6 @@ fn show_error(text: &str) {
 #[cfg(not(windows))]
 fn show_error(_text: &str) {}
 
-fn cli_engine() -> omacus_engine::Engine {
-    omacus_engine::Engine::new(rates::Rates::load_blocking().table())
-        .with_clock(omacus_engine::monotonic_ms)
-}
-
-fn run_expr(expr: &str) {
-    match cli_engine().eval_line(expr) {
-        Some(r) => println!("{r}"),
-        None => std::process::exit(1),
-    }
-}
-
-fn run_stdin() {
-    let mut input = String::new();
-    let _ = std::io::stdin().read_to_string(&mut input);
-    for r in cli_engine().eval_document(input.trim_end_matches('\n')) {
-        println!("{}", r.display);
-    }
-}
-
 /// A GUI-subsystem exe has no console; borrow the terminal it was started from.
 #[cfg(windows)]
 fn attach_console() {
@@ -127,15 +81,3 @@ fn attach_console() {
 
 #[cfg(not(windows))]
 fn attach_console() {}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn cli_help_says_page() {
-        assert!(
-            !super::HELP.to_lowercase().contains("sheet"),
-            "{}",
-            super::HELP
-        );
-    }
-}
