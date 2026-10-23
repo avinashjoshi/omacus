@@ -14,6 +14,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const site = join(root, "site");
 const css = readFileSync(join(site, "app/app.css"), "utf8");
 const siteCss = readFileSync(join(site, "css/site.css"), "utf8");
+const tokens = readFileSync(join(site, "css/tokens.css"), "utf8");
 const js = readFileSync(join(site, "app/app.js"), "utf8");
 const html = readFileSync(join(site, "app/index.html"), "utf8");
 const sw = readFileSync(join(site, "app/sw.js"), "utf8");
@@ -53,8 +54,9 @@ check(js.includes("r.hint"), "name hints are marked so they can wait out typing"
 check(html.includes("data-settings"), "settings dialog is in the page");
 check(html.includes('data-action="settings"'), "the menu opens settings");
 check(js.includes("hideAnswers"), "the answers column can be hidden");
-check(js.includes('"#f6f1e7"') && js.includes('"#1c2433"'), "paper and dusk match the desktop themes");
-check(js.includes('"#9ece6a"') && js.includes('"#7dcfff"') && js.includes('"#1a7f37"'), "definition, use and keyword colours are in the themes");
+check(tokens.includes("#f6f1e7") && tokens.includes("#1c2433"), "paper and dusk match the desktop themes");
+check(tokens.includes("#9ece6a") && tokens.includes("#7dcfff") && tokens.includes("#1a7f37"), "definition, use and keyword colours are in the themes");
+check(html.includes('data-setting="lock-minutes"'), "settings still choose how soon a lock closes");
 check(js.includes("explicitCompletion") && js.includes('"Ctrl-Space"'), "Enter accepts only an explicitly opened suggestion");
 check(js.includes("completionStatus(state)") && /if \(update\.docChanged\) \{[\s\S]*?onInput\(\)/.test(js), "a text change recalculates even if the completion check throws");
 check(!js.includes("completionStatus(view)") && !js.includes("completionStatus(update.view)"), "completion status is read from the state, not the view");
@@ -104,7 +106,7 @@ check(css.includes(".line.blank") || css.includes("p.line.blank"), "blank lines 
 check(css.includes(".note"), "comments are styled in the preview");
 check(js.includes("showSettingsTab"), "settings and about are tabs");
 check(js.includes("afterprint"), "print restores the window title");
-check(css.includes("#1a3a5c"), "printed answers use a dark ink");
+check(css.includes("var(--print-accent)") && tokens.includes("#1a3a5c"), "printed answers use a dark ink");
 check(/@page \{[^}]*margin:/.test(css), "printed pages have margins");
 check(js.includes("pill.dataset.value"), "clicking an answer copies the value, not the brackets");
 check(css.includes("body.answers-inline .res"), "hiding the column places answers inline");
@@ -358,7 +360,7 @@ if (shots) await shot(join(shots, "desktop.png"));
 const pkg = existsSync(join(site, "app/pkg/omacus_web.js"));
 if (pkg) {
   // app.js imports the wasm package, so the module (and Settings) only runs when it exists.
-  await waitFor(`document.documentElement.style.getPropertyValue("--app-bg").trim() !== ""`);
+  await waitFor(`document.documentElement.dataset.appTheme`);
   await evalJson(`document.querySelector("[data-loading]")?.remove()`);
   await waitFor(`document.querySelector(".res")`, 20000);
   await evalJson(`document.querySelector("[data-menu-button]").click()`);

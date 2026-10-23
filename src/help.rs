@@ -1,10 +1,11 @@
 //! The help overlay: keyboard shortcuts, syntax by example, tips, and About
 //! (version, updates and links).
 
-use eframe::egui::{self, Color32, CornerRadius, FontId, Frame, Margin, RichText, Sense, vec2};
+use eframe::egui::{self, CornerRadius, FontId, Frame, Margin, RichText, Sense, vec2};
 
+use crate::design;
 use crate::settings::Settings;
-use crate::theme::Theme;
+use crate::theme::{self, Theme};
 use crate::update::{self, Check, Updates};
 use omacus_engine::Engine;
 
@@ -242,7 +243,7 @@ const SYNTAX: &[(&str, &[&str])] = &[
         &[
             "16px in rem",
             "12pt in px",
-            "#ff8800 in rgb",
+            "#ff8800 in rgb", // design-allow: a colour the calculator converts, not a UI token
             "rgb(51, 102, 153) in hex",
             "hsl(210, 50%, 40%)",
         ],
@@ -378,14 +379,10 @@ pub fn show(
     let available = updates.available();
     let rail_width = if size.x < 560.0 { 130.0 } else { 172.0 };
 
-    let frame = Frame::NONE
-        .fill(theme.sidebar)
-        .stroke(egui::Stroke::new(1.0, theme.selection))
-        .corner_radius(CornerRadius::same(12))
-        .inner_margin(Margin::same(0));
+    let frame = design::dialog_pad(theme, Margin::same(0));
     let modal = egui::Modal::new(egui::Id::unique("omacus-help"))
         .frame(frame)
-        .backdrop_color(Color32::from_black_alpha(150))
+        .backdrop_color(design::backdrop(theme))
         .show(ctx, |ui| {
             ui.set_width(size.x);
             ui.set_height(size.y);
@@ -440,7 +437,7 @@ pub fn show(
                 // A hairline between the rail and the section.
                 let (line, _) = ui.allocate_exact_size(vec2(1.0, size.y), Sense::hover());
                 ui.painter()
-                    .rect_filled(line, CornerRadius::ZERO, theme.selection);
+                    .rect_filled(line, CornerRadius::ZERO, theme.border());
 
                 Frame::NONE
                     .fill(theme.background)
@@ -515,9 +512,9 @@ fn rail_button(ui: &mut egui::Ui, theme: &Theme, label: &str, active: bool, dot:
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
     let painter = ui.painter();
     if active {
-        painter.rect_filled(rect, CornerRadius::same(6), theme.selection);
+        painter.rect_filled(rect, design::radius_row(), theme.selection);
     } else if resp.hovered() {
-        painter.rect_filled(rect, CornerRadius::same(6), theme.hover);
+        painter.rect_filled(rect, design::radius_row(), theme.hover);
     }
     let color = if active { theme.foreground } else { theme.dim };
     let text = painter.text(
@@ -551,7 +548,11 @@ fn about(
         ui.add_space(14.0);
         ui.vertical(|ui| {
             ui.add_space(4.0);
-            ui.label(RichText::new("Omacus").size(22.0).color(theme.accent));
+            ui.label(
+                RichText::new("Omacus")
+                    .size(theme::token::TYPE_DISPLAY)
+                    .color(theme.accent),
+            );
             ui.label(
                 RichText::new("Math, the way you write it.")
                     .size(13.5)
@@ -559,84 +560,86 @@ fn about(
             );
         });
     });
-    ui.add_space(22.0);
+    ui.add_space(theme::token::SPACE_4);
 
-    // Version and updates.
-    ui.label(
-        RichText::new(format!("Version {}", update::current()))
-            .size(14.0)
-            .color(theme.foreground),
-    );
-    ui.add_space(8.0);
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing = vec2(10.0, 0.0);
-        // Only a check that's still in flight hides the button. A finished
-        // result (up to date, an update, or an error) always offers another.
-        if updates.checked() == Check::Checking {
-            ui.spinner();
-            ui.label(RichText::new("Checking…").size(13.5).color(theme.dim));
-            return;
-        }
-        if let Some(new) = available {
-            ui.label(
-                RichText::new(format!("Version {new} is available."))
-                    .size(13.5)
-                    .color(theme.accent),
-            );
-            install = primary_button(ui, theme, "Update now").clicked();
-            if quiet_button(ui, theme, "What's new").clicked() {
-                ui.ctx()
-                    .open_url(egui::OpenUrl::new_tab(update::notes_url(new)));
+    card(ui, theme, |ui| {
+        ui.label(
+            RichText::new(format!("Version {}", update::current()))
+                .size(theme::token::TYPE_LABEL)
+                .color(theme.foreground),
+        );
+        ui.add_space(theme::token::SPACE_2);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing = vec2(10.0, 0.0);
+            // Only a check that's still in flight hides the button. A finished
+            // result (up to date, an update, or an error) always offers another.
+            if updates.checked() == Check::Checking {
+                ui.spinner();
+                ui.label(RichText::new("Checking…").size(13.5).color(theme.dim));
+                return;
             }
-        } else {
-            match updates.checked() {
-                Check::Done => {
-                    ui.label(
-                        RichText::new("✓  You're up to date.")
-                            .size(13.5)
-                            .color(theme.dim),
-                    );
+            if let Some(new) = available {
+                ui.label(
+                    RichText::new(format!("Version {new} is available."))
+                        .size(13.5)
+                        .color(theme.accent),
+                );
+                install = design::primary(ui, theme, "Update now").clicked();
+                if design::quiet(ui, theme, "What's new").clicked() {
+                    ui.ctx()
+                        .open_url(egui::OpenUrl::new_tab(update::notes_url(new)));
                 }
-                Check::Failed => {
-                    ui.label(
-                        RichText::new("Couldn't reach GitHub.")
-                            .size(13.5)
-                            .color(theme.dim),
-                    );
+            } else {
+                match updates.checked() {
+                    Check::Done => {
+                        ui.label(
+                            RichText::new("✓  You're up to date.")
+                                .size(13.5)
+                                .color(theme.dim),
+                        );
+                    }
+                    Check::Failed => {
+                        ui.label(
+                            RichText::new("Couldn't reach GitHub.")
+                                .size(13.5)
+                                .color(theme.dim),
+                        );
+                    }
+                    Check::Idle | Check::Checking => {}
                 }
-                Check::Idle | Check::Checking => {}
             }
-        }
-        let label = if updates.checked() == Check::Idle {
-            "Check for updates"
-        } else {
-            "Check again"
-        };
-        if quiet_button(ui, theme, label).clicked() {
-            let ctx = ui.ctx().clone();
-            updates.check_now(move || ctx.request_repaint());
-        }
+            let label = if updates.checked() == Check::Idle {
+                "Check for updates"
+            } else {
+                "Check again"
+            };
+            if design::quiet(ui, theme, label).clicked() {
+                let ctx = ui.ctx().clone();
+                updates.check_now(move || ctx.request_repaint());
+            }
+        });
     });
-    ui.add_space(26.0);
+    ui.add_space(theme::token::SPACE_3);
 
-    // What Omacus keeps and sends; the long version is omacus.com/privacy.
-    ui.label(
-        RichText::new("Private by design")
-            .size(14.0)
-            .color(theme.foreground),
-    );
-    ui.add_space(6.0);
-    ui.label(
-        RichText::new(
-            "Your pages stay on this computer, as plain text files. There's no account and \
+    card(ui, theme, |ui| {
+        ui.label(
+            RichText::new("Private by design")
+                .size(theme::token::TYPE_LABEL)
+                .color(theme.foreground),
+        );
+        ui.add_space(theme::token::SPACE_1);
+        ui.label(
+            RichText::new(
+                "Your pages stay on this computer, as plain text files. There's no account and \
              no tracking. Omacus goes online for two things only: exchange rates, about \
              twice a day and saved for offline use, and checking GitHub for a new version. \
              Neither sends anything you've written.",
-        )
-        .size(13.5)
-        .color(theme.dim),
-    );
-    ui.add_space(26.0);
+            )
+            .size(theme::token::TYPE_BODY)
+            .color(theme.text_secondary()),
+        );
+    });
+    ui.add_space(theme::token::SPACE_4);
 
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(18.0, 6.0);
@@ -668,21 +671,13 @@ fn about(
     install
 }
 
-fn primary_button(ui: &mut egui::Ui, theme: &Theme, label: &str) -> egui::Response {
-    ui.add(
-        egui::Button::new(RichText::new(label).size(13.5).color(theme.background))
-            .fill(theme.accent)
-            .corner_radius(CornerRadius::same(6))
-            .min_size(vec2(0.0, 30.0)),
-    )
-}
-
-fn quiet_button(ui: &mut egui::Ui, theme: &Theme, label: &str) -> egui::Response {
-    ui.add(
-        egui::Button::new(RichText::new(label).size(13.5).color(theme.foreground))
-            .corner_radius(CornerRadius::same(6))
-            .min_size(vec2(0.0, 30.0)),
-    )
+fn card(ui: &mut egui::Ui, theme: &Theme, body: impl FnOnce(&mut egui::Ui)) {
+    Frame::NONE
+        .fill(theme.surface())
+        .stroke(egui::Stroke::new(1.0, theme.border()))
+        .corner_radius(CornerRadius::same(theme::token::RADIUS_LG))
+        .inner_margin(Margin::symmetric(16, 12))
+        .show(ui, |ui| body(ui));
 }
 
 fn left_cell(ui: &mut egui::Ui, size: egui::Vec2, label: egui::Label) {
@@ -697,11 +692,11 @@ fn left_cell(ui: &mut egui::Ui, size: egui::Vec2, label: egui::Label) {
 }
 
 fn heading(ui: &mut egui::Ui, theme: &Theme, text: &str) {
-    ui.add_space(8.0);
+    ui.add_space(theme::token::SPACE_2);
     ui.label(
-        RichText::new(text.to_uppercase())
-            .size(11.0)
-            .color(theme.comment),
+        RichText::new(text)
+            .size(theme::token::TYPE_CAPTION)
+            .color(theme.text_muted()),
     );
     ui.add_space(2.0);
 }

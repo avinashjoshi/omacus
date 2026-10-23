@@ -207,35 +207,67 @@
         <button type="button" role="tab" data-settings-tab="about" aria-selected="false">About</button>
       </div>
       <div data-settings-panel="settings">
-        <label class="settings-field">Theme
-          <select data-setting="theme">
-            <option value="auto">Auto</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-            <option value="paper">Paper</option>
-            <option value="dusk">Dusk</option>
-          </select>
-        </label>
-        <p class="settings-note" data-theme-note></p>
-        <label class="settings-check"><input type="checkbox" data-setting="hide-answers"> Hide the answers column</label>
-        <label class="settings-field">Lock again after
-          <select data-setting="lock-minutes">
-            <option value="1">1 minute</option>
-            <option value="5" selected>5 minutes</option>
-            <option value="15">15 minutes</option>
-            <option value="30">30 minutes</option>
-            <option value="60">1 hour</option>
-            <option value="0">Never</option>
-          </select>
-        </label>
-        <p class="settings-note">An open lock closes after this long with no typing or clicking, and when you leave the page. A forgotten password can't be recovered.</p>
-        <p class="settings-note">Answers sit after each line. Ctrl+\ toggles this. The desktop app also has Omarchy, a custom theme file, and update checks.</p>
-        <p class="settings-note">The desktop app chooses the PDF folder. Here, Print and Export PDF use the page title, and the browser decides where the file goes.</p>
+        <section class="settings-group">
+          <h3>Appearance</h3>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Theme</div>
+              <p class="setting-help" data-theme-note></p>
+            </div>
+            <select data-setting="theme" aria-label="Theme">
+              <option value="auto">Auto</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+              <option value="paper">Paper</option>
+              <option value="dusk">Dusk</option>
+            </select>
+          </div>
+        </section>
+        <section class="settings-group">
+          <h3>Answers</h3>
+          <label class="setting-row">
+            <div>
+              <div class="setting-label">Hide the answers column</div>
+              <p class="setting-help">Answers sit after each line. Ctrl+\ toggles this. The preview and PDF follow this too.</p>
+            </div>
+            <input class="switch" type="checkbox" data-setting="hide-answers" aria-label="Hide the answers column">
+          </label>
+        </section>
+        <section class="settings-group">
+          <h3>Lock</h3>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Lock again after</div>
+              <p class="setting-help">An open lock closes after this long with no typing or clicking, and when you leave the page. A forgotten password can't be recovered.</p>
+            </div>
+            <select data-setting="lock-minutes" aria-label="Lock again after">
+              <option value="1">1 minute</option>
+              <option value="5" selected>5 minutes</option>
+              <option value="15">15 minutes</option>
+              <option value="30">30 minutes</option>
+              <option value="60">1 hour</option>
+              <option value="0">Never</option>
+            </select>
+          </div>
+        </section>
+        <section class="settings-group">
+          <h3>Export</h3>
+          <p class="setting-help">The desktop app chooses the PDF folder and can check for updates. Here, Print and Export PDF use the page title, and the browser decides where the file goes.</p>
+        </section>
       </div>
       <div data-settings-panel="about" hidden>
-        <p class="about-lead">Omacus is a notepad calculator. Type on the left, and the answer sits on the right.</p>
-        <p class="about-links"><a href="https://omacus.com">omacus.com</a><a href="https://github.com/avinashjoshi/omacus">Source</a></p>
-        <p class="settings-note">Pages stay in this browser. Nothing is uploaded.</p>
+        <div class="about-brand">
+          <img src="/img/icon.svg" alt="" width="40" height="40">
+          <div>
+            <p class="about-name">Omacus</p>
+            <p class="about-tag">Math, the way you write it.</p>
+          </div>
+        </div>
+        <section class="settings-group">
+          <h3>Private by design</h3>
+          <p class="setting-help">Pages stay in this browser. Nothing is uploaded. There is no account and no tracking.</p>
+        </section>
+        <p class="about-links"><a href="https://omacus.com">Website</a><a href="https://omacus.com/docs/">Docs</a><a href="https://github.com/avinashjoshi/omacus">Source</a><a href="https://omacus.com/privacy/">Privacy</a></p>
       </div>
     </div>
   </div>

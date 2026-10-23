@@ -645,13 +645,7 @@ const store = {
   },
 };
 
-// Same built-in colors as the desktop app. Auto follows this device.
-const THEMES = {
-  light: { dark: false, bg: "#ffffff", side: "#f6f8fa", fg: "#24292f", dim: "#6e7781", comment: "#8c959f", accent: "#0969da", variable: "#cf222e", defined: "#1a7f37", keyword: "#8250df", number: "#1f2328", sel: "#ddf4ff", hover: "#eaeef2", line: "#d0d7de", line2: "#afb8c1" },
-  dark: { dark: true, bg: "#1a1b26", side: "#16161e", fg: "#c0caf5", dim: "#787c99", comment: "#565f89", accent: "#7aa2f7", variable: "#bb9af7", defined: "#9ece6a", keyword: "#7dcfff", number: "#e0e6ff", sel: "#33467c", hover: "#24283b", line: "#2a2e45", line2: "#3b4261" },
-  paper: { dark: false, bg: "#f6f1e7", side: "#efe6d6", fg: "#3c3226", dim: "#8a7b68", comment: "#a89880", accent: "#b45309", variable: "#9f1239", defined: "#1d4ed8", keyword: "#0f766e", number: "#2a2118", sel: "#eadcc4", hover: "#e7dcc8", line: "#e0d3bc", line2: "#c9b89a" },
-  dusk: { dark: true, bg: "#1c2433", side: "#151b28", fg: "#d7e0f0", dim: "#8b9bb3", comment: "#64748b", accent: "#8eb4ff", variable: "#f0a27a", defined: "#c4b5fd", keyword: "#7ddea0", number: "#f1f5ff", sel: "#2c3d5c", hover: "#243044", line: "#2c3a50", line2: "#3d4e6b" },
-};
+// Colors live in site/css/tokens.css (data-app-theme). Auto follows this device.
 const THEME_NOTES = {
   auto: "Follows this device's light or dark mode.",
   light: "A plain light theme.",
@@ -685,32 +679,13 @@ function themeName() {
 }
 
 function applySettings() {
-  const t = THEMES[themeName()];
-  const root = document.documentElement;
-  const set = (name, value) => root.style.setProperty(name, value);
-  set("--app-bg", t.bg);
-  set("--app-side", t.side);
-  set("--app-fg", t.fg);
-  set("--app-dim", t.dim);
-  set("--app-comment", t.comment);
-  set("--app-accent", t.accent);
-  set("--app-var", t.variable);
-  set("--app-def", t.defined);
-  set("--app-kw", t.keyword);
-  set("--app-num", t.number);
-  set("--app-sel", t.sel);
-  set("--app-hover", t.hover);
-  set("--text", t.fg);
-  set("--text-2", t.dim);
-  set("--line", t.line);
-  set("--line-2", t.line2);
-  set("--panel", t.side);
-  set("--panel-2", t.hover);
-  set("--bg", t.bg);
-  root.style.colorScheme = t.dark ? "dark" : "light";
+  const name = themeName();
+  document.documentElement.dataset.appTheme = name;
   document.body.classList.toggle("answers-inline", settings.hideAnswers);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = t.bg;
+  if (meta) {
+    meta.content = getComputedStyle(document.documentElement).getPropertyValue("--app-bg").trim();
+  }
 }
 
 function updateThemeNote() {

@@ -4,7 +4,8 @@
 
 use eframe::egui::{self, CornerRadius, FontFamily, FontId, RichText, Sense, Vec2};
 
-use crate::theme::Theme;
+use crate::design;
+use crate::theme::{self, Theme};
 use omacus_engine::markdown::{self, Block, Inline, Rich};
 use omacus_engine::{Kind, LineResult};
 
@@ -43,12 +44,7 @@ pub fn show(
 ) -> Option<Action> {
     let mut action = None;
     ui.horizontal(|ui| {
-        let edit = ui.add(
-            egui::Button::new(RichText::new("Edit").size(13.5).color(theme.background))
-                .fill(theme.accent)
-                .corner_radius(CornerRadius::same(6))
-                .min_size(Vec2::new(0.0, 28.0)),
-        );
+        let edit = design::primary(ui, theme, "Edit");
         if edit.on_hover_text("Back to the page (Esc)").clicked() {
             action = Some(Action::Close);
         }
@@ -89,10 +85,15 @@ pub fn show(
 }
 
 fn bar_button<'a>(theme: &'a Theme, label: &'a str) -> egui::Button<'a> {
-    egui::Button::new(RichText::new(label).size(13.0).color(theme.foreground))
-        .fill(theme.sidebar)
-        .corner_radius(CornerRadius::same(6))
-        .min_size(Vec2::new(0.0, 28.0))
+    egui::Button::new(
+        RichText::new(label)
+            .size(theme::token::TYPE_BODY)
+            .color(theme.text()),
+    )
+    .fill(theme.background)
+    .stroke(egui::Stroke::new(1.0, theme.border()))
+    .corner_radius(CornerRadius::same(theme::token::RADIUS_MD))
+    .min_size(Vec2::new(0.0, theme::token::HIT))
 }
 
 fn block_ui(
@@ -136,7 +137,11 @@ fn block_ui(
                         None if ordered => format!("{}.", item.number.unwrap_or((i + 1) as u32)),
                         None => "•".to_string(),
                     };
-                    ui.label(RichText::new(mark).size(16.0).color(theme.dim));
+                    ui.label(
+                        RichText::new(mark)
+                            .size(theme::token::TYPE_TITLE)
+                            .color(theme.dim),
+                    );
                     let width = ui.available_width();
                     ui.allocate_ui_with_layout(
                         Vec2::new(width, 0.0),
