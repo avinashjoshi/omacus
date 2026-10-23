@@ -39,7 +39,7 @@ RULES = [
     (
         "first",
         "First version",
-        "A notepad for math, on Linux, macOS, and Windows. I was already using it.",
+        "A notepad for math, on Linux, macOS, and Windows from the first version. I was already using it, and so was Ajith, on his Mac.",
         lambda notes: True,
     ),
     (
@@ -203,11 +203,22 @@ def fetch_merged_count():
 
 
 def notes_text(rel):
+    """Plain notes for matching. A configured private phrase leaves the notes unused."""
     raw = updates.whats_new(rel.get("body") or "")
-    cleaned, _hit = updates.redact(raw)
-    if updates.private(cleaned):
+    if updates.private(updates.gathered_text(rel)):
         return ""
-    return updates.plain(cleaned).lower()
+    return updates.plain(raw).lower()
+
+
+def private_versions(raw_releases):
+    """Version labels whose release contains a configured phrase. The phrase is not returned."""
+    hits = []
+    for rel in raw_releases or []:
+        if not isinstance(rel, dict) or rel.get("draft"):
+            continue
+        if updates.private(updates.gathered_text(rel)):
+            hits.append(updates.public_label(rel.get("tag_name")))
+    return hits
 
 
 def day_of(rel, tag_days_map):
@@ -400,8 +411,9 @@ def page_html(milestones, facts):
 
     <section id="why">
       <h2>Why it exists</h2>
-      <p>Ajith and I were talking through numbers. I kept wanting Numi, the notepad calculator I use on a Mac, and I wasn't on one. I was on Linux, on Omarchy.</p>
+      <p>Ajith and I were talking through numbers. I used to use Numi, a notepad calculator, on a Mac. After I moved to Linux, on Omarchy, I missed it.</p>
       <p>I wrote down what I missed, in a single prompt. About 30 minutes later I had a first version that worked. Then I kept refining it, because I was using it.</p>
+      <p>Ajith is on a Mac, and he wanted to use Omacus too. So it runs on Linux on Omarchy, on macOS, on Windows, and on the web. We both use it every day.</p>
       <p>I built it for myself. I open-sourced it, under the MIT license, in case someone else wanted it too.</p>
     </section>
 
@@ -481,6 +493,9 @@ def gen_footer():
 
 
 def build(raw_releases, out: Path, facts, tag_days_map=None):
+    hits = private_versions(raw_releases)
+    if hits:
+        raise SystemExit("story: private text in " + ", ".join(hits) + "; the page was not written")
     milestones = select_milestones(raw_releases, tag_days_map or {})
     page = page_html(milestones, facts or {})
     if updates.private(page):

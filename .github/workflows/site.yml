@@ -99,6 +99,8 @@ jobs:
         # are left off rather than filled in.
         env:
           GH_TOKEN: ${{ github.token }}
+          # Same phrase list as the updates page. Absent secret: the check is skipped.
+          OMACUS_PRIVATE_TERMS: ${{ secrets.OMACUS_PRIVATE_TERMS }}
         run: python3 site/tools/story.py --out _site
       - name: Version assets
         # Cloudflare in front of omacus.com caches CSS and JS for hours, so pages point

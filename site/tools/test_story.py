@@ -9,7 +9,9 @@ from datetime import date
 from pathlib import Path
 
 import story
-import updates
+
+# A stand-in phrase. The real list lives outside the repo.
+TERM = "internal-codename"
 
 
 def release(tag, notes, day="2026-10-16T12:00:00Z"):
@@ -41,7 +43,34 @@ def sample_releases():
     ]
 
 
+class terms:
+    def __init__(self, value):
+        self.value = value
+
+    def __enter__(self):
+        self.saved = os.environ.get("OMACUS_PRIVATE_TERMS")
+        if self.value is None:
+            os.environ.pop("OMACUS_PRIVATE_TERMS", None)
+        else:
+            os.environ["OMACUS_PRIVATE_TERMS"] = self.value
+
+    def __exit__(self, *_exc):
+        if self.saved is None:
+            os.environ.pop("OMACUS_PRIVATE_TERMS", None)
+        else:
+            os.environ["OMACUS_PRIVATE_TERMS"] = self.saved
+
+
 class StoryPage(unittest.TestCase):
+    def setUp(self):
+        self._saved_terms = os.environ.pop("OMACUS_PRIVATE_TERMS", None)
+
+    def tearDown(self):
+        if self._saved_terms is None:
+            os.environ.pop("OMACUS_PRIVATE_TERMS", None)
+        else:
+            os.environ["OMACUS_PRIVATE_TERMS"] = self._saved_terms
+
     def test_milestones_follow_release_history_and_skip_private_text(self):
         tags = {
             "v0.1.0": "2026-10-16",
@@ -73,6 +102,8 @@ class StoryPage(unittest.TestCase):
         self.assertIn("1,200", page)
         self.assertIn("Days since the first commit", page)
         self.assertIn("Pull requests merged", page)
+        self.assertIn("from the first version", page)
+        self.assertIn("on his Mac", page)
 
     def test_a_missing_figure_is_left_out(self):
         page, _out = self.write(sample_releases(), {"v0.1.0": "2026-10-16"}, {})
@@ -131,13 +162,27 @@ class StoryPage(unittest.TestCase):
         page, _out = self.write(sample_releases(), {"v0.1.0": "2026-10-16", "v0.1.10": "2026-10-17",
                                                     "v0.2.11": "2026-10-23", "v0.2.12": "2026-10-23"},
                                 {"days": 7})
-        for phrase in ("Ajith", "Numi", "Omarchy", "MIT", "Claude", "Grok Bot", "docs/DESIGN.md",
+        for phrase in ("Ajith", "Numi", "on a Mac", "Omarchy", "every day", "macOS", "Windows",
+                       "MIT", "Claude", "Grok Bot", "docs/DESIGN.md",
                        "oh-MAH-kus", "CONTRIBUTING.md", "taste, decisions, and review"):
             self.assertIn(phrase, page)
-        for probe, _innocent in updates.PROBES:
-            self.assertNotIn(probe.lower(), page.lower())
         self.assertIn('aria-current="page"', page)
         self.assertIn('>Story</a>', page)
+
+    def test_a_configured_term_stops_the_page_without_writing(self):
+        rel = release("v9.9.9", f"- Secret {TERM} stays in the notes\n- The web app is mentioned again")
+        with terms(TERM):
+            self.assertEqual(story.notes_text(rel), "")
+            plain = release("v0.1.10", "The web app keeps pages in this browser.")
+            self.assertIn("web app", story.notes_text(plain))
+            out = Path(tempfile.mkdtemp())
+            with self.assertRaises(SystemExit) as caught:
+                story.build([rel, plain], out, {}, {"v0.1.10": "2026-10-17"})
+            message = str(caught.exception)
+            self.assertIn("v9.9.9", message)
+            self.assertNotIn("v0.1.10", message)
+            self.assertNotIn(TERM, message.casefold())
+            self.assertFalse((out / "story" / "index.html").exists())
 
     def test_first_commit_day_is_the_root_not_the_latest(self):
         root = Path(tempfile.mkdtemp())
