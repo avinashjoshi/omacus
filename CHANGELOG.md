@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+**A clearer app on your phone**
+
+The top bar is a solid strip, the sidebar shows the version and Settings, and the page menu only lists what you can do with that page.
+
+- Locking a page asks you to choose a password, then locks it. Save that password in a password manager.
+- Removing a lock asks for the password and keeps the page.
+
 ## 0.2.12
 
 **The web app works offline**

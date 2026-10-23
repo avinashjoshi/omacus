@@ -15,7 +15,7 @@ The code is the source of truth. The guide describes it. If they disagree, chang
 | Website and web shell | `site/css/tokens.css`, imported first by `site/css/site.css` |
 | Which app theme is on | `documentElement.dataset.appTheme` (`light`, `dark`, `paper`, `dusk`) |
 
-`site/app/app.js` does not set color literals. It sets `data-app-theme`, and the browser resolves `--app-bg` for the theme-color of the chrome. Built-in palettes in `tokens.css` are checked against `src/theme.rs` by `tests/check_design.py` (borders included). A hardcoded `Color32::from_rgb(…)` or `hex("#…")` outside `src/theme.rs`, or a hex color in any other file under `site/**/*.css`, fails CI. A justified exception is a `design-allow` comment on that line, or a path in `tests/design-allow.txt`.
+`site/app/app.js` does not set color literals. It sets `data-app-theme`, and the browser resolves `--app-side` for the theme-color of the chrome, so the status bar is the same solid surface as the top bar. Built-in palettes in `tokens.css` are checked against `src/theme.rs` by `tests/check_design.py` (borders included). A hardcoded `Color32::from_rgb(…)` or `hex("#…")` outside `src/theme.rs`, or a hex color in any other file under `site/**/*.css`, fails CI. A justified exception is a `design-allow` comment on that line, or a path in `tests/design-allow.txt`.
 
 A swatch painted from a calculated color (`Color32::from_rgb(r, g, b)` with variables) is not a token. Leave it.
 
@@ -208,6 +208,27 @@ The theme select is a combo box, 148px wide, listing Auto, Light, Dark, Paper, D
 
 The stored values do not change meaning. "Hide the answers column" on means the column is hidden.
 
+### App bar
+
+The bar is a solid surface (`--app-side`) with a strong border under it (`--app-line-strong`). It pads by the top safe area, so the notch and the status bar sit on that surface. The page name, the pages button, and the ⋯ button use the interface face and the text color. The slash before the name stays secondary.
+
+Do: keep the bar opaque. No blur and no translucent fill.
+Don't: set the page name in the monospace face, or let the bar blend into the page.
+
+### Sidebar footer
+
+A labeled Settings row, About, the version (`omacus vX.Y.Z`, a link to the updates page), and a line that pages are saved in this browser. The same footer is used on a phone and in a wide window. It sits above the home indicator.
+
+Do: say Settings in words, next to the gear.
+Don't: a gear with no label, or a version that is not the release in `Cargo.toml`.
+
+### Page menu
+
+The ⋯ menu is for the open page: Rename, Share link, Copy / Export, Handle, Lock or Unlock, Remove lock, Move to folder, and Delete. Copy / Export opens a second list: Copy with answers, Copy as Markdown table, and Preview. On the web that list also has Open in the desktop app. New page, New folder, Import, Export all, Settings, About, and the desktop download live in the sidebar or in Settings.
+
+Do: a row at least 32px. Arrow keys move through the list. Esc closes it, or steps back from Copy / Export. Back is a row, so a thumb can leave the second list.
+Don't: put Settings, New page, or the storage note in the page menu.
+
 ### Sidebar rows and folders
 
 A row is 32px, radius 8. The open page uses `selection` and the accent bar. Hover uses `hover`. Names that don't fit end in an ellipsis on one line. Folders indent and show a chevron. Dragging draws a border in the accent around the target folder, and a small surface chip under the pointer.
@@ -263,7 +284,7 @@ An empty page shows `empty_sheet_hint`: where pages are, and Ctrl+B / Ctrl+J. Se
 
 Grouped cards on the surface color, with a caption above each group: Appearance, Answers, Lock, Export, Updates. Each row is a label, a description, and a control aligned to the right. The path of `settings.toml` is a caption under the groups.
 
-Lock is the "Lock again after" combo (1, 5, 15, 30, or 60 minutes, or Never). The web select is `data-setting=lock-minutes`, with 5 selected. Desktop keeps the folder picker, Omarchy, Custom, and update checks. The web app's Export group is a note that the desktop app chooses the PDF folder. The web checkbox `data-setting=hide-answers` still means hide when checked. The lock dialog uses the shared dialog frame. "Remove lock" is a danger button. Unlock, Lock, and Change stay primary.
+Lock is the "Lock again after" combo (1, 5, 15, 30, or 60 minutes, or Never). The web select is `data-setting=lock-minutes`, with 5 selected. Desktop keeps the folder picker, Omarchy, Custom, and update checks. The web app's Export group holds Export all pages, Import pages, and the desktop download, plus a note that the desktop app chooses the PDF folder. The web checkbox `data-setting=hide-answers` still means hide when checked. The lock dialog uses the shared dialog frame. Choosing Lock on a page with no password asks for a password and a confirmation, tells you to save it in a password manager, then locks the page. Remove lock asks for the current password and stores the page without one. A wrong password leaves the page as it was. "Remove lock" is a danger button. Unlock, Lock, and Change stay primary.
 
 ### About
 
