@@ -1,0 +1,701 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Omacus updates</title>
+  <subtitle>Every release of Omacus, in plain words.</subtitle>
+  <link href="https://omacus.com/updates/"/>
+  <link rel="self" type="application/atom+xml" href="https://omacus.com/updates/feed.xml"/>
+  <id>https://omacus.com/updates/</id>
+  <updated>2026-10-23T10:06:55Z</updated>
+  <author><name>Avinash Joshi</name></author>
+  <entry>
+    <title>v0.2.10 — Publish a release when the push skips the prepare job. #50</title>
+    <link href="https://omacus.com/updates/#v0.2.10"/>
+    <id>https://omacus.com/updates/#v0.2.10</id>
+    <published>2026-10-23T10:06:55Z</published>
+    <updated>2026-10-23T10:06:55Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Publish a release when the push skips the prepare job. &lt;a href="https://github.com/avinashjoshi/omacus/issues/50"&gt;#50&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Add a design language for the app and the website &lt;a href="https://github.com/avinashjoshi/omacus/issues/47"&gt;#47&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Cut releases through a pull request &lt;a href="https://github.com/avinashjoshi/omacus/issues/48"&gt;#48&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.2.9 — One hover card, and name fields that edit normally #45</title>
+    <link href="https://omacus.com/updates/#v0.2.9"/>
+    <id>https://omacus.com/updates/#v0.2.9</id>
+    <published>2026-10-23T07:28:25Z</published>
+    <updated>2026-10-23T07:28:25Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;One hover card, and name fields that edit normally &lt;a href="https://github.com/avinashjoshi/omacus/issues/45"&gt;#45&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.2.8 — Lock pages and folders with real encryption #44</title>
+    <link href="https://omacus.com/updates/#v0.2.8"/>
+    <id>https://omacus.com/updates/#v0.2.8</id>
+    <published>2026-10-23T07:09:35Z</published>
+    <updated>2026-10-23T07:09:35Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Lock pages and folders with real encryption &lt;a href="https://github.com/avinashjoshi/omacus/issues/44"&gt;#44&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.2.7 — Share a page's variables with other pages through @handle.name #43</title>
+    <link href="https://omacus.com/updates/#v0.2.7"/>
+    <id>https://omacus.com/updates/#v0.2.7</id>
+    <published>2026-10-23T06:11:35Z</published>
+    <updated>2026-10-23T06:11:35Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Share a page&amp;#x27;s variables with other pages through @handle.name &lt;a href="https://github.com/avinashjoshi/omacus/issues/43"&gt;#43&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;Typing @ lists pages by handle and title, then that page&amp;#x27;s variables with their values.&lt;/li&gt;
+&lt;li&gt;Renaming a variable, or the handle, updates every reference in one undo step.&lt;/li&gt;
+&lt;li&gt;A missing page, a missing name, a deleted page, or a cycle stays a quiet hint.&lt;/li&gt;
+&lt;li&gt;Hover shows the value and the source page.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.2.6 — Add a command-line for pages and an MCP server #41</title>
+    <link href="https://omacus.com/updates/#v0.2.6"/>
+    <id>https://omacus.com/updates/#v0.2.6</id>
+    <published>2026-10-23T05:49:43Z</published>
+    <updated>2026-10-23T05:49:43Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Add a command-line for pages and an MCP server &lt;a href="https://github.com/avinashjoshi/omacus/issues/41"&gt;#41&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;Evaluate an expression or a whole page from the command line, as text or JSON&lt;/li&gt;
+&lt;li&gt;List, show, create, append, remove, and export pages, as Markdown or PDF&lt;/li&gt;
+&lt;li&gt;Serve those tools over stdio with &lt;code&gt;omacus mcp&lt;/code&gt; for Claude Desktop and Cursor&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.2.5 — Add folders and drag-and-drop to the sidebar #42</title>
+    <link href="https://omacus.com/updates/#v0.2.5"/>
+    <id>https://omacus.com/updates/#v0.2.5</id>
+    <published>2026-10-23T05:21:35Z</published>
+    <updated>2026-10-23T05:21:35Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Add folders and drag-and-drop to the sidebar &lt;a href="https://github.com/avinashjoshi/omacus/issues/42"&gt;#42&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Use neutral names in examples and tests &lt;a href="https://github.com/avinashjoshi/omacus/issues/40"&gt;#40&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;Sample pages in tests and the export preview use Trip Budget, Weekend Plans, and a seats-and-cost line.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.2.4 — Rename a variable everywhere on the page #39</title>
+    <link href="https://omacus.com/updates/#v0.2.4"/>
+    <id>https://omacus.com/updates/#v0.2.4</id>
+    <published>2026-10-23T04:24:59Z</published>
+    <updated>2026-10-23T04:24:59Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Rename a variable everywhere on the page &lt;a href="https://github.com/avinashjoshi/omacus/issues/39"&gt;#39&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;F2, the right-click menu, or Rename variable on hover opens a field. Enter applies, Esc cancels, and one undo puts the page back.&lt;/li&gt;
+&lt;li&gt;On a phone, long-press the name or tap Rename.&lt;/li&gt;
+&lt;li&gt;Editing the definition offers to update the other references.&lt;/li&gt;
+&lt;li&gt;A name that does not start with a letter, or one that is already used, is refused.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.2.3 — Recalculate the page as soon as a phone keyboard types #38</title>
+    <link href="https://omacus.com/updates/#v0.2.3"/>
+    <id>https://omacus.com/updates/#v0.2.3</id>
+    <published>2026-10-23T02:35:16Z</published>
+    <updated>2026-10-23T02:35:16Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Recalculate the page as soon as a phone keyboard types &lt;a href="https://github.com/avinashjoshi/omacus/issues/38"&gt;#38&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;A new line such as &lt;code&gt;test=100&lt;/code&gt; shows &lt;code&gt;100&lt;/code&gt; immediately, and a later &lt;code&gt;test*2&lt;/code&gt; shows &lt;code&gt;200&lt;/code&gt;. Lines below the edit stay current.&lt;/li&gt;
+&lt;li&gt;Composition and autocorrect text is committed while the keyboard is open.&lt;/li&gt;
+&lt;li&gt;A no-break space, smart quote, or en dash still calculates, so &lt;code&gt;100 – 20&lt;/code&gt; is &lt;code&gt;80&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.2.2 — Keep preview, export, and update checks in step with the page #37</title>
+    <link href="https://omacus.com/updates/#v0.2.2"/>
+    <id>https://omacus.com/updates/#v0.2.2</id>
+    <published>2026-10-23T01:14:47Z</published>
+    <updated>2026-10-23T01:14:47Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Keep preview, export, and update checks in step with the page &lt;a href="https://github.com/avinashjoshi/omacus/issues/37"&gt;#37&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;Scroll a long page in the web editor, answers included, and scroll the preview&lt;/li&gt;
+&lt;li&gt;Keep each source line, blank line, and comment in the preview and the PDF&lt;/li&gt;
+&lt;li&gt;Line answers up in a column, or inline, following the answers setting&lt;/li&gt;
+&lt;li&gt;Save the PDF under the page title in Downloads, and replace it in place&lt;/li&gt;
+&lt;li&gt;Open Settings as a tab beside About&lt;/li&gt;
+&lt;li&gt;Run Check for updates again after each result&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.2.1 — Fix hover tooltips, typeset print, and open Settings from the sidebar #36</title>
+    <link href="https://omacus.com/updates/#v0.2.1"/>
+    <id>https://omacus.com/updates/#v0.2.1</id>
+    <published>2026-10-22T23:45:35Z</published>
+    <updated>2026-10-22T23:45:35Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Fix hover tooltips, typeset print, and open Settings from the sidebar &lt;a href="https://github.com/avinashjoshi/omacus/issues/36"&gt;#36&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;Hover values stay on one line, in a tooltip that sizes to the amount and stays inside the window.&lt;/li&gt;
+&lt;li&gt;Print and Export PDF set the page like a short document: margins, headings, tables, and no line split across a page break.&lt;/li&gt;
+&lt;li&gt;Inline answers keep Avi&amp;#x27;s brackets, in each theme&amp;#x27;s accent colour on screen and a dark ink in print, for example &lt;code&gt;[ $1,450 ]&lt;/code&gt;.&lt;/li&gt;
+&lt;li&gt;Settings opens from a gear at the bottom of the sidebar and the collapsed rail, from Ctrl+, and from typing &lt;code&gt;settings&lt;/code&gt; in the page switcher.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.2.0 — Keep the web app opening offline, and say when rates may be stale #35</title>
+    <link href="https://omacus.com/updates/#v0.2.0"/>
+    <id>https://omacus.com/updates/#v0.2.0</id>
+    <published>2026-10-22T19:32:06Z</published>
+    <updated>2026-10-22T19:32:06Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Keep the web app opening offline, and say when rates may be stale &lt;a href="https://github.com/avinashjoshi/omacus/issues/35"&gt;#35&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;The app shell is precached and served from cache, then refreshed in the background so the next visit picks up a new version.&lt;/li&gt;
+&lt;li&gt;Only a successful response is stored. Offline, the app page falls back to that cache.&lt;/li&gt;
+&lt;li&gt;When a rates refresh is due and fails, the page says rates may be stale. A cache younger than 12 hours does not.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Show a value on hover, and describe autocomplete suggestions &lt;a href="https://github.com/avinashjoshi/omacus/issues/34"&gt;#34&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;Hover a variable or a number such as 1.5k to see its value&lt;/li&gt;
+&lt;li&gt;Click an answer to copy it, with a short confirmation&lt;/li&gt;
+&lt;li&gt;Autocomplete shows a kind and a short description&lt;/li&gt;
+&lt;li&gt;Enter accepts a suggestion only after Ctrl+Space&lt;/li&gt;
+&lt;li&gt;A defined name, a use of it, and keywords or units are three colours&lt;/li&gt;
+&lt;li&gt;A # comment is drawn in the comment colour&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Preview a page as notes, and calculate math after a markdown prefix &lt;a href="https://github.com/avinashjoshi/omacus/issues/33"&gt;#33&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;Ctrl+P previews the page as rendered notes, with each answer in a pill. Esc returns to editing. Print and Export PDF use that view.&lt;/li&gt;
+&lt;li&gt;A list, task, quote or heading can hold a calculation, so &amp;quot;- hotel = 3 nights * $180&amp;quot; defines hotel. Tables render in the preview, and a cell is not calculated.&lt;/li&gt;
+&lt;li&gt;Edit mode stays plain text, with headings larger and bold.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Add settings for the theme, the answers column, and update checks &lt;a href="https://github.com/avinashjoshi/omacus/issues/32"&gt;#32&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Call a sheet a page in the app, docs and site &lt;a href="https://github.com/avinashjoshi/omacus/issues/31"&gt;#31&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.29 — Draw the sidebar's icons, and line them up #30</title>
+    <link href="https://omacus.com/updates/#v0.1.29"/>
+    <id>https://omacus.com/updates/#v0.1.29</id>
+    <published>2026-10-22T15:49:02Z</published>
+    <updated>2026-10-22T15:49:02Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Draw the sidebar&amp;#x27;s icons, and line them up &lt;a href="https://github.com/avinashjoshi/omacus/issues/30"&gt;#30&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.28 — Expect the desktop sidebar to anchor its resize handle.</title>
+    <link href="https://omacus.com/updates/#v0.1.28"/>
+    <id>https://omacus.com/updates/#v0.1.28</id>
+    <published>2026-10-20T05:09:48Z</published>
+    <updated>2026-10-20T05:09:48Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Expect the desktop sidebar to anchor its resize handle.&lt;/li&gt;
+&lt;li&gt;Open a deleted sheet before restoring it, and keep long names on one row.&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.27 — Keep the sheet switcher from moving keyboard focus.</title>
+    <link href="https://omacus.com/updates/#v0.1.27"/>
+    <id>https://omacus.com/updates/#v0.1.27</id>
+    <published>2026-10-20T02:03:50Z</published>
+    <updated>2026-10-20T02:03:50Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Keep the sheet switcher from moving keyboard focus.&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.26 — Give long sheets enough stack on macOS</title>
+    <link href="https://omacus.com/updates/#v0.1.26"/>
+    <id>https://omacus.com/updates/#v0.1.26</id>
+    <published>2026-10-19T23:07:10Z</published>
+    <updated>2026-10-19T23:07:10Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Give long sheets enough stack on macOS&lt;/li&gt;
+&lt;li&gt;Add Phase 1 pre-launch sheet functions, shortcuts, and restore&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.25 — Read m, mm, and b on a currency amount as a scale #25</title>
+    <link href="https://omacus.com/updates/#v0.1.25"/>
+    <id>https://omacus.com/updates/#v0.1.25</id>
+    <published>2026-10-19T14:25:18Z</published>
+    <updated>2026-10-19T14:25:18Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Read m, mm, and b on a currency amount as a scale &lt;a href="https://github.com/avinashjoshi/omacus/issues/25"&gt;#25&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.24 — For founders: runway, burn, MRR and dilution #24</title>
+    <link href="https://omacus.com/updates/#v0.1.24"/>
+    <id>https://omacus.com/updates/#v0.1.24</id>
+    <published>2026-10-19T13:13:42Z</published>
+    <updated>2026-10-19T13:13:42Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;For founders: runway, burn, MRR and dilution &lt;a href="https://github.com/avinashjoshi/omacus/issues/24"&gt;#24&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.23 — web-mobile test: wait for the new page after navigating #23</title>
+    <link href="https://omacus.com/updates/#v0.1.23"/>
+    <id>https://omacus.com/updates/#v0.1.23</id>
+    <published>2026-10-19T12:55:23Z</published>
+    <updated>2026-10-19T12:55:23Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;web-mobile test: wait for the new page after navigating &lt;a href="https://github.com/avinashjoshi/omacus/issues/23"&gt;#23&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Homebrew: brew install --cask avinashjoshi/tap/omacus &lt;a href="https://github.com/avinashjoshi/omacus/issues/22"&gt;#22&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Keep the phone web app still while typing, and fix the sheet drawer &lt;a href="https://github.com/avinashjoshi/omacus/issues/21"&gt;#21&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Realistic sheets: labels read as units, totals with rates, and more &lt;a href="https://github.com/avinashjoshi/omacus/issues/20"&gt;#20&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;&amp;quot;Income - total&amp;quot; (Income being a label, not a variable) was minus the total: a word in front of an operator is no longer dropped.&lt;/li&gt;
+&lt;li&gt;&amp;quot;rate = $85/hour&amp;quot; or &amp;quot;discount = 10%&amp;quot; in a block broke its total. Rates and percentages are left out when the amounts don&amp;#x27;t add up with them.&lt;/li&gt;
+&lt;li&gt;A label&amp;#x27;s words that fend knows as units were multiplied in: &amp;quot;Nails $8&amp;quot; was 8 nail $, &amp;quot;Apartment 4B rent $1,900&amp;quot; 7,600 B $, &amp;quot;Food 6 days * $80&amp;quot; 480 day $. Money times another unit is retried with those words as prose.&lt;/li&gt;
+&lt;li&gt;&amp;quot;$1.5B&amp;quot; was 1.5 bytes; after a currency symbol, B and bn are billions.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.22 — Percentages follow the order of operations #19</title>
+    <link href="https://omacus.com/updates/#v0.1.22"/>
+    <id>https://omacus.com/updates/#v0.1.22</id>
+    <published>2026-10-19T04:52:43Z</published>
+    <updated>2026-10-19T04:52:43Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Percentages follow the order of operations &lt;a href="https://github.com/avinashjoshi/omacus/issues/19"&gt;#19&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.21 — total in calculations, totals of dollars and plain numbers, lone unit words #18</title>
+    <link href="https://omacus.com/updates/#v0.1.21"/>
+    <id>https://omacus.com/updates/#v0.1.21</id>
+    <published>2026-10-19T01:02:36Z</published>
+    <updated>2026-10-19T01:02:36Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;total in calculations, totals of dollars and plain numbers, lone unit words &lt;a href="https://github.com/avinashjoshi/omacus/issues/18"&gt;#18&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;&amp;quot;total + 1&amp;quot; was 1: total only worked on a line of its own. total, sum and average now work in a calculation (&amp;quot;total * 1.08&amp;quot;, &amp;quot;100 - total&amp;quot;, &amp;quot;total in EUR&amp;quot;, &amp;quot;total - 10%&amp;quot;), when next to an operator, a bracket or a conversion; &amp;quot;rent + total vibes&amp;quot; and &amp;quot;Total cost $40&amp;quot; stay prose, and a variable named total wins. A line using a total isn&amp;#x27;t counted in the next. &amp;quot;average + 1&amp;quot; gave fend&amp;#x27;s function &amp;quot;\\x.((mean x)+1)&amp;quot; and spoiled the total below it.&lt;/li&gt;
+&lt;li&gt;&amp;quot;$5&amp;quot;, &amp;quot;6&amp;quot;, &amp;quot;total&amp;quot; said &amp;quot;Units don&amp;#x27;t match&amp;quot;; it&amp;#x27;s $11 now, as &amp;quot;$5 + 6&amp;quot; is on one line. Other mixes ($ and kg) still don&amp;#x27;t add up.&lt;/li&gt;
+&lt;li&gt;A line of one word that only names a unit (&amp;quot;r&amp;quot; was 1 Rankine, &amp;quot;kg&amp;quot;, &amp;quot;k&amp;quot; 1,000, &amp;quot;c&amp;quot; the speed of light) shows nothing. Variables, pi, e, tau and phi still answer.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.20 — Windows: leave the unused OpenGL backend out of the build</title>
+    <link href="https://omacus.com/updates/#v0.1.20"/>
+    <id>https://omacus.com/updates/#v0.1.20</id>
+    <published>2026-10-19T00:24:40Z</published>
+    <updated>2026-10-19T00:24:40Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Windows: leave the unused OpenGL backend out of the build&lt;/li&gt;
+&lt;li&gt;Tests: slow the first-line clock five times, not twenty&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.19 — Windows: open without OpenGL 2; first line's time limit excludes setup #16</title>
+    <link href="https://omacus.com/updates/#v0.1.19"/>
+    <id>https://omacus.com/updates/#v0.1.19</id>
+    <published>2026-10-18T22:56:45Z</published>
+    <updated>2026-10-18T22:56:45Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Windows: open without OpenGL 2; first line&amp;#x27;s time limit excludes setup &lt;a href="https://github.com/avinashjoshi/omacus/issues/16"&gt;#16&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.18 — Windows: runs on a fresh install, one-click and one-line installers; a styled .dmg #15</title>
+    <link href="https://omacus.com/updates/#v0.1.18"/>
+    <id>https://omacus.com/updates/#v0.1.18</id>
+    <published>2026-10-18T19:50:14Z</published>
+    <updated>2026-10-18T19:50:14Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Windows: runs on a fresh install, one-click and one-line installers; a styled .dmg &lt;a href="https://github.com/avinashjoshi/omacus/issues/15"&gt;#15&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;omacus-windows-x86_64-setup.exe (Inno Setup, installer/omacus.iss): installs for the user with no admin prompt into %LOCALAPPDATA%\Programs\Omacus, adds Omacus to Start (and the desktop if ticked) and &lt;code&gt;omacus&lt;/code&gt; to the PATH, opens it, and uninstalls from Settings &amp;gt; Apps. Its wizard art is in the site&amp;#x27;s fonts.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;irm https://omacus.com/install.ps1 | iex&lt;/code&gt;: downloads that installer, checks it against SHA256SUMS.txt, installs it silently and opens Omacus.&lt;/li&gt;
+&lt;li&gt;omacus.exe has its icon (and a 16-256 px .ico, 19 KB instead of 359 KB).&lt;/li&gt;
+&lt;li&gt;tests/windows-installer.ps1, in CI and before every release: no runtime DLLs, the installer builds, the one-liner installs (Start entry, PATH once, the right version, the app answers), installs again over the top, refuses a tampered download, and uninstalls cleanly.&lt;/li&gt;
+&lt;li&gt;macOS: the .dmg opens to a window with the app, Applications and an arrow between (dmgbuild, installer/dmg-settings.py).&lt;/li&gt;
+&lt;li&gt;Site: Windows downloads the installer; the download page puts the visitor&amp;#x27;s system first; docs and README updated.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.17 — Answers fill in as they're worked out, copies never freeze or land late, impossible dates say so #14</title>
+    <link href="https://omacus.com/updates/#v0.1.17"/>
+    <id>https://omacus.com/updates/#v0.1.17</id>
+    <published>2026-10-18T17:19:16Z</published>
+    <updated>2026-10-18T17:19:16Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Answers fill in as they&amp;#x27;re worked out, copies never freeze or land late, impossible dates say so &lt;a href="https://github.com/avinashjoshi/omacus/issues/14"&gt;#14&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.16 — Position test: count steps instead of timing, so a slow machine can't fail it</title>
+    <link href="https://omacus.com/updates/#v0.1.16"/>
+    <id>https://omacus.com/updates/#v0.1.16</id>
+    <published>2026-10-18T16:48:09Z</published>
+    <updated>2026-10-18T16:48:09Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Position test: count steps instead of timing, so a slow machine can&amp;#x27;t fail it&lt;/li&gt;
+&lt;li&gt;Exact rounding, more number and date formats, web app calculates in a worker &lt;a href="https://github.com/avinashjoshi/omacus/issues/13"&gt;#13&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;Halves round on the exact digits, away from zero: $1.005 is $1.01 and 2.675 is 2.68 (an f64 made them $1 and 2.67). Negative money is rounded and grouped too.&lt;/li&gt;
+&lt;li&gt;&amp;quot;$-5&amp;quot; is minus five dollars (it showed -$4).&lt;/li&gt;
+&lt;li&gt;&amp;quot;1.000,50&amp;quot; and &amp;quot;1.000.000&amp;quot; read as European grouping (1.000,50 + 1 showed 2).&lt;/li&gt;
+&lt;li&gt;&amp;quot;1 lakh&amp;quot; and &amp;quot;2 crore&amp;quot; are 100,000 and 20,000,000 (they showed 1 and 2).&lt;/li&gt;
+&lt;li&gt;A date on its own is that date: &amp;quot;2026-12-25&amp;quot; showed 1,989 and &amp;quot;Dec 25&amp;quot; showed 25.&lt;/li&gt;
+&lt;li&gt;&amp;quot;today + 3 weeks&amp;quot; across a clock change no longer lands on the day before: days, weeks, months and years move along the calendar, hours are time that passes.&lt;/li&gt;
+&lt;li&gt;After &amp;quot;I = 3&amp;quot;, &amp;quot;I spent $40&amp;quot; is still $40: a short word that&amp;#x27;s also a variable is the variable only next to an operator.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.15 — Calculate off the window's thread, reuse unchanged lines, same limit for every line #12</title>
+    <link href="https://omacus.com/updates/#v0.1.15"/>
+    <id>https://omacus.com/updates/#v0.1.15</id>
+    <published>2026-10-17T22:12:07Z</published>
+    <updated>2026-10-17T22:12:07Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Calculate off the window&amp;#x27;s thread, reuse unchanged lines, same limit for every line &lt;a href="https://github.com/avinashjoshi/omacus/issues/12"&gt;#12&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;The engine saves the state after each line (fend&amp;#x27;s variables, the total&amp;#x27;s block, prev, names). Engine::eval_sheet resumes from the first line that changed, so typing at the end of a long sheet redoes one line; answers from the clock (today, time in Tokyo) are refreshed every time.&lt;/li&gt;
+&lt;li&gt;The desktop app calculates on a worker thread (src/calc.rs) that keeps each sheet&amp;#x27;s saved calculation and drops older text when newer arrives: the window never waits on math. Copying the sheet on screen reuses its answers when they match its text exactly.&lt;/li&gt;
+&lt;li&gt;The web app reuses each sheet&amp;#x27;s calculation the same way.&lt;/li&gt;
+&lt;li&gt;The sheet-wide budget is gone: every line gets the same 150 ms, so a line&amp;#x27;s answer no longer depends on where it sits (from the second review).&lt;/li&gt;
+&lt;li&gt;Tests: reused answers equal a full recalculation at every keystroke of every sheet in cases.txt and through random edits; identical lines get identical answers; the worker never blocks its caller and ends on the newest text.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.14 — Accuracy: the second review's fixes, a fend rounding workaround, and checks against exact maths #11</title>
+    <link href="https://omacus.com/updates/#v0.1.14"/>
+    <id>https://omacus.com/updates/#v0.1.14</id>
+    <published>2026-10-17T21:48:07Z</published>
+    <updated>2026-10-17T21:48:07Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Accuracy: the second review&amp;#x27;s fixes, a fend rounding workaround, and checks against exact maths &lt;a href="https://github.com/avinashjoshi/omacus/issues/11"&gt;#11&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;A redefined percentage variable uses its newest value ($100 + tax).&lt;/li&gt;
+&lt;li&gt;Percentage terms follow precedence: 100 + 10% * 2 is 120, 100 + 10% / 2 is 105.&lt;/li&gt;
+&lt;li&gt;10% off 20% off $100 is $72 (it gave 14.7-style answers before).&lt;/li&gt;
+&lt;li&gt;C$, A$, US$, NZ$, HK$ and S$ amounts read as their currencies.&lt;/li&gt;
+&lt;li&gt;Date maths from any date: Jan 31 + 1 month, Dec 25 - Dec 1 is 24 days.&lt;/li&gt;
+&lt;li&gt;Decimal commas: a comma followed by anything but three digits (1,5; €12,50).&lt;/li&gt;
+&lt;li&gt;10% * 200 is 20, not 2,000%; 50% / 2 stays 25%.&lt;/li&gt;
+&lt;li&gt;fend 1.5.8 rounds 2/3/10^10 to &amp;quot;approx. 1&amp;quot; (and 725 + that to 726): Omacus now reads approximate answers at 20 more decimal places and rounds them itself. Tiny answers keep three significant digits instead of showing 0.&lt;/li&gt;
+&lt;li&gt;2 kg / 1e9 works (1e9 was read as a unit after a slash).&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Faster source installs: ./install.sh builds with a local profile &lt;a href="https://github.com/avinashjoshi/omacus/issues/10"&gt;#10&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.13 — Fixes from an independent review: no freezes, no confident wrong answers #9</title>
+    <link href="https://omacus.com/updates/#v0.1.13"/>
+    <id>https://omacus.com/updates/#v0.1.13</id>
+    <published>2026-10-17T20:59:21Z</published>
+    <updated>2026-10-17T20:59:21Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Fixes from an independent review: no freezes, no confident wrong answers &lt;a href="https://github.com/avinashjoshi/omacus/issues/9"&gt;#9&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;Each line gets a time limit (150 ms; 20 ms once a sheet has taken a second), so &lt;code&gt;100000!&lt;/code&gt; or &lt;code&gt;10^10^7&lt;/code&gt; can&amp;#x27;t freeze the window, the web app or a shared link that opens with one. Without a clock, a cap on fend&amp;#x27;s work instead.&lt;/li&gt;
+&lt;li&gt;A line with no answer can say why, quietly in the answer&amp;#x27;s place: &amp;quot;Can&amp;#x27;t divide by zero&amp;quot;, &amp;quot;Units don&amp;#x27;t match&amp;quot;, &amp;quot;Too big to work out&amp;quot;.&lt;/li&gt;
+&lt;li&gt;The prose fallback no longer skips past operators or variables, so &lt;code&gt;rent + 5&lt;/code&gt; is never answered &amp;quot;5&amp;quot;. A plain number added to an amount takes its currency: rent + 5 is $1,005, and &amp;quot;prev + 1&amp;quot; after $10 is $11.&lt;/li&gt;
+&lt;li&gt;Variables named a, I, the, at or my are kept as variables.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;2 x 3 x 4&lt;/code&gt; is 24 and &lt;code&gt;Tickets 2 x $14&lt;/code&gt; is $28.&lt;/li&gt;
+&lt;li&gt;Percentages apply in order ($100 - 10% - 10% is $81), and a percentage variable works the same way ($100 + tax, where tax = 8%).&lt;/li&gt;
+&lt;li&gt;A title-case word that spells a currency code (&amp;quot;Lunch for Cad $40&amp;quot;) is prose unless it follows a number or &amp;quot;in&amp;quot;/&amp;quot;to&amp;quot;.&lt;/li&gt;
+&lt;li&gt;Updates install exactly the version whose checksums the app checked, and install.sh now checks every download against the release&amp;#x27;s SHA256SUMS.txt.&lt;/li&gt;
+&lt;li&gt;engine/tests/cases.txt: sheets with the answer each line should get, including every case from the review.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.12 — Answers after the line, on the web and the desktop #8</title>
+    <link href="https://omacus.com/updates/#v0.1.12"/>
+    <id>https://omacus.com/updates/#v0.1.12</id>
+    <published>2026-10-17T20:37:00Z</published>
+    <updated>2026-10-17T20:37:00Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Answers after the line, on the web and the desktop &lt;a href="https://github.com/avinashjoshi/omacus/issues/8"&gt;#8&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;omacus.com/app moves to CodeMirror (bundled into site/app/editor.js by site/tools/editor). Lines wrap at the full width; each answer floats right at the end of its line and drops to its own row when the line is full, so phones no longer squeeze every line into half the screen. Undo is kept per sheet.&lt;/li&gt;
+&lt;li&gt;The desktop app does the same: full-width lines, the answer on the line&amp;#x27;s last row or on a row made for it below.&lt;/li&gt;
+&lt;li&gt;Phones: Share link and Private move into the ⋯ menu.&lt;/li&gt;
+&lt;li&gt;Installed on iPhone, the top bar leaves room for the status bar and notch.&lt;/li&gt;
+&lt;li&gt;The offline worker drops caches from older versions, and steps aside on localhost so previews never run stale files.&lt;/li&gt;
+&lt;li&gt;Deploy versions editor.js by content hash like the other scripts.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.11 — Try Omacus on the homepage, a privacy page, and privacy in About #4</title>
+    <link href="https://omacus.com/updates/#v0.1.11"/>
+    <id>https://omacus.com/updates/#v0.1.11</id>
+    <published>2026-10-17T13:08:08Z</published>
+    <updated>2026-10-17T13:08:08Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Try Omacus on the homepage, a privacy page, and privacy in About &lt;a href="https://github.com/avinashjoshi/omacus/issues/4"&gt;#4&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;Homepage hero: Watch / Try it yourself above the demo window. Try it swaps the replay for the real editor (omacus.com/app in a new embed mode: no chrome, nothing read or saved), on the sheet that was playing, loaded only on demand.&lt;/li&gt;
+&lt;li&gt;Under the installer, a clearer &amp;quot;Open the web app&amp;quot; card.&lt;/li&gt;
+&lt;li&gt;/privacy: what Omacus stores and sends, in plain words, with a short terms note pointing at the MIT license. Linked from the footer, homepage, /app.&lt;/li&gt;
+&lt;li&gt;Desktop About: a &amp;quot;Private by design&amp;quot; paragraph and a Privacy link.&lt;/li&gt;
+&lt;li&gt;Screenshots retaken with the new Share and ⋯.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Visible sheet actions, web app on the homepage, install banner, privacy &lt;a href="https://github.com/avinashjoshi/omacus/issues/3"&gt;#3&lt;/a&gt;&lt;ul&gt;
+&lt;li&gt;Desktop: Share and ⋯ above the sheet, and a ⋯ on the selected or hovered sheet row, open the same menu as a right-click, with shortcuts shown.&lt;/li&gt;
+&lt;li&gt;Homepage: a web app section, a privacy section, and a guide or docs link on each feature card.&lt;/li&gt;
+&lt;li&gt;/app: a first-visit banner offers Install, or the Add to Home Screen steps on iPhone and iPad; a &amp;quot;Private&amp;quot; chip explains where sheets live.&lt;/li&gt;
+&lt;li&gt;&amp;quot;Open in the web app&amp;quot; links open a new tab.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.10 — Share links everywhere: from the app, into the app, and an installable /app</title>
+    <link href="https://omacus.com/updates/#v0.1.10"/>
+    <id>https://omacus.com/updates/#v0.1.10</id>
+    <published>2026-10-17T07:24:38Z</published>
+    <updated>2026-10-17T07:24:38Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Share links everywhere: from the app, into the app, and an installable /app&lt;ul&gt;
+&lt;li&gt;Share link (Ctrl+Shift+L, or the sheet&amp;#x27;s right-click menu) copies https://omacus.com/app#v1.… for any sheet. The format lives in the engine (engine/src/share.rs), so the desktop app and the web app make and read the same links; a link can expand to 1 MB at most.&lt;/li&gt;
+&lt;li&gt;Shared sheets open in the app: omacus:// links (Linux .desktop + xdg-mime, macOS Info.plist and an Apple Event handler, Windows per-user registry on first run), pasting a link into a sheet, or &lt;code&gt;omacus open &amp;lt;link&amp;gt;&lt;/code&gt;. An opened sheet is new, or switches to the copy you already have.&lt;/li&gt;
+&lt;li&gt;omacus.com/app: Open in Omacus on shared sheets; installable (manifest, icons) and offline (service worker); a Home Screen note on iPhone.&lt;/li&gt;
+&lt;li&gt;Docs: Sharing &amp;amp; the web app, opening links, CLI, shortcut, FAQ. Every sheet on the use cases page and in the guides opens in the web app. Three new feature cards on the home page. README, llms.txt and in-app tips.&lt;/li&gt;
+&lt;li&gt;CI checks the macOS bundle declares omacus:// and the Linux install does.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;omacus.com/app: Omacus in the browser, with share links&lt;ul&gt;
+&lt;li&gt;Sheets are saved in this browser (localStorage, persistent storage requested), kept in step across tabs, and export/import as a .zip of .txt files.&lt;/li&gt;
+&lt;li&gt;Share link puts the sheet after the # (deflate + base64url, &amp;quot;v1.&amp;quot; prefix), so it never reaches a server; opening one shows it as a shared sheet to save.&lt;/li&gt;
+&lt;li&gt;Exchange rates come from the same source as the desktop app, cached 12 hours.&lt;/li&gt;
+&lt;li&gt;The site deploy builds the engine and versions its files; /app is in the header, the sitemap, and under the hero&amp;#x27;s installer.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Add omacus-web: the engine for JavaScript, via WebAssembly&lt;/li&gt;
+&lt;li&gt;Move the math engine into its own crate, ready for the browser&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.9 — Tips and splits, download times, day counting, CSS units, colours, Markdown copy</title>
+    <link href="https://omacus.com/updates/#v0.1.9"/>
+    <id>https://omacus.com/updates/#v0.1.9</id>
+    <published>2026-10-17T06:28:10Z</published>
+    <updated>2026-10-17T06:28:10Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Tips and splits, download times, day counting, CSS units, colours, Markdown copy&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;18% tip on $62&lt;/code&gt;, &lt;code&gt;$84 split 3 ways&lt;/code&gt;, &lt;code&gt;split $240 between 4 people&lt;/code&gt;. Before, &amp;quot;split 3 ways&amp;quot; answered 3.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;4 GB at 100 Mbps&lt;/code&gt; -&amp;gt; 5 min 20 s (was &amp;quot;400 GB Mbps&amp;quot;).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;days until Dec 25&lt;/code&gt;, &lt;code&gt;weeks until Christmas&lt;/code&gt;, &lt;code&gt;days since Jan 1&lt;/code&gt;, &lt;code&gt;workdays in November&lt;/code&gt;, &lt;code&gt;days between Mar 1 and Jun 30&lt;/code&gt;.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;16px in rem&lt;/code&gt;, &lt;code&gt;12pt in px&lt;/code&gt;, &lt;code&gt;24px in rem at 18px&lt;/code&gt;.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;#ff8800 in rgb&lt;/code&gt;, &lt;code&gt;rgb(...) in hex&lt;/code&gt;, &lt;code&gt;hsl(...)&lt;/code&gt;, with a swatch beside the answer (rgb(255,136,0) used to multiply out). &amp;quot;#ff8800&amp;quot; is a colour, &amp;quot;# Budget&amp;quot; still a header.&lt;/li&gt;
+&lt;li&gt;Ctrl+Shift+M (or the right-click menu) copies a sheet as a Markdown table.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;One download page for every platform; short links no longer download&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.8 — Smaller downloads: a .dmg per Mac chip, lean fonts, full LTO</title>
+    <link href="https://omacus.com/updates/#v0.1.8"/>
+    <id>https://omacus.com/updates/#v0.1.8</id>
+    <published>2026-10-17T05:46:23Z</published>
+    <updated>2026-10-17T05:46:23Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Smaller downloads: a .dmg per Mac chip, lean fonts, full LTO&lt;ul&gt;
+&lt;li&gt;macOS ships omacus-macos-arm64.dmg and omacus-macos-x86_64.dmg instead of one universal .dmg, halving the Mac download. The installer picks by chip (even under Rosetta) and falls back to the universal .dmg for releases up to 0.1.7. Before publishing, each .dmg is checked to hold the right architecture and run.&lt;/li&gt;
+&lt;li&gt;egui&amp;#x27;s bundled fonts are replaced by JetBrains Mono, a 6 KB currency-symbol subset of Noto Sans and Noto Emoji, all stored deflated.&lt;/li&gt;
+&lt;li&gt;Full LTO; regex keeps only the Unicode tables it uses; zip is Windows-only.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Keep two Omacus windows in step, and never let one overwrite the other&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.7 — Check for updates on launch and every 4 hours, not once a day</title>
+    <link href="https://omacus.com/updates/#v0.1.7"/>
+    <id>https://omacus.com/updates/#v0.1.7</id>
+    <published>2026-10-17T04:58:26Z</published>
+    <updated>2026-10-17T04:58:26Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Check for updates on launch and every 4 hours, not once a day&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.6 — README: say how Omacus is pronounced, matching the video</title>
+    <link href="https://omacus.com/updates/#v0.1.6"/>
+    <id>https://omacus.com/updates/#v0.1.6</id>
+    <published>2026-10-17T03:27:06Z</published>
+    <updated>2026-10-17T03:27:06Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;README: say how Omacus is pronounced, matching the video&lt;/li&gt;
+&lt;li&gt;Add the launch video to the site and README&lt;/li&gt;
+&lt;li&gt;Add the launch video&amp;#x27;s build pipeline&lt;/li&gt;
+&lt;li&gt;Fix a Windows-only lint in the updater&amp;#x27;s private folder&lt;/li&gt;
+&lt;li&gt;Use https in the install one-liner everywhere; docs for the new shortcut&lt;/li&gt;
+&lt;li&gt;Make deleting a sheet undoable, and never lose a save quietly&lt;ul&gt;
+&lt;li&gt;Deleting a sheet is Ctrl+Shift+Delete (Ctrl+Delete deletes a word in the editor) and shows Undo; the trash gets the text as it was, unsaved edits included&lt;/li&gt;
+&lt;li&gt;A failed save shows a message instead of retrying silently forever&lt;/li&gt;
+&lt;li&gt;Saves are flushed to disk before replacing the file, with temporary names unique to each window&lt;/li&gt;
+&lt;li&gt;The settings check and the help examples no longer run every frame&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Harden the installer and the updater&lt;ul&gt;
+&lt;li&gt;Piped from curl, the installer never trusts files in the current folder (a shared /tmp could hold someone else&amp;#x27;s &amp;quot;release&amp;quot;), runs everything from main() so a cut-off download does nothing, refuses to run as root, and only fetches over HTTPS&lt;/li&gt;
+&lt;li&gt;macOS: updates replace the exact app bundle (even renamed), copying beside it first so a failed copy never leaves no app&lt;/li&gt;
+&lt;li&gt;Hyprland keys are validated before they go into the Lua config, backups are restored by copying (symlinked configs survive), and existing config errors no longer trigger a rollback&lt;/li&gt;
+&lt;li&gt;The updater downloads the release&amp;#x27;s own install.sh (or Windows zip) from GitHub for that version, checks it against the release&amp;#x27;s SHA256SUMS, and runs it from a private folder; the Windows swap cleans up on every failure&lt;/li&gt;
+&lt;li&gt;zip 9 (RustSec advisories in 2.x extraction code, which Omacus didn&amp;#x27;t use); network requests have timeouts&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Fix silently wrong answers found in an audit&lt;ul&gt;
+&lt;li&gt;Numbers in labels no longer multiply into the amount: &amp;quot;Day 3 $50&amp;quot; and &amp;quot;iPhone 15 $799&amp;quot; give $50 and $799, not $150 and $11,985&lt;/li&gt;
+&lt;li&gt;half, twice, double, triple, a third, a quarter and percent count: &amp;quot;half of 50&amp;quot; is 25, &amp;quot;50 percent off 80&amp;quot; is 40&lt;/li&gt;
+&lt;li&gt;I, a, an, the, at are prose unless they follow a number: &amp;quot;I spent $40&amp;quot; is $40 (not imaginary), &amp;quot;$4 a day&amp;quot; is $4 / day, &amp;quot;3 pizzas at $12&amp;quot; is $36&lt;/li&gt;
+&lt;li&gt;A time of day that isn&amp;#x27;t a conversion (&amp;quot;Movie at 7pm&amp;quot;) gets no answer instead of picometres; lines with until/since/ago get none instead of a guess&lt;/li&gt;
+&lt;li&gt;Big numbers keep every digit, tiny ones show as 1e-12 instead of 0, negative money reads -$5, and 0x10 stays hex&lt;/li&gt;
+&lt;li&gt;&amp;quot;$1200 / 12 in EUR&amp;quot; works again; labels may contain digits (&amp;quot;Item 2:&amp;quot;)&lt;/li&gt;
+&lt;li&gt;Adding days to a time shows the date, and dates outside this year show it&lt;/li&gt;
+&lt;li&gt;GMT is a fixed offset; huge durations give no answer instead of crashing&lt;/li&gt;
+&lt;li&gt;prev on the first line gets no answer; very long lines are skipped&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.5 — Copy a sheet with its answers, jump to sheets with Ctrl+P, and count from now</title>
+    <link href="https://omacus.com/updates/#v0.1.5"/>
+    <id>https://omacus.com/updates/#v0.1.5</id>
+    <published>2026-10-16T23:31:03Z</published>
+    <updated>2026-10-16T23:31:03Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Copy a sheet with its answers, jump to sheets with Ctrl+P, and count from now&lt;ul&gt;
+&lt;li&gt;Ctrl+Shift+S (or Copy with answers in a sheet&amp;#x27;s right-click menu) copies the sheet with each answer lined up after its line, ready to paste anywhere&lt;/li&gt;
+&lt;li&gt;Ctrl+P finds a sheet by name, or by something written in it; arrows and Enter to go&lt;/li&gt;
+&lt;li&gt;&amp;quot;in 90 minutes&amp;quot;, &amp;quot;3 hours from now in Tokyo&amp;quot;, &amp;quot;3pm + 45 min&amp;quot; and &amp;quot;9:30am PST + 2 hours in London&amp;quot;&lt;/li&gt;
+&lt;li&gt;Exchange rates and the update check now refresh on schedule while Omacus stays open, instead of only at launch; offline, they try again later&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Find the latest version even when GitHub&amp;#x27;s API rate-limits&lt;/li&gt;
+&lt;li&gt;Fix the macOS installer exiting with an error after installing&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.4 — Update in one click on Windows, update Macs in place, and fix links</title>
+    <link href="https://omacus.com/updates/#v0.1.4"/>
+    <id>https://omacus.com/updates/#v0.1.4</id>
+    <published>2026-10-16T22:51:28Z</published>
+    <updated>2026-10-16T22:51:28Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Update in one click on Windows, update Macs in place, and fix links&lt;ul&gt;
+&lt;li&gt;Links in About (website, docs, releases, issues, source) now open in the browser; they did nothing before&lt;/li&gt;
+&lt;li&gt;Windows: Update now downloads the new omacus.exe and swaps it in where the old one is, then restarts; the old copy is cleaned up on the next launch&lt;/li&gt;
+&lt;li&gt;macOS: an update replaces Omacus.app where it is, instead of possibly installing a second copy in another Applications folder&lt;/li&gt;
+&lt;li&gt;After each release, CI installs the previous one on Linux, macOS and Windows, runs &lt;code&gt;omacus update&lt;/code&gt;, and checks it lands on the new version&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Redo the help window, and put the logo and version in the sidebar&lt;ul&gt;
+&lt;li&gt;The sidebar ends in one quiet row: logo, name and version, and ? for help. A dot after the version marks a new release; clicking it opens the update.&lt;/li&gt;
+&lt;li&gt;Help has a rail on the left (Keyboard, Syntax, Tips &amp;amp; tricks, About) with the logo at the top and the version at the bottom&lt;/li&gt;
+&lt;li&gt;About shows the logo, version and Check for updates (or Update now when a new version is out), with links to the website, docs, releases, issues and source&lt;/li&gt;
+&lt;li&gt;The update notice no longer adds lines to the sidebar&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.3 — Tell people when a new version is out, and update in one click</title>
+    <link href="https://omacus.com/updates/#v0.1.3"/>
+    <id>https://omacus.com/updates/#v0.1.3</id>
+    <published>2026-10-16T22:25:21Z</published>
+    <updated>2026-10-16T22:25:21Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Tell people when a new version is out, and update in one click&lt;ul&gt;
+&lt;li&gt;At most once a day, Omacus asks GitHub for the latest version number in the background; nothing about you or your sheets is sent&lt;/li&gt;
+&lt;li&gt;When there&amp;#x27;s a newer one, &amp;quot;vX available&amp;quot; appears at the bottom of the sidebar and next to the version in the help window&lt;/li&gt;
+&lt;li&gt;Update now installs it with the one-line installer (keybind, settings and sheets stay), then offers to restart; What&amp;#x27;s new opens the release notes&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;omacus update&lt;/code&gt; does the same from a terminal&lt;/li&gt;
+&lt;li&gt;Installed from a .deb or .rpm, or on Windows, it opens the download page&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;check_for_updates = false&lt;/code&gt; in settings.toml turns the check off&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Show Omacus&amp;#x27;s own version, in the terminal and the app&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;omacus --version&lt;/code&gt;, &lt;code&gt;-V&lt;/code&gt; and &lt;code&gt;omacus version&lt;/code&gt; print the installed version, like &amp;quot;omacus 0.1.3&amp;quot;; &lt;code&gt;omacus version&lt;/code&gt; used to print the math engine&amp;#x27;s version (1.5.8)&lt;/li&gt;
+&lt;li&gt;The help window shows the version next to the name; clicking it opens that release&amp;#x27;s notes&lt;/li&gt;
+&lt;li&gt;&amp;quot;version&amp;quot; in a sheet is prose, not the engine&amp;#x27;s version number&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.2 — Understand imperial measures and currency codes before amounts</title>
+    <link href="https://omacus.com/updates/#v0.1.2"/>
+    <id>https://omacus.com/updates/#v0.1.2</id>
+    <published>2026-10-16T21:46:08Z</published>
+    <updated>2026-10-16T21:46:08Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Understand imperial measures and currency codes before amounts&lt;ul&gt;
+&lt;li&gt;Imperial (or UK) gallons, quarts, pints and fluid ounces, both ways: &amp;quot;2 imperial pints in ml&amp;quot;, &amp;quot;40 liters in imperial gallons&amp;quot;&lt;/li&gt;
+&lt;li&gt;&amp;quot;CHF 300&amp;quot; and &amp;quot;USD 30&amp;quot; work like &amp;quot;300 CHF&amp;quot;&lt;/li&gt;
+&lt;li&gt;The built-in help shows dates on times and imperial pints&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Convert times on a specific date&lt;ul&gt;
+&lt;li&gt;&amp;quot;3pm PST on Dec 1 in London&amp;quot; gives &amp;quot;11:00 PM GMT, Tue 1 Dec&amp;quot;, with daylight saving for that date&lt;/li&gt;
+&lt;li&gt;Dates can be written as on Dec 1, 1 December 2026, 2026-12-01, tomorrow, Friday or next Monday, before or after the time&lt;/li&gt;
+&lt;li&gt;Words that only start like a day (Sunset, Wedding) stay labels&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Lead the built-in help and README with globally familiar examples&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.1 — Fix wrong answers for percentages, divided units and two-word units</title>
+    <link href="https://omacus.com/updates/#v0.1.1"/>
+    <id>https://omacus.com/updates/#v0.1.1</id>
+    <published>2026-10-16T21:02:42Z</published>
+    <updated>2026-10-16T21:02:42Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Fix wrong answers for percentages, divided units and two-word units&lt;ul&gt;
+&lt;li&gt;&amp;quot;6 is what % of 120&amp;quot; gave 7.2; it&amp;#x27;s 5%&lt;/li&gt;
+&lt;li&gt;&amp;quot;$100 - 20%&amp;quot; and &amp;quot;$50 + 8% tax&amp;quot; take a percentage of the amount&lt;/li&gt;
+&lt;li&gt;&amp;quot;40 is 20% of what&amp;quot; works backwards to the whole&lt;/li&gt;
+&lt;li&gt;&amp;quot;60 km / 2 hours&amp;quot; is a speed, not km·hours; divisors keep their units&lt;/li&gt;
+&lt;li&gt;Two-word units: nautical mile, fl oz, sq ft, metric ton, short ton, US gallon&lt;/li&gt;
+&lt;li&gt;A word that qualifies a unit (&amp;quot;imperial gallon&amp;quot;) is no longer dropped, so the line gets no answer instead of a wrong one&lt;/li&gt;
+&lt;li&gt;Money divided by a unit keeps cents: $362.50 / week&lt;/li&gt;
+&lt;li&gt;Zones with only numeric abbreviations show a name: 3:00 AM GST, not +04&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Add omacus.com: home page, docs, short links and screenshots&lt;ul&gt;
+&lt;li&gt;Home page with a live replay of real sheets, theme gallery, shortcuts, CLI and per-platform downloads; docs covering syntax, sheets, shortcuts, themes, CLI, Omarchy setup, files, FAQ and how it works&lt;/li&gt;
+&lt;li&gt;Every example result comes from the engine (site/tools/gen.py), and screenshots are captured by the app itself across eight Omarchy themes (site/tools/screenshots.sh)&lt;/li&gt;
+&lt;li&gt;omacus.com/install serves install.sh; /mac, /windows, /linux, /deb, /rpm, /github and /issues are short links&lt;/li&gt;
+&lt;li&gt;Deployed to GitHub Pages by the Site workflow&lt;/li&gt;
+&lt;li&gt;README points to omacus.com, asks for issues, and gets issue templates&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Read more prose, keep totals in variables, and install on macOS&lt;ul&gt;
+&lt;li&gt;Lines with symbols in the prose (&amp;quot;Food &amp;amp; drinks ₹2,000 * 4&amp;quot;) now start at the first number instead of showing nothing&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;subtotal = sum&lt;/code&gt; (or total/average) stores a block total in a variable&lt;/li&gt;
+&lt;li&gt;Time conversions can have a label first: &amp;quot;Sunset 6:12pm IST in Sydney&amp;quot;&lt;/li&gt;
+&lt;li&gt;The help&amp;#x27;s syntax and shortcut tables are left-aligned&lt;/li&gt;
+&lt;li&gt;The installer now handles macOS: it installs Omacus.app from the .dmg without a Gatekeeper prompt and links the CLI&lt;/li&gt;
+&lt;li&gt;New install test workflow runs the one-line installer on Linux and macOS after each release and weekly&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.1.0 — Ask before changing Hyprland config, and default to SUPER+CTRL+ALT+=</title>
+    <link href="https://omacus.com/updates/#v0.1.0"/>
+    <id>https://omacus.com/updates/#v0.1.0</id>
+    <published>2026-10-16T17:03:18Z</published>
+    <updated>2026-10-16T17:03:18Z</updated>
+    <content type="html">&lt;ul&gt;
+&lt;li&gt;Ask before changing Hyprland config, and default to SUPER+CTRL+ALT+=&lt;ul&gt;
+&lt;li&gt;The installer now asks whether to add a keybind and floating-window rule (reading the terminal, so it works under curl | bash)&lt;/li&gt;
+&lt;li&gt;The suggested key is SUPER+CTRL+ALT+=; SUPER+ALT+= is Omarchy&amp;#x27;s &amp;quot;shrink window left a little&amp;quot;&lt;/li&gt;
+&lt;li&gt;Any key is checked against the live Omarchy bindings first; a taken key is never overridden&lt;/li&gt;
+&lt;li&gt;Optionally bind the keyboard&amp;#x27;s Calculator key too&lt;/li&gt;
+&lt;li&gt;--hyprland, --key &amp;quot;...&amp;quot; and --no-hyprland for unattended installs&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Keep sheet ids unique when sheets are created back to back&lt;ul&gt;
+&lt;li&gt;Sheet ids were the current time in nanoseconds, but macOS&amp;#x27;s clock ticks in microseconds, so two sheets made in a row could share an id and the second would overwrite the first one&amp;#x27;s file&lt;/li&gt;
+&lt;li&gt;Ids now add a per-process counter and are checked against existing sheets and files&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;License under MIT&lt;ul&gt;
+&lt;li&gt;Add the MIT license and set it in Cargo.toml, so the .deb and .rpm carry it too&lt;/li&gt;
+&lt;li&gt;Tidy the README intro, package keywords and code comments&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Automate releases from version bumps, with notes and installers&lt;ul&gt;
+&lt;li&gt;Pushing a new Cargo.toml version to main runs CI on all three OSes, builds every package, then tags and publishes the GitHub release&lt;/li&gt;
+&lt;li&gt;Release notes come from commit subjects since the last release, with body bullets nested, plus per-platform install instructions&lt;/li&gt;
+&lt;li&gt;New .rpm for Fedora/openSUSE and SHA256SUMS.txt alongside the .dmg, .zip, .deb and .tar.gz&lt;/li&gt;
+&lt;li&gt;install.sh is now a one-line installer (curl | bash) that also works from an unpacked release or a source checkout; --hyprland adds the Omarchy keybind and float rule, with backups and no duplicates&lt;/li&gt;
+&lt;li&gt;README covers installing on Omarchy, macOS, Windows, Ubuntu/Debian, Fedora and other Linux, and how releasing works&lt;/li&gt;
+&lt;li&gt;Actions moved to Node 24 versions&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Omacus: a notepad calculator in Rust&lt;ul&gt;
+&lt;li&gt;Math, units, percentages, currencies (live rates), variables, prev/sum/total/average, dates and time zones (3pm PST in IST)&lt;/li&gt;
+&lt;li&gt;Multiple sheets in a sidebar, saved as you type and restored with cursors, Sublime-style; deleted sheets go to trash&lt;/li&gt;
+&lt;li&gt;Autocomplete for variables, units, keywords and time zones&lt;/li&gt;
+&lt;li&gt;Built-in help: shortcuts, live syntax examples, tips&lt;/li&gt;
+&lt;li&gt;Follows the Omarchy theme live, else the system light/dark mode&lt;/li&gt;
+&lt;li&gt;Runs on Linux, Windows and macOS; CI tests all three and the release workflow builds .tar.gz/.deb, .zip and a universal .dmg&lt;/li&gt;
+&lt;li&gt;CLI: &lt;code&gt;omacus &amp;#x27;$100 in INR&amp;#x27;&lt;/code&gt; and &lt;code&gt;omacus -&lt;/code&gt; for whole sheets&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+</feed>
