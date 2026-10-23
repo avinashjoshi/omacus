@@ -214,6 +214,7 @@ html:has(body.app-page) {
 .workspace {
   display: grid;
   grid-template-columns: var(--side-w) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   flex: 1;
   min-height: 0;
 }
@@ -418,6 +419,7 @@ html:has(body.app-page) {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 /* First visit: it can be installed (and how, on iPhone). */
@@ -515,11 +517,31 @@ html:has(body.app-page) {
   font: var(--font-size) / var(--line-h) var(--mono);
 }
 
-/* CodeMirror fills the sheet area and scrolls itself. */
-.cm-host,
-.cm-host .cm-editor {
+/* CodeMirror fills the sheet area and scrolls itself. Its own rules set
+   position and overflow with !important, so these have to win the same way
+   or a long page grows the editor instead of scrolling. */
+.cm-host {
   position: absolute;
   inset: 0;
+  overflow: hidden;
+}
+
+.cm-host .cm-editor {
+  position: absolute !important;
+  inset: 0 !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.cm-host .cm-scroller {
+  flex: 1 1 auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  overflow-x: auto !important;
+  overflow-y: auto !important;
 }
 
 .cm-editor {
@@ -743,6 +765,47 @@ body.answers-inline .res {
   font: 600 18px var(--sans);
 }
 
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 16px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--app-hover);
+}
+
+.settings-tabs button {
+  flex: 1;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--app-dim);
+  font: 600 13.5px var(--sans);
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.settings-tabs button[aria-selected="true"] {
+  background: var(--app-bg);
+  color: var(--app-fg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.about-lead {
+  margin: 0 0 10px;
+  font: 16px/1.5 var(--sans);
+}
+
+.about-links {
+  display: flex;
+  gap: 16px;
+  margin: 0 0 8px;
+}
+
+.about-links a {
+  color: var(--app-accent);
+}
+
 .settings-field,
 .settings-check {
   display: flex;
@@ -846,89 +909,175 @@ body.answers-inline .res {
 }
 
 .md {
-  max-width: 42rem;
-  font: 16.5px/1.55 var(--sans);
+  max-width: 40rem;
+  margin: 0 auto;
+  color: var(--app-fg);
+  font: 400 17.5px/1.65 var(--sans);
 }
 
 .md h1,
-.md h2,
+.md h2 {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-style: italic;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.md h1 {
+  margin: 0 0 0.2em;
+  font-size: 2.35rem;
+}
+
+.md h1::after {
+  content: "";
+  display: block;
+  width: 2.6rem;
+  height: 2px;
+  margin-top: 0.42em;
+  background: var(--app-accent);
+  border-radius: 1px;
+}
+
+.md h2 {
+  margin: 1.35em 0 0.35em;
+  font-size: 1.55rem;
+}
+
 .md h3,
 .md h4,
 .md h5,
 .md h6 {
-  margin: 1.1em 0 0.35em;
-  line-height: 1.25;
-  font-weight: 650;
+  margin: 1.15em 0 0.3em;
+  font: 600 1.05rem/1.3 var(--sans);
 }
-
-.md h1 { font-size: 1.7em; }
-.md h2 { font-size: 1.35em; }
-.md h3,
-.md h4,
-.md h5,
-.md h6 { font-size: 1.12em; }
 
 .md > :first-child { margin-top: 0; }
 
-.md p.line { margin: 0 0 0.35em; }
+.md p.line,
+.md li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 1.25rem;
+  align-items: baseline;
+  margin: 0;
+  min-height: 1.65em;
+}
+
+.md p.line.blank {
+  display: block;
+  min-height: 1.65em;
+}
+
+.md .expr { min-width: 0; }
+
+.md .note {
+  margin-left: 0.5em;
+  color: var(--app-comment);
+  font-style: italic;
+}
 
 .md ul,
 .md ol {
-  margin: 0 0 0.8em;
-  padding-left: 1.4em;
+  margin: 0.35em 0 0.85em;
+  padding-left: 0;
+  list-style: none;
 }
 
-.md li { margin: 0.15em 0; }
-
-.md li.task { list-style: none; margin-left: -1.2em; }
-
-.md li.task input { margin-right: 0.4em; }
-
-.md blockquote {
-  margin: 0 0 0.8em;
-  padding-left: 12px;
-  border-left: 3px solid var(--app-accent);
+.md .mark {
+  margin-right: 0.35em;
   color: var(--app-dim);
 }
 
+.md li.task {
+  list-style: none;
+}
+
+.md li.task input {
+  appearance: none;
+  width: 0.95em;
+  height: 0.95em;
+  margin: 0 0.45em 0 0;
+  border: 1.5px solid var(--app-comment);
+  border-radius: 3px;
+  vertical-align: -0.12em;
+  background: transparent;
+}
+
+.md li.task input:checked {
+  background: var(--app-accent);
+  border-color: var(--app-accent);
+  box-shadow: inset 0 0 0 2px var(--app-bg);
+}
+
+.md blockquote {
+  margin: 0.7em 0 1em;
+  padding: 0.1em 0 0.1em 0.9em;
+  border-left: 2px solid var(--app-accent);
+  color: var(--app-dim);
+  font-style: italic;
+}
+
 .md table {
-  margin: 0 0 1em;
+  width: 100%;
+  margin: 0.55em 0 1.1em;
   border-collapse: collapse;
+  font-size: 0.95em;
 }
 
 .md th,
 .md td {
-  padding: 4px 16px 4px 0;
+  padding: 0.42em 0.9em 0.42em 0;
   text-align: left;
-  vertical-align: top;
+  vertical-align: baseline;
 }
 
-.md th { font-weight: 650; }
+.md th {
+  border-bottom: 1px solid var(--app-fg);
+  color: var(--app-dim);
+  font: 600 0.72em/1.3 var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.md td { border-bottom: 1px solid var(--line); }
 
 .md code {
-  padding: 1px 4px;
-  border-radius: 4px;
+  padding: 0.08em 0.35em;
+  border-radius: 5px;
   background: var(--app-hover);
-  font: 0.92em var(--mono);
+  font: 0.88em var(--mono);
 }
 
 .md a { color: var(--app-accent); }
 
+body.answers-inline .md p.line,
+body.answers-inline .md li {
+  display: block;
+}
+
+body.answers-inline .md .pill {
+  min-width: 0;
+  margin-left: 0.45em;
+}
+
 .pill {
   appearance: none;
-  display: inline;
-  margin-left: 0.45em;
-  padding: 0 2px;
+  justify-self: end;
+  min-width: 7.5rem;
+  margin: 0;
+  padding: 0.04em 0.55em;
   border: 0;
-  border-radius: 4px;
-  background: transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-accent) 12%, transparent);
   color: var(--app-accent);
-  font: 600 0.92em var(--mono);
-  vertical-align: baseline;
+  font: 550 0.86em var(--mono);
+  text-align: right;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.pill:hover { background: var(--app-hover); }
+.pill:hover { background: color-mix(in srgb, var(--app-accent) 20%, transparent); }
 
 @media print {
   html:has(body.app-page),
@@ -1009,7 +1158,30 @@ body.answers-inline .res {
     page-break-inside: avoid;
   }
 
-  body.app-page .md p.line { margin: 0 0 0.28em; }
+  body.app-page .md p.line,
+  body.app-page .md li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 1.1rem;
+    align-items: baseline;
+    margin: 0;
+    min-height: 1.45em;
+  }
+
+  body.app-page .md p.line.blank {
+    display: block;
+    min-height: 1.45em;
+  }
+
+  body.app-page.answers-inline .md p.line,
+  body.app-page.answers-inline .md li {
+    display: block;
+  }
+
+  body.app-page .md .note {
+    color: #6b6560;
+    font-style: italic;
+  }
 
   body.app-page .md blockquote {
     margin: 0.4em 0 0.7em;
@@ -1042,15 +1214,19 @@ body.answers-inline .res {
   }
 
   body.app-page .pill {
-    background: none !important;
+    background: #e8eef5 !important;
     color: #1a3a5c !important;
     font-family: "JetBrains Mono", ui-monospace, monospace;
     font-weight: 650;
-    font-size: 0.95em;
-    padding: 0;
-    border-radius: 0;
+    font-size: 0.92em;
+    padding: 0 0.4em;
+    border-radius: 999px;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
+  }
+
+  body.app-page.answers-inline .pill {
+    min-width: 0;
   }
 }
 

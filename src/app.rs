@@ -117,6 +117,18 @@ struct Toast {
     error: bool,
     /// Stays until replaced ("Working out the answers to copy…").
     working: bool,
+    /// "Open folder" after an export.
+    open_folder: Option<std::path::PathBuf>,
+}
+
+/// An export waiting for Replace / Cancel.
+struct PendingExport {
+    path: std::path::PathBuf,
+    folder_label: String,
+    file_name: String,
+    title: String,
+    blocks: Vec<omacus_engine::markdown::Block>,
+    column: bool,
 }
 
 impl Toast {
@@ -127,6 +139,13 @@ impl Toast {
             undo: false,
             error: false,
             working: false,
+            open_folder: None,
+        }
+    }
+    fn saved(text: impl Into<String>, dir: std::path::PathBuf) -> Self {
+        Self {
+            open_folder: Some(dir),
+            ..Self::info(text)
         }
     }
     fn working(text: &str) -> Self {
@@ -150,7 +169,7 @@ impl Toast {
     fn lasts(&self) -> Duration {
         Duration::from_millis(if self.working {
             120_000
-        } else if self.undo {
+        } else if self.undo || self.open_folder.is_some() {
             6000
         } else if self.error {
             5000
@@ -264,7 +283,8 @@ pub struct OmacusApp {
     theme_changed: Arc<AtomicBool>,
     system_dark: bool,
     settings: Settings,
-    settings_open: bool,
+    /// Export that already has a file at the destination, waiting for Replace.
+    pending_export: Option<PendingExport>,
     /// Ctrl+P: the page rendered as markdown. Esc returns to editing.
     page_preview: bool,
     dirty_since: Option<Instant>,
@@ -356,7 +376,16 @@ impl OmacusApp {
             theme_changed,
             system_dark,
             settings,
-            settings_open: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "settings"),
+            pending_export: std::env::var("OMACUS_SCREENSHOT_HELP")
+                .is_ok_and(|t| t == "replace")
+                .then(|| PendingExport {
+                    path: pdf::default_export_dir().join("Soflo Acquisition.pdf"),
+                    folder_label: "Downloads".into(),
+                    file_name: "Soflo Acquisition.pdf".into(),
+                    title: "Soflo Acquisition".into(),
+                    blocks: Vec::new(),
+                    column: true,
+                }),
             page_preview: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "preview"),
             dirty_since: None,
             copied: None,
@@ -402,10 +431,11 @@ impl OmacusApp {
                 .checked_sub(HINT_IDLE)
                 .unwrap_or_else(Instant::now),
             cursor_line: None,
-            help: std::env::var("OMACUS_SCREENSHOT_HELP")
-                .ok()
-                .filter(|t| t != "update" && t != "switcher" && t != "settings")
-                .map(|t| help::Tab::from_name(&t)),
+            help: match std::env::var("OMACUS_SCREENSHOT_HELP").ok().as_deref() {
+                Some("update" | "switcher" | "preview" | "replace") | None => None,
+                Some("settings") => Some(help::Tab::Settings),
+                Some(name) => Some(help::Tab::from_name(name)),
+            },
             screenshot: std::env::var_os("OMACUS_SCREENSHOT").map(|p| (p.into(), 0)),
         };
         app.evaluate();
@@ -654,8 +684,8 @@ impl OmacusApp {
             self.toggle_help();
         }
         if open_settings {
-            if self.settings_open {
-                self.settings_open = false;
+            if self.help == Some(help::Tab::Settings) {
+                self.help = None;
                 self.focus_editor = true;
             } else {
                 self.open_settings();
@@ -682,7 +712,6 @@ impl OmacusApp {
                 Some(_) => None,
                 None => Some(Switcher::default()),
             };
-            self.settings_open = false;
             self.help = None;
             self.popup = None;
             self.pending_delete = None;
@@ -725,6 +754,16 @@ impl OmacusApp {
             }
             return;
         }
+        if self.pending_export.is_some() {
+            let confirm = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
+            if dismiss {
+                self.pending_export = None;
+                self.focus_editor = true;
+            } else if confirm {
+                self.commit_export();
+            }
+            return;
+        }
         if self.update_open {
             if dismiss && self.updates.state() != State::Installing {
                 self.update_open = false;
@@ -735,13 +774,6 @@ impl OmacusApp {
         if self.help.is_some() {
             if dismiss {
                 self.help = None;
-                self.focus_editor = true;
-            }
-            return;
-        }
-        if self.settings_open {
-            if dismiss {
-                self.settings_open = false;
                 self.focus_editor = true;
             }
             return;
@@ -1022,14 +1054,12 @@ impl OmacusApp {
             Some(_) => None,
             None => Some(help::Tab::default()),
         };
-        self.settings_open = false;
         self.popup = None;
         self.focus_editor = self.help.is_none();
     }
 
     fn open_settings(&mut self) {
-        self.settings_open = true;
-        self.help = None;
+        self.help = Some(help::Tab::Settings);
         self.switcher = None;
         self.popup = None;
         self.update_open = false;
@@ -1048,21 +1078,6 @@ impl OmacusApp {
         apply_visuals(ctx, &self.theme);
     }
 
-    fn show_settings(&mut self, ctx: &egui::Context) {
-        if !self.settings_open {
-            return;
-        }
-        let outcome = settings::show(ctx, &mut self.settings, &self.theme);
-        if outcome.changed {
-            self.persist_settings();
-            self.reload_theme(ctx);
-        }
-        if outcome.close {
-            self.settings_open = false;
-            self.focus_editor = true;
-        }
-    }
-
     fn show_help(&mut self, ctx: &egui::Context) {
         let Some(mut tab) = self.help else { return };
         let action = help::show(
@@ -1072,6 +1087,7 @@ impl OmacusApp {
             &self.engine,
             &self.logo,
             &self.updates,
+            &mut self.settings,
         );
         self.help = Some(tab);
         match action {
@@ -1087,6 +1103,10 @@ impl OmacusApp {
             Some(help::Action::OpenUpdate) => {
                 self.help = None;
                 self.update_open = true;
+            }
+            Some(help::Action::SettingsChanged) => {
+                self.persist_settings();
+                self.reload_theme(ctx);
             }
             None => {}
         }
@@ -1348,12 +1368,18 @@ impl OmacusApp {
         }
         let fade = 1.0 - (age.as_secs_f32() / show_for.as_secs_f32()).powi(6);
         let theme = self.theme.clone();
-        let (text, undo, error) = (toast.text.clone(), toast.undo, toast.error);
+        let (text, undo, error, folder) = (
+            toast.text.clone(),
+            toast.undo,
+            toast.error,
+            toast.open_folder.clone(),
+        );
         let mut undone = false;
+        let mut open_dir = None;
         egui::Area::new(egui::Id::unique("omacus-toast"))
             .anchor(Align2::CENTER_BOTTOM, vec2(0.0, -24.0))
             .order(Order::Foreground)
-            .interactable(undo)
+            .interactable(undo || folder.is_some())
             .show(ctx, |ui| {
                 Frame::NONE
                     .fill(theme.selection.gamma_multiply(fade))
@@ -1380,9 +1406,25 @@ impl OmacusApp {
                                 .frame(false);
                                 undone = ui.add(button).clicked();
                             }
+                            if folder.is_some() {
+                                let button = egui::Button::new(
+                                    egui::RichText::new("Open folder")
+                                        .size(13.0)
+                                        .color(theme.accent.gamma_multiply(fade)),
+                                )
+                                .frame(false);
+                                if ui.add(button).clicked() {
+                                    open_dir = folder.clone();
+                                }
+                            }
                         });
                     });
             });
+        if let Some(dir) = open_dir
+            && let Err(e) = pdf::open_folder(&dir)
+        {
+            self.toast = Some(Toast::error(e));
+        }
         if undone {
             self.toast = None;
             if self.store.undo_delete().is_some() {
@@ -2287,14 +2329,15 @@ impl OmacusApp {
             (self.store.current().text.clone(), self.results.clone())
         };
         let title = crate::sheets::heading_of(&text);
-        if let Some(action) = preview::show(ui, &theme, &text, &results) {
+        let column = !self.settings.hide_answers;
+        if let Some(action) = preview::show(ui, &theme, &text, &results, column) {
             match action {
                 preview::Action::Close => {
                     self.page_preview = false;
                     self.focus_editor = true;
                 }
                 preview::Action::Print => {
-                    match pdf::save(&title, &preview::blocks(&text, &results), true) {
+                    match pdf::print_preview(&title, &preview::blocks(&text, &results), column) {
                         Ok(_) => {
                             self.toast = Some(Toast::info("Opened the preview to print"));
                         }
@@ -2302,12 +2345,7 @@ impl OmacusApp {
                     }
                 }
                 preview::Action::Export => {
-                    match pdf::save(&title, &preview::blocks(&text, &results), false) {
-                        Ok(path) => {
-                            self.toast = Some(Toast::info(format!("Saved {}", path.display())));
-                        }
-                        Err(e) => self.toast = Some(Toast::error(e)),
-                    }
+                    self.begin_export(&title, preview::blocks(&text, &results));
                 }
                 preview::Action::Copy(text) => {
                     self.toast = Some(Toast::info(format!("Copied {text}")));
@@ -2370,6 +2408,130 @@ impl OmacusApp {
                     .frame(Frame::NONE)
                     .show(ui);
             });
+    }
+
+    fn export_dir(&self) -> std::path::PathBuf {
+        self.settings
+            .export_dir
+            .clone()
+            .unwrap_or_else(pdf::default_export_dir)
+    }
+
+    fn begin_export(&mut self, title: &str, blocks: Vec<omacus_engine::markdown::Block>) {
+        let dir = self.export_dir();
+        let path = pdf::export_path(&dir, title);
+        let column = !self.settings.hide_answers;
+        let file_name = path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Page.pdf".into());
+        let folder_label = pdf::folder_label(&dir);
+        let pending = PendingExport {
+            path: path.clone(),
+            folder_label,
+            file_name,
+            title: title.to_string(),
+            blocks,
+            column,
+        };
+        if pdf::needs_replace_prompt(path.exists(), self.settings.replace_exports) {
+            self.pending_export = Some(pending);
+            self.focus_editor = false;
+        } else {
+            self.write_export(pending);
+        }
+    }
+
+    fn commit_export(&mut self) {
+        if let Some(pending) = self.pending_export.take() {
+            self.write_export(pending);
+        }
+    }
+
+    fn write_export(&mut self, pending: PendingExport) {
+        let dir = pending
+            .path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| pending.path.clone());
+        match pdf::write(
+            &pending.title,
+            &pending.blocks,
+            &pending.path,
+            pending.column,
+        ) {
+            Ok(()) => {
+                self.toast = Some(Toast::saved(
+                    format!("Saved {} in {}", pending.file_name, pending.folder_label),
+                    dir,
+                ));
+            }
+            Err(e) => self.toast = Some(Toast::error(e)),
+        }
+    }
+
+    fn show_replace(&mut self, ctx: &egui::Context) {
+        let Some(pending) = &self.pending_export else {
+            return;
+        };
+        let file_name = pending.file_name.clone();
+        let folder_label = pending.folder_label.clone();
+        let theme = self.theme.clone();
+        let mut replace = false;
+        let mut cancel = false;
+        let frame = Frame::NONE
+            .fill(theme.sidebar)
+            .stroke(egui::Stroke::new(1.0, theme.selection))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(Margin::symmetric(20, 16));
+        let modal = egui::Modal::new(egui::Id::unique("omacus-replace"))
+            .frame(frame)
+            .backdrop_color(Color32::from_black_alpha(140))
+            .show(ctx, |ui| {
+                ui.set_width(380.0);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{file_name} already exists in {folder_label}. Replace it?"
+                    ))
+                    .size(16.0)
+                    .color(theme.foreground),
+                );
+                ui.add_space(14.0);
+                ui.horizontal(|ui| {
+                    replace = ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("Replace")
+                                    .size(13.5)
+                                    .color(theme.background),
+                            )
+                            .fill(theme.accent)
+                            .corner_radius(CornerRadius::same(6))
+                            .min_size(vec2(0.0, 30.0)),
+                        )
+                        .clicked();
+                    cancel = ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("Cancel")
+                                    .size(13.5)
+                                    .color(theme.foreground),
+                            )
+                            .corner_radius(CornerRadius::same(6))
+                            .min_size(vec2(0.0, 30.0)),
+                        )
+                        .clicked();
+                });
+            });
+        if modal.should_close() {
+            cancel = true;
+        }
+        if replace {
+            self.commit_export();
+        } else if cancel {
+            self.pending_export = None;
+            self.focus_editor = true;
+        }
     }
 
     fn show_delete(&mut self, ctx: &egui::Context) {
@@ -2582,9 +2744,9 @@ impl eframe::App for OmacusApp {
 
         self.popup(&ctx);
         self.show_help(&ctx);
-        self.show_settings(&ctx);
         self.show_update(&ctx);
         self.show_delete(&ctx);
+        self.show_replace(&ctx);
         self.show_purge(&ctx);
         self.show_switcher(&ctx);
         self.show_toast(&ctx);
