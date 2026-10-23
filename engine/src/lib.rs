@@ -15,6 +15,7 @@ use regex::Regex;
 
 pub mod complete;
 pub mod extras;
+pub mod lock;
 pub mod markdown;
 mod rates;
 pub mod rename;
