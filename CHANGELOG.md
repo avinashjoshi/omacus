@@ -2,13 +2,12 @@
 
 ## 0.2.12
 
-**The web app works offline**
+**Clearer release notes**
 
-The web app is now at app.omacus.com. After the first visit it keeps working with no connection, including a reload, and your pages stay in the browser. A new version waits and asks before it reloads, so an unsaved edit is not lost.
+What's new is a short title and a sentence or two, on the updates page and in the app. The web app at app.omacus.com keeps working with no connection after the first visit, and a new version asks before it reloads so an unsaved edit is not lost.
 
 - Opening omacus.com/app brings your saved pages along, then opens the app.
-- Opening or switching a page no longer draws a frame around the sheet.
-- What's new is a short title and a sentence or two, on the updates page and in the app.
+- Opening or switching a page no longer draws a frame around it.
 
 ## 0.2.11
 
