@@ -180,9 +180,10 @@ def llms_full():
 # Shared header and footer
 
 NAV = [("/#features", "Features"), ("/use-cases/", "Use cases"), ("/guides/", "Guides"),
-       ("/docs/", "Docs"), ("/app", "Web app"), ("https://github.com/avinashjoshi/omacus", "GitHub")]
-FOOTER = [("/docs/", "Docs"), ("/guides/", "Guides"), ("/use-cases/", "Use cases"), ("/privacy/", "Privacy"),
-          ("https://github.com/avinashjoshi/omacus/releases", "Releases"),
+       ("/docs/", "Docs"), ("/updates/", "Updates"), ("/app", "Web app"),
+       ("https://github.com/avinashjoshi/omacus", "GitHub")]
+FOOTER = [("/docs/", "Docs"), ("/guides/", "Guides"), ("/use-cases/", "Use cases"),
+          ("/updates/", "Updates"), ("/privacy/", "Privacy"),
           ("https://github.com/avinashjoshi/omacus/issues/new/choose", "Report an issue"),
           ("https://github.com/avinashjoshi/omacus", "GitHub")]
 
@@ -556,7 +557,7 @@ def fill_downloads():
   <section class="release-facts" aria-labelledby="every-release">
     <h2 id="every-release">Every release</h2>
     <ul>
-      <li><a href="https://github.com/avinashjoshi/omacus/releases/latest">Release notes</a> list what changed, with every file.</li>
+      <li><a href="/updates/">What's new</a> lists every version in plain words. <a href="https://github.com/avinashjoshi/omacus/releases/latest">GitHub</a> has the files.</li>
       <li><a href="{DL}/SHA256SUMS.txt">SHA256SUMS.txt</a> has each file's checksum: <code>sha256sum -c SHA256SUMS.txt --ignore-missing</code>.</li>
       <li>Runs on 64-bit Linux with glibc 2.35 or newer (Ubuntu 22.04, Fedora 36 and later), macOS 11 or newer, and Windows 10 and 11.</li>
       <li>Built from source on GitHub for every release. <a href="/docs/#install">Install notes</a> cover each platform.</li>
@@ -595,7 +596,7 @@ def fill_downloads():
 
 def sitemap(paths):
     entries = []
-    for p in ["/", "/docs/", "/app"] + paths:
+    for p in ["/", "/docs/", "/updates/", "/app"] + paths:
         extra = ""
         if p == "/":
             extra = "".join(f"\n    <image:image><image:loc>https://omacus.com/img/screens/{n}.webp</image:loc></image:image>"

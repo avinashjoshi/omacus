@@ -13,6 +13,10 @@
     <lastmod>{{lastmod}}</lastmod>
   </url>
   <url>
+    <loc>https://omacus.com/updates/</loc>
+    <lastmod>{{lastmod}}</lastmod>
+  </url>
+  <url>
     <loc>https://omacus.com/app</loc>
     <lastmod>{{lastmod}}</lastmod>
   </url>

@@ -27,6 +27,9 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.ref || github.sha }}
+      - name: Updates page
+        if: runner.os == 'Linux'
+        run: python3 site/tools/test_updates.py
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: clippy

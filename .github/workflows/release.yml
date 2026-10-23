@@ -346,11 +346,12 @@ jobs:
   # here when this run waited out that merge. A normal push to main still deploys
   # through site.yml on its own.
   deploy-site:
-    needs: [publish, wait]
+    needs: [publish, wait, check]
     if: always() && needs.publish.result == 'success' && needs.wait.result == 'success'
     uses: ./.github/workflows/site.yml
     with:
       ref: ${{ needs.wait.outputs.sha }}
+      expect_version: ${{ needs.check.outputs.version }}
     permissions:
       contents: read
       pages: write

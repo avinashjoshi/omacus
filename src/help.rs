@@ -646,7 +646,7 @@ fn about(
         for (label, url) in [
             ("Website", SITE.to_string()),
             ("Docs", format!("{SITE}/docs/")),
-            ("Releases", update::RELEASES_URL.to_string()),
+            ("What's new", update::UPDATES_PAGE.to_string()),
             ("Privacy", format!("{SITE}/privacy/")),
             ("Report an issue", format!("{REPO}/issues/new/choose")),
             ("Source code", REPO.to_string()),
