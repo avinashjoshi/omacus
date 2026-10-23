@@ -2746,6 +2746,9 @@ async function action(name) {
     if (addSheet("")) {
       showSheet();
       view.focus();
+      // The phone drawer was covering the blank page, and the empty hint stays
+      // hidden while that drawer is open.
+      setDrawer(false);
     }
   } else if (name === "lock" || name === "lock-now") {
     const id = state.active;

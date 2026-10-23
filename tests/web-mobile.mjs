@@ -130,6 +130,7 @@ check(
   "the drawer scrim is a dim over the page",
 );
 check(/\.app-page\.drawer \.empty-hint \{\s*visibility: hidden/.test(css), "the empty hint does not show beside an open drawer");
+check(/name === "new"[\s\S]{0,240}setDrawer\(false\)/.test(js), "a new page closes the phone drawer");
 check(html.includes('<meta name="theme-color" content="#1a1b26" media="(prefers-color-scheme: dark)">'), "dark theme-color matches the page");
 check(html.includes('<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">'), "light theme-color matches the page");
 check(html.includes('name="apple-mobile-web-app-status-bar-style" content="black-translucent"'), "the status bar lets the page colour show");
