@@ -38,7 +38,7 @@ pub fn default_export_dir() -> PathBuf {
     dirs::download_dir().unwrap_or_else(std::env::temp_dir)
 }
 
-/// `Soflo Acquisition.pdf`. The name is stable: a second export uses the same path.
+/// `Trip Budget.pdf`. The name is stable: a second export uses the same path.
 pub fn export_path(dir: &Path, title: &str) -> PathBuf {
     dir.join(file_name(title))
 }
@@ -1104,14 +1104,14 @@ Hotel: 5 nights * $240
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let blocks = render("rent = 1\n", &[Some("1")]);
-        let path = export_path(&dir, "Soflo Acquisition");
-        write("Soflo Acquisition", &blocks, &path, true).unwrap();
-        write("Soflo Acquisition", &blocks, &path, false).unwrap();
+        let path = export_path(&dir, "Trip Budget");
+        write("Trip Budget", &blocks, &path, true).unwrap();
+        write("Trip Budget", &blocks, &path, false).unwrap();
         let names: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
-        assert_eq!(names, vec!["Soflo Acquisition.pdf".to_string()]);
+        assert_eq!(names, vec!["Trip Budget.pdf".to_string()]);
         assert!(needs_replace_prompt(true, false));
         assert!(!needs_replace_prompt(true, true));
         assert!(!needs_replace_prompt(false, false));
