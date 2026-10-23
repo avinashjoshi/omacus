@@ -170,7 +170,7 @@ impl ServerHandler for OmacusServer {
             .map(|page| {
                 let mut resource = Resource::new(page_uri(&page.id), page.title);
                 if page.locked {
-                    resource = resource.with_description("Locked");
+                    resource = resource.with_description(crate::sheets::LOCKED_TITLE);
                 }
                 resource
             })

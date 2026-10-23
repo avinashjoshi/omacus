@@ -53,11 +53,11 @@ pub struct Synced {
 
 impl Sheet {
     /// The first line, with a `#` or `//` stripped off. Not shortened.
-    /// A locked page that isn't open is just "Locked", so the sidebar and the
-    /// switcher never show its first line.
+    /// A locked page that isn't open is [`LOCKED_TITLE`], so the sidebar and
+    /// the switcher never show its first line.
     pub fn heading(&self) -> String {
         if self.sealed.is_some() && !self.unlocked {
-            return "Locked".into();
+            return LOCKED_TITLE.into();
         }
         heading_of(&self.text)
     }
@@ -89,6 +89,9 @@ impl Sheet {
         self.dirty = true;
     }
 }
+
+/// What the library shows for a locked page that is not open.
+pub const LOCKED_TITLE: &str = "Locked page";
 
 /// A sheet's name: its first non-empty line, without a leading `#` or `//`.
 pub fn heading_of(text: &str) -> String {
@@ -326,6 +329,36 @@ impl Store {
 
     pub fn directory(&self) -> Option<&Path> {
         self.dir.as_deref()
+    }
+
+    /// The folder that holds `pages/`, `trash/`, and `state.json`.
+    pub fn library_root(&self) -> Option<PathBuf> {
+        self.dir
+            .as_ref()
+            .and_then(|pages| pages.parent().map(Path::to_path_buf))
+    }
+
+    /// A page as `@handle.name` may see it. A closed lock contributes no text.
+    pub fn as_reference(
+        &self,
+        sheet: &Sheet,
+        deleted: bool,
+        elsewhere: bool,
+    ) -> omacus_engine::xref::Page {
+        let open = sheet.revealed();
+        omacus_engine::xref::Page {
+            id: sheet.id.clone(),
+            handle: sheet.handle.clone(),
+            title: sheet.heading(),
+            text: if open {
+                sheet.text.clone()
+            } else {
+                String::new()
+            },
+            locked: !open,
+            deleted,
+            elsewhere,
+        }
     }
 
     fn load_in(root: Option<PathBuf>, welcome: &str) -> Self {
@@ -3058,7 +3091,7 @@ mod tests {
         assert!(!file.contains("milk"), "{file}");
 
         store.lock_now();
-        assert_eq!(store.sheets[0].heading(), "Locked");
+        assert_eq!(store.sheets[0].heading(), LOCKED_TITLE);
         assert!(store.concealed(&id));
         assert_eq!(
             store.unlock_page(&id, "nope").unwrap_err(),
@@ -3069,7 +3102,7 @@ mod tests {
         assert_eq!(store.sheets[0].text, "# Groceries\nmilk $3");
 
         let again = Store::load_in(Some(root.clone()), "");
-        assert_eq!(again.sheets[0].heading(), "Locked");
+        assert_eq!(again.sheets[0].heading(), LOCKED_TITLE);
         assert!(again.concealed(&id));
         let mut again = again;
         again.unlock_page(&id, "correct horse").unwrap();
@@ -3166,7 +3199,7 @@ mod tests {
         let item = trashed.iter().find(|t| t.id == page).unwrap();
         assert!(item.locked);
         assert!(!item.text.contains("milk"), "{}", item.text);
-        assert_eq!(item.title, "Locked");
+        assert_eq!(item.title, LOCKED_TITLE);
         let _ = std::fs::remove_dir_all(root);
     }
 

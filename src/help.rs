@@ -49,6 +49,8 @@ pub enum Action {
     OpenUpdate,
     /// A choice on the Settings tab moved.
     SettingsChanged,
+    /// Save every page, folder, and setting.
+    ExportEverything,
 }
 
 const KEYS: &[(&str, &[(&str, &str)])] = &[
@@ -487,8 +489,17 @@ pub fn show(
                                     }
                                     Tab::Tips => tips(ui, theme),
                                     Tab::Settings => {
-                                        if crate::settings::controls(ui, settings, theme) {
+                                        let mut export = false;
+                                        if crate::settings::controls(
+                                            ui,
+                                            settings,
+                                            theme,
+                                            &mut export,
+                                        ) {
                                             action = Some(Action::SettingsChanged);
+                                        }
+                                        if export {
+                                            action = Some(Action::ExportEverything);
                                         }
                                     }
                                     Tab::About => {
