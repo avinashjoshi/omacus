@@ -281,14 +281,14 @@ The sidebar lists your pages; a page's title is its first line. Create as many a
 - **Deleting is safe.** Deleted pages move to Recently deleted (a `trash` folder next to your pages). Click one to read it; Restore puts it back, and Delete forever removes it.
 - **Plain text.** Each page is a `.txt` file, so you can search it or back it up with anything.
 
-The **⋯** above a page, the **⋯** on its row in the sidebar, and a right-click on that row all open the same menu: Share link, Copy with answers, Copy as Markdown table, Preview, Handle…, New page, Move up, Move down, Move to folder…, Lock… (or Unlock…, Change password…, and Remove lock…), Lock now, Delete page, and Settings.
+The **⋯** above a page, the **⋯** on its row in the sidebar, and a right-click on that row all open the same menu: Rename, Share link, Copy / Export (Copy with answers, Copy as Markdown table, Preview), Handle…, Move up, Move down, Move to folder…, the lock actions, and Delete page. The sidebar footer shows the logo, the version, Settings, and help.
 
 The first time Omacus opens, and only when you have no pages yet, it adds the welcome page and an Examples folder: Trip Budget, Groceries, Monthly budget, Cooking, and Time zones. Monthly budget reads `@groceries.total` and `@trip.total`. Deleting those pages does not bring them back. A library that already has pages is left as it is.
 
 ## Folders, locks & handles
 
 - **Folders.** Pages can sit in folders, two levels deep. Drag a page onto a folder, or choose Move to folder… . A folder's menu adds a page, adds a nested folder, renames the folder, or deletes it. New folder is also in the sidebar.
-- **A password lock.** Lock… on a page or a folder seals the file with Argon2id and XChaCha20-Poly1305. A forgotten password cannot be recovered. Unlock… opens it for this session. Change password… and Remove lock… need the current password. Lock now seals every open page and folder. Settings chooses how soon an unlocked page locks again: 1, 5, 15, 30, or 60 minutes, or Never. Quitting locks them too. The command line and MCP skip a locked page unless you pass its password.
+- **A password lock.** Lock… on a page or a folder asks you to choose a password, then locks it. Save that password in a password manager. The file is sealed with Argon2id and XChaCha20-Poly1305. A forgotten password cannot be recovered. Unlock… opens it for this session. Change password… and Remove lock… need the current password, and removing a lock keeps the page. Lock now seals every open page and folder. Settings chooses how soon an unlocked page locks again: 1, 5, 15, 30, or 60 minutes, or Never. Quitting locks them too. The command line and MCP skip a locked page unless you pass its password.
 
 - **Handles.** Each page has a short name taken from its title, so Trip Budget is `trip`. Handle… changes it. Another page reads a value with `@handle.variable`. `@trip.total` is the last assignment of `total` on that page. Typing `@` lists pages. F2 renames a variable on this page and in `@handle.name` on the others.
 
@@ -314,9 +314,9 @@ A shared page opens as a new page (or switches to it, if you already have it):
 
 ### The web app
 
-[app.omacus.com](https://app.omacus.com) is Omacus in any modern browser, on a computer or a phone, with nothing to install. Pages you make there are saved in that browser on that device, and are never uploaded. The same first-run Examples folder, folders, locks, and `@handle.variable` references are there. Export them from the ⋯ menu as a `.zip` of `.txt` files, the same format as the desktop app's pages folder, and import them anywhere.
+[app.omacus.com](https://app.omacus.com) is Omacus in any modern browser, on a computer or a phone, with nothing to install. Pages you make there are saved in that browser on that device, and are never uploaded. The same first-run Examples folder, folders, locks, and `@handle.variable` references are there. Export all pages from Settings as a `.zip` of `.txt` files, the same format as the desktop app's pages folder, and import them anywhere.
 
-The browser keeps a smaller set of shortcuts: `Ctrl B`, `Ctrl J`, `Alt ↑` / `Alt ↓`, `Ctrl Shift L`, `Ctrl ,`, `Ctrl \`, `Ctrl P`, and `F2`. New page, Move to folder…, and Lock… are in the ⋯ menu. The web app's themes are Auto, Light, Dark, Paper, and Dusk.
+On a phone the top bar is a solid strip with the page name. Pages opens as a drawer, with Settings and the version at the bottom. The browser keeps a smaller set of shortcuts: `Ctrl B`, `Ctrl J`, `Alt ↑` / `Alt ↓`, `Ctrl Shift L`, `Ctrl ,`, `Ctrl \`, `Ctrl P`, and `F2`. Move to folder… and Lock… are in the ⋯ menu. New page is the + in the pages list. The web app's themes are Auto, Light, Dark, Paper, and Dusk.
 
 Chrome, Edge and Android can install it as an app (⋯ → *Install as an app*), and it works offline once opened. Cached exchange rates keep currency math working, and the page says when rates may be stale. On iPhone and iPad, choose Share → *Add to Home Screen*: Safari otherwise clears a site's data after seven days without a visit.
 
@@ -355,7 +355,7 @@ After two letters, Omacus suggests your page's variables, then keywords, time zo
 
 ## Themes
 
-Settings is a tab in the same window as About. `Ctrl ,`, the gear at the bottom of the sidebar (and of the collapsed strip), or Settings in a page's ⋯ menu opens that tab. Typing `settings` in the page switcher (`Ctrl J`) opens it too. It chooses the theme, whether answers sit in a column, the PDF export folder, and whether Omacus checks for updates. The same choices are saved in `settings.toml` (see [where files live](https://omacus.com/docs/#files)). `Ctrl \` hides the answers column, so each answer sits after its line. The logo opens the About tab of that window.
+Settings is a tab in the same window as About. `Ctrl ,` or the gear in the sidebar footer (and on the collapsed strip) opens that tab. Typing `settings` in the page switcher (`Ctrl J`) opens it too. The footer also shows the version; a dot there means a newer one is out. It chooses the theme, whether answers sit in a column, the PDF export folder, and whether Omacus checks for updates. The same choices are saved in `settings.toml` (see [where files live](https://omacus.com/docs/#files)). `Ctrl \` hides the answers column, so each answer sits after its line. The logo in the footer opens the About tab of that window.
 
 **Auto** picks colors in this order:
 

@@ -42,7 +42,7 @@ const unspoken = (word) => Object.entries(SAY).reduce((w, [real, say]) => w.repl
 
 const voices = (await (await fetch(`${API}/voices`, { headers })).json()).voices ?? [];
 if (!voices.length) throw new Error("couldn't list voices; check the API key");
-// The narrator: Jessica Anne Bogart from the shared Voice Library, on eleven_v3.
+// The narrator: Jessica Anne Bogart from the shared Voice Library, on eleven_v4.
 // VOICE="Name" picks one from your own voices instead; VOICE_ID any voice by id.
 const NARRATOR = { name: "Jessica Anne Bogart", voice_id: "lxYfHSkYm1EzQzGhdbfc" };
 const named = process.env.VOICE && voices.find((v) => v.name.split(" ")[0].toLowerCase() === process.env.VOICE.toLowerCase());

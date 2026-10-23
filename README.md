@@ -67,7 +67,7 @@ adds the notepad conventions on top.
 | `Ctrl+\` | Hide the answers column |
 | `Ctrl+P` | Preview the page (print and export PDF from there) |
 
-The ⋯ above a page (or on its row in the sidebar, or a right-click) opens Share link, Copy with answers, Copy as Markdown table, Preview, Handle…, New page, Move up, Move down, Move to folder…, Lock… (or Unlock…, Change password…, and Remove lock…), Lock now, Delete page, and Settings. The gear at the bottom of the sidebar (and of the collapsed strip) opens Settings too, and so does typing `settings` in the page switcher (`Ctrl+J`). Settings lives in the same window as About, Keyboard, Syntax and Tips. It chooses the theme, the answers column, how soon a lock returns, the PDF export folder, and update checks. Export PDF writes `Page title.pdf` into Downloads, or a folder chosen there. If that file is already there, Omacus asks before replacing it. A page's title is its first line.
+The ⋯ above a page (or on its row in the sidebar, or a right-click) opens Rename, Share link, Copy / Export (Copy with answers, Copy as Markdown table, Preview), Handle…, Move up, Move down, Move to folder…, the lock actions, and Delete page. The sidebar footer shows the logo, the version, Settings, and help. The gear there, and on the collapsed strip, opens Settings, and so does typing `settings` in the page switcher (`Ctrl+J`). Settings lives in the same window as About, Keyboard, Syntax and Tips. It chooses the theme, the answers column, how soon a lock returns, the PDF export folder, and update checks. Export PDF writes `Page title.pdf` into Downloads, or a folder chosen there. If that file is already there, Omacus asks before replacing it. A page's title is its first line.
 Pages are plain text in `~/.local/share/omacus/pages/`; order, cursors, handles, folders, and whether the
 sidebar is expanded (and how wide) are in `~/.local/share/omacus/state.json`.
 A folder named `sheets` from an older version is renamed to `pages` the first time this version opens.
@@ -77,7 +77,7 @@ The first time Omacus opens, and only when there are no pages yet, it adds a wel
 
 Pages can sit in folders, two levels deep. Drag a page onto a folder, or choose Move to folder… . A folder's own menu adds a page, adds a nested folder, renames it, or deletes it.
 
-**Lock…** on a page or a folder asks for a password. The file on disk is sealed with Argon2id and XChaCha20-Poly1305. A forgotten password cannot be recovered. Unlock… opens it for this session. Change password… and Remove lock… need the current password. Lock now seals every open page and folder. Settings chooses how soon an unlocked page locks again: 1, 5, 15, 30, or 60 minutes, or Never. Quitting locks them too.
+**Lock…** on a page or a folder asks you to choose a password, then locks it. Save that password in a password manager. The file on disk is sealed with Argon2id and XChaCha20-Poly1305. A forgotten password cannot be recovered. Unlock… opens it for this session. Change password… and Remove lock… need the current password, and removing a lock keeps the page. Lock now seals every open page and folder. Settings chooses how soon an unlocked page locks again: 1, 5, 15, 30, or 60 minutes, or Never. Quitting locks them too.
 
 Each page has a short handle, taken from its title (Trip Budget is `trip`). **Handle…** changes it. Another page reads a value with `@handle.variable`, so `@trip.total` is the last assignment of `total` on that page. Typing `@` lists pages. Renaming a variable with F2 updates `@handle.name` on the other pages too.
 
@@ -95,8 +95,8 @@ registered by the installer, the macOS app, and Windows on first run), by pastin
 page, or with `omacus open '<link>'`. It opens as a new page, or switches to it if you have it.
 
 The web app runs the same engine (`engine/`, compiled to WebAssembly from `web/`). Its pages are
-saved in that browser; export and import them as a `.zip` of `.txt` files. It installs as an app
-and works offline. Exchange rates stay cached for 12 hours; if a refresh does not succeed, the
+saved in that browser; export and import them as a `.zip` of `.txt` files from Settings. It installs as an app
+and works offline. On a phone the top bar is a solid strip with the page name, and the pages list opens as a drawer with Settings and the version at the bottom. Exchange rates stay cached for 12 hours; if a refresh does not succeed, the
 page says rates may be stale.
 
 ### Autocomplete

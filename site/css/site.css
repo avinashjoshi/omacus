@@ -2041,7 +2041,7 @@ kbd {
 .prose pre,
 .prose .annot,
 .prose table,
-.privacy .soon p {
+.soon p {
   margin: 0 0 var(--prose-gap);
 }
 
