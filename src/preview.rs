@@ -2,7 +2,7 @@
 //!
 //! This is what Ctrl+P shows, and what Print and Export PDF send out.
 
-use eframe::egui::{self, CornerRadius, FontFamily, FontId, RichText, Vec2};
+use eframe::egui::{self, CornerRadius, FontFamily, FontId, RichText, Sense, Vec2};
 
 use crate::theme::Theme;
 use omacus_engine::markdown::{self, Block, Inline, Rich};
@@ -39,6 +39,7 @@ pub fn show(
     theme: &Theme,
     text: &str,
     results: &[LineResult],
+    column: bool,
 ) -> Option<Action> {
     let mut action = None;
     ui.horizontal(|ui| {
@@ -69,11 +70,20 @@ pub fn show(
             ui.set_width(ui.available_width());
             let owned = answers(results);
             let refs: Vec<Option<&str>> = owned.iter().map(|s| s.as_deref()).collect();
-            for (n, block) in markdown::render(text, &refs).into_iter().enumerate() {
-                if let Some(copy) = block_ui(ui, theme, n, block) {
-                    action = Some(Action::Copy(copy));
-                }
-            }
+            // A reading measure, centered, so a wide window does not stretch the note.
+            let measure = ui.available_width().min(680.0);
+            let pad = ((ui.available_width() - measure) / 2.0).max(0.0);
+            ui.horizontal(|ui| {
+                ui.add_space(pad);
+                ui.vertical(|ui| {
+                    ui.set_width(measure);
+                    for (n, block) in markdown::render(text, &refs).into_iter().enumerate() {
+                        if let Some(copy) = block_ui(ui, theme, n, block, column) {
+                            action = Some(Action::Copy(copy));
+                        }
+                    }
+                });
+            });
         });
     action
 }
@@ -85,38 +95,59 @@ fn bar_button<'a>(theme: &'a Theme, label: &'a str) -> egui::Button<'a> {
         .min_size(Vec2::new(0.0, 28.0))
 }
 
-fn block_ui(ui: &mut egui::Ui, theme: &Theme, n: usize, block: Block) -> Option<String> {
+fn block_ui(
+    ui: &mut egui::Ui,
+    theme: &Theme,
+    n: usize,
+    block: Block,
+    column: bool,
+) -> Option<String> {
     let mut copied = None;
     match block {
         Block::Heading { level, rich } => {
             let size = match level {
-                1 => 26.0,
+                1 => 28.0,
                 2 => 22.0,
                 _ => 18.0,
             };
-            copied = line_ui(ui, theme, &rich, size, true);
-            ui.add_space(6.0);
-        }
-        Block::Lines(rows) => {
-            for rich in rows {
-                copied = line_ui(ui, theme, &rich, 15.5, false).or(copied);
+            copied = line_ui(ui, theme, &rich, size, true, column);
+            if level == 1 {
+                ui.add_space(6.0);
+                let (rect, _) = ui.allocate_exact_size(Vec2::new(36.0, 2.0), Sense::hover());
+                ui.painter()
+                    .rect_filled(rect, CornerRadius::same(1), theme.accent);
             }
             ui.add_space(8.0);
         }
+        Block::Lines(rows) => {
+            for rich in rows {
+                copied = line_ui(ui, theme, &rich, 16.0, false, column).or(copied);
+            }
+            ui.add_space(6.0);
+        }
+        Block::Blank => ui.add_space(18.0),
         Block::List { ordered, items } => {
             for (i, item) in items.into_iter().enumerate() {
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
                     let mark = match item.checked {
                         Some(true) => "☑".to_string(),
                         Some(false) => "☐".to_string(),
                         None if ordered => format!("{}.", item.number.unwrap_or((i + 1) as u32)),
                         None => "•".to_string(),
                     };
-                    ui.label(RichText::new(mark).size(15.5).color(theme.dim));
-                    if let Some(text) = line_ui(ui, theme, &item.rich, 15.5, false) {
-                        copied = Some(text);
-                    }
+                    ui.label(RichText::new(mark).size(16.0).color(theme.dim));
+                    let width = ui.available_width();
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(width, 0.0),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| {
+                            if let Some(text) = line_ui(ui, theme, &item.rich, 16.0, false, column)
+                            {
+                                copied = Some(text);
+                            }
+                        },
+                    );
                 });
             }
             ui.add_space(8.0);
@@ -127,7 +158,7 @@ fn block_ui(ui: &mut egui::Ui, theme: &Theme, n: usize, block: Block) -> Option<
                     ui.add_space(12.0);
                     ui.vertical(|ui| {
                         for rich in rows {
-                            if let Some(text) = line_ui(ui, theme, &rich, 15.5, false) {
+                            if let Some(text) = line_ui(ui, theme, &rich, 16.0, false, column) {
                                 copied = Some(text);
                             }
                         }
@@ -167,29 +198,59 @@ fn line_ui(
     rich: &Rich,
     size: f32,
     strong: bool,
+    column: bool,
 ) -> Option<String> {
     let mut copied = None;
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        inlines_ui(ui, theme, &rich.inlines, size, strong);
+    let park = column && rich.answer.is_some();
+    let answer_w = if park { 150.0 } else { 0.0 };
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.y = 2.0;
+        let left = (ui.available_width() - answer_w).max(48.0);
+        ui.allocate_ui_with_layout(
+            Vec2::new(left, 0.0),
+            egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true),
+            |ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                inlines_ui(ui, theme, &rich.inlines, size, strong);
+                if let Some(comment) = rich.comment.as_deref().filter(|s| !s.is_empty()) {
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new(comment)
+                            .italics()
+                            .size((size - 1.0).max(12.0))
+                            .color(theme.comment),
+                    );
+                }
+            },
+        );
         if let Some(answer) = &rich.answer {
-            ui.add_space(8.0);
-            let pill = ui.add(
-                egui::Button::new(
-                    RichText::new(format!("[ {answer} ]"))
-                        .font(FontId::monospace((size - 0.5).max(12.0)))
-                        .color(theme.accent),
-                )
-                .frame(false)
-                .min_size(Vec2::new(0.0, size + 2.0)),
-            );
-            if pill.on_hover_text("Click to copy").clicked() {
-                ui.ctx().copy_text(answer.clone());
-                copied = Some(answer.clone());
+            let mut place = |ui: &mut egui::Ui| {
+                let pill = ui.add(pill_button(theme, answer, size));
+                if pill.on_hover_text("Click to copy").clicked() {
+                    ui.ctx().copy_text(answer.clone());
+                    copied = Some(answer.clone());
+                }
+            };
+            if park {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), place);
+            } else {
+                ui.add_space(8.0);
+                place(ui);
             }
         }
     });
     copied
+}
+
+fn pill_button<'a>(theme: &'a Theme, answer: &'a str, size: f32) -> egui::Button<'a> {
+    egui::Button::new(
+        RichText::new(format!("[ {answer} ]"))
+            .font(FontId::monospace((size - 1.0).max(12.0)))
+            .color(theme.accent),
+    )
+    .fill(theme.accent.gamma_multiply(0.14))
+    .corner_radius(CornerRadius::same(8))
+    .min_size(Vec2::new(0.0, size + 4.0))
 }
 
 fn inlines_ui(ui: &mut egui::Ui, theme: &Theme, inlines: &[Inline], size: f32, strong: bool) {

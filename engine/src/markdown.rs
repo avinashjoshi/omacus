@@ -379,6 +379,9 @@ pub enum Inline {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rich {
     pub inlines: Vec<Inline>,
+    /// A `#` or `//` comment on this line, without the marker. A heading's `#`
+    /// is not a comment; a later `#` on that line is.
+    pub comment: Option<String>,
     pub answer: Option<String>,
 }
 
@@ -405,6 +408,9 @@ pub enum Block {
         header: bool,
         rows: Vec<Vec<Vec<Inline>>>,
     },
+    /// One blank source line. Several in a row stay several blocks, so the
+    /// gap does not collapse.
+    Blank,
 }
 
 /// Render `text` for the preview. `answers` lines up with the lines of `text`;
@@ -423,7 +429,10 @@ pub fn render(text: &str, answers: &[Option<&str>]) -> Vec<Block> {
     while i < lines.len() {
         let class = classify(lines[i]);
         match class.form {
-            Form::Blank | Form::Comment => i += 1,
+            Form::Blank => {
+                blocks.push(Block::Blank);
+                i += 1;
+            }
             Form::Table => {
                 let start = i;
                 while i < lines.len() && matches!(classify(lines[i]).form, Form::Table) {
@@ -436,7 +445,7 @@ pub fn render(text: &str, answers: &[Option<&str>]) -> Vec<Block> {
             Form::Heading(level) => {
                 blocks.push(Block::Heading {
                     level,
-                    rich: rich(class.body, answer(i)),
+                    rich: rich_line(lines[i], &class, answer(i)),
                 });
                 i += 1;
             }
@@ -448,12 +457,12 @@ pub fn render(text: &str, answers: &[Option<&str>]) -> Vec<Block> {
                         Form::Bullet => items.push(Item {
                             checked: None,
                             number: None,
-                            rich: rich(c.body, answer(i)),
+                            rich: rich_line(lines[i], &c, answer(i)),
                         }),
                         Form::Task(checked) => items.push(Item {
                             checked: Some(checked),
                             number: None,
-                            rich: rich(c.body, answer(i)),
+                            rich: rich_line(lines[i], &c, answer(i)),
                         }),
                         _ => break,
                     }
@@ -474,7 +483,7 @@ pub fn render(text: &str, answers: &[Option<&str>]) -> Vec<Block> {
                     items.push(Item {
                         checked: None,
                         number: Some(n),
-                        rich: rich(c.body, answer(i)),
+                        rich: rich_line(lines[i], &c, answer(i)),
                     });
                     i += 1;
                 }
@@ -490,19 +499,19 @@ pub fn render(text: &str, answers: &[Option<&str>]) -> Vec<Block> {
                     if !matches!(c.form, Form::Quote) {
                         break;
                     }
-                    rows.push(rich(c.body, answer(i)));
+                    rows.push(rich_line(lines[i], &c, answer(i)));
                     i += 1;
                 }
                 blocks.push(Block::Quote(rows));
             }
-            Form::Text => {
+            Form::Text | Form::Comment => {
                 let mut rows = Vec::new();
                 while i < lines.len() {
                     let c = classify(lines[i]);
-                    if !matches!(c.form, Form::Text) {
+                    if !matches!(c.form, Form::Text | Form::Comment) {
                         break;
                     }
-                    rows.push(rich(c.body, answer(i)));
+                    rows.push(rich_line(lines[i], &c, answer(i)));
                     i += 1;
                 }
                 blocks.push(Block::Lines(rows));
@@ -512,10 +521,29 @@ pub fn render(text: &str, answers: &[Option<&str>]) -> Vec<Block> {
     blocks
 }
 
-fn rich(body: &str, answer: Option<String>) -> Rich {
+fn rich_line(line: &str, class: &Classified<'_>, answer: Option<String>) -> Rich {
     Rich {
-        inlines: inlines(body),
+        inlines: inlines(class.body),
+        comment: comment_text(line),
         answer,
+    }
+}
+
+/// The words of a `#` or `//` comment, without the marker. A heading's opening
+/// `#` is not one; `find_comment` already skipped it.
+fn comment_text(line: &str) -> Option<String> {
+    let at = find_comment(line)?;
+    let rest = line[at..].trim_start();
+    let rest = rest
+        .strip_prefix("//")
+        .or_else(|| rest.strip_prefix('#'))
+        .unwrap_or(rest);
+    let text = rest.trim();
+    if text.is_empty() {
+        // A comment marker with nothing after it is still a comment line.
+        Some(String::new())
+    } else {
+        Some(text.to_string())
     }
 }
 
@@ -645,19 +673,20 @@ pub fn preview_html(text: &str, answers: &[Option<&str>]) -> String {
             Block::Heading { level, rich } => {
                 let level = level.clamp(1, 6);
                 html.push_str(&format!("<h{level}>"));
-                push_rich(&mut html, &rich);
+                push_rich(&mut html, &rich, "");
                 html.push_str(&format!("</h{level}>"));
             }
             Block::Lines(rows) => {
                 for rich in rows {
                     html.push_str("<p class=\"line\">");
-                    push_rich(&mut html, &rich);
+                    push_rich(&mut html, &rich, "");
                     html.push_str("</p>");
                 }
             }
+            Block::Blank => html.push_str("<p class=\"line blank\"><br></p>"),
             Block::List { ordered, items } => {
                 html.push_str(if ordered { "<ol>" } else { "<ul>" });
-                for item in items {
+                for (i, item) in items.into_iter().enumerate() {
                     html.push_str("<li");
                     if let Some(n) = item.number {
                         html.push_str(&format!(" value=\"{n}\""));
@@ -666,14 +695,25 @@ pub fn preview_html(text: &str, answers: &[Option<&str>]) -> String {
                         html.push_str(" class=\"task\"");
                     }
                     html.push('>');
-                    if let Some(checked) = item.checked {
-                        html.push_str("<input type=\"checkbox\" disabled");
-                        if checked {
-                            html.push_str(" checked");
+                    let mut box_html = String::new();
+                    // The marker lives in the line so a grid can keep the answer
+                    // in the right column without dropping the bullet.
+                    if item.checked.is_none() {
+                        if ordered {
+                            let n = item.number.unwrap_or((i as u32) + 1);
+                            box_html.push_str(&format!("<span class=\"mark\">{n}.</span> "));
+                        } else {
+                            box_html.push_str("<span class=\"mark\">•</span> ");
                         }
-                        html.push('>');
                     }
-                    push_rich(&mut html, &item.rich);
+                    if let Some(checked) = item.checked {
+                        box_html.push_str("<input type=\"checkbox\" disabled");
+                        if checked {
+                            box_html.push_str(" checked");
+                        }
+                        box_html.push('>');
+                    }
+                    push_rich(&mut html, &item.rich, &box_html);
                     html.push_str("</li>");
                 }
                 html.push_str(if ordered { "</ol>" } else { "</ul>" });
@@ -682,7 +722,7 @@ pub fn preview_html(text: &str, answers: &[Option<&str>]) -> String {
                 html.push_str("<blockquote>");
                 for rich in rows {
                     html.push_str("<p class=\"line\">");
-                    push_rich(&mut html, &rich);
+                    push_rich(&mut html, &rich, "");
                     html.push_str("</p>");
                 }
                 html.push_str("</blockquote>");
@@ -707,8 +747,28 @@ pub fn preview_html(text: &str, answers: &[Option<&str>]) -> String {
     html
 }
 
-fn push_rich(html: &mut String, rich: &Rich) {
-    push_inlines(html, &rich.inlines);
+fn push_rich(html: &mut String, rich: &Rich, prefix: &str) {
+    // Expression, then the comment, then the answer. Column layout (CSS) parks
+    // the answer on the right; inline layout leaves this order on one line.
+    let body_empty = rich.inlines.iter().all(|inline| match inline {
+        Inline::Text(s) => s.is_empty(),
+        _ => false,
+    });
+    html.push_str("<span class=\"expr\">");
+    html.push_str(prefix);
+    if !body_empty {
+        push_inlines(html, &rich.inlines);
+    }
+    if let Some(comment) = &rich.comment {
+        html.push_str("<span class=\"note\">");
+        if comment.is_empty() {
+            html.push_str("<br>");
+        } else {
+            html.push_str(&escape(comment));
+        }
+        html.push_str("</span>");
+    }
+    html.push_str("</span>");
     if let Some(answer) = &rich.answer {
         // The button's text is the brackets Avi wants. `data-value` is the raw
         // answer, so a click copies that and not the brackets.
@@ -854,6 +914,24 @@ mod tests {
         assert!(table.contains("<th>a</th>"));
         assert!(table.contains("<td>1</td>"));
         assert!(!table.contains("pill"));
+    }
+
+    #[test]
+    fn preview_keeps_each_line_its_comment_and_blank_lines() {
+        let src = "a = 5\nb = 6 # second\n\n\n// only a note\n# Title # draft";
+        let html = preview_html(src, &[Some("5"), Some("6"), None, None, None, None]);
+        let a = html.find("a = 5").expect("first line");
+        let b = html.find("b = 6").expect("second line");
+        let note = html.find("second").expect("trailing comment");
+        let ans = html.find("[ 6 ]").expect("answer");
+        assert!(a < b && b < note && note < ans);
+        assert!(html.contains("<span class=\"note\">only a note</span>"));
+        assert!(html.contains("<span class=\"note\">draft</span>"));
+        assert!(html.contains("<h1>"));
+        assert!(!html.contains("<h1>#"));
+        // Two blank lines between the math and the note, not collapsed away.
+        assert_eq!(html.matches("class=\"line blank\"").count(), 2);
+        assert_eq!(html.matches("<p class=\"line\">").count(), 3);
     }
 
     #[test]

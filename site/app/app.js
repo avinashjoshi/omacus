@@ -182,7 +182,19 @@ function updateThemeNote() {
   if (note) note.textContent = THEME_NOTES[settings.theme] || THEME_NOTES.auto;
 }
 
-function openSettings() {
+function showSettingsTab(name) {
+  const tab = name === "about" ? "about" : "settings";
+  for (const button of document.querySelectorAll("[data-settings-tab]")) {
+    button.setAttribute("aria-selected", String(button.dataset.settingsTab === tab));
+  }
+  for (const panel of document.querySelectorAll("[data-settings-panel]")) {
+    panel.hidden = panel.dataset.settingsPanel !== tab;
+  }
+  const title = document.getElementById("settings-title");
+  if (title) title.textContent = tab === "about" ? "About" : "Settings";
+}
+
+function openSettings(tab = "settings") {
   closeMenu();
   if (!el.settings) return;
   const select = $("[data-setting=theme]", el.settings);
@@ -190,6 +202,7 @@ function openSettings() {
   if (select) select.value = settings.theme;
   if (hide) hide.checked = settings.hideAnswers;
   updateThemeNote();
+  showSettingsTab(tab);
   el.settings.hidden = false;
 }
 
@@ -545,7 +558,16 @@ function refreshPagePreview() {
 
 function printPagePreview() {
   if (!pagePreviewOpen) openPagePreview();
-  // The print dialog is the export too: Save as PDF writes this same preview.
+  // The browser picks the folder and whether to replace a file. The title is
+  // the page name, so Save as PDF suggests that instead of "Omacus".
+  const previous = document.title;
+  const name = heading(currentText());
+  document.title = name;
+  const restore = () => {
+    document.title = previous;
+    removeEventListener("afterprint", restore);
+  };
+  addEventListener("afterprint", restore);
   window.print();
 }
 
@@ -1140,7 +1162,9 @@ async function action(name) {
   } else if (name === "expand-side") {
     setSide(true);
   } else if (name === "settings") {
-    openSettings();
+    openSettings("settings");
+  } else if (name === "about") {
+    openSettings("about");
   } else if (name === "close-settings") {
     closeSettings();
   } else if (name === "privacy") {
@@ -1277,6 +1301,8 @@ if (resize) {
 
 document.addEventListener("click", (e) => {
   const button = e.target.closest?.("[data-action]");
+  const tab = e.target.closest?.("[data-settings-tab]");
+  if (tab) showSettingsTab(tab.dataset.settingsTab);
   if (button) action(button.dataset.action);
   if (e.target.closest?.("[data-menu-button]")) {
     el.menu.hidden = !el.menu.hidden;

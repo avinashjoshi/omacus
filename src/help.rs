@@ -3,6 +3,7 @@
 
 use eframe::egui::{self, Color32, CornerRadius, FontId, Frame, Margin, RichText, Sense, vec2};
 
+use crate::settings::Settings;
 use crate::theme::Theme;
 use crate::update::{self, Check, Updates};
 use omacus_engine::Engine;
@@ -14,6 +15,7 @@ pub enum Tab {
     Syntax,
     Tips,
     About,
+    Settings,
 }
 
 impl Tab {
@@ -22,6 +24,7 @@ impl Tab {
             "syntax" => Tab::Syntax,
             "tips" => Tab::Tips,
             "about" => Tab::About,
+            "settings" => Tab::Settings,
             _ => Tab::Keyboard,
         }
     }
@@ -32,6 +35,7 @@ impl Tab {
             Tab::Syntax => "Syntax",
             Tab::Tips => "Tips & tricks",
             Tab::About => "About",
+            Tab::Settings => "Settings",
         }
     }
 }
@@ -42,6 +46,8 @@ pub enum Action {
     OpenExamples,
     /// Open the update window.
     OpenUpdate,
+    /// A choice on the Settings tab moved.
+    SettingsChanged,
 }
 
 const KEYS: &[(&str, &[(&str, &str)])] = &[
@@ -107,11 +113,11 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
         "Window",
         &[
             ("F1  /  Ctrl+/", "This help"),
-            ("Ctrl+,", "Settings: theme, answers column, update checks"),
             (
-                "Esc",
-                "Close the switcher, preview, help, settings, or a dialog",
+                "Ctrl+,",
+                "Settings: theme, answers column, export folder, update checks",
             ),
+            ("Esc", "Close the switcher, preview, help, or a dialog"),
             ("Ctrl+W  /  Ctrl+Q", "Quit (everything is saved)"),
             ("Super+Ctrl+Alt+=", "Open Omacus from anywhere (Omarchy)"),
         ],
@@ -270,7 +276,7 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "Preview and print",
-        "`Ctrl+P` shows the page as rendered notes: headings, lists, checkboxes and tables, with each answer in brackets after its line, in its own colour. Print and Export PDF use that view. Esc returns to editing. Tables are drawn, and a cell is not calculated.",
+        "`Ctrl+P` shows the page as rendered notes. Each source line stays its own line, a blank line stays blank, and a `#` or `//` comment is a quiet note on that line. With the answers column on, each answer sits in a column on the right; with it off, the answer follows the line. Print and Export PDF use that view. Esc returns to editing. Tables are drawn, and a cell is not calculated.",
     ),
     (
         "Deleted isn't gone",
@@ -302,7 +308,7 @@ const TIPS: &[(&str, &str)] = &[
     ),
     (
         "Theme",
-        "Settings (`Ctrl+,`, or the gear at the bottom of the sidebar) picks the theme: Light, Dark, Paper, Dusk, the Omarchy theme, or your own file at `{theme}`. Auto uses that file if it exists, then the Omarchy theme, then the system's light or dark mode. `Ctrl+\\` hides the answers column so each answer sits after its line.",
+        "Settings is the first tab here. `Ctrl+,`, or the gear at the bottom of the sidebar (and of the collapsed strip), opens it. It picks the theme: Light, Dark, Paper, Dusk, the Omarchy theme, or your own file at `{theme}`. Auto uses that file if it exists, then the Omarchy theme, then the system's light or dark mode. `Ctrl+\\` hides the answers column so each answer sits after its line. Export PDF writes to the folder chosen there (Downloads by default), named after the page. If that file is already there, Omacus asks before replacing it.",
     ),
 ];
 
@@ -349,6 +355,7 @@ pub fn show(
     engine: &Engine,
     logo: &Logo,
     updates: &Updates,
+    settings: &mut Settings,
 ) -> Option<Action> {
     let mut action = None;
     let screen = ctx.content_rect();
@@ -391,7 +398,13 @@ pub fn show(
                                 ui.label(RichText::new("Omacus").size(17.0).color(theme.accent));
                             });
                             ui.add_space(18.0);
-                            for t in [Tab::Keyboard, Tab::Syntax, Tab::Tips, Tab::About] {
+                            for t in [
+                                Tab::Settings,
+                                Tab::Keyboard,
+                                Tab::Syntax,
+                                Tab::Tips,
+                                Tab::About,
+                            ] {
                                 let dot = t == Tab::About && available.is_some();
                                 if rail_button(ui, theme, t.title(), *tab == t, dot) {
                                     *tab = t;
@@ -464,6 +477,11 @@ pub fn show(
                                         }
                                     }
                                     Tab::Tips => tips(ui, theme),
+                                    Tab::Settings => {
+                                        if crate::settings::controls(ui, settings, theme) {
+                                            action = Some(Action::SettingsChanged);
+                                        }
+                                    }
                                     Tab::About => {
                                         if about(ui, theme, logo, updates, available.as_deref()) {
                                             action = Some(Action::OpenUpdate);
@@ -540,6 +558,13 @@ fn about(
     ui.add_space(8.0);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing = vec2(10.0, 0.0);
+        // Only a check that's still in flight hides the button. A finished
+        // result (up to date, an update, or an error) always offers another.
+        if updates.checked() == Check::Checking {
+            ui.spinner();
+            ui.label(RichText::new("Checking…").size(13.5).color(theme.dim));
+            return;
+        }
         if let Some(new) = available {
             ui.label(
                 RichText::new(format!("Version {new} is available."))
@@ -551,37 +576,33 @@ fn about(
                 ui.ctx()
                     .open_url(egui::OpenUrl::new_tab(update::notes_url(new)));
             }
-            return;
+        } else {
+            match updates.checked() {
+                Check::Done => {
+                    ui.label(
+                        RichText::new("✓  You're up to date.")
+                            .size(13.5)
+                            .color(theme.dim),
+                    );
+                }
+                Check::Failed => {
+                    ui.label(
+                        RichText::new("Couldn't reach GitHub.")
+                            .size(13.5)
+                            .color(theme.dim),
+                    );
+                }
+                Check::Idle | Check::Checking => {}
+            }
         }
-        match updates.checked() {
-            Check::Checking => {
-                ui.spinner();
-                ui.label(RichText::new("Checking…").size(13.5).color(theme.dim));
-            }
-            Check::Done => {
-                ui.label(
-                    RichText::new("✓  You're up to date.")
-                        .size(13.5)
-                        .color(theme.dim),
-                );
-            }
-            Check::Failed => {
-                ui.label(
-                    RichText::new("Couldn't reach GitHub.")
-                        .size(13.5)
-                        .color(theme.dim),
-                );
-                if quiet_button(ui, theme, "Try again").clicked() {
-                    let ctx = ui.ctx().clone();
-                    updates.check_now(move || ctx.request_repaint());
-                }
-            }
-            Check::Idle => {
-                if quiet_button(ui, theme, "Check for updates").clicked() {
-                    let ctx = ui.ctx().clone();
-                    updates.check_now(move || ctx.request_repaint());
-                }
-            }
+        let label = if updates.checked() == Check::Idle {
+            "Check for updates"
+        } else {
+            "Check again"
+        };
+        if quiet_button(ui, theme, label).clicked() {
+            let ctx = ui.ctx().clone();
+            updates.check_now(move || ctx.request_repaint());
         }
     });
     ui.add_space(26.0);
