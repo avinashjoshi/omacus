@@ -47,6 +47,7 @@
           <button role="menuitem" data-action="copy">Copy with answers</button>
           <button role="menuitem" data-action="markdown">Copy as Markdown table</button>
           <button role="menuitem" data-action="preview">Preview</button>
+          <button role="menuitem" data-action="handle">Handle…</button>
           <button role="menuitem" data-action="open-app">Open in the desktop app</button>
           <hr>
           <button role="menuitem" data-action="new">New page</button>
@@ -124,6 +125,16 @@
       <div class="editor" data-editor>
         <p class="empty-hint" hidden data-empty>Pages are in the sidebar. Open it from the pages button, then pick one or start a new page.</p>
         <div class="cm-host" data-text></div>
+      </div>
+      <div class="confirm" hidden data-handle role="dialog" aria-modal="true" aria-labelledby="handle-title">
+        <p id="handle-title" data-handle-title>Handle</p>
+        <p class="handle-note">Other pages read this page as @handle.name. Renaming the page leaves the handle as it is.</p>
+        <input class="handle-field" data-handle-input spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off" aria-label="Handle">
+        <p class="handle-note" data-handle-note></p>
+        <div>
+          <button class="btn small primary" type="button" data-handle-save>Save</button>
+          <button class="btn small" type="button" data-handle-cancel>Cancel</button>
+        </div>
       </div>
       <div class="confirm" hidden data-confirm role="dialog" aria-modal="true" aria-labelledby="confirm-text">
         <p id="confirm-text" data-confirm-text></p>
