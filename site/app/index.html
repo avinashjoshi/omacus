@@ -50,6 +50,8 @@
           <button role="menuitem" data-action="open-app">Open in the desktop app</button>
           <hr>
           <button role="menuitem" data-action="new">New page</button>
+          <button role="menuitem" data-action="new-folder">New folder</button>
+          <button role="menuitem" data-action="move-folder">Move to folder…</button>
           <button role="menuitem" data-action="export">Export all pages (.zip)</button>
           <button role="menuitem" data-action="import">Import pages…</button>
           <hr>
@@ -70,12 +72,13 @@
     <aside class="side" id="side">
       <div class="rail" data-action="expand-side" title="Expand sidebar">
         <button class="side-btn" type="button" data-action="expand-side" aria-label="Expand sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/></svg></button>
+        <button class="side-btn" type="button" data-action="new-folder" aria-label="New folder" title="New folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 8.5h6l2-2.2h9v11.2h-17z"/></svg></button>
         <button class="side-btn" type="button" data-action="new" aria-label="New page" title="New page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button>
         <button class="side-btn rail-settings" type="button" data-action="settings" aria-label="Settings" title="Settings (Ctrl+,)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3.2v2.3M12 18.5v2.3M3.2 12h2.3M18.5 12h2.3M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/></svg></button>
         <img src="/img/icon.svg" alt="" width="20" height="20">
       </div>
       <div class="side-body">
-        <div class="side-head"><span>Pages</span><span class="side-head-actions"><button class="side-btn" type="button" aria-label="New page" title="New page" data-action="new"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button><button class="side-btn" type="button" aria-label="Collapse sidebar" title="Collapse sidebar" data-action="collapse-side"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/></svg></button></span></div>
+        <div class="side-head"><span>Pages</span><span class="side-head-actions"><button class="side-btn" type="button" aria-label="New folder" title="New folder" data-action="new-folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 8.5h6l2-2.2h9v11.2h-17z"/></svg></button><button class="side-btn" type="button" aria-label="New page" title="New page" data-action="new"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button><button class="side-btn" type="button" aria-label="Collapse sidebar" title="Collapse sidebar" data-action="collapse-side"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/></svg></button></span></div>
         <nav class="sheet-list" data-sheets aria-label="Pages"></nav>
         <div class="deleted" hidden data-deleted></div>
         <details class="side-foot">
@@ -129,6 +132,30 @@
           <button class="btn small" type="button" data-confirm-no>Cancel</button>
         </div>
       </div>
+      <div class="confirm" hidden data-move role="dialog" aria-modal="true" aria-label="Move to folder">
+        <p>Move to folder</p>
+        <div class="move-list" data-move-list></div>
+        <div>
+          <button class="btn small" type="button" data-action="close-move">Cancel</button>
+        </div>
+      </div>
+      <div class="confirm" hidden data-rename role="dialog" aria-modal="true" aria-labelledby="rename-title">
+        <p id="rename-title">Rename folder</p>
+        <input data-rename-input type="text" maxlength="80" autocomplete="off" spellcheck="false" aria-label="Folder name">
+        <p class="confirm-note">Enter keeps the name. Esc cancels.</p>
+        <div>
+          <button class="btn small primary" type="button" data-action="rename-commit">Rename</button>
+          <button class="btn small" type="button" data-action="close-rename">Cancel</button>
+        </div>
+      </div>
+      <div class="switcher" hidden data-switcher>
+        <button class="switcher-scrim" type="button" data-action="close-switcher" aria-label="Close"></button>
+        <div class="switcher-card" role="dialog" aria-modal="true" aria-label="Go to a page">
+          <input data-switcher-query type="search" placeholder="Go to a page" autocomplete="off" spellcheck="false">
+          <div class="switcher-hits" data-switcher-hits></div>
+        </div>
+      </div>
+      <div class="menu-list row-menu" hidden data-row-menu role="menu"></div>
       <p class="loading" data-loading>Loading the engine…</p>
       <button class="drawer-scrim" type="button" data-scrim aria-label="Close pages"></button>
     </main>
