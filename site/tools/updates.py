@@ -667,10 +667,36 @@ def build(raw_releases, out: Path, fetch=None):
     return flagged
 
 
+def release_is_listed(releases, expect):
+    expect = (expect or "").removeprefix("v")
+    if not expect:
+        return True
+    return any(
+        version_label(r.get("tag_name")) == f"v{expect}"
+        or (r.get("tag_name") or "").removeprefix("v") == expect
+        for r in releases
+    )
+
+
+def expect_wait_seconds(expect):
+    """How long to poll when a version must be on the API before the page is written.
+
+    The default covers the short gap after a release is published. A version bump
+    that deploys the site before that publish sets OMACUS_EXPECT_WAIT longer.
+    """
+    if not expect:
+        return 0
+    raw = os.environ.get("OMACUS_EXPECT_WAIT", "")
+    if raw.isdigit():
+        return int(raw)
+    return 60
+
+
 def fetch_releases(expect=""):
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    expect = expect.removeprefix("v")
-    deadline = time.time() + (60 if expect else 0)
+    expect = (expect or "").removeprefix("v")
+    deadline = time.time() + expect_wait_seconds(expect)
+    pause = 15 if expect_wait_seconds(expect) > 60 else 3
     last_error = None
     while True:
         try:
@@ -678,13 +704,13 @@ def fetch_releases(expect=""):
         except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError) as exc:
             last_error = exc
             releases = None
+        if releases is not None and release_is_listed(releases, expect):
+            return releases
         if releases is not None:
-            if not expect or any(version_label(r.get("tag_name")) == f"v{expect}" or (r.get("tag_name") or "").removeprefix("v") == expect for r in releases):
-                return releases
             last_error = f"v{expect} is not listed yet"
         if time.time() >= deadline:
             raise SystemExit(f"updates: couldn't read GitHub releases ({last_error})")
-        time.sleep(3)
+        time.sleep(pause)
 
 
 def _fetch_pages(token):

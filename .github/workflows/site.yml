@@ -71,11 +71,21 @@ jobs:
       - name: Updates page
         # Static changelog from the GitHub releases API, before assets are hashed,
         # so the new page picks up the same cache-busting as the rest of the site.
-        # A missing API keeps the copy already in site/updates.
+        # A missing API keeps the copy already in site/updates. A version bump can
+        # deploy before the Release workflow publishes, so wait for that tag.
         env:
           GH_TOKEN: ${{ github.token }}
           OMACUS_EXPECT_VERSION: ${{ inputs.expect_version || (github.event_name == 'release' && github.event.release.tag_name) || '' }}
-        run: python3 site/tools/updates.py --out _site
+        run: |
+          if [ -z "$OMACUS_EXPECT_VERSION" ]; then
+            version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+            if ! git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+              echo "v$version is not published yet; the page will wait for it"
+              export OMACUS_EXPECT_VERSION="$version"
+              export OMACUS_EXPECT_WAIT=1500
+            fi
+          fi
+          python3 site/tools/updates.py --out _site
       - name: Version assets
         # Cloudflare in front of omacus.com caches CSS and JS for hours, so pages point
         # at each file by its content hash and pick up a new version immediately.
