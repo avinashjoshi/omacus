@@ -182,6 +182,8 @@ check(css.includes("img.cm-widgetBuffer"), "the answer spacer stays inline so a 
   check(unfold.includes("foldable-clock") && unfold.includes("foldable-buttons"), "the unfolded phone has a status time and side buttons");
   const foldCss = siteCss.slice(siteCss.indexOf("/* Unfolded phone"), siteCss.indexOf("/* Theme gallery"));
   check(foldCss.includes("aspect-ratio: 4 / 3"), "the unfolded phone is landscape, about 4:3");
+  check(foldCss.includes("width: 700px"), "the unfolded phone stays a showpiece on a desktop");
+  check(unfold.includes("foldable-status"), "the camera and time sit in a status strip");
   check(!/rotate[XY]/.test(foldCss), "the unfolded phone lies flat");
   check(!/iPhone|iPad|Apple|Duo|Samsung|Pixel|Galaxy|PWA|Cactus/i.test(unfold), "the foldable section stays generic");
 }

@@ -1283,7 +1283,9 @@ section {
 
 .unfold {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-6);
+  align-items: center;
 }
 
 .unfold-copy {
@@ -1315,7 +1317,8 @@ section {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   aspect-ratio: 4 / 3;
-  width: 100%;
+  width: 700px;
+  max-width: 100%;
   margin-inline: auto;
 }
 
@@ -1354,17 +1357,17 @@ section {
 }
 
 .foldable-half-left::before {
-  top: calc(var(--space-1) * -1);
+  top: calc(var(--space-2) * -1);
   right: 0;
-  bottom: calc(var(--space-1) * -1);
-  left: calc(var(--space-1) * -1);
+  bottom: calc(var(--space-2) * -1);
+  left: calc(var(--space-2) * -1);
   border-radius: calc(var(--radius-lg) + var(--space-6)) 0 0 calc(var(--radius-lg) + var(--space-6));
 }
 
 .foldable-half-right::before {
-  top: calc(var(--space-1) * -1);
-  right: calc(var(--space-1) * -1);
-  bottom: calc(var(--space-1) * -1);
+  top: calc(var(--space-2) * -1);
+  right: calc(var(--space-2) * -1);
+  bottom: calc(var(--space-2) * -1);
   left: 0;
   border-radius: 0 calc(var(--radius-lg) + var(--space-6)) calc(var(--radius-lg) + var(--space-6)) 0;
 }
@@ -1372,9 +1375,25 @@ section {
 .foldable-screen {
   position: absolute;
   inset: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   background: var(--app-bg);
   border: 1px solid var(--black);
+  box-shadow: inset 0 0 0 1px var(--black);
+}
+
+.foldable-status {
+  position: relative;
+  flex: none;
+  height: var(--space-6);
+  border-bottom: 1px solid color-mix(in srgb, var(--black) 16%, transparent);
+}
+
+.foldable-screen picture {
+  position: relative;
+  flex: 1;
+  min-height: 0;
 }
 
 .foldable-half-left .foldable-screen {
@@ -1387,8 +1406,7 @@ section {
 
 .foldable-screen img {
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 0;
   display: block;
   width: 200%;
   max-width: none;
@@ -1416,30 +1434,30 @@ section {
 .foldable-camera {
   position: absolute;
   z-index: 4;
-  top: var(--space-5);
-  left: 62%;
-  width: var(--space-3);
-  height: var(--space-3);
+  top: 50%;
+  left: 50%;
+  width: var(--space-2);
+  height: var(--space-2);
   border-radius: var(--radius-pill);
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   background:
     radial-gradient(circle at 36% 32%,
       var(--metal-mid),
       var(--metal-edge) 42%,
       var(--black) 72%);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--white) 28%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--white) 40%, transparent);
   pointer-events: none;
 }
 
 .foldable-clock {
   position: absolute;
   z-index: 4;
-  top: var(--space-2);
-  right: var(--space-5);
+  top: 50%;
+  right: var(--space-4);
   color: var(--white);
   font: 600 var(--type-caption) / 1 var(--sans);
   letter-spacing: 0.02em;
-  text-shadow: 0 1px 1px color-mix(in srgb, var(--black) 45%, transparent);
+  transform: translateY(-50%);
   pointer-events: none;
 }
 
@@ -1481,9 +1499,24 @@ section {
   }
 }
 
+@media (max-width: 980px) {
+  .unfold {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .foldable {
+    justify-self: center;
+    width: min(100%, 680px);
+  }
+}
+
 @media (max-width: 620px) {
   .foldable-stage {
     padding-inline: var(--space-2);
+  }
+
+  .foldable {
+    width: 100%;
   }
 }
 
