@@ -6,16 +6,19 @@
 //! that folder renames it to `pages/`; if both exist, files still only in `sheets/`
 //! are moved across. The text format and `state.json` keys are unchanged.
 //!
-//! Two windows can be open on the same sheets. Each remembers every file's size and
-//! modification time as it last read or wrote it, and `sync` picks up what the other
-//! window changed. When both changed a sheet, this window's text is saved and the
-//! other's becomes a new sheet, so neither is lost.
+//! Two windows can be open on the same sheets. Each remembers every file's size,
+//! modification time, and a hash of the text it last wrote. `sync` picks up what the
+//! other window changed. Lines that differ are kept together. The same line changed
+//! two ways waits until someone picks one. A library that already has pages is copied
+//! to `sync-backup.zip` before it becomes a document; if that copy cannot be written,
+//! the pages stay as they are.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use omacus_doc::Library;
 use omacus_engine::lock::{self, ContentKey, Wrap};
 use omacus_engine::xref;
 use serde::{Deserialize, Serialize};
@@ -291,8 +294,13 @@ pub struct Store {
     seeded: bool,
     state_dirty: bool,
     deleted: Option<Deleted>,
-    /// Titles of sheets that two windows changed at once, to tell the user.
+    /// Titles of sheets that two windows changed at once, before the library
+    /// document exists. Once it does, same-line conflicts live in `library`.
     conflicts: Vec<String>,
+    /// Source of truth for pages, once a backup of the old files has been kept.
+    library: Option<Library>,
+    /// Pages were already on disk and the backup could not be written.
+    hold_migration: bool,
     /// Content keys for this session only. Never written to `state.json`.
     page_keys: HashMap<String, ContentKey>,
     folder_keys: HashMap<String, ContentKey>,
@@ -310,7 +318,7 @@ pub fn data_root() -> Option<PathBuf> {
 
 impl Store {
     pub fn load(welcome: &str) -> Self {
-        let mut store = Self::load_in(data_root(), welcome);
+        let mut store = Self::load_pages(data_root(), Some(welcome), crate::settings::path());
         store.seed_first_run();
         store
     }
@@ -318,13 +326,13 @@ impl Store {
     /// Pages already on disk. An empty library stays empty, so a command that
     /// only lists pages does not create one.
     pub fn open_library() -> Self {
-        Self::load_pages(data_root(), None)
+        Self::load_pages(data_root(), None, crate::settings::path())
     }
 
     /// Open the pages under `root` (a temp directory in tests).
     #[cfg(test)]
     pub(crate) fn open_at(root: PathBuf) -> Self {
-        Self::load_pages(Some(root), None)
+        Self::load_pages(Some(root), None, None)
     }
 
     pub fn directory(&self) -> Option<&Path> {
@@ -361,11 +369,12 @@ impl Store {
         }
     }
 
+    #[cfg(test)]
     fn load_in(root: Option<PathBuf>, welcome: &str) -> Self {
-        Self::load_pages(root, Some(welcome))
+        Self::load_pages(root, Some(welcome), None)
     }
 
-    fn load_pages(root: Option<PathBuf>, welcome: Option<&str>) -> Self {
+    fn load_pages(root: Option<PathBuf>, welcome: Option<&str>, settings: Option<PathBuf>) -> Self {
         let dir = root.as_ref().map(|r| pages_dir(r));
         let state: State = root
             .as_ref()
@@ -446,6 +455,8 @@ impl Store {
             state_dirty: false,
             deleted: None,
             conflicts: Vec::new(),
+            library: None,
+            hold_migration: false,
             page_keys: HashMap::new(),
             folder_keys: HashMap::new(),
         };
@@ -461,6 +472,9 @@ impl Store {
             .iter()
             .position(|s| s.id == state.active)
             .unwrap_or(0);
+        if let Some(root) = &root {
+            store.attach_document(root, settings.as_deref());
+        }
         store
     }
 
@@ -905,30 +919,49 @@ impl Store {
         let active = self.sheets[self.active].id.clone();
         let mut i = 0;
         while i < self.sheets.len() {
-            let sheet = &mut self.sheets[i];
-            let path = dir.join(format!("{}.txt", sheet.id));
+            let id = self.sheets[i].id.clone();
+            let dirty = self.sheets[i].dirty;
+            let seen = self.sheets[i].stamp;
+            let path = dir.join(format!("{id}.txt"));
             let now = stamp(&path);
-            if sheet.dirty || sheet.stamp.is_none() || now == sheet.stamp {
+            let disk_text = std::fs::read_to_string(&path).ok();
+            let hash_diverged = self.hash_diverged(&id, disk_text.as_deref());
+            if dirty || seen.is_none() || (now == seen && !hash_diverged) {
                 i += 1;
                 continue;
             }
             synced.changed = true;
-            match now.and_then(|_| read_sheet(&dir, &sheet.id)) {
+            match now.and_then(|_| read_sheet(&dir, &id)) {
                 Some(fresh) => {
-                    let changed = fresh.sealed != sheet.sealed
-                        || (fresh.sealed.is_none() && fresh.text != sheet.text);
+                    let old = self.sheets[i].stored().to_string();
+                    let changed = fresh.sealed != self.sheets[i].sealed
+                        || (fresh.sealed.is_none() && fresh.text != self.sheets[i].text);
                     if changed {
-                        synced.active_changed |= sheet.id == active;
-                        let cursor = sheet.cursor;
-                        *sheet = fresh;
-                        sheet.cursor = cursor;
+                        synced.active_changed |= id == active;
+                        let cursor = self.sheets[i].cursor;
+                        self.sheets[i] = fresh;
+                        self.sheets[i].cursor = cursor;
                     }
-                    sheet.stamp = stamp(&path);
+                    let disk = self.sheets[i].stored().to_string();
+                    if let Some(merged) = self.fold_page(&id, &old, Some(&disk))
+                        && merged != self.sheets[i].stored()
+                    {
+                        self.apply_merged_body(i, &merged);
+                        synced.active_changed |= id == active;
+                    }
+                    let body = self.sheets[i].stored().to_string();
+                    if body != disk && write_atomic(&path, body.as_bytes()).is_ok() {
+                        synced.changed = true;
+                    }
+                    self.sheets[i].stamp = stamp(&path);
+                    let written = self.sheets[i].stored().to_string();
+                    self.note_written(&id, &written);
                     i += 1;
                 }
                 // Deleted in the other window.
                 None => {
                     let id = self.sheets[i].id.clone();
+                    self.drop_doc_page(&id);
                     self.sheets.remove(i);
                     let _ = take_node(&mut self.tree, &id);
                     synced.active_changed |= self.sheets.iter().all(|s| s.id != active);
@@ -959,6 +992,10 @@ impl Store {
             .collect();
         if !new.is_empty() {
             synced.changed = true;
+            let arrived: Vec<(String, String)> = new
+                .iter()
+                .map(|sheet| (sheet.id.clone(), sheet.stored().to_string()))
+                .collect();
             for sheet in new.iter().rev() {
                 self.tree.insert(
                     0,
@@ -970,12 +1007,19 @@ impl Store {
             self.sheets.splice(0..0, new);
             self.align_sheets();
             self.ensure_handles();
+            for (id, body) in arrived {
+                let _ = self.fold_page(&id, &body, Some(&body));
+                self.note_written(&id, &body);
+            }
         }
         if self.sheets.is_empty() {
             self.new_sheet("");
         }
         self.active = self.sheets.iter().position(|s| s.id == active).unwrap_or(0);
         self.reveal_all();
+        if synced.changed {
+            self.persist_library();
+        }
         synced
     }
 
@@ -983,7 +1027,7 @@ impl Store {
         self.dir.as_ref().map(|d| d.with_file_name("trash"))
     }
 
-    fn trash_sheet(&self, sheet: &Sheet) {
+    fn trash_sheet(&mut self, sheet: &Sheet) {
         let Some(dir) = &self.dir else {
             return;
         };
@@ -995,6 +1039,9 @@ impl Store {
         let _ = std::fs::create_dir_all(&trash);
         if write_atomic(&trash.join(format!("{}.txt", sheet.id)), body.as_bytes()).is_ok() {
             let _ = std::fs::remove_file(dir.join(format!("{}.txt", sheet.id)));
+            let id = sheet.id.clone();
+            self.drop_doc_page(&id);
+            self.persist_library();
         }
     }
 
@@ -1457,10 +1504,15 @@ impl Store {
 
     /// Write changed sheets and the state. Keeps going past a failure, and returns
     /// the first error so it can be shown. A locked page is written as ciphertext.
+    ///
+    /// When the library document exists, a file that changed outside this window
+    /// is merged by line. The same line changed both ways stays as a conflict.
+    /// Without that document, the other copy becomes its own page, as before.
     pub fn save(&mut self) -> Result<(), String> {
         let Some(dir) = self.dir.clone() else {
             return Ok(());
         };
+        self.ensure_library();
         let mut first_error = None;
         let mut theirs = Vec::new();
         let dirty: Vec<usize> = self
@@ -1473,17 +1525,25 @@ impl Store {
         for idx in dirty {
             let id = self.sheets[idx].id.clone();
             self.refresh_seal(&id);
-            let Some(body) = self.body_for_disk(idx) else {
+            let Some(mut body) = self.body_for_disk(idx) else {
                 first_error.get_or_insert("A locked page was left unsaved.".into());
                 continue;
             };
             let path = dir.join(format!("{}.txt", self.sheets[idx].id));
             let title = self.sheets[idx].title();
-            if self.sheets[idx].stamp.is_some()
+            let disk = std::fs::read_to_string(&path).ok();
+            let stamp_diverged = self.sheets[idx].stamp.is_some()
                 && stamp(&path) != self.sheets[idx].stamp
-                && let Ok(text) = std::fs::read_to_string(&path)
-                && text != body
-            {
+                && disk.as_ref().is_some_and(|text| text != &body);
+            let hash_diverged = self.hash_diverged(&id, disk.as_deref());
+            if self.library.is_some() && (stamp_diverged || hash_diverged) {
+                if let Some(merged) = self.fold_page(&id, &body, disk.as_deref()) {
+                    body = merged;
+                    self.apply_merged_body(idx, &body);
+                }
+            } else if self.library.is_some() {
+                let _ = self.fold_page(&id, &body, None);
+            } else if stamp_diverged && let Some(text) = disk.clone() {
                 self.conflicts.push(title.clone());
                 theirs.push(text);
             }
@@ -1491,6 +1551,7 @@ impl Store {
                 Ok(()) => {
                     self.sheets[idx].dirty = false;
                     self.sheets[idx].stamp = stamp(&path);
+                    self.note_written(&id, &body);
                 }
                 Err(e) => {
                     first_error.get_or_insert(format!("{title}: {e}"));
@@ -1525,7 +1586,54 @@ impl Store {
             first_error.get_or_insert(format!("state.json: {e}"));
         }
         self.state_dirty = false;
+        self.persist_library();
         first_error.map_or(Ok(()), Err)
+    }
+
+    /// Same-line conflicts waiting for a choice. Empty until the document exists.
+    pub fn line_conflicts(&self) -> Vec<omacus_doc::LineConflict> {
+        self.library
+            .as_ref()
+            .map(|lib| lib.conflicts())
+            .unwrap_or_default()
+    }
+
+    /// Keep this window's line, or the other copy when `theirs` is set.
+    pub fn pick_line(&mut self, page_id: &str, line_id: &str, theirs: bool) -> bool {
+        let Some(lib) = self.library.as_mut() else {
+            return false;
+        };
+        if !lib.pick(page_id, line_id, theirs) {
+            return false;
+        }
+        let Some(text) = lib.snapshot(page_id) else {
+            return false;
+        };
+        if let Some(idx) = self.idx(page_id) {
+            self.apply_merged_body(idx, &text);
+            self.sheets[idx].mark_dirty();
+        }
+        true
+    }
+
+    /// One conflict, for a screenshot of the prompt.
+    pub fn demo_line_conflict(&mut self) {
+        let text = "# Trip Budget\nferry = 50\n";
+        if self.sheets.is_empty() {
+            self.new_sheet(text);
+        } else {
+            let idx = self.active;
+            self.sheets[idx].text = text.into();
+            self.sheets[idx].sealed = None;
+            self.sheets[idx].unlocked = false;
+            self.sheets[idx].mark_dirty();
+        }
+        let id = self.sheets[self.active].id.clone();
+        self.ensure_library();
+        if let Some(lib) = self.library.as_mut() {
+            lib.reconcile(&id, text, None);
+            lib.add_conflict_on(&id, "ferry = 50", "ferry = 60");
+        }
     }
 
     fn idx(&self, id: &str) -> Option<usize> {
@@ -1865,8 +1973,259 @@ impl Store {
         if write_atomic(&path, body.as_bytes()).is_ok() {
             self.sheets[idx].dirty = false;
             self.sheets[idx].stamp = stamp(&path);
+            let id = self.sheets[idx].id.clone();
+            if self.library.is_some() {
+                let _ = self.fold_page(&id, &body, None);
+                self.note_written(&id, &body);
+                self.persist_library();
+            }
         } else {
             self.sheets[idx].dirty = true;
+        }
+    }
+
+    /// Copy the library before the first document, then build that document
+    /// from the pages already on disk. A failed copy leaves the pages alone.
+    fn attach_document(&mut self, root: &Path, settings: Option<&Path>) {
+        let path = root.join("library.automerge");
+        if path.is_file() {
+            match std::fs::read(&path) {
+                Ok(bytes) => match Library::load(&bytes) {
+                    Ok(lib) => {
+                        self.library = Some(lib);
+                        self.fold_disk_on_load();
+                    }
+                    Err(_) => self.hold_migration = true,
+                },
+                Err(_) => self.hold_migration = true,
+            }
+            return;
+        }
+        let has_pages = dir_has_page(&root.join("pages"))
+            || self.trash_dir().is_some_and(|dir| dir_has_page(&dir));
+        if !has_pages {
+            return;
+        }
+        let backup = root.join("sync-backup.zip");
+        if backup.is_dir() {
+            self.hold_migration = true;
+            return;
+        }
+        if !backup.is_file() && crate::backup::export_library(root, settings, &backup).is_err() {
+            self.hold_migration = true;
+            return;
+        }
+        let mut lib = Library::new();
+        let pages: Vec<(String, String)> = self
+            .sheets
+            .iter()
+            .map(|sheet| (sheet.id.clone(), sheet.stored().to_string()))
+            .collect();
+        for (id, body) in &pages {
+            lib.reconcile(id, body, None);
+            lib.note_written(id, body);
+        }
+        let mut seeds = Vec::new();
+        folder_seeds(&self.tree, None, &mut seeds);
+        lib.set_folders(&seeds);
+        let bytes = lib.save();
+        if write_atomic(&path, &bytes).is_ok() {
+            self.library = Some(lib);
+        } else {
+            self.hold_migration = true;
+        }
+    }
+
+    fn fold_disk_on_load(&mut self) {
+        let Some(dir) = self.dir.clone() else {
+            return;
+        };
+        let ids: Vec<String> = self.sheets.iter().map(|s| s.id.clone()).collect();
+        for id in ids {
+            let path = dir.join(format!("{id}.txt"));
+            let Ok(disk) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let written = self.library.as_ref().and_then(|lib| lib.written_hash(&id));
+            if written.as_deref() == Some(omacus_doc::content_hash(&disk).as_str()) {
+                continue;
+            }
+            let local = self
+                .library
+                .as_ref()
+                .and_then(|lib| lib.snapshot(&id))
+                .unwrap_or_else(|| disk.clone());
+            let Some(merged) = self.fold_page(&id, &local, Some(&disk)) else {
+                continue;
+            };
+            if let Some(idx) = self.idx(&id)
+                && self.sheets[idx].stored() != merged
+            {
+                self.apply_merged_body(idx, &merged);
+            }
+            if merged != disk
+                && write_atomic(&path, merged.as_bytes()).is_ok()
+                && let Some(idx) = self.idx(&id)
+            {
+                self.sheets[idx].stamp = stamp(&path);
+            }
+            self.note_written(&id, &merged);
+        }
+        self.restore_missing_pages();
+        self.persist_library();
+    }
+
+    /// A page still in the document, and in neither `pages/` nor `trash/`, is
+    /// written back. Closing the app must not be how a page disappears.
+    fn restore_missing_pages(&mut self) {
+        let Some(dir) = self.dir.clone() else {
+            return;
+        };
+        let ids = self
+            .library
+            .as_ref()
+            .map(|lib| lib.page_ids())
+            .unwrap_or_default();
+        for id in ids {
+            if self.sheets.iter().any(|sheet| sheet.id == id) {
+                continue;
+            }
+            let trash = dir.with_file_name("trash").join(format!("{id}.txt"));
+            let path = dir.join(format!("{id}.txt"));
+            if trash.is_file() || path.is_file() {
+                continue;
+            }
+            let Some(text) = self.library.as_ref().and_then(|lib| lib.snapshot(&id)) else {
+                continue;
+            };
+            let mut sheet = sheet_from_stored(id.clone(), text.clone(), true, None);
+            let handle = self
+                .handles
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| self.fresh_handle(&sheet.heading()));
+            self.handles.insert(id.clone(), handle.clone());
+            sheet.handle = handle;
+            if write_atomic(&path, text.as_bytes()).is_ok() {
+                sheet.stamp = stamp(&path);
+                sheet.dirty = false;
+            }
+            self.tree.push(Node::Page { id: id.clone() });
+            self.sheets.push(sheet);
+            self.note_written(&id, &text);
+        }
+        self.align_sheets();
+    }
+
+    fn ensure_library(&mut self) {
+        if self.library.is_some() || self.hold_migration {
+            return;
+        }
+        self.library = Some(Library::new());
+        let pending: Vec<(String, String)> = self
+            .sheets
+            .iter()
+            .filter(|sheet| !sheet.dirty)
+            .filter_map(|sheet| Some((sheet.id.clone(), stored_body(sheet)?)))
+            .collect();
+        for (id, body) in pending {
+            if let Some(lib) = self.library.as_mut() {
+                lib.reconcile(&id, &body, None);
+                lib.note_written(&id, &body);
+            }
+        }
+    }
+
+    fn hash_diverged(&self, id: &str, disk: Option<&str>) -> bool {
+        let Some(disk) = disk else {
+            return false;
+        };
+        let Some(hash) = self.library.as_ref().and_then(|lib| lib.written_hash(id)) else {
+            return false;
+        };
+        hash != omacus_doc::content_hash(disk)
+    }
+
+    /// Merge `local` with the file, using the document's last lines as the base.
+    /// A page the document has never seen takes the file as that base first.
+    fn fold_page(&mut self, id: &str, local: &str, disk: Option<&str>) -> Option<String> {
+        let missing = self
+            .library
+            .as_ref()
+            .is_none_or(|lib| lib.snapshot(id).is_none());
+        if missing
+            && let Some(disk) = disk
+            && let Some(lib) = self.library.as_mut()
+        {
+            lib.reconcile(id, disk, None);
+            lib.note_written(id, disk);
+        }
+        let lib = self.library.as_mut()?;
+        lib.reconcile(id, local, disk);
+        lib.snapshot(id)
+    }
+
+    fn note_written(&mut self, id: &str, body: &str) {
+        if let Some(lib) = self.library.as_mut() {
+            lib.note_written(id, body);
+        }
+    }
+
+    fn drop_doc_page(&mut self, id: &str) {
+        if let Some(lib) = self.library.as_mut() {
+            lib.remove_page(id);
+        }
+    }
+
+    fn apply_merged_body(&mut self, idx: usize, body: &str) {
+        let sheet = &mut self.sheets[idx];
+        if sheet.sealed.is_some() || lock::is_envelope(body) {
+            sheet.sealed = Some(body.to_string());
+            if !sheet.unlocked {
+                sheet.text.clear();
+            }
+        } else {
+            sheet.text = body.to_string();
+            sheet.sealed = None;
+        }
+    }
+
+    fn sync_folders_to_doc(&mut self) {
+        let mut seeds = Vec::new();
+        folder_seeds(&self.tree, None, &mut seeds);
+        if let Some(lib) = self.library.as_mut() {
+            lib.set_folders(&seeds);
+        }
+    }
+
+    fn persist_library(&mut self) {
+        if self.hold_migration || self.library.is_none() {
+            return;
+        }
+        self.sync_folders_to_doc();
+        let Some(root) = self.library_root() else {
+            return;
+        };
+        let Some(lib) = self.library.as_mut() else {
+            return;
+        };
+        let bytes = lib.save();
+        let _ = write_atomic(&root.join("library.automerge"), &bytes);
+    }
+}
+
+fn folder_seeds(nodes: &[Node], parent: Option<&str>, out: &mut Vec<omacus_doc::FolderSeed>) {
+    for node in nodes {
+        if let Node::Folder {
+            id, name, children, ..
+        } = node
+        {
+            out.push(omacus_doc::FolderSeed {
+                id: id.clone(),
+                name: name.clone(),
+                parent: parent.map(str::to_string),
+            });
+            folder_seeds(children, Some(id), out);
         }
     }
 }
@@ -2745,7 +3104,7 @@ mod tests {
     }
 
     #[test]
-    fn editing_the_same_sheet_in_two_windows_keeps_both() {
+    fn editing_the_same_sheet_in_two_windows_merges_lines() {
         let root = temp_root("conflict");
         let mut a = Store::load_in(Some(root.clone()), "# Shared");
         a.save().unwrap();
@@ -2755,18 +3114,110 @@ mod tests {
         b.sheets[0].text = "# Shared\nfrom B".into();
         b.sheets[0].mark_dirty();
         b.save().unwrap();
-        // A edited too, before it noticed.
+        // A edited too, before it noticed. The new lines are different, so both stay.
         a.sheets[0].text = "# Shared\nfrom A".into();
         a.sheets[0].mark_dirty();
         a.save().unwrap();
 
-        assert_eq!(a.take_conflicts(), ["Shared"]);
-        let texts: Vec<_> = a.sheets.iter().map(|s| s.text.as_str()).collect();
-        assert!(texts.contains(&"# Shared\nfrom A"), "{texts:?}");
-        assert!(texts.contains(&"# Shared\nfrom B"), "{texts:?}");
-        assert_eq!(a.current().text, "# Shared\nfrom A");
+        assert!(a.take_conflicts().is_empty());
+        assert!(a.line_conflicts().is_empty());
+        assert_eq!(a.sheets.len(), 1);
+        assert_eq!(a.current().text, "# Shared\nfrom A\nfrom B");
         let again = Store::load_in(Some(root.clone()), "");
-        assert_eq!(again.sheets.len(), 2);
+        assert_eq!(again.sheets.len(), 1);
+        assert_eq!(again.sheets[0].text, "# Shared\nfrom A\nfrom B");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_same_line_in_two_places_waits_for_a_pick() {
+        let root = temp_root("pick-line");
+        let mut store = Store::load_in(Some(root.clone()), "ferry = 40");
+        store.save().unwrap();
+        let id = store.sheets[0].id.clone();
+        let path = root.join("pages").join(format!("{id}.txt"));
+        std::fs::write(&path, "ferry = 60").unwrap();
+        store.sheets[0].text = "ferry = 50".into();
+        store.sheets[0].mark_dirty();
+        store.save().unwrap();
+        let conflicts = store.line_conflicts();
+        assert_eq!(conflicts.len(), 1, "{conflicts:?}");
+        assert_eq!(conflicts[0].ours, "ferry = 50");
+        assert_eq!(conflicts[0].theirs, "ferry = 60");
+        assert_eq!(store.sheets.len(), 1);
+        assert!(store.pick_line(&id, &conflicts[0].line_id, true));
+        store.save().unwrap();
+        assert_eq!(store.current().text, "ferry = 60");
+        assert!(store.line_conflicts().is_empty());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "ferry = 60");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn an_existing_library_is_copied_before_it_becomes_a_document() {
+        let root = temp_root("migrate-doc");
+        std::fs::create_dir_all(root.join("pages")).unwrap();
+        std::fs::write(
+            root.join("pages").join("trip.txt"),
+            "# Trip Budget\nferry = 40\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("state.json"),
+            r#"{"order":["trip"],"active":"trip","cursors":{}}"#,
+        )
+        .unwrap();
+        let mut store = Store::load_in(Some(root.clone()), "");
+        assert_eq!(store.sheets.len(), 1);
+        assert!(store.current().text.contains("ferry = 40"));
+        assert!(root.join("sync-backup.zip").is_file());
+        assert!(root.join("library.automerge").is_file());
+        let backup = std::fs::read(root.join("sync-backup.zip")).unwrap();
+        let mut again = Store::load_in(Some(root.clone()), "");
+        assert_eq!(again.current().text, store.current().text);
+        assert_eq!(std::fs::read(root.join("sync-backup.zip")).unwrap(), backup);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_backup_that_cannot_be_written_leaves_the_pages_alone() {
+        let root = temp_root("migrate-held");
+        std::fs::create_dir_all(root.join("pages")).unwrap();
+        std::fs::write(
+            root.join("pages").join("trip.txt"),
+            "# Trip Budget\nferry = 40\n",
+        )
+        .unwrap();
+        std::fs::create_dir(root.join("sync-backup.zip")).unwrap();
+        let mut store = Store::load_in(Some(root.clone()), "");
+        assert!(store.current().text.contains("ferry = 40"));
+        assert!(!root.join("library.automerge").exists());
+        store.sheets[0].text = "# Trip Budget\nferry = 50\n".into();
+        store.sheets[0].mark_dirty();
+        store.save().unwrap();
+        assert!(!root.join("library.automerge").exists());
+        assert!(
+            std::fs::read_to_string(root.join("pages").join("trip.txt"))
+                .unwrap()
+                .contains("ferry = 50")
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn an_outside_edit_on_another_line_merges_into_the_page() {
+        let root = temp_root("outside-line");
+        let mut store = Store::load_in(Some(root.clone()), "# Trip Budget\nferry = 40");
+        store.save().unwrap();
+        let id = store.sheets[0].id.clone();
+        let path = root.join("pages").join(format!("{id}.txt"));
+        std::fs::write(&path, "# Trip Budget\nferry = 40\nmilk $3").unwrap();
+        store.sheets[0].text = "# Trip Budget\nferry = 50".into();
+        store.sheets[0].mark_dirty();
+        store.save().unwrap();
+        assert!(store.line_conflicts().is_empty());
+        assert_eq!(store.sheets.len(), 1);
+        assert_eq!(store.current().text, "# Trip Budget\nferry = 50\nmilk $3");
         let _ = std::fs::remove_dir_all(root);
     }
 

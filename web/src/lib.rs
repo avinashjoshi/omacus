@@ -852,6 +852,183 @@ fn to_json(results: Vec<omacus_engine::LineResult>) -> String {
     serde_json::to_string(&results).unwrap_or_default()
 }
 
+fn open_doc(bytes: &[u8]) -> Option<omacus_doc::Library> {
+    if bytes.is_empty() {
+        return Some(omacus_doc::Library::new());
+    }
+    omacus_doc::Library::load(bytes).ok()
+}
+
+fn conflicts_json(lib: &omacus_doc::Library) -> String {
+    let rows: Vec<_> = lib
+        .conflicts()
+        .into_iter()
+        .map(|conflict| {
+            json!({
+                "page_id": conflict.page_id,
+                "line_id": conflict.line_id,
+                "ours": conflict.ours,
+                "theirs": conflict.theirs,
+            })
+        })
+        .collect();
+    serde_json::to_string(&rows).unwrap_or_else(|_| "[]".into())
+}
+
+/// Build a document from pages that already exist. `json` is `{pages, folders}`.
+#[wasm_bindgen(js_name = docMigrate)]
+pub fn doc_migrate(json: &str) -> Vec<u8> {
+    let value: serde_json::Value = serde_json::from_str(json).unwrap_or(serde_json::json!({}));
+    let mut lib = omacus_doc::Library::new();
+    if let Some(pages) = value.get("pages").and_then(|p| p.as_array()) {
+        for page in pages {
+            let id = page.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            if id.is_empty() || id == "shared" {
+                continue;
+            }
+            let text = page.get("text").and_then(|v| v.as_str()).unwrap_or("");
+            lib.reconcile(id, text, None);
+            lib.note_written(id, text);
+        }
+    }
+    let mut seeds = Vec::new();
+    if let Some(folders) = value.get("folders").and_then(|p| p.as_array()) {
+        for folder in folders {
+            let Some(id) = folder.get("id").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            seeds.push(omacus_doc::FolderSeed {
+                id: id.to_string(),
+                name: folder
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                parent: folder
+                    .get("parent")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+            });
+        }
+    }
+    lib.set_folders(&seeds);
+    lib.save()
+}
+
+/// Current text of one page. Empty when the page is not in the document.
+#[wasm_bindgen(js_name = docSnapshot)]
+pub fn doc_snapshot(bytes: &[u8], page_id: &str) -> String {
+    open_doc(bytes)
+        .and_then(|lib| lib.snapshot(page_id))
+        .unwrap_or_default()
+}
+
+/// Replace one page with `text`, keeping line ids where the line is the same.
+#[wasm_bindgen(js_name = docApply)]
+pub fn doc_apply(bytes: &[u8], page_id: &str, text: &str) -> Vec<u8> {
+    let Some(mut lib) = open_doc(bytes) else {
+        return bytes.to_vec();
+    };
+    if page_id.is_empty() || page_id == "shared" {
+        return lib.save();
+    }
+    lib.reconcile(page_id, text, None);
+    lib.note_written(page_id, text);
+    lib.save()
+}
+
+/// Fold an outside copy of a page into the document.
+#[wasm_bindgen(js_name = docMergeDisk)]
+pub fn doc_merge_disk(bytes: &[u8], page_id: &str, local: &str, disk: &str) -> Vec<u8> {
+    let Some(mut lib) = open_doc(bytes) else {
+        return bytes.to_vec();
+    };
+    lib.reconcile(page_id, local, Some(disk));
+    lib.save()
+}
+
+/// Same-line conflicts, as JSON.
+#[wasm_bindgen(js_name = docConflicts)]
+pub fn doc_conflicts(bytes: &[u8]) -> String {
+    open_doc(bytes)
+        .map(|lib| conflicts_json(&lib))
+        .unwrap_or_else(|| "[]".into())
+}
+
+/// Choose one side of a conflict. `theirs` uses the other copy.
+#[wasm_bindgen(js_name = docPick)]
+pub fn doc_pick(bytes: &[u8], page_id: &str, line_id: &str, theirs: bool) -> Vec<u8> {
+    let Some(mut lib) = open_doc(bytes) else {
+        return bytes.to_vec();
+    };
+    lib.pick(page_id, line_id, theirs);
+    lib.save()
+}
+
+/// Drop a page from the document. The caller still has the file or the trash copy.
+#[wasm_bindgen(js_name = docRemove)]
+pub fn doc_remove(bytes: &[u8], page_id: &str) -> Vec<u8> {
+    let Some(mut lib) = open_doc(bytes) else {
+        return bytes.to_vec();
+    };
+    lib.remove_page(page_id);
+    lib.save()
+}
+
+/// Folder parent pointers. A loop is broken. A third level is refused.
+#[wasm_bindgen(js_name = docSetFolders)]
+pub fn doc_set_folders(bytes: &[u8], folders_json: &str) -> Vec<u8> {
+    let Some(mut lib) = open_doc(bytes) else {
+        return bytes.to_vec();
+    };
+    let value: serde_json::Value =
+        serde_json::from_str(folders_json).unwrap_or(serde_json::json!([]));
+    let mut seeds = Vec::new();
+    if let Some(folders) = value.as_array() {
+        for folder in folders {
+            let Some(id) = folder.get("id").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            seeds.push(omacus_doc::FolderSeed {
+                id: id.to_string(),
+                name: folder
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                parent: folder
+                    .get("parent")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+            });
+        }
+    }
+    lib.set_folders(&seeds);
+    lib.save()
+}
+
+/// Merge two documents. A different document keeps both pages.
+#[wasm_bindgen(js_name = docUnion)]
+pub fn doc_union(left: &[u8], right: &[u8]) -> Vec<u8> {
+    match (open_doc(left), open_doc(right)) {
+        (Some(a), Some(b)) => {
+            let mut union = a.union(b);
+            union.save()
+        }
+        (Some(mut a), None) => a.save(),
+        (None, Some(mut b)) => b.save(),
+        (None, None) => left.to_vec(),
+    }
+}
+
+/// The vault id stored on the document.
+#[wasm_bindgen(js_name = docVault)]
+pub fn doc_vault(bytes: &[u8]) -> String {
+    open_doc(bytes)
+        .map(|lib| lib.vault())
+        .unwrap_or_else(|| omacus_doc::VAULT_ID.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1035,6 +1212,45 @@ mod tests {
         assert!(fenced.contains("milk = $3"), "{fenced}");
         assert!(fenced.contains("a < b"), "{fenced}");
         assert!(!fenced.contains("<pre"), "{fenced}");
+    }
+
+    #[test]
+    fn a_migrated_page_merges_another_line_and_keeps_a_conflict() {
+        let bytes = doc_migrate(
+            r##"{"pages":[{"id":"trip","text":"# Trip Budget\nferry = 40\n"}],"folders":[{"id":"trips","name":"Trips"}]}"##,
+        );
+        assert_eq!(doc_vault(&bytes), "personal");
+        let edited = doc_apply(&bytes, "trip", "# Trip Budget\nferry = 50\n");
+        assert!(doc_snapshot(&edited, "trip").contains("ferry = 50"));
+        let merged = doc_merge_disk(
+            &bytes,
+            "trip",
+            "# Trip Budget\nferry = 50\n",
+            "# Trip Budget\nferry = 40\nmilk $3\n",
+        );
+        let snap = doc_snapshot(&merged, "trip");
+        assert!(snap.contains("ferry = 50"), "{snap}");
+        assert!(snap.contains("milk $3"), "{snap}");
+        assert!(!snap.contains("ferry = 40\n"), "{snap}");
+        let conflicted = doc_merge_disk(
+            &bytes,
+            "trip",
+            "# Trip Budget\nferry = 50\n",
+            "# Trip Budget\nferry = 60\n",
+        );
+        let rows: serde_json::Value = serde_json::from_str(&doc_conflicts(&conflicted)).unwrap();
+        assert_eq!(rows[0]["ours"], "ferry = 50");
+        assert_eq!(rows[0]["theirs"], "ferry = 60");
+        let picked = doc_pick(
+            &conflicted,
+            rows[0]["page_id"].as_str().unwrap(),
+            rows[0]["line_id"].as_str().unwrap(),
+            true,
+        );
+        assert!(doc_snapshot(&picked, "trip").contains("ferry = 60"));
+        assert!(doc_conflicts(&picked) == "[]");
+        let again = doc_apply(&picked, "trip", &doc_snapshot(&picked, "trip"));
+        assert!(doc_snapshot(&again, "trip").contains("ferry = 60"));
     }
 
     #[test]

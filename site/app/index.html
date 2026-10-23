@@ -158,6 +158,20 @@
           <button class="btn small" type="button" data-confirm-no>Cancel</button>
         </div>
       </div>
+      <div class="confirm" hidden data-pick role="dialog" aria-modal="true" aria-labelledby="pick-title">
+        <p id="pick-title" data-pick-title>Pick one line</p>
+        <p class="confirm-note" data-pick-detail>This line was changed in two places.</p>
+        <div data-pick-lines>
+          <p class="pick-label">This window</p>
+          <p class="pick-line" data-pick-ours></p>
+          <p class="pick-label">The other copy</p>
+          <p class="pick-line" data-pick-theirs></p>
+        </div>
+        <div>
+          <button class="btn small primary" type="button" data-pick-keep>Keep this line</button>
+          <button class="btn small" type="button" data-pick-other>Use the other line</button>
+        </div>
+      </div>
       <div class="confirm" hidden data-move role="dialog" aria-modal="true" aria-label="Move to folder">
         <p>Move to folder</p>
         <div class="move-list" data-move-list></div>

@@ -267,6 +267,8 @@ The page switcher and folder rename use the same frame with tighter padding. The
 Do: one question, two actions.
 Don't: a third button that repeats Cancel, or a dialog wider than the sentence needs. 380px is enough for replace and handle. 340px is enough for delete.
 
+Pick one line uses the same frame at 380px. It shows the two copies of one line and two actions: Keep this line, then Use the other line. A locked page asks Pick one copy and does not show the locked text.
+
 On a phone, Settings and About are one full-width sheet that starts at the bottom of the top bar. The title and Close stay on screen, and the sheet clears the home indicator. A wide window keeps the centered card.
 
 ### Toasts
