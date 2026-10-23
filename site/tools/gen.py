@@ -184,7 +184,7 @@ NAV = [("/#features", "Features"), ("/use-cases/", "Use cases"), ("/guides/", "G
        ("https://app.omacus.com", "Web app"),
        ("https://github.com/avinashjoshi/omacus", "GitHub")]
 FOOTER = [("/docs/", "Docs"), ("/guides/", "Guides"), ("/use-cases/", "Use cases"),
-          ("/updates/", "Updates"), ("/story/", "Story"), ("/sync/", "Sync"), ("/privacy/", "Privacy"),
+          ("/updates/", "Updates"), ("/story/", "Story"), ("/privacy/", "Privacy"),
           ("https://github.com/avinashjoshi/omacus/issues/new/choose", "Report an issue"),
           ("https://github.com/avinashjoshi/omacus", "GitHub")]
 
@@ -511,9 +511,9 @@ def download_cards(indent):
 
   <article class="dl" id="windows">
     <header><svg aria-hidden="true"><use href="/img/sprite.svg#windows"/></svg><h3>Windows <small>64-bit</small></h3></header>
-    <p>The installer puts Omacus in Start and opens it, with no admin prompt. It updates itself. A portable <code>omacus.exe</code> is there too.</p>
-    <div class="links">{btn(f"{DL}/omacus-windows-x86_64-setup.exe", "download", "Download installer", "btn primary")}{btn(f"{DL}/omacus-windows-x86_64.zip", "download", "Portable .zip")}</div>
-    <p class="note">Omacus isn't signed yet, so a downloaded installer may get a SmartScreen warning: choose <b>More info → Run anyway</b>.</p>
+    <p>A single portable <code>omacus.exe</code>. Unzip it anywhere and run it; pin it to Start if you like. It updates itself.</p>
+    <div class="links">{btn(f"{DL}/omacus-windows-x86_64.zip", "download", "Download .zip", "btn primary")}</div>
+    <p class="note">If SmartScreen warns about an unknown publisher, choose <b>More info → Run anyway</b>.</p>
   </article>
 
   <article class="dl" id="linux">
@@ -601,11 +601,11 @@ def fill_downloads():
 
 def sitemap(paths):
     entries = []
-    for p in ["/", "/docs/", "/updates/", "/story/", "/sync/"] + paths:
+    for p in ["/", "/docs/", "/updates/", "/story/"] + paths:
         extra = ""
         if p == "/":
             extra = "".join(f"\n    <image:image><image:loc>https://omacus.com/img/screens/{n}.webp</image:loc></image:image>"
-                            for n in ("examples-dark", "web-examples", "matte-black", "tokyo-night", "help-syntax"))
+                            for n in ("matte-black", "tokyo-night", "help-syntax"))
         entries.append(f"  <url>\n    <loc>https://omacus.com{p}</loc>\n    <lastmod>{{{{lastmod}}}}</lastmod>{extra}\n  </url>")
     (SITE / "sitemap.xml").write_text(
         '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"\n'

@@ -312,13 +312,6 @@ The page uses the same marketing frame as the updates page: a kicker, a serif wo
 Do: use the marketing tokens. Follow the 4px spacing scale and the radius scale. Paragraphs use `--prose-gap`; a section heading stays on the larger steps. Keep one accent. Write in the first person, plain and short.
 Don't: hardcode a count or a date in the page, point the page at `--app-*`, or put a hex color in `site.css`.
 
-### Coming soon
-
-`omacus.com/sync` and the band on the homepage. A pill says Coming soon. The page describes end-to-end encrypted sync: named vaults (Personal, Family, Work), a 24-word recovery phrase, devices that stay unlocked once linked, offline use, and history. It does not offer a form, a sign-up, or a waitlist. The phrase shown on the page is an example, labeled as one.
-
-Do: use the marketing tokens. One accent. Say that this version does not sync. Paragraphs on the sync page and in this band use `--prose-gap`. Don't give them a margin of their own.
-Don't: collect an email, or describe sync as something the app already does. The launch video may show it as a feature; the website does not.
-
 ### Preview and PDF typography
 
 The preview is a document: title at 16px, body in the proportional face, answers in brackets in the accent (or `--print-accent` / `ANSWER_INK` when printed). Edit is a primary button. Print and Export PDF are quiet buttons. "Delete forever" on a trashed page is danger text, not a filled button, so Restore stays the one primary action.

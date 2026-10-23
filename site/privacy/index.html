@@ -118,7 +118,7 @@
     <p class="lead">Omacus has no account, no ads and no analytics, and your pages never leave your device unless you share them. This page lists everything Omacus sends over the network, and why.</p>
 <h2 id="desktop">The desktop app</h2>
     <ul>
-      <li><strong>Your pages</strong> are plain text files in a folder on your computer (see <a href="/docs/#files">where files live</a>). They are never uploaded. This version does not sync. <a href="/sync/">Sync</a> describes a later, end-to-end encrypted way to keep named vaults across devices. It is not built yet, and this site does not collect an email for it.</li>
+      <li><strong>Your pages</strong> are plain text files in a folder on your computer (see <a href="/docs/#files">where files live</a>). They are never uploaded.</li>
       <li><strong>Exchange rates.</strong> Omacus downloads the latest rates from <a href="https://www.exchangerate-api.com/docs/free">open.er-api.com</a> at most every 12 hours while you use it, and keeps them on disk so currency math works offline. The request carries nothing from your pages.</li>
       <li><strong>Checking for updates.</strong> Omacus asks GitHub for the latest version number when it starts (at most once an hour) and every 4 hours while it's open. Put <code>check_for_updates = false</code> in <code>settings.toml</code> to turn that off. A new version is downloaded, from GitHub, only when you choose <em>Update now</em> or run <code>omacus update</code>.</li>
       <li><strong>Nothing else.</strong> No telemetry, no crash reports, no usage statistics.</li>
@@ -171,7 +171,6 @@
       <a href="/use-cases/">Use cases</a>
       <a href="/updates/">Updates</a>
       <a href="/story/">Story</a>
-      <a href="/sync/">Sync</a>
       <a href="/privacy/">Privacy</a>
       <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">Report an issue</a>
       <a href="https://github.com/avinashjoshi/omacus">GitHub</a>

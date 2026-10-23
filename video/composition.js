@@ -20,15 +20,13 @@ const SCENES = [
   { id: "hook", min: 3.6, lead: 0.5, tail: 0.3, vo: "You think in sentences. Your calculator doesn't." },
   { id: "intro", min: 5.6, vo: "Meet Omacus. Write math like a note, and every answer appears as you type." },
   { id: "currency", min: 4.8, vo: "Split a trip in yen, dollars and euros. Live rates, even offline." },
-  { id: "montage", min: 6.4, lead: 0.3, tail: 0.2, vo: "Time zones. Tips. Splits. Runway. Countdowns. Hex. Say it the way you'd say it." },
+  { id: "montage", min: 6.4, lead: 0.3, tail: 0.2, vo: "Time zones. Tips. Splits. Runway. Countdowns. Hex. Just say it the way you'd say it." },
   { id: "invoice", min: 5.4, vo: "Name a number once. Change it, and everything below updates." },
-  { id: "library", min: 6.2, vo: "A fresh library opens with examples. A trip, the groceries, and a monthly total that reads another page." },
-  { id: "keys", min: 5.6, vo: "On Omarchy, one hotkey opens it. Click any answer to copy. Every page saves itself." },
-  { id: "cli", min: 5.0, vo: "Live in the terminal? Pipe a whole page straight in." },
-  { id: "share", min: 6.0, vo: "Share any page as a link. It opens live, even on your phone." },
-  { id: "sync", min: 7.2, vo: "Sync keeps named vaults on every device you link. A recovery phrase restores them. The pages stay encrypted, even from us." },
+  { id: "keys", min: 5.6, vo: "On Omarchy, one hotkey opens it. Click any answer to copy. Every sheet saves itself." },
+  { id: "cli", min: 5.0, vo: "Live in the terminal? Pipe a whole sheet straight in." },
+  { id: "share", min: 6.0, vo: "Share any sheet as a link. It opens live, even on your phone." },
   { id: "themes", min: 5.0, vo: "It wears your Omarchy theme, and switches when you do." },
-  { id: "platforms", min: 5.2, vo: "Free, open source, no account. Linux, macOS, Windows, and the web, even offline." },
+  { id: "platforms", min: 5.0, vo: "Free, open source, no account. Linux, macOS, Windows, and the web." },
   { id: "end", min: 5.6, hold: 2.8, stab: 0.3, say: "[confident] Omacus. [warm] Math... the way YOU write it.", vo: "Omacus. Math, the way you write it." },
 ];
 
@@ -185,12 +183,6 @@ function scheduleTyping(tl) {
   [1.45, 1.6, 1.75].forEach((s) => tl.events.push({ t: at("invoice", s), kind: "key" }));
   for (let i = 0; i < 10; i++) tl.events.push({ t: at("invoice", 2.0 + i * 0.07), kind: "roll" });
 
-  // Examples: Trip Budget types, then Monthly budget is already there, reading @trip.total.
-  tl.events.push({ t: at("library", -0.05), kind: "whoosh" });
-  typeLines(tl, "trip", 0, DATA.trip.lines.length - 1, at("library", 0.25), at("library", 2.5));
-  tl.events.push({ t: at("library", 2.7), kind: "swish" });
-  tl.events.push({ t: at("library", 3.15), kind: "pop", big: true });
-
   // Keys: Super+Ctrl+Alt+= and the window pops up; click an answer to copy; hop between sheets.
   // The click and the hops follow the narration ("... hotkey opens it. Click ... Every sheet ...").
   const kw = (w, fallback) => {
@@ -229,11 +221,6 @@ function scheduleTyping(tl) {
   for (let i = 0; i < extraLine.length; i++) phoneTimes.push(at("share", SHARE.typeAt + i * 0.05));
   phoneTimes.forEach((ct) => tl.events.push({ t: ct, kind: "key" }));
   tl.events.push({ t: phoneTimes.at(-1) + 0.12, kind: "pop" });
-  // Sync: vaults, then the recovery phrase, then the two devices.
-  tl.events.push({ t: at("sync", -0.08), kind: "whoosh" });
-  [0.35, 0.55, 0.75].forEach((s) => tl.events.push({ t: at("sync", s), kind: "tick" }));
-  tl.events.push({ t: at("sync", 2.4), kind: "pop" });
-  tl.events.push({ t: at("sync", 4.6), kind: "swish" });
   // Themes: a whoosh per theme.
   for (let i = 0; i < THEMES.length; i++) tl.events.push({ t: at("themes", themeTime(i)), kind: "swish" });
   // Install command.
@@ -374,7 +361,6 @@ function setupStatic() {
   document.querySelectorAll(".word").forEach((el) => (el.innerHTML = [...el.textContent].map((c) => `<span>${c}</span>`).join("")));
   $("#ver").textContent = `v${DATA.version}`;
   $("#sheets").innerHTML = DATA.sheets.map((s) => `<div class="sheet">${esc(s)}</div>`).join("");
-  $("#sync .phrase").innerHTML = PHRASE.map((w, i) => `<span>${i + 1} ${esc(w)}</span>`).join("");
   const sprite = (id) => `<svg aria-hidden="true"><use href="/site/img/sprite.svg#${id}"/></svg>`;
   $("#platforms").innerHTML = `
     <div class="icons">
@@ -420,7 +406,6 @@ function render(t) {
   renderMontage(t, local("montage"), sc.montage.dur);
   renderTerm(t, local("cli"), sc.cli.dur);
   renderPhone(t, local("share"), sc.share.dur);
-  renderSync(local("sync"), sc.sync.dur);
   renderThemes(local("themes"), sc.themes.dur);
   renderPlatforms(t, local("platforms"), sc.platforms.dur);
   renderEnd(local("end"), sc.end.dur);
@@ -488,8 +473,6 @@ function sheetView(t) {
   if (t >= at("share")) return { key: "kyoto", active: 0, prev: 0, since: -1, full: true };
   if (t >= at("keys", KEYS.jumps[1])) return { key: "kyoto", active: 0, prev: 1, since: at("keys", KEYS.jumps[1]), full: true };
   if (t >= at("keys", KEYS.jumps[0])) return { key: "quick", active: 1, prev: 2, since: at("keys", KEYS.jumps[0]), full: true };
-  if (t >= at("library", 2.7)) return { key: "monthly", active: 2, prev: 0, since: at("library", 2.7), full: true, library: true };
-  if (t >= at("library")) return { key: "trip", active: 0, prev: 0, since: at("library"), library: true };
   if (t >= at("invoice")) return { key: "invoice", active: 2, prev: 2, since: -1, full: true };
   return { key: "kyoto", active: 0, prev: 0, since: -1 };
 }
@@ -515,7 +498,6 @@ function renderWindow(t) {
     [sc.montage.start - 0.05, sc.invoice.start],
     [sc.keys.start, sc.keys.start + KEYS.pop],
     [sc.cli.start - 0.05, sc.share.start],
-    [sc.sync.start - 0.05, sc.themes.start],
   ];
   let gone = 0;
   let back = 1;
@@ -552,7 +534,7 @@ function renderWindow(t) {
   const copying = sKeys >= 0 && sKeys < KEYS.jumps[0];
   const toastAt = copying ? KEYS.click : SHARE.click;
   const sToast = copying ? sKeys : sShare;
-  toast.innerHTML = copying ? `Copied <b>${esc(DATA.invoice175.results[8])}</b>` : "Link copied. <span>Anyone with it can open this page.</span>";
+  toast.innerHTML = copying ? `Copied <b>${esc(DATA.invoice175.results[8])}</b>` : "Link copied. <span>Anyone with it can open this sheet.</span>";
   const tIn = prog(sToast, toastAt + 0.1, toastAt + 0.4);
   const tOut = prog(sToast, toastAt + (copying ? 1.0 : 2.4), toastAt + (copying ? 1.25 : 2.7));
   show(toast, easeOut(tIn) * (1 - tOut), `translateY(${lerp(-10, 0, easeOutExpo(tIn))}px)`);
@@ -560,17 +542,7 @@ function renderWindow(t) {
   stage.style.transformOrigin = "50% 60%";
 
   const view = sheetView(t);
-  // The example library replaces the sidebar for that one scene, then the earlier list returns.
-  const sideMode = view.library ? "library" : "pages";
-  if (sideMode !== renderWindow.sideMode) {
-    $("#sheets").innerHTML = view.library
-      ? `<div class="folder">Examples</div>${["Trip Budget", "Groceries", "Monthly budget", "Cooking", "Time zones"]
-          .map((s) => `<div class="sheet in">${esc(s)}</div>`)
-          .join("")}<div class="sheet">Welcome to Omacus</div>`
-      : DATA.sheets.map((s) => `<div class="sheet">${esc(s)}</div>`).join("");
-    renderWindow.sideMode = sideMode;
-  }
-  // Sidebar: the highlight glides to the new page; the content slides in.
+  // Sidebar: the highlight glides to the new sheet; the content slides in.
   const rows = [...document.querySelectorAll("#side .sheet")];
   rows.forEach((el, i) => el.classList.toggle("on", i === view.active));
   const glide = easeOutExpo(prog(t, view.since, view.since + 0.45));
@@ -652,7 +624,7 @@ function renderSwitcher(s) {
   scrim.style.opacity = vis;
   if (vis <= 0) return;
   const q = "kyo".slice(0, s < 1.0 ? 0 : s < 1.17 ? 1 : s < 1.32 ? 2 : 3);
-  sw.querySelector(".q").innerHTML = q ? esc(q) + '<span class="caret" style="height:26px;width:3px;vertical-align:-4px"></span>' : '<span class="hint">Go to page…</span>';
+  sw.querySelector(".q").innerHTML = q ? esc(q) + '<span class="caret" style="height:26px;width:3px;vertical-align:-4px"></span>' : '<span class="hint">Go to sheet…</span>';
   const titles = DATA.sheets;
   const rows = q ? titles.filter((x) => x.toLowerCase().includes(q) || [...q].every((c) => x.toLowerCase().includes(c))) : titles.slice(0, 5);
   sw.querySelector(".rows").innerHTML = rows
@@ -684,11 +656,6 @@ function cameraAt(t) {
   k("invoice", 2.25, { x: 1200, y: L(5).y }, 1.48, punch);
   k("invoice", 3.3, { x: 1200, y: L(5).y }, 1.48);
   k("invoice", sc.invoice.dur, { x: 1120, y: L(4.5).y }, 1.14);
-  k("library", 0.2, full, 1);
-  k("library", 2.2, { x: 1180, y: L(5).y }, 1.35, punch);
-  k("library", 2.65, full, 1);
-  k("library", 3.3, { x: 1200, y: L(4).y }, 1.42, punch);
-  k("library", sc.library.dur, { x: 1140, y: L(4).y }, 1.2);
   k("keys", 0.01, full, 1, () => 1);
   // Click to copy: lean in on the answer.
   k("keys", KEYS.cursorIn, full, 1);
@@ -841,31 +808,6 @@ function renderTerm(t, s, dur) {
   if (t >= CLI.outAt[1] + 0.3) html += `<div><span class="p">~ $ </span>${Math.floor(s * 2.4) % 2 === 0 ? '<span class="caret"></span>' : ""}</div>`;
   void last;
   el.querySelector(".body").innerHTML = html;
-}
-
-const PHRASE = "amber birch cedar drift ember fern grove harbor iris juniper kettle lantern meadow north orchard pebble quartz river spruce timber umber valley willow yarrow".split(" ");
-
-function renderSync(s, dur) {
-  const el = $("#sync");
-  if (s < -0.2 || s > dur + 0.1) return show(el, 0);
-  const pIn = prog(s, 0, 0.55);
-  const out = prog(s, dur - 0.45, dur);
-  show(el, easeOut(prog(s, 0, 0.25)) * (1 - easeIn(out)), `translateY(${lerp(40, 0, easeOutExpo(pIn))}px) scale(${lerp(0.96, 1, easeOutExpo(pIn))})`);
-  el.querySelectorAll(".vault").forEach((card, i) => {
-    const p = prog(s, 0.2 + i * 0.16, 0.55 + i * 0.16);
-    card.style.opacity = easeOut(p);
-    card.style.transform = `translateY(${lerp(18, 0, easeOutExpo(p))}px)`;
-  });
-  const words = el.querySelectorAll(".phrase span");
-  words.forEach((word, i) => {
-    const p = prog(s, 1.7 + i * 0.06, 2.05 + i * 0.06);
-    word.style.opacity = easeOut(p);
-  });
-  el.querySelectorAll(".device").forEach((device, i) => {
-    const p = prog(s, 4.15 + i * 0.2, 4.7 + i * 0.2);
-    device.style.opacity = easeOut(p);
-    device.style.transform = `translateY(${lerp(16, 0, easeOutExpo(p))}px)`;
-  });
 }
 
 function renderThemes(s, dur) {

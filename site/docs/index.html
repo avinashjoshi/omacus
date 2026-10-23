@@ -168,7 +168,6 @@
     <a href="#notes">Notes &amp; prose</a>
     <p>Using it</p>
     <a href="#pages">Pages</a>
-    <a href="#folders">Folders, locks &amp; handles</a>
     <a href="#shortcuts">Keyboard shortcuts</a>
     <a href="#autocomplete">Autocomplete</a>
     <a href="#themes">Themes</a>
@@ -310,7 +309,7 @@ total</pre>
     <p class="guide-link">More examples in the guide: <a href="/guides/currency/">Convert currencies as you type</a>.</p>
 
     <h2 id="variables">Variables</h2>
-    <p>Write <code>name = value</code> to remember something for the rest of the page. Variable names are letters, digits and underscores. The name where you define it is one colour, and a later use of it is another. Keywords and units have a third. Hover a name, or a number such as <code>1.5k</code>, to see its value. Click an answer to copy it. A value from another page is <code>@handle.variable</code>, for example <code>@trip.total</code>. The handle is the page's short name. See <a href="#folders">Folders, locks &amp; handles</a>.</p>
+    <p>Write <code>name = value</code> to remember something for the rest of the page. Variable names are letters, digits and underscores. The name where you define it is one colour, and a later use of it is another. Keywords and units have a third. Hover a name, or a number such as <code>1.5k</code>, to see its value. Click an answer to copy it.</p>
   <!-- ex:variables -->
   <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
@@ -458,18 +457,9 @@ total</pre>
       <li><strong>Always saved.</strong> Every change is written within half a second, and again when you close. There is no save command and nothing to lose.</li>
       <li><strong>Picks up where you left off.</strong> Order, the open page, each page's cursor, and whether the sidebar is expanded (and how wide) all come back next time. Drag the sidebar's right edge to resize it. <kbd>Ctrl B</kbd> collapses it to a thin rail; click the logo there to open it again.</li>
       <li><strong>Deleting is safe.</strong> Deleted pages move to Recently deleted (a <code>trash</code> folder next to your pages). Click one to read it; Restore puts it back, and Delete forever removes it.</li>
-      <li><strong>Plain text.</strong> Each page is a <code>.txt</code> file, so you can search it or back it up with anything.</li>
+      <li><strong>Plain text.</strong> Each page is a <code>.txt</code> file, so you can search, sync or back them up with anything.</li>
     </ul>
-    <p>The <strong>⋯</strong> above a page, the <strong>⋯</strong> on its row in the sidebar, and a right-click on that row all open the same menu: Rename, Share link, Copy / Export (Copy with answers, Copy as Markdown table, Preview), Handle…, Move up, Move down, Move to folder…, the lock actions, and Delete page. The sidebar footer shows the logo, the version, Settings, and help.</p>
-    <p>The first time Omacus opens, and only when you have no pages yet, it adds the welcome page and an Examples folder: Trip Budget, Groceries, Monthly budget, Cooking, and Time zones. Monthly budget reads <code>@groceries.total</code> and <code>@trip.total</code>. Deleting those pages does not bring them back. A library that already has pages is left as it is.</p>
-
-    <h2 id="folders">Folders, locks &amp; handles</h2>
-    <ul>
-      <li><strong>Folders.</strong> Pages can sit in folders, two levels deep. Drag a page onto a folder, or choose Move to folder… . A folder's menu adds a page, adds a nested folder, renames the folder, or deletes it. New folder is also in the sidebar.</li>
-      <li><strong>A password lock.</strong> Lock… on a page or a folder asks you to choose a password, then locks it. Save that password in a password manager. The file is sealed with Argon2id and XChaCha20-Poly1305. A forgotten password cannot be recovered. Unlock… opens it for this session. Change password… and Remove lock… need the current password, and removing a lock keeps the page. Lock now seals every open page and folder. Settings chooses how soon an unlocked page locks again: 1, 5, 15, 30, or 60 minutes, or Never. Quitting locks them too. The command line and MCP skip a locked page unless you pass its password.</li>
-      <li><strong>Handles.</strong> Each page has a short name taken from its title, so Trip Budget is <code>trip</code>. Handle… changes it. Another page reads a value with <code>@handle.variable</code>. <code>@trip.total</code> is the last assignment of <code>total</code> on that page. Typing <code>@</code> lists pages. F2 renames a variable on this page and in <code>@handle.name</code> on the others.</li>
-    </ul>
-    <p>End-to-end encrypted sync, with named vaults and a recovery phrase, is described at <a href="/sync/">Sync</a>. It is not in this version. Pages stay on this device.</p>
+    <p>The <strong>⋯</strong> above a page, the <strong>⋯</strong> on its row in the sidebar, and a right-click on that row all open the same menu: <em>New page</em>, <em>Move up</em>, <em>Move down</em>, <em>Copy with answers</em>, <em>Copy as Markdown table</em>, <em>Share link</em> and <em>Delete page</em>.</p>
 
     <h2 id="sharing">Sharing &amp; the web app</h2>
     <p>Any page can travel as a link. <em>Share link</em> in the <strong>⋯</strong> menu, or <kbd>Ctrl Shift L</kbd>, copies one like <code>app.omacus.com#v1.U1bwyS…</code>. Whoever opens it sees the page in <a href="https://app.omacus.com">Omacus in the browser</a>, with every answer worked out live by the same engine as the desktop app.</p>
@@ -486,8 +476,7 @@ total</pre>
       <li>From a terminal: <code>omacus open 'https://app.omacus.com#v1.…'</code>.</li>
     </ul>
     <h3 id="web-app">The web app</h3>
-    <p><a href="https://app.omacus.com" target="_blank" rel="noopener">app.omacus.com</a> is Omacus in any modern browser, on a computer or a phone, with nothing to install. Pages you make there are saved in that browser on that device, and are never uploaded. The same first-run Examples folder, folders, locks, and <code>@handle.variable</code> references are there. Export all pages from Settings as a <code>.zip</code> of <code>.txt</code> files, the same format as the desktop app's pages folder, and import them anywhere.</p>
-    <p>On a phone the top bar is a solid strip with the page name. Pages opens as a drawer, with Settings and the version at the bottom. The browser keeps a smaller set of shortcuts: <kbd>Ctrl B</kbd>, <kbd>Ctrl J</kbd>, <kbd>Alt ↑</kbd> / <kbd>Alt ↓</kbd>, <kbd>Ctrl Shift L</kbd>, <kbd>Ctrl ,</kbd>, <kbd>Ctrl \</kbd>, <kbd>Ctrl P</kbd>, and <kbd>F2</kbd>. Move to folder… and Lock… are in the ⋯ menu. New page is the + in the pages list. The web app's themes are Auto, Light, Dark, Paper, and Dusk.</p>
+    <p><a href="https://app.omacus.com" target="_blank" rel="noopener">app.omacus.com</a> is Omacus in any modern browser, on a computer or a phone, with nothing to install. Pages you make there are saved in that browser on that device, and are never uploaded. Export them from the ⋯ menu as a <code>.zip</code> of <code>.txt</code> files, the same format as the desktop app's pages folder, and import them anywhere.</p>
     <p>Chrome, Edge and Android can install it as an app (⋯ → <em>Install as an app</em>), and it works offline once opened. Cached exchange rates keep currency math working, and the page says when rates may be stale. On iPhone and iPad, choose Share → <em>Add to Home Screen</em>: Safari otherwise clears a site's data after seven days without a visit.</p>
 
     <h2 id="shortcuts">Keyboard shortcuts</h2>
@@ -512,7 +501,7 @@ total</pre>
         <tr><td><kbd>F2</kbd></td><td>Rename a variable, everywhere on the page. Enter applies, Esc cancels. Right-click a name for the same. On a phone, long-press the name or tap Rename</td></tr>
         <tr><td><kbd>Ctrl +</kbd> / <kbd>Ctrl −</kbd> / <kbd>Ctrl 0</kbd></td><td>Zoom in / out / reset</td></tr>
         <tr><td><kbd>F1</kbd> or <kbd>Ctrl /</kbd></td><td>Help: shortcuts, live syntax examples, tips</td></tr>
-        <tr><td><kbd>Ctrl ,</kbd></td><td>Settings: theme, answers column, lock again after, export folder, update checks</td></tr>
+        <tr><td><kbd>Ctrl ,</kbd></td><td>Settings: theme, answers column, update checks</td></tr>
         <tr><td><kbd>Ctrl \</kbd></td><td>Hide the answers column (answers sit after each line)</td></tr>
         <tr><td><kbd>Ctrl P</kbd></td><td>Preview the page. Print and Export PDF use that view</td></tr>
         <tr><td><kbd>Esc</kbd></td><td>Close the switcher, preview, help, settings, or a dialog</td></tr>
@@ -524,7 +513,7 @@ total</pre>
     <p>After two letters, Omacus suggests your page's variables, then keywords, time zones and units. Each row shows the kind and a short description. <kbd>Tab</kbd> accepts, <kbd>↑</kbd> <kbd>↓</kbd> choose, <kbd>Esc</kbd> dismisses. <kbd>Enter</kbd> starts a new line and does not accept a suggestion, so <code>3 km in</code> followed by Enter can't turn into <code>inch</code>. <kbd>Ctrl Space</kbd> opens the suggestions on purpose, and then <kbd>Enter</kbd> accepts the chosen one. Short connecting words like <code>in</code>, <code>to</code> and <code>of</code> never trigger suggestions.</p>
 
     <h2 id="themes">Themes</h2>
-    <p>Settings is a tab in the same window as About. <kbd>Ctrl ,</kbd> or the gear in the sidebar footer (and on the collapsed strip) opens that tab. Typing <code>settings</code> in the page switcher (<kbd>Ctrl J</kbd>) opens it too. The footer also shows the version; a dot there means a newer one is out. It chooses the theme, whether answers sit in a column, the PDF export folder, and whether Omacus checks for updates. The same choices are saved in <code>settings.toml</code> (see <a href="#files">where files live</a>). <kbd>Ctrl \</kbd> hides the answers column, so each answer sits after its line. The logo in the footer opens the About tab of that window.</p>
+    <p>Settings is a tab in the same window as About. <kbd>Ctrl ,</kbd>, the gear at the bottom of the sidebar (and of the collapsed strip), or Settings in a page's ⋯ menu opens that tab. Typing <code>settings</code> in the page switcher (<kbd>Ctrl J</kbd>) opens it too. It chooses the theme, whether answers sit in a column, the PDF export folder, and whether Omacus checks for updates. The same choices are saved in <code>settings.toml</code> (see <a href="#files">where files live</a>). <kbd>Ctrl \</kbd> hides the answers column, so each answer sits after its line. The logo opens the About tab of that window.</p>
     <p><strong>Auto</strong> picks colors in this order:</p>
     <ol>
       <li>Your own <code>theme.toml</code>, if you've made one.</li>
@@ -636,7 +625,7 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
     <h3>Who can see a page I share?</h3>
     <p>Anyone you give the link to. The page is inside the link itself, after the <code>#</code>, which browsers don't send to servers, so it isn't uploaded or stored anywhere. Don't share a link to a page you'd want kept private.</p>
     <h3>Is my data sent anywhere?</h3>
-    <p>Pages stay on your disk. This version does not sync. Omacus makes two kinds of request: one for exchange rates, and a check of the latest version number on GitHub. Neither sends anything about you or your pages, and the version check can be turned off with <code>check_for_updates = false</code> in <code>settings.toml</code> (see <a href="#files">Where files live</a>). <a href="/sync/">Sync</a> describes a later, end-to-end encrypted way to keep vaults across devices. It is not in this version.</p>
+    <p>No. Pages stay on your disk. Omacus makes two kinds of request: one for exchange rates, and a check of the latest version number on GitHub. Neither sends anything about you or your pages, and the version check can be turned off with <code>check_for_updates = false</code> in <code>settings.toml</code> (see <a href="#files">Where files live</a>).</p>
 
     <h2 id="how-it-works">How it works</h2>
     <p>Omacus is a single Rust program: one native window and one engine, shared by the app and the command line. Every keystroke re-evaluates the page from top to bottom. For each line:</p>
@@ -686,7 +675,6 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
       <a href="/use-cases/">Use cases</a>
       <a href="/updates/">Updates</a>
       <a href="/story/">Story</a>
-      <a href="/sync/">Sync</a>
       <a href="/privacy/">Privacy</a>
       <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">Report an issue</a>
       <a href="https://github.com/avinashjoshi/omacus">GitHub</a>

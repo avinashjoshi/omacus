@@ -237,9 +237,6 @@ struct State {
     /// Page id to handle. Kept for pages in Recently deleted, so a reference
     /// still names them. Absent in older `state.json`; those pages get one.
     handles: HashMap<String, String>,
-    /// The first-run examples have been offered. Stays set if they're deleted,
-    /// so a later launch does not put them back. Absent in older `state.json`.
-    seeded: bool,
 }
 
 /// Expanded sidebar width, and the range a drag is allowed to land in.
@@ -283,9 +280,6 @@ pub struct Store {
     pub sidebar: bool,
     pub sidebar_width: f32,
     handles: HashMap<String, String>,
-    /// See `State::seeded`. An older library is marked on its next launch, and
-    /// nothing is added to it.
-    seeded: bool,
     state_dirty: bool,
     deleted: Option<Deleted>,
     /// Titles of sheets that two windows changed at once, to tell the user.
@@ -307,9 +301,7 @@ pub fn data_root() -> Option<PathBuf> {
 
 impl Store {
     pub fn load(welcome: &str) -> Self {
-        let mut store = Self::load_in(data_root(), welcome);
-        store.seed_first_run();
-        store
+        Self::load_in(data_root(), welcome)
     }
 
     /// Pages already on disk. An empty library stays empty, so a command that
@@ -409,7 +401,6 @@ impl Store {
             sheets,
             tree,
             handles: state.handles,
-            seeded: state.seeded,
             state_dirty: false,
             deleted: None,
             conflicts: Vec::new(),
@@ -429,45 +420,6 @@ impl Store {
             .position(|s| s.id == state.active)
             .unwrap_or(0);
         store
-    }
-
-    /// Offer the example pages once, on a library that has never had any.
-    /// An existing library is only marked, so its pages stay as they are.
-    /// Deleting the examples does not bring them back.
-    fn seed_first_run(&mut self) {
-        if self.seeded {
-            return;
-        }
-        if self.pages_on_disk() || self.trash_on_disk() {
-            self.seeded = true;
-            self.state_dirty = true;
-            let _ = self.save();
-            return;
-        }
-        let welcome_id = self.sheets.first().map(|s| s.id.clone());
-        let Some(folder) = self.create_folder(None) else {
-            return;
-        };
-        self.rename_folder(&folder, "Examples");
-        for text in bundled_examples().iter().rev() {
-            self.new_sheet_in(Some(&folder), text);
-        }
-        if let Some(id) = welcome_id
-            && let Some(i) = self.sheets.iter().position(|s| s.id == id)
-        {
-            self.active = i;
-        }
-        self.seeded = true;
-        self.state_dirty = true;
-        let _ = self.save();
-    }
-
-    fn pages_on_disk(&self) -> bool {
-        self.dir.as_ref().is_some_and(|dir| dir_has_page(dir))
-    }
-
-    fn trash_on_disk(&self) -> bool {
-        self.trash_dir().is_some_and(|dir| dir_has_page(&dir))
     }
 
     pub fn side_entries(&self) -> Vec<SideEntry> {
@@ -1484,7 +1436,6 @@ impl Store {
             sidebar_width: Some(self.sidebar_width),
             tree: Some(self.tree.clone()),
             handles: self.handles.clone(),
-            seeded: self.seeded,
         };
         if let Ok(json) = serde_json::to_vec_pretty(&state)
             && let Err(e) = write_atomic(&dir.with_file_name("state.json"), &json)
@@ -2485,30 +2436,6 @@ fn migrate_single_sheet(root: &Path, dir: &Path) {
     }
 }
 
-/// The example pages, in sidebar order. The text lives in `site/app/examples.js`,
-/// which the web app imports, so the two can't drift.
-fn bundled_examples() -> Vec<String> {
-    let src = include_str!("../site/app/examples.js");
-    let mut pages = Vec::new();
-    let mut rest = src;
-    while let Some(i) = rest.find("text: `") {
-        rest = &rest[i + "text: `".len()..];
-        let Some(end) = rest.find('`') else {
-            break;
-        };
-        pages.push(rest[..end].to_string());
-        rest = &rest[end + 1..];
-    }
-    pages
-}
-
-fn dir_has_page(dir: &Path) -> bool {
-    std::fs::read_dir(dir).ok().is_some_and(|rd| {
-        rd.flatten()
-            .any(|e| e.path().extension().is_some_and(|ext| ext == "txt"))
-    })
-}
-
 /// Time plus a per-process counter. Time alone isn't unique: macOS's clock has
 /// microsecond resolution, so two sheets made back to back got the same id.
 fn new_id() -> String {
@@ -3202,149 +3129,6 @@ mod tests {
         let locked = std::fs::read_to_string(&path).unwrap();
         assert!(locked.starts_with("OMACUS-LOCK/1\n"), "{locked}");
         assert!(!locked.contains("Groceries"), "{locked}");
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    fn open_seeded(root: PathBuf, welcome: &str) -> Store {
-        let mut store = Store::load_in(Some(root), welcome);
-        store.seed_first_run();
-        store
-    }
-
-    #[test]
-    fn first_run_seeds_examples_beside_welcome_and_only_once() {
-        let root = temp_root("seed-once");
-        let welcome = "# Welcome to Omacus\n1 + 1";
-        let mut store = open_seeded(root.clone(), welcome);
-        assert!(store.seeded);
-        assert_eq!(store.current().heading(), "Welcome to Omacus");
-        let welcome_id = store.current().id.clone();
-        assert!(store.folder_of(&welcome_id).is_none());
-        let names: Vec<_> = store.folders().into_iter().map(|f| f.name).collect();
-        assert_eq!(names, ["Examples"]);
-        let titles: Vec<_> = store.sheets.iter().map(Sheet::heading).collect::<Vec<_>>();
-        for title in [
-            "Welcome to Omacus",
-            "Trip Budget",
-            "Groceries",
-            "Monthly budget",
-            "Cooking",
-            "Time zones",
-        ] {
-            assert!(titles.contains(&title.to_string()), "{titles:?}");
-        }
-        assert_eq!(titles.len(), 6);
-        let trip = store
-            .sheets
-            .iter()
-            .find(|s| s.heading() == "Trip Budget")
-            .map(|s| (s.id.clone(), s.handle.clone()))
-            .unwrap();
-        let groceries = store
-            .sheets
-            .iter()
-            .find(|s| s.heading() == "Groceries")
-            .map(|s| s.handle.clone())
-            .unwrap();
-        assert_eq!(trip.1, "trip");
-        assert_eq!(groceries, "groceries");
-        assert!(store.folder_of(&trip.0).is_some());
-        let monthly = store
-            .sheets
-            .iter()
-            .find(|s| s.heading() == "Monthly budget")
-            .map(|s| s.text.clone())
-            .unwrap();
-        assert!(monthly.contains("@trip.total"));
-        assert!(monthly.contains("@groceries.total"));
-
-        let again = open_seeded(root.clone(), welcome);
-        assert_eq!(again.sheets.len(), 6);
-        assert_eq!(
-            again
-                .sheets
-                .iter()
-                .map(|s| s.id.clone())
-                .collect::<Vec<_>>(),
-            store
-                .sheets
-                .iter()
-                .map(|s| s.id.clone())
-                .collect::<Vec<_>>()
-        );
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn deleted_examples_are_not_seeded_again() {
-        let root = temp_root("seed-delete");
-        let mut store = open_seeded(root.clone(), "# Welcome to Omacus");
-        let folder = store.folders()[0].id.clone();
-        store.delete_folder(&folder);
-        while store
-            .sheets
-            .iter()
-            .any(|s| s.heading() == "Welcome to Omacus")
-        {
-            let i = store
-                .sheets
-                .iter()
-                .position(|s| s.heading() == "Welcome to Omacus")
-                .unwrap();
-            store.delete(i);
-        }
-        store.save().unwrap();
-        let ids: Vec<_> = store.trashed().into_iter().map(|t| t.id).collect();
-        for id in ids {
-            store.purge(&id);
-        }
-        store.save().unwrap();
-
-        let again = open_seeded(root.clone(), "# Welcome to Omacus");
-        let titles: Vec<_> = again.sheets.iter().map(Sheet::heading).collect::<Vec<_>>();
-        assert!(again.folders().is_empty(), "{titles:?}");
-        assert!(!titles.iter().any(|t| t == "Trip Budget"), "{titles:?}");
-        assert!(!titles.iter().any(|t| t == "Groceries"), "{titles:?}");
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn an_existing_library_is_marked_and_not_overwritten() {
-        let root = temp_root("seed-keep");
-        let pages = root.join("pages");
-        std::fs::create_dir_all(&pages).unwrap();
-        let body = "# Mine\n2 + 2\n";
-        std::fs::write(pages.join("mine.txt"), body).unwrap();
-        std::fs::write(
-            root.join("state.json"),
-            r#"{"order":["mine"],"active":"mine","cursors":{}}"#,
-        )
-        .unwrap();
-        let mut store = open_seeded(root.clone(), "# Welcome to Omacus");
-        assert!(store.seeded);
-        assert!(store.folders().is_empty());
-        assert_eq!(store.sheets.len(), 1);
-        assert_eq!(store.current().heading(), "Mine");
-        assert_eq!(
-            std::fs::read_to_string(pages.join("mine.txt")).unwrap(),
-            body
-        );
-
-        store.delete(0);
-        store.save().unwrap();
-        for id in store
-            .trashed()
-            .into_iter()
-            .map(|t| t.id)
-            .collect::<Vec<_>>()
-        {
-            store.purge(&id);
-        }
-        store.save().unwrap();
-        let again = open_seeded(root.clone(), "# Welcome to Omacus");
-        let titles: Vec<_> = again.sheets.iter().map(Sheet::heading).collect::<Vec<_>>();
-        assert!(!titles.iter().any(|t| t == "Trip Budget"), "{titles:?}");
-        assert!(again.folders().is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
 }

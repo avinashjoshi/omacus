@@ -9,8 +9,6 @@ const APP_FILES = [
   "index.html",
   "app.js",
   "tree.js",
-  "seed.js",
-  "examples.js",
   "app.css",
   "editor.js",
   "worker.js",

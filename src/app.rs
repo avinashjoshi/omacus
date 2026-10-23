@@ -47,7 +47,6 @@ const WELCOME: &str = "\
 // Type on the left, results appear on the right.
 // Click a result to copy it. Press F1 for help and shortcuts.
 // Pages are listed in the sidebar. Ctrl+B collapses it, Ctrl+J jumps to one.
-// The Examples folder has a few short pages. Monthly budget reads @trip.total.
 
 Rent: $1,450
 Groceries $320 + $85
