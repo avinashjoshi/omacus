@@ -58,8 +58,8 @@ test.describe("editor focus stays a page", () => {
         await focusEditor(page);
         expectSeamless(await editorFrame(page));
 
-        await page.locator("[data-menu-button]").click();
-        await page.getByRole("menuitem", { name: "New page" }).click();
+        if (viewport.label === "mobile") await page.locator(".sheets-toggle").click();
+        await page.locator('.side-head [data-action="new"]').click();
         await expect(page.locator("[data-empty]")).toBeVisible();
         await expect(page.locator("[data-empty]")).toContainText("Pages are in the sidebar");
         await page.waitForFunction(() => document.querySelector(".cm-editor")?.classList.contains("cm-focused"));
@@ -79,7 +79,10 @@ test.describe("editor focus stays a page", () => {
           await page.screenshot({ path: `${shots}/editor-focus-after-mobile-${name}.png` });
         }
 
-        if (viewport.label === "mobile") await page.locator(".sheets-toggle").click();
+        if (viewport.label === "mobile") {
+          await page.evaluate(() => document.body.classList.remove("drawer"));
+          await page.locator(".sheets-toggle").click();
+        }
         await page.locator(".side-name", { hasText: "Welcome to Omacus" }).click();
         await expect(page.locator(".cm-content")).toContainText("Welcome");
         await page.waitForFunction(() => document.querySelector(".cm-editor")?.classList.contains("cm-focused"));

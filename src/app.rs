@@ -164,7 +164,8 @@ enum SheetAction {
     CopyMarkdown(usize),
     /// Copy a link that opens the sheet in a browser (or in Omacus).
     Share(usize),
-    Settings,
+    /// Rename the variable under the caret. F2.
+    Rename,
     /// Rendered markdown, with each answer in brackets. Ctrl+P.
     Preview,
     /// Edit the page's `@handle` name.
@@ -204,7 +205,6 @@ enum LockAsk {
 struct PageMenu {
     covered: bool,
     lock: Option<bool>,
-    any_open: bool,
 }
 
 /// What a sidebar drag is carrying.
@@ -957,8 +957,10 @@ rental = rent + 50
                 }
                 return;
             }
-            SheetAction::Settings => {
-                self.open_settings();
+            SheetAction::Rename => {
+                self.rename_at = Some(self.store.current().cursor);
+                self.focus_editor = false;
+                self.popup = None;
                 return;
             }
             SheetAction::Preview => {
@@ -1089,7 +1091,6 @@ rental = rent + 50
         PageMenu {
             covered: self.store.folder_covers_page(id),
             lock: self.store.page_lock(id),
-            any_open: self.store.any_unlocked(),
         }
     }
 
@@ -1145,11 +1146,17 @@ rental = rent + 50
                         .change_folder_password(id, &self.lock_current, &self.lock_password)
                 }
             }
-            LockAsk::RemovePage(id) => self.store.remove_page_lock(id),
+            LockAsk::RemovePage(id) => self.store.remove_page_lock(id, &self.lock_password),
             LockAsk::RemoveFolder(id) => self.store.remove_folder_lock(id),
         };
         match result {
             Ok(()) => {
+                let created = matches!(ask, LockAsk::CreatePage(_) | LockAsk::CreateFolder(_));
+                if created {
+                    self.lock_ask = None;
+                    self.lock_everything();
+                    return;
+                }
                 let unlocked = matches!(ask, LockAsk::UnlockFolder(_));
                 let folder = self.pending_new.clone();
                 self.lock_ask = None;
@@ -2903,6 +2910,7 @@ rental = rent + 50
             self.open_rename(at);
             if self.rename.is_none() {
                 self.focus_editor = true;
+                self.toast = Some(Toast::info("Put the cursor on a variable name."));
             }
         }
         if self.restored.insert(sheet_id) {
@@ -4434,13 +4442,13 @@ rental = rent + 50
         let (title, detail, confirm_label, fields) = match &ask {
             LockAsk::CreatePage(_) => (
                 "Lock page",
-                "A forgotten password can't be recovered.",
+                "Save this password in a password manager. A forgotten password can't be recovered.",
                 "Lock",
                 LockFields::New,
             ),
             LockAsk::CreateFolder(_) => (
                 "Lock folder",
-                "One password locks every page in this folder. A forgotten password can't be recovered.",
+                "One password locks every page in this folder. Save this password in a password manager. A forgotten password can't be recovered.",
                 "Lock",
                 LockFields::New,
             ),
@@ -4458,9 +4466,9 @@ rental = rent + 50
             ),
             LockAsk::RemovePage(_) => (
                 "Remove lock",
-                "This page will be stored without a password.",
+                "Enter the password. The page stays on this device, without a lock.",
                 "Remove lock",
-                LockFields::None,
+                LockFields::Password,
             ),
             LockAsk::RemoveFolder(_) => (
                 "Remove lock",
@@ -4870,24 +4878,25 @@ fn sheet_menu(
         }
         ui.add(button).clicked()
     };
+    if item(ui, "Rename", Some("F2")) {
+        *action = Some(SheetAction::Rename);
+    }
     if item(ui, "Share link", Some("Ctrl+Shift+L")) {
         *action = Some(SheetAction::Share(i));
     }
-    if item(ui, "Copy with answers", Some("Ctrl+Shift+S")) {
-        *action = Some(SheetAction::Copy(i));
-    }
-    if item(ui, "Copy as Markdown table", Some("Ctrl+Shift+M")) {
-        *action = Some(SheetAction::CopyMarkdown(i));
-    }
-    if item(ui, "Preview", Some("Ctrl+P")) {
-        *action = Some(SheetAction::Preview);
-    }
+    ui.menu_button("Copy / Export", |ui| {
+        if item(ui, "Copy with answers", Some("Ctrl+Shift+S")) {
+            *action = Some(SheetAction::Copy(i));
+        }
+        if item(ui, "Copy as Markdown table", Some("Ctrl+Shift+M")) {
+            *action = Some(SheetAction::CopyMarkdown(i));
+        }
+        if item(ui, "Preview", Some("Ctrl+P")) {
+            *action = Some(SheetAction::Preview);
+        }
+    });
     if item(ui, "Handle\u{2026}", None) {
         *action = Some(SheetAction::Handle(i));
-    }
-    ui.separator();
-    if item(ui, "New page", Some("Ctrl+N")) {
-        *action = Some(SheetAction::New);
     }
     if can_up && item(ui, "Move up", None) {
         *action = Some(SheetAction::Move(i, -1));
@@ -4904,32 +4913,31 @@ fn sheet_menu(
     if item(ui, "Delete page", Some("Ctrl+Shift+Delete")) {
         *action = Some(SheetAction::Delete(i));
     }
-    ui.separator();
-    if item(ui, "Settings", Some("Ctrl+,")) {
-        *action = Some(SheetAction::Settings);
-    }
 }
 
 fn lock_page_items(ui: &mut egui::Ui, i: usize, menu: PageMenu, action: &mut Option<SheetAction>) {
     let item = |ui: &mut egui::Ui, text: &str| ui.add(egui::Button::new(text)).clicked();
+    // A page with no password of its own, and not inside a locked folder.
+    if menu.lock.is_none() {
+        if item(ui, "Lock…") {
+            *action = Some(SheetAction::LockPage(i));
+        }
+        return;
+    }
     if menu.lock == Some(true) {
         if item(ui, "Unlock…") {
             *action = Some(SheetAction::Select(i));
         }
-    } else if !menu.covered && menu.lock.is_none() {
-        if item(ui, "Lock…") {
-            *action = Some(SheetAction::LockPage(i));
-        }
-    } else if !menu.covered {
-        if item(ui, "Change password…") {
+    } else if item(ui, "Lock now") {
+        *action = Some(SheetAction::LockNow);
+    }
+    if !menu.covered {
+        if menu.lock == Some(false) && item(ui, "Change password…") {
             *action = Some(SheetAction::ChangePage(i));
         }
         if item(ui, "Remove lock…") {
             *action = Some(SheetAction::RemovePage(i));
         }
-    }
-    if menu.any_open && item(ui, "Lock now") {
-        *action = Some(SheetAction::LockNow);
     }
 }
 

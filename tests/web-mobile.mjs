@@ -107,7 +107,23 @@ check(/\.cm-tooltip\.cm-tooltip-hover \{[^}]*max-width:\s*none/.test(css), "the 
 check(html.includes("rail-settings"), "the collapsed rail has a settings gear");
 check(html.includes('class="side-tools"'), "the open sidebar has a settings gear");
 check(html.includes('data-settings-tab="about"'), "settings and about share one window");
-check(html.includes('data-action="about"'), "the menu opens About");
+check(html.includes('data-action="about"'), "About opens from the sidebar");
+check(html.includes("Copy / Export"), "copy and export share one page-menu item");
+check(!html.includes("Export all pages (.zip)"), "export all is not in the page menu");
+check(html.includes("Export all pages"), "settings can export every page");
+check(html.includes(">Settings</span>"), "settings in the sidebar has a label");
+check(js.includes("function pageLockChoice"), "Lock on a page with no password asks for one");
+check(js.includes("Save this password in a password manager"), "a new lock says to save the password");
+check(js.includes("removePageLock(id, password)"), "removing a lock checks the password");
+check(css.includes("background-color: var(--app-side)") && css.includes("-webkit-backdrop-filter: none"), "the top bar is a solid surface");
+check(css.includes("border-bottom: 1px solid var(--app-line-strong)"), "the top bar has a clear bottom edge");
+check(css.includes("font: 500 var(--type-body) / 1.3 var(--sans)"), "chrome text uses the interface face");
+{
+  const cargo = readFileSync(join(root, "Cargo.toml"), "utf8");
+  const version = cargo.match(/^version = "([^"]+)"/m)?.[1];
+  check(!!version && html.includes(`name="omacus-version" content="${version}"`), "the web app version matches the desktop release");
+  check(!!version && html.includes(`>omacus v${version}<`), "the sidebar shows that version");
+}
 check(css.includes("grid-template-rows: minmax(0, 1fr)"), "the workspace row cannot grow past the window");
 check(css.includes("overflow-y: auto !important"), "the editor scroller can scroll");
 check(css.includes(".line.blank") || css.includes("p.line.blank"), "blank lines keep their height");

@@ -52,3 +52,10 @@ that check. A small fix can add `<!-- minor -->`, and a release with nothing
 new in the app can add `<!-- internal -->`, so the updates page folds it under
 the next entry. The monthly example refresh opens a pull request with
 auto-merge (`.github/workflows/freshen.yml`) instead of pushing to `main`.
+
+The web app at app.omacus.com stays on the same version as the desktop app.
+`site/app/index.html` carries that version (`omacus-version`, and the sidebar
+link `omacus vX.Y.Z`). It must match `version` in `Cargo.toml`. A push to
+`main` does not deploy the web app. The Release workflow deploys it after the
+tag is published, from that same commit (`.github/workflows/app.yml` is only
+called from the release, or retried by hand).
