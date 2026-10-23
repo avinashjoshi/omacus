@@ -1277,10 +1277,9 @@ section {
   }
 }
 
-/* Unfolded phone. Landscape, about 4:3. Two halves meet at a vertical crease
-   and tip toward the viewer, so the top and bottom edges form a shallow
-   chevron. The picture is the real app, split on the crease. The screen fill
-   is the app; the rim uses the metal tokens. */
+/* Unfolded phone. Landscape, about 4:3, lying flat. A thin stainless rim,
+   a hairline crease, and the real app continuing across that crease.
+   The screen fill is the app; the rim uses the metal tokens. */
 
 .unfold {
   display: grid;
@@ -1308,8 +1307,7 @@ section {
 
 .foldable-stage {
   position: relative;
-  perspective: 1800px;
-  padding: var(--space-6) var(--space-5) calc(var(--space-6) + var(--space-5));
+  padding: var(--space-5) var(--space-4) var(--space-6);
 }
 
 .foldable-device {
@@ -1319,8 +1317,6 @@ section {
   aspect-ratio: 4 / 3;
   width: 100%;
   margin-inline: auto;
-  transform: rotateX(8deg);
-  transform-style: preserve-3d;
 }
 
 .foldable-ground {
@@ -1340,17 +1336,6 @@ section {
   position: relative;
   z-index: 1;
   min-width: 0;
-  transform-style: preserve-3d;
-}
-
-.foldable-half-left {
-  transform-origin: right center;
-  transform: rotateY(14deg);
-}
-
-.foldable-half-right {
-  transform-origin: left center;
-  transform: rotateY(-14deg);
 }
 
 .foldable-half::before {
@@ -1365,21 +1350,21 @@ section {
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--white) 82%, transparent),
     inset 0 -1px 0 var(--metal-edge),
-    0 var(--space-5) var(--space-6) color-mix(in srgb, var(--black) 48%, transparent);
+    0 var(--space-4) var(--space-5) color-mix(in srgb, var(--black) 42%, transparent);
 }
 
 .foldable-half-left::before {
-  top: calc(var(--space-2) * -1);
+  top: calc(var(--space-1) * -1);
   right: 0;
-  bottom: calc(var(--space-2) * -1);
-  left: calc(var(--space-2) * -1);
+  bottom: calc(var(--space-1) * -1);
+  left: calc(var(--space-1) * -1);
   border-radius: calc(var(--radius-lg) + var(--space-6)) 0 0 calc(var(--radius-lg) + var(--space-6));
 }
 
 .foldable-half-right::before {
-  top: calc(var(--space-2) * -1);
-  right: calc(var(--space-2) * -1);
-  bottom: calc(var(--space-2) * -1);
+  top: calc(var(--space-1) * -1);
+  right: calc(var(--space-1) * -1);
+  bottom: calc(var(--space-1) * -1);
   left: 0;
   border-radius: 0 calc(var(--radius-lg) + var(--space-6)) calc(var(--radius-lg) + var(--space-6)) 0;
 }
@@ -1390,7 +1375,6 @@ section {
   overflow: hidden;
   background: var(--app-bg);
   border: 1px solid var(--black);
-  box-shadow: inset 0 0 0 1px var(--black);
 }
 
 .foldable-half-left .foldable-screen {
@@ -1416,45 +1400,16 @@ section {
   left: -100%;
 }
 
-.foldable-half-left .foldable-screen::after,
-.foldable-half-right .foldable-screen::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 14%;
-  pointer-events: none;
-}
-
-.foldable-half-left .foldable-screen::after {
-  right: 0;
-  background: linear-gradient(to left,
-    color-mix(in srgb, var(--black) 28%, transparent),
-    transparent 80%);
-}
-
-.foldable-half-right .foldable-screen::after {
-  left: 0;
-  background: linear-gradient(to right,
-    color-mix(in srgb, var(--black) 22%, transparent),
-    transparent 80%);
-}
-
 .foldable-hinge {
   position: absolute;
-  top: calc(var(--space-2) * -1);
-  bottom: calc(var(--space-2) * -1);
+  top: calc(var(--space-1) * -1);
+  bottom: calc(var(--space-1) * -1);
   left: 50%;
   z-index: 3;
-  width: 2px;
+  width: 1px;
   transform: translateX(-50%);
-  background: linear-gradient(180deg,
-    var(--metal-hi),
-    var(--metal-edge) 45%,
-    var(--metal-deep));
-  box-shadow:
-    -1px 0 0 color-mix(in srgb, var(--black) 55%, transparent),
-    1px 0 0 color-mix(in srgb, var(--white) 35%, transparent);
+  background: color-mix(in srgb, var(--black) 32%, transparent);
+  box-shadow: 1px 0 0 color-mix(in srgb, var(--white) 16%, transparent);
   pointer-events: none;
 }
 
@@ -1492,7 +1447,7 @@ section {
   position: absolute;
   z-index: 2;
   top: 22%;
-  right: calc((var(--space-2) + var(--space-4)) * -1);
+  right: calc(var(--space-3) * -1);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -1501,7 +1456,7 @@ section {
 
 .foldable-buttons span {
   display: block;
-  width: var(--space-1);
+  width: var(--space-2);
   border-radius: var(--radius-pill);
   background: linear-gradient(90deg, var(--metal-deep), var(--metal-hi) 45%, var(--metal-edge));
   box-shadow: 1px 0 0 var(--metal-edge);
@@ -1528,19 +1483,7 @@ section {
 
 @media (max-width: 620px) {
   .foldable-stage {
-    padding-inline: 0;
-  }
-
-  .foldable-device {
-    transform: rotateX(6deg);
-  }
-
-  .foldable-half-left {
-    transform: rotateY(10deg);
-  }
-
-  .foldable-half-right {
-    transform: rotateY(-10deg);
+    padding-inline: var(--space-2);
   }
 }
 

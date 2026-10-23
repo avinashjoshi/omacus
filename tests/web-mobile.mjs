@@ -180,7 +180,9 @@ check(css.includes("img.cm-widgetBuffer"), "the answer spacer stays inline so a 
   check(unfold.includes("Unfold it and your notes spread out"), "the foldable section says what opening the phone does");
   check(unfold.includes("unfold-light.webp") && unfold.includes("unfold-dark.webp"), "the foldable section has light and dark screenshots");
   check(unfold.includes("foldable-clock") && unfold.includes("foldable-buttons"), "the unfolded phone has a status time and side buttons");
-  check(siteCss.includes("aspect-ratio: 4 / 3"), "the unfolded phone is landscape, about 4:3");
+  const foldCss = siteCss.slice(siteCss.indexOf("/* Unfolded phone"), siteCss.indexOf("/* Theme gallery"));
+  check(foldCss.includes("aspect-ratio: 4 / 3"), "the unfolded phone is landscape, about 4:3");
+  check(!/rotate[XY]/.test(foldCss), "the unfolded phone lies flat");
   check(!/iPhone|iPad|Apple|Duo|Samsung|Pixel|Galaxy|PWA|Cactus/i.test(unfold), "the foldable section stays generic");
 }
 check(
