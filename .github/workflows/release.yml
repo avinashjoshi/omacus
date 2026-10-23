@@ -316,7 +316,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          persist-credentials: false
+          # The tag is pushed from this job. contents: write is enough for that;
+          # the Releases API is not, once main has moved. See "Point the tag".
+          persist-credentials: true
           ref: ${{ needs.check.outputs.sha }}
           fetch-depth: 0 # tags and history for the release notes
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
@@ -336,9 +338,34 @@ jobs:
             echo "ENDTITLE"
           } >> "$GITHUB_OUTPUT"
           cat notes.md
+      - name: Point the tag at the built commit
+        # Creating the release with target_commitish asks the Releases API to
+        # make the tag. If main has moved and a workflow file differs, that
+        # call demands workflows:write, which GITHUB_TOKEN cannot be granted,
+        # and the API answers 403. A tag push of a commit already on main does
+        # not, and contents: write covers it. Once the tag exists, the release
+        # step attaches to it and leaves target_commitish unused.
+        run: |
+          set -euo pipefail
+          version="${{ needs.check.outputs.version }}"
+          sha="${{ needs.check.outputs.sha }}"
+          git fetch origin "refs/tags/v${version}:refs/tags/v${version}" || true
+          if git rev-parse -q --verify "refs/tags/v${version}" >/dev/null; then
+            existing="$(git rev-parse "refs/tags/v${version}^{}")"
+            if [[ "$existing" != "$sha" ]]; then
+              echo "v${version} already points at ${existing}, not ${sha}"
+              exit 1
+            fi
+            echo "v${version} already points at the built commit."
+          else
+            git tag "v${version}" "$sha"
+            git push origin "refs/tags/v${version}"
+          fi
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           tag_name: v${{ needs.check.outputs.version }}
+          # Unused when the tag already exists. Kept so a re-run still names
+          # the commit this job built, not whatever main has become.
           target_commitish: ${{ needs.check.outputs.sha }}
           name: ${{ steps.notes.outputs.title }}
           body_path: notes.md
