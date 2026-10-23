@@ -5,8 +5,49 @@
   <link href="https://omacus.com/updates/"/>
   <link rel="self" type="application/atom+xml" href="https://omacus.com/updates/feed.xml"/>
   <id>https://omacus.com/updates/</id>
-  <updated>2026-10-23T10:54:10Z</updated>
+  <updated>2026-10-23T19:20:18Z</updated>
   <author><name>Avinash Joshi</name></author>
+  <entry>
+    <title>v0.2.15 — Keep a copy of everything</title>
+    <link href="https://omacus.com/updates/#v0.2.15"/>
+    <id>https://omacus.com/updates/#v0.2.15</id>
+    <published>2026-10-23T19:20:18Z</published>
+    <updated>2026-10-23T19:20:18Z</updated>
+    <content type="html">&lt;p&gt;Export everything in Settings saves your pages, folders, settings, and Recently deleted in one file. Locked pages are included, and they stay locked.&lt;/p&gt;
+&lt;p&gt;Exported pages have slimmer margins, so more of the sheet is the note itself. A code block sits with the text, in a monospace face, and a long line wraps instead of running off the page.&lt;/p&gt;
+&lt;p&gt;On a phone, the top bar matches the page, with no tint in the Home Screen app. Settings opens below the top bar, and the sidebar lists your pages cleanly. The privacy note is in About.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Settings shows the hash of this web app. The same hash is on the release page, so you can confirm this copy matches the one that was published.&lt;/li&gt;
+&lt;li&gt;A locked page is named Locked page in the list, and a reference to it stays locked until you open it.&lt;/li&gt;
+&lt;li&gt;On iPhone, Add to Home Screen is offered as soon as the app opens.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Build hash: &lt;code&gt;044a18c0edaae169ad716fc600fa0eec78ea5861ebca893bceddac6941d7c761&lt;/code&gt;&lt;/p&gt;
+&lt;p&gt;Settings shows this hash. This copy matches the release when the two hashes are the same.&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.2.13 — A clearer app on your phone</title>
+    <link href="https://omacus.com/updates/#v0.2.13"/>
+    <id>https://omacus.com/updates/#v0.2.13</id>
+    <published>2026-10-23T16:39:45Z</published>
+    <updated>2026-10-23T16:39:45Z</updated>
+    <content type="html">&lt;p&gt;The top bar is a solid strip, the sidebar shows the version and Settings, and the page menu only lists what you can do with that page.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Locking a page asks you to choose a password, then locks it. Save that password in a password manager.&lt;/li&gt;
+&lt;li&gt;Removing a lock asks for the password and keeps the page.&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
+  <entry>
+    <title>v0.2.12 — The web app works offline</title>
+    <link href="https://omacus.com/updates/#v0.2.12"/>
+    <id>https://omacus.com/updates/#v0.2.12</id>
+    <published>2026-10-23T15:18:33Z</published>
+    <updated>2026-10-23T15:18:33Z</updated>
+    <content type="html">&lt;p&gt;The web app at app.omacus.com keeps working with no connection after the first visit, and a new version asks before it reloads so an unsaved edit is not lost. What&amp;#x27;s new is a short title and a sentence or two, on the updates page and in the app.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Opening omacus.com/app brings your saved pages along, then opens the app.&lt;/li&gt;
+&lt;li&gt;Opening or switching a page no longer draws a frame around it.&lt;/li&gt;
+&lt;/ul&gt;</content>
+  </entry>
   <entry>
     <title>v0.2.11 — See every update in one place</title>
     <link href="https://omacus.com/updates/#v0.2.11"/>
