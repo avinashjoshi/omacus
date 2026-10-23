@@ -47,7 +47,8 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.ref || github.sha }}
-          fetch-depth: 0  # for the site's last-modified date
+          fetch-depth: 0  # for the site's last-modified date, and the story page's history
+          fetch-tags: true
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: wasm32-unknown-unknown
@@ -92,6 +93,15 @@ jobs:
             fi
           fi
           python3 site/tools/updates.py --out _site
+      - name: Story page
+        # Counts and the timeline, from this checkout and GitHub. A missing API
+        # keeps the copy already in site/story. Figures that can't be counted
+        # are left off rather than filled in.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Same phrase list as the updates page. Absent secret: the check is skipped.
+          OMACUS_PRIVATE_TERMS: ${{ secrets.OMACUS_PRIVATE_TERMS }}
+        run: python3 site/tools/story.py --out _site
       - name: Version assets
         # Cloudflare in front of omacus.com caches CSS and JS for hours, so pages point
         # at each file by its content hash and pick up a new version immediately.
@@ -163,5 +173,5 @@ jobs:
         run: |
           key=$(basename site/[0-9a-f]*.txt .txt)
           curl -fsS -X POST https://api.indexnow.org/indexnow -H 'Content-Type: application/json' \
-            -d "{\"host\":\"omacus.com\",\"key\":\"$key\",\"keyLocation\":\"https://omacus.com/$key.txt\",\"urlList\":[\"https://omacus.com/\",\"https://omacus.com/docs/\",\"https://omacus.com/updates/\",\"https://omacus.com/updates/feed.xml\",\"https://omacus.com/llms.txt\",\"https://omacus.com/llms-full.txt\"]}" \
+            -d "{\"host\":\"omacus.com\",\"key\":\"$key\",\"keyLocation\":\"https://omacus.com/$key.txt\",\"urlList\":[\"https://omacus.com/\",\"https://omacus.com/docs/\",\"https://omacus.com/updates/\",\"https://omacus.com/story/\",\"https://omacus.com/updates/feed.xml\",\"https://omacus.com/llms.txt\",\"https://omacus.com/llms-full.txt\"]}" \
             -w 'IndexNow: HTTP %{http_code}\n'

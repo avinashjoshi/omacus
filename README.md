@@ -1,7 +1,7 @@
 # Omacus
 
 *Oh-mah-kus.* A notepad calculator for Omarchy, Linux, macOS and Windows.
-**[omacus.com](https://omacus.com)** · [Try it in your browser](https://app.omacus.com) · [Docs](https://omacus.com/docs/) · [Download](https://omacus.com/download/)
+**[omacus.com](https://omacus.com)** · [Try it in your browser](https://app.omacus.com) · [Docs](https://omacus.com/docs/) · [Download](https://omacus.com/download/) · [The story](https://omacus.com/story/)
 
 [![Watch Omacus in one minute](assets/video-thumb.jpg)](https://omacus.com/#video)
 

@@ -134,6 +134,8 @@ A 4px grid.
 | `SPACE_5` | 24 | Page margin in the editor |
 | `SPACE_6` | 32 | The gap before an inline answer (`GAP`) |
 
+Paragraphs, lists, and the other blocks of body copy use `--prose-gap` (12px, about 0.7em of the 16.5px body, in the same range as `SPACE_3`). It is a length rather than `em`, so a heading that uses it does not widen the gap. A section heading keeps a larger step (`SPACE_5`, `SPACE_6`, or two of `SPACE_6`) so the break stays obvious. Text inside a card, and the lines of a list, stay tighter than `--prose-gap`.
+
 `HIT` is 32. A button, a sidebar row, a switch's hit target, and a menu row are at least this tall. The sidebar's top bar stays 28 (`BAR_ROW`) so it lines up with the ⋯ above the page. Don't change `BAR_ROW`, `SIDEBAR_ROW` (32), or `ICON_BOX` (24) to "match the grid" — tests pin those centers.
 
 ## Radii
@@ -296,8 +298,17 @@ Don't add metrics, testimonials, or a changelog inside About. "What's new" opens
 
 `omacus.com/updates` is a timeline of releases, newest first. A version is a pill (`--radius-pill`) in the accent. The date is caption size. The headline is the release's title, a bold line at the top of the notes, and the sentences under it are the body. A release marked minor or internal folds into a disclosure under the newer entry. Screenshots sit in the notes, with `--radius` and `--shadow-md`. A Details link points at the full change list.
 
-Do: use the marketing tokens (`--bg`, `--text`, `--line`, `--accent`). Follow the 4px spacing scale. Keep one accent.
+Do: use the marketing tokens (`--bg`, `--text`, `--line`, `--accent`). Follow the 4px spacing scale. Body copy under a release uses `--prose-gap`. Keep one accent.
 Don't: point the page at `--app-*`, or put a hex color in `site.css`. Light mode only reassigns tokens in `tokens.css`.
+
+### Story
+
+`omacus.com/story` is a first-person account of why Omacus exists and how it is built. The counts and the timeline are filled in when the site is built (`site/tools/story.py`), from the repository and the release list. A figure that cannot be counted is left off. Sync is marked as not shipped, with no date.
+
+The page uses the same marketing frame as the updates page: a kicker, a serif word in the title, version pills, and the timeline. It stays on the near-black marketing palette.
+
+Do: use the marketing tokens. Follow the 4px spacing scale and the radius scale. Paragraphs use `--prose-gap`; a section heading stays on the larger steps. Keep one accent. Write in the first person, plain and short.
+Don't: hardcode a count or a date in the page, point the page at `--app-*`, or put a hex color in `site.css`.
 
 ### Preview and PDF typography
 

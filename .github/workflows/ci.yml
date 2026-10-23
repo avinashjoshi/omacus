@@ -30,6 +30,9 @@ jobs:
       - name: Updates page
         if: runner.os == 'Linux'
         run: python3 site/tools/test_updates.py
+      - name: Story page
+        if: runner.os == 'Linux'
+        run: python3 site/tools/test_story.py
       - name: Release notes
         if: runner.os == 'Linux'
         run: python3 tests/check_release_notes.py

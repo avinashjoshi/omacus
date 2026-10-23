@@ -246,6 +246,9 @@ class UpdatesPage(unittest.TestCase):
         light = tokens.split('html[data-page="updates"]', 1)[1]
         self.assertIn("--bg:", light)
         self.assertIn("--accent:", light)
+        self.assertIn("--prose-gap: 12px;", tokens)
+        prose = css_path.read_text().split(".prose p,", 1)[1].split("}", 1)[0]
+        self.assertIn("var(--prose-gap)", prose)
 
     def test_a_version_counts_once_it_is_listed(self):
         listed = [{"tag_name": "v0.2.11"}]

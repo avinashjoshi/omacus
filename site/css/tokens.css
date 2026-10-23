@@ -12,6 +12,11 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+  /* Between paragraphs, lists, and other prose blocks.
+     12px is about 0.7em of the 16.5px body. A length, not em, so a heading
+     that uses it does not grow the gap with the heading size.
+     Section breaks stay on --space-5 and --space-6. */
+  --prose-gap: 12px;
   --radius-xs: 6px;
   --radius-sm: 8px;
   --radius-md: 12px;
