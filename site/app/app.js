@@ -386,6 +386,8 @@ function openLock(mode, id) {
     el.lockError.textContent = "";
   }
   el.lock.hidden = false;
+  // Drop a value card that was already open. The lock dialog is the only popup.
+  view.dispatch({});
   const focus = change ? el.lockCurrent : el.lockPassword;
   if (!remove) focus?.focus();
 }
@@ -1705,12 +1707,15 @@ function completions(ctx) {
 let explicitCompletion = false;
 let armingExplicit = false;
 
+function hoverBlocked() {
+  return !!renamePop || !!renameMenu || !!refPrompt || !!(el.lock && !el.lock.hidden);
+}
+
 function hoverSource(view, pos) {
-  if (!calc) return null;
+  if (!calc || hoverBlocked() || completionOpen(view.state)) return null;
   const doc = view.state.doc.toString();
   const found = JSON.parse(calc.hoverValueWith(doc, pos, currentHandle(), JSON.stringify(pageCatalog())));
   if (!found) return null;
-  const binding = JSON.parse(bindingAt(doc, pos));
   return {
     pos: found.start,
     end: found.end,
@@ -1725,7 +1730,8 @@ function hoverSource(view, pos) {
       if (found.sourceTitle || found.sourceHandle) {
         const src = document.createElement("div");
         src.className = "hover-source";
-        src.textContent = found.sourceTitle || found.sourceHandle;
+        const name = found.sourceTitle || found.sourceHandle;
+        src.textContent = `from ${name}`;
         dom.append(src);
       }
       if (found.usedBy) {
@@ -1736,29 +1742,52 @@ function hoverSource(view, pos) {
       }
       if (found.sourceHandle) {
         dom.addEventListener("mousedown", (event) => {
-          if (event.target.closest(".hover-rename")) return;
           event.preventDefault();
           openHandle(found.sourceHandle);
         });
       }
-      if (binding) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "hover-rename";
-        btn.textContent = "Rename variable";
-        btn.addEventListener("mousedown", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          openRename(view, pos);
-        });
-        dom.append(btn);
-      }
-      return { dom };
+      return {
+        dom,
+        resize: false,
+        positioned() {
+          placeHoverCard(view, dom, found.start);
+        },
+      };
     },
   };
 }
 
-// F2, the hover button, or the right-click menu: one field, Enter applies.
+// One card, above the token. Below only when the window has no room above it,
+// so a second line cannot spill onto the next row of the page.
+function placeHoverCard(view, dom, at) {
+  const host = dom.closest(".cm-tooltip");
+  if (!host) return;
+  const token = view.coordsAtPos(at);
+  if (!token) return;
+  const rect = host.getBoundingClientRect();
+  if (rect.width < 1 || rect.height < 1) return;
+  const gap = 6;
+  const margin = 8;
+  let top = token.top - rect.height - gap;
+  if (top < margin) top = token.bottom + gap;
+  let left = token.left;
+  if (left + rect.width > window.innerWidth - margin) {
+    left = Math.max(margin, window.innerWidth - margin - rect.width);
+  }
+  if (left < margin) left = margin;
+  const fixed = getComputedStyle(host).position === "fixed";
+  const origin = fixed
+    ? { top: 0, left: 0 }
+    : (host.offsetParent || host.parentElement)?.getBoundingClientRect() || { top: 0, left: 0 };
+  const nextTop = top - origin.top;
+  const nextLeft = left - origin.left;
+  const curTop = parseFloat(host.style.top);
+  const curLeft = parseFloat(host.style.left);
+  if (!Number.isFinite(curTop) || Math.abs(curTop - nextTop) > 1) host.style.top = `${nextTop}px`;
+  if (!Number.isFinite(curLeft) || Math.abs(curLeft - nextLeft) > 1) host.style.left = `${nextLeft}px`;
+}
+
+// F2 or the right-click menu: one field, Enter applies. Not a hover popup.
 let renamePop = null;
 let refPrompt = null;
 let applyingRename = false;
@@ -1847,6 +1876,7 @@ function openRename(view, utf16) {
   };
   input.addEventListener("input", showBlurb);
   renamePop = host;
+  view.dispatch({});
   return true;
 }
 
@@ -1964,7 +1994,11 @@ function showRenameMenu(view, x, y, utf16) {
   menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - 56))}px`;
   const item = document.createElement("button");
   item.type = "button";
-  item.textContent = "Rename variable";
+  const label = document.createElement("span");
+  label.textContent = "Rename variable";
+  const keys = document.createElement("kbd");
+  keys.textContent = "F2";
+  item.append(label, keys);
   item.addEventListener("mousedown", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1974,6 +2008,7 @@ function showRenameMenu(view, x, y, utf16) {
   menu.append(item);
   document.body.append(menu);
   renameMenu = menu;
+  view.dispatch({});
 }
 
 // The Rename button in the top bar, shown on a phone while the caret is on a name.
@@ -2177,7 +2212,12 @@ const editorExtensions = [
   EditorView.lineWrapping,
   sheetField,
   autocompletion({ override: [completions], defaultKeymap: false, icons: false }),
-  hoverTooltip(hoverSource, { hoverTime: 250 }),
+  hoverTooltip(hoverSource, {
+    hoverTime: 250,
+    hideOn(tr) {
+      return tr.docChanged || completionOpen(tr.state) || hoverBlocked();
+    },
+  }),
   EditorView.updateListener.of((update) => {
     // A doc change has to recalculate even when the completion check throws.
     // completionStatus wants the state; passing the view throws, which used to
@@ -2965,6 +3005,11 @@ function moveFolderCommand(query) {
   return q.length >= 2 && "move to folder".startsWith(q);
 }
 
+function renameCommand(query) {
+  const q = query.trim().toLowerCase();
+  return q.length >= 2 && ("rename".startsWith(q) || "rename variable".startsWith(q));
+}
+
 function addFolder(parent) {
   const id = createFolder(state.tree, parent);
   if (!id) {
@@ -3047,6 +3092,9 @@ function switcherItems(query) {
   if (moveFolderCommand(query) && state.active && state.active !== "shared" && pageIds(state.tree).includes(state.active)) {
     hits.push({ kind: "move", label: "Move to folder…" });
   }
+  if (renameCommand(query) && state.active && state.active !== "shared") {
+    hits.push({ kind: "rename", label: "Rename variable", shortcut: "F2" });
+  }
   const q = query.trim().toLowerCase();
   const addPage = (id, text, concealed) => {
     const label = concealed ? "Locked" : heading(text);
@@ -3073,7 +3121,14 @@ function renderSwitcher() {
   hits.forEach((hit, i) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = hit.label;
+    const label = document.createElement("span");
+    label.textContent = hit.label;
+    button.append(label);
+    if (hit.shortcut) {
+      const keys = document.createElement("kbd");
+      keys.textContent = hit.shortcut;
+      button.append(keys);
+    }
     if (i === switcherIndex) button.setAttribute("aria-selected", "true");
     button.addEventListener("click", () => followSwitcher(hit));
     el.switcherHits.append(button);
@@ -3100,6 +3155,7 @@ function followSwitcher(hit) {
   closeSwitcher();
   if (hit.kind === "new-folder") addFolder(null);
   else if (hit.kind === "move") openMove(state.active);
+  else if (hit.kind === "rename") renameAtCaret();
   else if (hit.id) select(hit.id);
 }
 
@@ -3443,9 +3499,16 @@ function closeMenu() {
   el.menuButton.setAttribute("aria-expanded", "false");
 }
 
+function inNameField(target) {
+  const node = target instanceof Element ? target : target?.parentElement;
+  return !!node?.closest("input[data-rename-input], .rename-pop input, input[data-handle-input]");
+}
+
 addEventListener(
   "keydown",
   (e) => {
+    // A folder name, a variable rename, or a handle is a normal text field.
+    if (inNameField(e.target)) return;
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "b") {
       e.preventDefault();
       if (matchMedia("(max-width: 760px)").matches) {
