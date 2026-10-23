@@ -167,15 +167,21 @@ jobs:
             echo "release=true" >> "$GITHUB_OUTPUT"
           fi
 
+  # always(): on a push, prepare and wait are skipped. Without always(), GitHub
+  # skips every later job too, even after check decides this version is new.
   ci:
     needs: check
-    if: needs.check.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
+    if: >-
+      always() &&
+      needs.check.result == 'success' &&
+      (needs.check.outputs.release == 'true' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/ci.yml
     with:
       ref: ${{ needs.check.outputs.sha }}
 
   linux:
     needs: [ci, check]
+    if: always() && needs.ci.result == 'success' && needs.check.result == 'success'
     runs-on: ubuntu-22.04 # older glibc, so the binary runs on more distros
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -206,6 +212,7 @@ jobs:
 
   windows:
     needs: [ci, check]
+    if: always() && needs.ci.result == 'success' && needs.check.result == 'success'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -235,6 +242,7 @@ jobs:
 
   macos:
     needs: [ci, check]
+    if: always() && needs.ci.result == 'success' && needs.check.result == 'success'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -295,7 +303,12 @@ jobs:
     needs: [check, linux, windows, macos]
     permissions:
       contents: write
-    if: needs.check.outputs.release == 'true'
+    if: >-
+      always() &&
+      needs.check.outputs.release == 'true' &&
+      needs.linux.result == 'success' &&
+      needs.windows.result == 'success' &&
+      needs.macos.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -322,6 +335,7 @@ jobs:
 
   install-test:
     needs: [publish, check]
+    if: always() && needs.publish.result == 'success'
     permissions:
       contents: read
     uses: ./.github/workflows/install-test.yml
