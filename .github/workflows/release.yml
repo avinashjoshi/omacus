@@ -82,7 +82,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"
-          git add Cargo.toml Cargo.lock CHANGELOG.md
+          # index.html carries the same version the sidebar shows.
+          git add Cargo.toml Cargo.lock CHANGELOG.md site/app/index.html
           git commit -m "Release v$version"
           git push origin "HEAD:$branch"
           {
