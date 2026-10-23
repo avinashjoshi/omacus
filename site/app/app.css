@@ -1280,6 +1280,13 @@ body.answers-inline .md .pill {
   background: transparent;
 }
 
+.hover-card {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
 .hover-value {
   display: inline-block;
   width: max-content;
@@ -1292,6 +1299,85 @@ body.answers-inline .md .pill {
   color: var(--app-accent);
   font: 14px/1.35 var(--mono);
   box-shadow: 0 10px 28px -16px rgba(0, 0, 0, 0.55);
+}
+
+.hover-rename,
+.rename-menu button,
+.ref-dismiss {
+  border: 0;
+  background: transparent;
+  color: var(--app-fg);
+  font: 12.5px/1 var(--font);
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.hover-rename {
+  border: 1px solid var(--app-sel);
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: var(--app-side);
+}
+
+.rename-pop,
+.ref-prompt,
+.rename-menu {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--app-sel);
+  border-radius: 8px;
+  background: var(--app-side);
+  box-shadow: 0 10px 28px -16px rgba(0, 0, 0, 0.55);
+}
+
+.rename-menu {
+  position: fixed;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 160px;
+}
+
+.rename-pop {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.rename-pop input {
+  width: 140px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--app-fg);
+  font: 15px/1.4 var(--mono);
+}
+
+.rename-bar,
+.menu-list .touch-rename {
+  display: none;
+}
+
+.rename-bar[hidden] {
+  display: none !important;
+}
+
+.rename-error,
+.ref-prompt span {
+  color: #d65a4a;
+  font: 12.5px/1.3 var(--font);
+}
+
+.ref-update {
+  border: 0;
+  border-radius: 6px;
+  background: var(--app-accent);
+  color: var(--app-bg);
+  font: 13px/1 var(--font);
+  padding: 6px 10px;
+  cursor: pointer;
 }
 
 .menu-list .phone-only {
@@ -1514,5 +1600,20 @@ body.answers-inline .md .pill {
 @media (pointer: coarse), (max-width: 760px) {
   .app-page .cm-editor .cm-content {
     font-size: max(16px, 1em);
+  }
+
+  .rename-bar {
+    display: inline-flex;
+    align-items: center;
+    height: 36px;
+    padding: 0 12px;
+  }
+
+  .rename-pop input {
+    font-size: 16px;
+  }
+
+  .menu-list .touch-rename {
+    display: block;
   }
 }

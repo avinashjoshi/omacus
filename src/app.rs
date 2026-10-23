@@ -92,6 +92,49 @@ struct HoverCache {
     hit: Option<engine::Hover>,
 }
 
+/// F2 or Rename variable: an inline field for the new name.
+#[derive(Clone)]
+struct RenameSession {
+    /// Char index that `binding_at` was opened on.
+    cursor: usize,
+    token_start: usize,
+    buffer: String,
+    error: Option<String>,
+    focus: bool,
+}
+
+/// The definition's name was edited in the page. Offer to update the uses.
+#[derive(Clone)]
+struct RefPrompt {
+    spans: Vec<(usize, usize)>,
+    new_name: String,
+    label: String,
+    /// False when the message is a collision, which has no button.
+    apply: bool,
+}
+
+fn ref_prompt_from(edit: engine::rename::DefinitionEdit) -> RefPrompt {
+    let label = edit.message();
+    let apply = !edit.collision && edit.references > 0;
+    RefPrompt {
+        spans: edit
+            .spans
+            .iter()
+            .map(|span| (span.start, span.end))
+            .collect(),
+        new_name: edit.new_name,
+        label,
+        apply,
+    }
+}
+
+/// "Rename" under a hovered variable, kept while the pointer is on the button.
+struct HoverRename {
+    rect: Rect,
+    anchor: Pos2,
+    cursor: usize,
+}
+
 enum SheetAction {
     Select(usize),
     New,
@@ -314,6 +357,26 @@ pub struct OmacusApp {
     evaluated_at: Instant,
     popup: Option<Popup>,
     hover: Option<HoverCache>,
+    /// Inline rename, opened with F2 or Rename variable.
+    rename: Option<RenameSession>,
+    /// Enter was pressed in the rename field this frame.
+    rename_commit: bool,
+    /// Open a rename on this char index once the editor has been shown.
+    rename_at: Option<usize>,
+    /// Char index the context menu was opened on.
+    rename_menu_at: Option<usize>,
+    /// "Update N references?" after a definition's name was edited.
+    ref_prompt: Option<RefPrompt>,
+    /// The page before the definition rename started, so typing the new name
+    /// one letter at a time still finds the original references.
+    ref_base: Option<String>,
+    /// Esc or Dismiss hides the prompt until the edit is no longer that rename.
+    ref_dismissed: bool,
+    /// The page editor, so a rename can be one undo step.
+    editor_id: Option<egui::Id>,
+    /// Screenshot hook: open the rename field on the sample page.
+    demo_rename: bool,
+    hover_rename: Option<HoverRename>,
     /// Cursor to apply to the editor after it is next shown.
     pending_cursor: Option<usize>,
     /// Sheets whose saved cursor has been put back this session.
@@ -397,6 +460,16 @@ impl OmacusApp {
             evaluated_at: Instant::now(),
             popup: None,
             hover: None,
+            rename: None,
+            rename_commit: false,
+            rename_at: None,
+            rename_menu_at: None,
+            ref_prompt: None,
+            ref_base: None,
+            ref_dismissed: false,
+            editor_id: None,
+            demo_rename: false,
+            hover_rename: None,
             pending_cursor: None,
             restored: HashSet::new(),
             focus_editor: true,
@@ -432,12 +505,40 @@ impl OmacusApp {
                 .unwrap_or_else(Instant::now),
             cursor_line: None,
             help: match std::env::var("OMACUS_SCREENSHOT_HELP").ok().as_deref() {
-                Some("update" | "switcher" | "preview" | "replace") | None => None,
+                Some("update" | "switcher" | "preview" | "replace" | "rename" | "renamed")
+                | None => None,
                 Some("settings") => Some(help::Tab::Settings),
                 Some(name) => Some(help::Tab::from_name(name)),
             },
             screenshot: std::env::var_os("OMACUS_SCREENSHOT").map(|p| (p.into(), 0)),
         };
+        if let Ok(mode) = std::env::var("OMACUS_SCREENSHOT_HELP")
+            && (mode == "rename" || mode == "renamed")
+        {
+            let sample = "\
+# Northwind
+
+rent = 1,200
+rent * 2
+rental = rent + 50
+# the rent is due
+100 TRY
+";
+            let at = sample
+                .match_indices("rent")
+                .nth(1)
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            app.store.current().text = if mode == "renamed" {
+                engine::rename::rename_variable(sample, at, "fee")
+                    .map(|renamed| renamed.text)
+                    .unwrap_or_else(|_| sample.to_string())
+            } else {
+                sample.to_string()
+            };
+            app.store.current().mark_dirty();
+            app.demo_rename = mode == "rename";
+        }
         app.evaluate();
         app
     }
@@ -782,6 +883,28 @@ impl OmacusApp {
             self.page_preview = false;
             self.focus_editor = true;
             return;
+        }
+
+        if self.rename.is_some() {
+            if dismiss {
+                self.rename = None;
+                self.focus_editor = true;
+                return;
+            }
+            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
+                self.rename_commit = true;
+                return;
+            }
+        } else if self.ref_prompt.is_some() && dismiss {
+            self.ref_prompt = None;
+            self.ref_dismissed = true;
+            self.focus_editor = true;
+            return;
+        }
+        if self.rename.is_none() && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F2)) {
+            self.rename_at = Some(self.store.current().cursor);
+            self.focus_editor = false;
+            self.popup = None;
         }
 
         let cmd = Modifiers::COMMAND;
@@ -1880,6 +2003,7 @@ impl OmacusApp {
         };
 
         // One editor per sheet, so each keeps its own cursor and undo history.
+        let before_edit = self.store.sheets[self.store.active].text.clone();
         let output = TextEdit::multiline(&mut self.store.sheets[self.store.active].text)
             .id_salt(("sheet", &sheet_id))
             .font(font.clone())
@@ -1891,6 +2015,22 @@ impl OmacusApp {
             .show(ui);
         let response = &output.response.response;
 
+        self.editor_id = Some(response.id);
+        if self.demo_rename {
+            self.demo_rename = false;
+            let text = self.store.current().text.clone();
+            if let Some((at, _)) = text.match_indices("rent").nth(1) {
+                self.open_rename(at);
+                if let Some(session) = &mut self.rename {
+                    session.buffer = "fee".into();
+                }
+            }
+        } else if let Some(at) = self.rename_at.take() {
+            self.open_rename(at);
+            if self.rename.is_none() {
+                self.focus_editor = true;
+            }
+        }
         if self.restored.insert(sheet_id) {
             self.pending_cursor
                 .get_or_insert(self.store.current().cursor);
@@ -1916,6 +2056,8 @@ impl OmacusApp {
             self.edited_at = Instant::now();
             self.evaluate();
             self.touched();
+            let after_edit = self.store.current().text.clone();
+            self.note_definition_edit(&before_edit, &after_edit);
         }
 
         let cursor = output
@@ -1963,6 +2105,17 @@ impl OmacusApp {
         }
         if response.hovered() {
             self.show_hover(ui, &output.galley, output.galley_pos);
+        } else if self.pointer_on_hover_rename(ui) {
+            self.keep_hover_rename(ui);
+        } else {
+            self.hover_rename = None;
+        }
+        self.rename_menu(ui, response, &output.galley, output.galley_pos);
+        self.show_rename_field(ui, &output.galley, output.galley_pos);
+        self.show_ref_prompt(ui, &output.galley, output.galley_pos);
+        if self.rename_commit {
+            self.rename_commit = false;
+            self.commit_rename(ui.ctx());
         }
 
         if self.store.current().text.trim().is_empty() {
@@ -2215,9 +2368,14 @@ impl OmacusApp {
         let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) else {
             return;
         };
+        if self.pointer_on_hover_rename(ui) {
+            self.keep_hover_rename(ui);
+            return;
+        }
         let cc = galley.cursor_from_pos(pointer - origin);
         let text = self.store.current().text.clone();
         let Some(hit) = self.lookup_hover(&text, cc.index.0) else {
+            self.hover_rename = None;
             return;
         };
         let start = galley.pos_from_cursor(CCursor::new(hit.start));
@@ -2228,9 +2386,345 @@ impl OmacusApp {
         )
         .expand(3.0);
         if !rect.contains(pointer) {
+            self.hover_rename = None;
             return;
         }
         paint_hover_tip(ui.ctx(), &self.theme, rect, &hit.value);
+        if engine::rename::binding_at(&text, cc.index.0).is_some() {
+            // Touching the token, so the pointer can move onto Rename without a gap.
+            let anchor = pos2(rect.left(), rect.bottom() - 1.0);
+            self.paint_hover_rename(ui, anchor, cc.index.0);
+        } else {
+            self.hover_rename = None;
+        }
+    }
+
+    fn pointer_on_hover_rename(&self, ui: &egui::Ui) -> bool {
+        let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) else {
+            return false;
+        };
+        self.hover_rename
+            .as_ref()
+            .is_some_and(|hover| hover.rect.contains(pointer))
+    }
+
+    fn keep_hover_rename(&mut self, ui: &egui::Ui) {
+        let Some(hover) = self.hover_rename.as_ref() else {
+            return;
+        };
+        let (anchor, cursor) = (hover.anchor, hover.cursor);
+        self.paint_hover_rename(ui, anchor, cursor);
+    }
+
+    fn paint_hover_rename(&mut self, ui: &egui::Ui, anchor: Pos2, cursor: usize) {
+        let theme = self.theme.clone();
+        let mut clicked = false;
+        let mut rect = Rect::from_min_size(anchor, vec2(72.0, 26.0));
+        egui::Area::new(egui::Id::unique("omacus-hover-rename"))
+            .order(Order::Tooltip)
+            .fixed_pos(anchor)
+            .interactable(true)
+            .show(ui.ctx(), |ui| {
+                Frame::NONE
+                    .fill(theme.sidebar)
+                    .stroke(egui::Stroke::new(1.0, theme.selection))
+                    .corner_radius(CornerRadius::same(6))
+                    .inner_margin(Margin::symmetric(8, 4))
+                    .show(ui, |ui| {
+                        let resp = ui.add(
+                            egui::Button::new(
+                                egui::RichText::new("Rename variable")
+                                    .size(12.5)
+                                    .color(theme.foreground),
+                            )
+                            .frame(false),
+                        );
+                        clicked = resp.clicked();
+                        rect = resp.rect.expand(6.0);
+                    });
+            });
+        self.hover_rename = Some(HoverRename {
+            rect,
+            anchor,
+            cursor,
+        });
+        if clicked {
+            self.rename_at = Some(cursor);
+            self.hover_rename = None;
+        }
+    }
+
+    fn open_rename(&mut self, cursor: usize) {
+        let text = self.store.current().text.clone();
+        let Some(binding) = engine::rename::binding_at(&text, cursor) else {
+            return;
+        };
+        self.popup = None;
+        self.ref_prompt = None;
+        self.ref_base = None;
+        self.ref_dismissed = false;
+        self.hover_rename = None;
+        self.focus_editor = false;
+        self.rename = Some(RenameSession {
+            cursor,
+            token_start: binding.token_start,
+            buffer: binding.name,
+            error: None,
+            focus: true,
+        });
+    }
+
+    fn rename_menu(
+        &mut self,
+        ui: &egui::Ui,
+        response: &egui::Response,
+        galley: &egui::Galley,
+        origin: Pos2,
+    ) {
+        if response.secondary_clicked()
+            && let Some(pos) = ui.input(|i| i.pointer.interact_pos())
+        {
+            let cc = galley.cursor_from_pos(pos - origin);
+            self.rename_menu_at = Some(cc.index.0);
+        }
+        let menu_at = self.rename_menu_at;
+        let text = self.store.current().text.clone();
+        let on_name = menu_at.is_some_and(|at| engine::rename::binding_at(&text, at).is_some());
+        if !on_name {
+            return;
+        }
+        let mut chosen = None;
+        response.context_menu(|ui| {
+            if ui.button("Rename variable").clicked() {
+                chosen = menu_at;
+            }
+        });
+        if let Some(at) = chosen {
+            self.open_rename(at);
+        }
+    }
+
+    fn show_rename_field(&mut self, ui: &egui::Ui, galley: &egui::Galley, origin: Pos2) {
+        let Some(session) = &self.rename else {
+            return;
+        };
+        let start = galley.pos_from_cursor(CCursor::new(session.token_start));
+        let pos = origin + start.left_bottom().to_vec2() + vec2(0.0, 4.0);
+        let theme = self.theme.clone();
+        let mut buffer = session.buffer.clone();
+        let error = session.error.clone();
+        let focus = session.focus;
+        let mut written = None;
+        egui::Area::new(egui::Id::unique("omacus-rename"))
+            .order(Order::Foreground)
+            .fixed_pos(pos)
+            .interactable(true)
+            .show(ui.ctx(), |ui| {
+                Frame::NONE
+                    .fill(theme.sidebar)
+                    .stroke(egui::Stroke::new(1.0, theme.accent))
+                    .corner_radius(CornerRadius::same(6))
+                    .inner_margin(Margin::same(6))
+                    .show(ui, |ui| {
+                        let width = (buffer.chars().count().max(8) as f32) * 10.0 + 12.0;
+                        let out = TextEdit::singleline(&mut buffer)
+                            .id(egui::Id::unique("omacus-rename-field"))
+                            .font(FontId::monospace(FONT_SIZE))
+                            .desired_width(width.clamp(96.0, 280.0))
+                            .hint_text("New name")
+                            .show(ui);
+                        if focus {
+                            out.response.request_focus();
+                        }
+                        if let Some(err) = &error {
+                            ui.label(
+                                egui::RichText::new(err)
+                                    .size(12.5)
+                                    .color(Color32::from_rgb(214, 90, 74)),
+                            );
+                        }
+                    });
+                written = Some(buffer);
+            });
+        if let Some(session) = &mut self.rename {
+            if let Some(buffer) = written {
+                session.buffer = buffer;
+            }
+            session.focus = false;
+        }
+    }
+
+    fn show_ref_prompt(&mut self, ui: &egui::Ui, galley: &egui::Galley, origin: Pos2) {
+        if self.rename.is_some() {
+            return;
+        }
+        let Some(prompt) = self.ref_prompt.clone() else {
+            return;
+        };
+        let at = self.store.current().cursor;
+        let pos = galley.pos_from_cursor(CCursor::new(at));
+        let anchor = origin + pos.left_bottom().to_vec2() + vec2(0.0, 6.0);
+        let theme = self.theme.clone();
+        let mut apply = false;
+        let mut dismiss = false;
+        egui::Area::new(egui::Id::unique("omacus-ref-prompt"))
+            .order(Order::Foreground)
+            .fixed_pos(anchor)
+            .interactable(true)
+            .show(ui.ctx(), |ui| {
+                Frame::NONE
+                    .fill(theme.sidebar)
+                    .stroke(egui::Stroke::new(1.0, theme.selection))
+                    .corner_radius(CornerRadius::same(6))
+                    .inner_margin(Margin::symmetric(8, 4))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            if prompt.apply {
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            egui::RichText::new(&prompt.label)
+                                                .size(13.0)
+                                                .color(theme.background),
+                                        )
+                                        .fill(theme.accent)
+                                        .corner_radius(CornerRadius::same(6)),
+                                    )
+                                    .clicked()
+                                {
+                                    apply = true;
+                                }
+                            } else {
+                                ui.label(
+                                    egui::RichText::new(&prompt.label)
+                                        .size(13.0)
+                                        .color(Color32::from_rgb(214, 90, 74)),
+                                );
+                            }
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new("Dismiss").size(12.5).color(theme.dim),
+                                    )
+                                    .frame(false),
+                                )
+                                .clicked()
+                            {
+                                dismiss = true;
+                            }
+                        });
+                    });
+            });
+        if apply {
+            self.apply_ref_prompt(ui.ctx());
+        } else if dismiss {
+            self.ref_prompt = None;
+            self.ref_dismissed = true;
+        }
+    }
+
+    fn note_definition_edit(&mut self, before: &str, after: &str) {
+        if self.rename.is_some() {
+            return;
+        }
+        let continued = self.ref_base.is_some();
+        let base = self.ref_base.clone().unwrap_or_else(|| before.to_string());
+        if let Some(edit) = engine::rename::definition_change(&base, after) {
+            if !continued {
+                self.ref_dismissed = false;
+            }
+            self.ref_base = Some(base);
+            self.ref_prompt = (!self.ref_dismissed).then(|| ref_prompt_from(edit));
+        } else if let Some(edit) = engine::rename::definition_change(before, after) {
+            self.ref_dismissed = false;
+            self.ref_base = Some(before.to_string());
+            self.ref_prompt = Some(ref_prompt_from(edit));
+        } else {
+            self.ref_base = None;
+            self.ref_dismissed = false;
+            self.ref_prompt = None;
+        }
+    }
+
+    fn commit_rename(&mut self, ctx: &egui::Context) {
+        let Some(session) = self.rename.clone() else {
+            return;
+        };
+        let text = self.store.current().text.clone();
+        match engine::rename::rename_variable(&text, session.cursor, &session.buffer) {
+            Ok(renamed) => {
+                if renamed.text != text {
+                    self.push_editor_undo(ctx, &text);
+                    let sheet = self.store.current();
+                    sheet.text = renamed.text;
+                    sheet.mark_dirty();
+                    self.pending_cursor = Some(renamed.cursor);
+                    self.evaluate();
+                    self.touched();
+                }
+                self.rename = None;
+                self.ref_prompt = None;
+                self.ref_base = None;
+                self.ref_dismissed = false;
+                self.focus_editor = true;
+            }
+            Err(engine::rename::RenameFail::NotAVariable) => {
+                self.rename = None;
+                self.focus_editor = true;
+            }
+            Err(err) => {
+                if let Some(session) = &mut self.rename {
+                    session.error = Some(err.message());
+                    session.focus = true;
+                }
+            }
+        }
+    }
+
+    fn apply_ref_prompt(&mut self, ctx: &egui::Context) {
+        let Some(prompt) = self.ref_prompt.take() else {
+            return;
+        };
+        self.ref_base = None;
+        self.ref_dismissed = false;
+        if !prompt.apply {
+            return;
+        }
+        let old = self.store.current().text.clone();
+        let spans: Vec<engine::rename::Span> = prompt
+            .spans
+            .iter()
+            .map(|(start, end)| engine::rename::Span {
+                start: *start,
+                end: *end,
+            })
+            .collect();
+        let text = engine::rename::rewrite(&old, &spans, &prompt.new_name);
+        if text != old {
+            self.push_editor_undo(ctx, &old);
+            let sheet = self.store.current();
+            sheet.text = text;
+            sheet.mark_dirty();
+            self.evaluate();
+            self.touched();
+        }
+        self.focus_editor = true;
+    }
+
+    /// One undo step: the page as it was before this rename.
+    fn push_editor_undo(&self, ctx: &egui::Context, old_text: &str) {
+        let Some(id) = self.editor_id else {
+            return;
+        };
+        let cursor = self.store.sheets[self.store.active].cursor;
+        let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
+        let mut undoer = state.undoer();
+        undoer.add_undo(&(
+            CCursorRange::one(CCursor::new(cursor)),
+            old_text.to_string(),
+        ));
+        state.set_undoer(undoer);
+        state.store(ctx, id);
     }
 
     fn lookup_hover(&mut self, text: &str, cursor: usize) -> Option<engine::Hover> {
