@@ -634,7 +634,7 @@ impl OmacusApp {
             help: match std::env::var("OMACUS_SCREENSHOT_HELP").ok().as_deref() {
                 Some(
                     "update" | "switcher" | "preview" | "replace" | "rename" | "renamed" | "picker"
-                    | "hover",
+                    | "hover" | "pick",
                 )
                 | None => None,
                 Some("settings") => Some(help::Tab::Settings),
@@ -678,6 +678,9 @@ rental = rent + 50
             };
             app.store.current().mark_dirty();
             app.demo_rename = mode == "rename";
+        }
+        if std::env::var("OMACUS_SCREENSHOT_HELP").ok().as_deref() == Some("pick") {
+            app.store.demo_line_conflict();
         }
         app.evaluate();
         app
@@ -4386,6 +4389,99 @@ rental = rent + 50
         }
     }
 
+    /// The same line was changed in two places. One question, two actions.
+    fn show_pick(&mut self, ctx: &egui::Context) {
+        let Some(conflict) = self.store.line_conflicts().into_iter().next() else {
+            return;
+        };
+        let sealed = conflict.line_id == "body"
+            || conflict.ours.starts_with("OMACUS-LOCK/")
+            || conflict.theirs.starts_with("OMACUS-LOCK/");
+        let (title, detail, keep_label, other_label) = if sealed {
+            (
+                "Pick one copy",
+                "This locked page was changed in two places.",
+                "Keep this copy",
+                "Use the other copy",
+            )
+        } else {
+            (
+                "Pick one line",
+                "This line was changed in two places.",
+                "Keep this line",
+                "Use the other line",
+            )
+        };
+        let theme = self.theme.clone();
+        let ours = conflict.ours.clone();
+        let theirs = conflict.theirs.clone();
+        let mut keep = false;
+        let mut other = false;
+        let frame = design::dialog(&theme);
+        let modal = egui::Modal::new(egui::Id::unique("omacus-pick"))
+            .frame(frame)
+            .backdrop_color(design::backdrop(&theme))
+            .show(ctx, |ui| {
+                ui.set_width(380.0);
+                ui.label(
+                    egui::RichText::new(title)
+                        .size(theme::token::TYPE_TITLE)
+                        .color(theme.foreground),
+                );
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new(detail).size(13.0).color(theme.dim));
+                if !sealed {
+                    ui.add_space(10.0);
+                    ui.label(
+                        egui::RichText::new("This window")
+                            .size(12.0)
+                            .color(theme.dim),
+                    );
+                    ui.label(
+                        egui::RichText::new(&ours)
+                            .size(theme::token::TYPE_BODY)
+                            .family(egui::FontFamily::Monospace)
+                            .color(theme.foreground),
+                    );
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new("The other copy")
+                            .size(12.0)
+                            .color(theme.dim),
+                    );
+                    ui.label(
+                        egui::RichText::new(&theirs)
+                            .size(theme::token::TYPE_BODY)
+                            .family(egui::FontFamily::Monospace)
+                            .color(theme.foreground),
+                    );
+                }
+                ui.add_space(14.0);
+                ui.horizontal(|ui| {
+                    keep = design::primary(ui, &theme, keep_label).clicked();
+                    other = design::quiet(ui, &theme, other_label).clicked();
+                });
+            });
+        if modal.should_close() {
+            keep = true;
+        }
+        if keep || other {
+            let page = conflict.page_id.clone();
+            let line = conflict.line_id.clone();
+            let active = self
+                .store
+                .sheets
+                .get(self.store.active)
+                .map(|s| s.id.clone());
+            if self.store.pick_line(&page, &line, other && !keep) {
+                self.save();
+                if active.as_deref() == Some(page.as_str()) {
+                    self.evaluate();
+                }
+            }
+        }
+    }
+
     fn show_lock_gate(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme.clone();
         ui.add_space(36.0);
@@ -4838,6 +4934,7 @@ impl eframe::App for OmacusApp {
         self.show_help(&ctx);
         self.show_update(&ctx);
         self.show_delete(&ctx);
+        self.show_pick(&ctx);
         self.show_move(&ctx);
         self.show_lock(&ctx);
         self.show_rename(&ctx);

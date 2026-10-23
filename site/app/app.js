@@ -7,6 +7,7 @@ import init, {
   Calc, shareEncode, shareDecode, layoutAnswers, realignMap, pageMarks, previewBlocks, variables, wordKind,
   bindingAt, renameVariable, definitionChange, pageRefAt, rewriteVarRefs, renameBlurb, propagateRename, propagateHandle,
   lockCreate, lockWrap, lockSeal, lockOpen, lockUnwrap, lockOpenPassword, lockIs,
+  docMigrate, docSnapshot, docApply, docMergeDisk, docConflicts, docPick, docRemove, docSetFolders, docUnion,
 } from "./pkg/omacus_web.js";
 import {
   EditorState, StateField, StateEffect, RangeSetBuilder, Prec, EditorView, Decoration, WidgetType, keymap, hoverTooltip,
@@ -78,6 +79,14 @@ const el = {
   deleted: $("[data-deleted]"),
   confirm: $("[data-confirm]"),
   confirmText: $("[data-confirm-text]"),
+  pick: $("[data-pick]"),
+  pickTitle: $("[data-pick-title]"),
+  pickDetail: $("[data-pick-detail]"),
+  pickLines: $("[data-pick-lines]"),
+  pickOurs: $("[data-pick-ours]"),
+  pickTheirs: $("[data-pick-theirs]"),
+  pickKeep: $("[data-pick-keep]"),
+  pickOther: $("[data-pick-other]"),
   handleDialog: $("[data-handle]"),
   handleTitle: $("[data-handle-title]"),
   handleInput: $("[data-handle-input]"),
@@ -891,7 +900,254 @@ function installLibrary(lib) {
 
 function saveSheet(id) {
   if (id === "shared" || !id) return Promise.resolve(false);
-  return store.set("page:" + id, state.texts.get(id) ?? "");
+  const saved = store.set("page:" + id, state.texts.get(id) ?? "");
+  const noted = noteDocPage(id);
+  return Promise.all([saved, noted]).then(([ok]) => ok);
+}
+
+// The library document is the source of truth. Pages stay in IndexedDB either way,
+// and a failed backup leaves them there without a document.
+let docBytes = null;
+let docSaved = "";
+let docHeld = false;
+let docPromise = null;
+
+function bytesToB64(bytes) {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+function b64ToBytes(text) {
+  const binary = atob(text);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
+function folderSeeds() {
+  const out = [];
+  const walk = (list, parent) => {
+    for (const node of list ?? []) {
+      if (node?.type !== "folder") continue;
+      const row = { id: node.id, name: node.name || "" };
+      if (parent) row.parent = parent;
+      out.push(row);
+      walk(node.children, node.id);
+    }
+  };
+  walk(state.tree, null);
+  return out;
+}
+
+function libraryPages() {
+  const pages = [];
+  for (const id of state.order) {
+    if (!id || id === "shared") continue;
+    pages.push({ id, text: state.texts.get(id) ?? "" });
+  }
+  return pages;
+}
+
+function ensureLibraryDoc() {
+  if (docPromise) return docPromise;
+  docPromise = ensureLibraryDocOnce();
+  return docPromise;
+}
+
+async function ensureLibraryDocOnce() {
+  if (EMBED || docHeld || !engineReady) return null;
+  const existing = store.get("library-doc");
+  if (existing) {
+    try {
+      docBytes = b64ToBytes(existing);
+      docSaved = existing;
+      showDocConflicts();
+      return docBytes;
+    } catch {
+      docHeld = true;
+      docBytes = null;
+      return null;
+    }
+  }
+  const version = document.querySelector('meta[name="omacus-version"]')?.content || "";
+  let index = {};
+  try {
+    index = JSON.parse(store.get("index") || "{}");
+  } catch {
+    index = {};
+  }
+  const pages = libraryPages();
+  let zip;
+  try {
+    zip = zipBytes(backupEntries({
+      version,
+      library: index,
+      settings,
+      trash: loadTrash(),
+      pages,
+    }));
+  } catch {
+    docHeld = true;
+    return null;
+  }
+  const backup = bytesToB64(zip);
+  if (!store.get("sync-backup")) {
+    try {
+      await store.set("sync-backup", backup);
+    } catch {
+      docHeld = true;
+      return null;
+    }
+    if (store.get("sync-backup") !== backup) {
+      docHeld = true;
+      return null;
+    }
+  }
+  try {
+    docBytes = docMigrate(JSON.stringify({ pages, folders: folderSeeds() }));
+  } catch {
+    docHeld = true;
+    docBytes = null;
+    return null;
+  }
+  const encoded = bytesToB64(docBytes);
+  try {
+    await store.set("library-doc", encoded);
+  } catch {
+    docHeld = true;
+    docBytes = null;
+    return null;
+  }
+  docSaved = encoded;
+  return docBytes;
+}
+
+function showDocConflicts() {
+  if (!docBytes || !el.pick) return;
+  let rows = [];
+  try {
+    rows = JSON.parse(docConflicts(docBytes) || "[]");
+  } catch {
+    return;
+  }
+  if (!Array.isArray(rows) || rows.length === 0) {
+    el.pick.hidden = true;
+    return;
+  }
+  const next = rows[0];
+  if (!el.pick.hidden && el.pick.dataset.page === next.page_id && el.pick.dataset.line === next.line_id) return;
+  openPick(next);
+}
+
+function openPick(conflict) {
+  if (!el.pick || !conflict) return;
+  const sealed = conflict.line_id === "body" || isLock(conflict.ours) || isLock(conflict.theirs);
+  el.pick.dataset.page = conflict.page_id;
+  el.pick.dataset.line = conflict.line_id;
+  el.pickTitle.textContent = sealed ? "Pick one copy" : "Pick one line";
+  el.pickDetail.textContent = sealed
+    ? "This locked page was changed in two places."
+    : "This line was changed in two places.";
+  if (el.pickLines) el.pickLines.hidden = !!sealed;
+  if (!sealed) {
+    el.pickOurs.textContent = conflict.ours ?? "";
+    el.pickTheirs.textContent = conflict.theirs ?? "";
+  }
+  el.pickKeep.textContent = sealed ? "Keep this copy" : "Keep this line";
+  el.pickOther.textContent = sealed ? "Use the other copy" : "Use the other line";
+  el.pick.hidden = false;
+}
+
+async function noteDocPage(id) {
+  if (EMBED || docHeld || !engineReady || !id || id === "shared") return;
+  if (!docBytes) {
+    const made = await ensureLibraryDoc();
+    if (!made) return;
+  }
+  const text = state.texts.get(id) ?? "";
+  let bytes = docBytes;
+  try {
+    const stored = store.get("library-doc");
+    if (stored === docSaved && docSnapshot(bytes, id) === text) {
+      bytes = docSetFolders(bytes, JSON.stringify(folderSeeds()));
+      docBytes = bytes;
+      const encoded = bytesToB64(bytes);
+      docSaved = encoded;
+      await store.set("library-doc", encoded);
+      showDocConflicts();
+      return;
+    }
+    if (stored && stored !== docSaved) {
+      const ancestor = docSnapshot(bytes, id);
+      bytes = docUnion(bytes, b64ToBytes(stored));
+      const disk = docSnapshot(bytes, id);
+      if (disk !== ancestor) {
+        // The lines already stored are the last common copy. Diff against that,
+        // then fold this editor and the other copy.
+        bytes = docApply(bytes, id, ancestor);
+        bytes = docMergeDisk(bytes, id, text, disk);
+      } else {
+        bytes = docApply(bytes, id, text);
+      }
+    } else {
+      bytes = docApply(bytes, id, text);
+    }
+    bytes = docSetFolders(bytes, JSON.stringify(folderSeeds()));
+  } catch {
+    return;
+  }
+  docBytes = bytes;
+  const encoded = bytesToB64(bytes);
+  docSaved = encoded;
+  await store.set("library-doc", encoded);
+  showDocConflicts();
+}
+
+async function dropDocPage(id) {
+  if (EMBED || docHeld || !docBytes || !id || id === "shared") return;
+  try {
+    docBytes = docRemove(docBytes, id);
+  } catch {
+    return;
+  }
+  const encoded = bytesToB64(docBytes);
+  docSaved = encoded;
+  await store.set("library-doc", encoded);
+}
+
+async function choosePick(theirs) {
+  const page = el.pick?.dataset.page;
+  const line = el.pick?.dataset.line;
+  if (!docBytes || !page || !line) {
+    if (el.pick) el.pick.hidden = true;
+    return;
+  }
+  try {
+    docBytes = docPick(docBytes, page, line, !!theirs);
+  } catch {
+    if (el.pick) el.pick.hidden = true;
+    return;
+  }
+  const snapshot = docSnapshot(docBytes, page);
+  if (isLock(snapshot) || line === "body") {
+    state.texts.set(page, snapshot);
+    plains.delete(page);
+    pageKeys.delete(page);
+  } else {
+    if (plains.has(page)) plains.set(page, snapshot);
+    if (!isLock(state.texts.get(page) ?? "")) state.texts.set(page, snapshot);
+  }
+  const encoded = bytesToB64(docBytes);
+  docSaved = encoded;
+  await store.set("library-doc", encoded);
+  await saveSheet(page);
+  if (state.active === page) showSheet();
+  if (el.pick) el.pick.hidden = true;
+  showDocConflicts();
 }
 
 function newId() {
@@ -1171,7 +1427,11 @@ function onStoreWrite(key, value) {
   const typing = view.hasFocus && pendingSave;
   const before = currentText();
   const mine = state.active;
+  // A save from another tab reloads the library. The page open in this tab
+  // stays as typed, and the next save folds the two copies together.
+  const draft = typing && mine && mine !== "shared" ? state.texts.get(mine) : null;
   load();
+  if (draft != null) state.texts.set(mine, draft);
   reconcileUnlocks();
   // Each tab keeps its own open sheet.
   if (mine === "shared" || state.order.includes(mine)) state.active = mine;
@@ -3072,10 +3332,11 @@ function commitDeletePage(id) {
   const trash = loadTrash().filter((t) => t.id !== id);
   trash.unshift({ id, text, handle: state.handles.get(id) || "" });
   saveTrash(trash);
-  flushSave();
+  const pending = flushSave();
   state.texts.delete(id);
   store.remove("page:" + id);
   store.remove("sheet:" + id);
+  Promise.resolve(pending).then(() => dropDocPage(id));
   syncOrder();
   if (wasActive) {
     state.active = state.order[Math.min(Math.max(oldAt, 0), state.order.length - 1)] ?? null;
@@ -3111,13 +3372,16 @@ function commitDeleteFolder(id) {
   const trash = loadTrash().filter((t) => !ids.includes(t.id));
   for (const page of [...pages].reverse()) trash.unshift({ id: page.id, text: page.text });
   saveTrash(trash);
-  flushSave();
+  const pending = flushSave();
   for (const pid of ids) {
     forgetPage(pid);
     state.texts.delete(pid);
     store.remove("page:" + pid);
     store.remove("sheet:" + pid);
   }
+  Promise.resolve(pending).then(() => {
+    for (const pid of ids) dropDocPage(pid);
+  });
   folderKeys.delete(id);
   const active = state.active;
   syncOrder();
@@ -3812,7 +4076,7 @@ addEventListener(
     if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if ((el.confirm && !el.confirm.hidden) || (el.rename && !el.rename.hidden) || (el.move && !el.move.hidden) || (el.switcher && !el.switcher.hidden)) return;
+      if ((el.confirm && !el.confirm.hidden) || (el.pick && !el.pick.hidden) || (el.rename && !el.rename.hidden) || (el.move && !el.move.hidden) || (el.switcher && !el.switcher.hidden)) return;
       if (state.active && state.active !== "shared") {
         e.preventDefault();
         e.stopPropagation();
@@ -3864,6 +4128,10 @@ addEventListener("keydown", (e) => {
     }
     if (el.settings && !el.settings.hidden) {
       closeSettings();
+      return;
+    }
+    if (el.pick && !el.pick.hidden) {
+      choosePick(false);
       return;
     }
     if (el.confirm && !el.confirm.hidden) {
@@ -3950,6 +4218,8 @@ $("[data-confirm-yes]")?.addEventListener("click", commitDelete);
 $("[data-confirm-no]")?.addEventListener("click", () => {
   if (el.confirm) el.confirm.hidden = true;
 });
+$("[data-pick-keep]")?.addEventListener("click", () => choosePick(false));
+$("[data-pick-other]")?.addEventListener("click", () => choosePick(true));
 
 // ---------------------------------------------------------------------------------
 // Export and import: plain .txt files in a .zip, like the desktop app's sheets folder.
@@ -4324,6 +4594,7 @@ async function start() {
   await init({ module_or_path: WASM });
   engineReady = true;
   calc = new Calc();
+  if (!EMBED) await ensureLibraryDoc();
   if (typeof Worker !== "undefined") startWorker();
   el.loading.remove();
   await openShared();

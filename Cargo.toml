@@ -1,5 +1,5 @@
 [workspace]
-members = ["engine", "web"]
+members = ["engine", "web", "doc"]
 
 [package]
 name = "omacus"
@@ -15,6 +15,7 @@ homepage = "https://github.com/avinashjoshi/omacus"
 
 [dependencies]
 omacus-engine = { path = "engine" }
+omacus-doc = { path = "doc" }
 dirs = "7.0.0"
 # The renderer is chosen per target below. glow (OpenGL) is not listed here:
 # a Windows dependency line adds to this one, and would still compile glow in.

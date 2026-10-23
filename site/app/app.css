@@ -947,6 +947,28 @@ body.answers-inline .res {
   gap: 8px;
 }
 
+.confirm [data-pick-lines] {
+  display: block;
+  margin: 0 0 4px;
+}
+
+.confirm .pick-label {
+  margin: 0 0 4px;
+  color: var(--app-dim);
+  font-size: 12px;
+}
+
+.confirm .pick-line {
+  margin: 0 0 8px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--app-bg);
+  border: 1px solid var(--app-line);
+  font: 13.5px var(--mono);
+  white-space: pre-wrap;
+  color: var(--app-fg);
+}
+
 .confirm .move-list {
   flex-direction: column;
   gap: 2px;
