@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Bump the package version and prepend a changelog section.
+# Bump the package version and rename the changelog's Unreleased section.
 # Usage: prepare-release.sh patch|minor|major
 #
-# The Release workflow commits the result on a release branch and opens a pull
-# request. This script only edits files.
+# For one change, run this on that pull request, then merge it. A push to main
+# whose version has no tag yet publishes the release.
+#
+# The Release workflow's prepare action runs this when several changes already
+# on main should ship together. This script only edits files.
 set -euo pipefail
 
 bump="${1:-patch}"
