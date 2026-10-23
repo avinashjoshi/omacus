@@ -675,7 +675,7 @@ mod tests {
         let root = temp_root("old-state");
         let sheets = root.join("sheets");
         std::fs::create_dir_all(&sheets).unwrap();
-        std::fs::write(sheets.join("abc.txt"), "# Duo Offer Discussion\n1+1").unwrap();
+        std::fs::write(sheets.join("abc.txt"), "# Weekend Plans\n1+1").unwrap();
         std::fs::write(sheets.join("def.txt"), "# Other\n2").unwrap();
         // The shape written before the sidebar could be resized.
         std::fs::write(
@@ -686,7 +686,7 @@ mod tests {
         let store = Store::load_in(Some(root.clone()), "# Welcome");
         assert_eq!(
             store.sheets.iter().map(Sheet::heading).collect::<Vec<_>>(),
-            ["Other", "Duo Offer Discussion"]
+            ["Other", "Weekend Plans"]
         );
         assert!(!store.sidebar);
         assert_eq!(store.sidebar_width, SIDEBAR_WIDTH);
@@ -697,7 +697,7 @@ mod tests {
     #[test]
     fn deleting_forever_leaves_nothing_to_restore() {
         let root = temp_root("purge");
-        let mut store = Store::load_in(Some(root.clone()), "# Duo Offer Discussion");
+        let mut store = Store::load_in(Some(root.clone()), "# Weekend Plans");
         store.delete(0);
         store.save().unwrap();
         let id = store.trashed()[0].id.clone();
@@ -855,14 +855,14 @@ mod tests {
         let root = temp_root("pages-dir");
         let legacy = root.join("sheets");
         std::fs::create_dir_all(&legacy).unwrap();
-        std::fs::write(legacy.join("abc.txt"), "# Duo Offer Discussion\n1+1").unwrap();
+        std::fs::write(legacy.join("abc.txt"), "# Weekend Plans\n1+1").unwrap();
         std::fs::write(
             root.join("state.json"),
             r#"{"order":["abc"],"active":"abc","cursors":{"abc":4}}"#,
         )
         .unwrap();
         let mut store = Store::load_in(Some(root.clone()), "# Welcome");
-        assert_eq!(store.current().title(), "Duo Offer Discussion");
+        assert_eq!(store.current().title(), "Weekend Plans");
         assert_eq!(store.current().cursor, 4);
         assert!(root.join("pages").join("abc.txt").is_file());
         assert!(!legacy.exists());

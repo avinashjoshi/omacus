@@ -442,10 +442,10 @@ impl OmacusApp {
             pending_export: std::env::var("OMACUS_SCREENSHOT_HELP")
                 .is_ok_and(|t| t == "replace")
                 .then(|| PendingExport {
-                    path: pdf::default_export_dir().join("Soflo Acquisition.pdf"),
+                    path: pdf::default_export_dir().join("Trip Budget.pdf"),
                     folder_label: "Downloads".into(),
-                    file_name: "Soflo Acquisition.pdf".into(),
-                    title: "Soflo Acquisition".into(),
+                    file_name: "Trip Budget.pdf".into(),
+                    title: "Trip Budget".into(),
                     blocks: Vec::new(),
                     column: true,
                 }),
@@ -4267,7 +4267,7 @@ mod tests {
         assert!((bar.height() - 16.0).abs() < 0.01);
         assert!(bar.top() >= row.top() && bar.bottom() <= row.bottom());
         let job = sidebar_label_job(
-            "Duo Offer Discussion",
+            "Weekend Plans",
             FontId::proportional(14.0),
             Color32::WHITE,
             80.0,
@@ -4275,6 +4275,6 @@ mod tests {
         assert_eq!(job.wrap.max_rows, 1);
         assert!(job.wrap.break_anywhere);
         assert_eq!(job.wrap.overflow_character, Some('\u{2026}'));
-        assert_eq!(job.text, "Duo Offer Discussion");
+        assert_eq!(job.text, "Weekend Plans");
     }
 }
