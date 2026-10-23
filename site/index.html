@@ -84,7 +84,6 @@
     "https://omacus.com/img/screens/examples-dark.webp",
     "https://omacus.com/img/screens/web-examples.webp",
     "https://omacus.com/img/screens/unfold-dark.webp",
-    "https://omacus.com/img/screens/unfold-light.webp",
     "https://omacus.com/img/screens/matte-black.webp",
     "https://omacus.com/img/screens/tokyo-night.webp",
     "https://omacus.com/img/screens/help-syntax.webp"
@@ -399,27 +398,17 @@
         <p class="cta-row"><a class="btn primary" href="https://app.omacus.com" target="_blank" rel="noopener">Open the web app <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a></p>
       </div>
     </div>
-  </section>
-
-  <!-- Unfolded phone -->
-  <section id="unfold">
-    <div class="wrap unfold">
-      <div class="unfold-copy reveal">
-        <span class="kicker">// home screen</span>
-        <h2>Unfold it. <em class="serif">Spread out.</em></h2>
-        <p>Unfold it and your notes spread out: pages on one side, the math on the other. Works anywhere, even on the go.</p>
-      </div>
-      <figure class="foldable reveal">
+    <div class="wrap">
+      <figure class="foldable reveal" id="unfold">
         <div class="foldable-stage">
           <div class="foldable-ground" aria-hidden="true"></div>
           <div class="foldable-device">
             <div class="foldable-half foldable-half-left">
               <div class="foldable-screen">
                 <div class="foldable-status" aria-hidden="true"></div>
-                <picture>
-                  <source srcset="/img/screens/unfold-light.webp" media="(prefers-color-scheme: light)" type="image/webp">
+                <div class="foldable-shot">
                   <img src="/img/screens/unfold-dark.webp" width="1440" height="1080" alt="Omacus on an unfolded phone, Trip Budget open: a slim list of pages, and the note running across the screen." loading="lazy" decoding="async">
-                </picture>
+                </div>
               </div>
             </div>
             <div class="foldable-half foldable-half-right">
@@ -428,16 +417,16 @@
                   <span class="foldable-camera"></span>
                   <span class="foldable-clock">9:41</span>
                 </div>
-                <picture>
-                  <source srcset="/img/screens/unfold-light.webp" media="(prefers-color-scheme: light)" type="image/webp">
+                <div class="foldable-shot">
                   <img src="/img/screens/unfold-dark.webp" width="1440" height="1080" alt="" loading="lazy" decoding="async">
-                </picture>
+                </div>
               </div>
               <span class="foldable-buttons" aria-hidden="true"><span></span><span></span></span>
             </div>
             <span class="foldable-hinge" aria-hidden="true"></span>
           </div>
         </div>
+        <figcaption>Look what you can do: unfold a phone and your pages sit beside the math.</figcaption>
       </figure>
     </div>
   </section>

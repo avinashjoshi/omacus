@@ -175,21 +175,23 @@ check(css.includes("img.cm-widgetBuffer"), "the answer spacer stays inline so a 
 {
   const home = readFileSync(join(site, "index.html"), "utf8");
   const start = home.indexOf('id="unfold"');
-  const unfold = start >= 0 ? home.slice(start, start + 2200) : "";
-  check(start >= 0, "the homepage has an unfolded-phone section");
-  check(unfold.includes("Unfold it and your notes spread out"), "the foldable section says what opening the phone does");
-  check(unfold.includes("unfold-light.webp") && unfold.includes("unfold-dark.webp"), "the foldable section has light and dark screenshots");
+  const end = start >= 0 ? home.indexOf("</figure>", start) : -1;
+  const unfold = start >= 0 && end > start ? home.slice(start, end) : "";
+  check(start >= 0 && unfold.length > 0, "the homepage has a small unfolded phone");
+  check(unfold.includes("Look what you can do: unfold a phone and your pages sit beside the math."), "the foldable aside says what opening the phone does");
+  check(unfold.includes("unfold-dark.webp") && !unfold.includes("unfold-light.webp"), "the foldable aside ships one dark picture");
+  check(!unfold.includes("<h2") && !unfold.includes("kicker"), "the foldable aside has no headline");
   check(unfold.includes("foldable-clock") && unfold.includes("foldable-buttons"), "the unfolded phone has a status time and side buttons");
   const foldCss = siteCss.slice(siteCss.indexOf("/* Unfolded phone"), siteCss.indexOf("/* Theme gallery"));
   check(foldCss.includes("aspect-ratio: 4 / 3"), "the unfolded phone is landscape, about 4:3");
-  check(foldCss.includes("width: 700px"), "the unfolded phone stays a showpiece on a desktop");
+  check(foldCss.includes("440px"), "the unfolded phone stays a small aside");
   check(unfold.includes("foldable-status"), "the camera and time sit in a status strip");
   check(foldCss.includes("color-mix(in srgb, var(--black) 8%, transparent)"), "the crease is a faint hairline");
   check(foldCss.includes("border-right: 0"), "the halves do not draw a bar between them");
   check(/\.foldable-device \{[^}]*drop-shadow\(/.test(foldCss), "the phone shadow belongs to the whole device");
   check(!/\.foldable-half::before \{[^}]*var\(--space-5\)/.test(foldCss), "a half does not cast its shadow across the crease");
   check(!/rotate[XY]/.test(foldCss), "the unfolded phone lies flat");
-  check(!/iPhone|iPad|Apple|Duo|Samsung|Pixel|Galaxy|PWA|Cactus/i.test(unfold), "the foldable section stays generic");
+  check(!/iPhone|iPad|Apple|Duo|Samsung|Pixel|Galaxy|PWA|Cactus|Soflo|UPFRONT/i.test(unfold), "the foldable aside stays generic");
 }
 check(
   /@media \(max-width: 620px\)[\s\S]*?\.features \{[\s\S]*?overflow-x:\s*auto/.test(siteCss),
