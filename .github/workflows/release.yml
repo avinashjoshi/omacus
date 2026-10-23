@@ -1,20 +1,48 @@
 name: Release
 
-# Releasing = bumping `version` in Cargo.toml and pushing to main.
+# Releasing opens a pull request. Run this workflow by hand with action `prepare`
+# (Actions → Release → Run workflow). That bumps `version` in Cargo.toml, prepends
+# a changelog section, and opens a pull request that auto-merges once the required
+# checks on main pass. Main is protected, so the version bump is never pushed there
+# directly.
 #
-# On every push to main this checks whether that version already has a `v<version>` tag.
-# If not: run CI, build every platform, then tag and publish the GitHub release with
-# notes and assets. Everything lives in one workflow because a tag or release created by
-# GITHUB_TOKEN does not trigger other workflows.
+# After that pull request merges, this same run tags `v<version>` and publishes the
+# GitHub release. A push to main does the same when the merged version has no tag
+# yet, which covers a merge made by a person. A tag or release created by
+# GITHUB_TOKEN does not trigger other workflows, so the builds and the publish job
+# live here, and this run also deploys the site when it did the merge itself.
 #
-# Run it by hand (Actions → Release → Run workflow) to build the artifacts without releasing.
+# The checks to require on main are `test (ubuntu-22.04)`, `test (windows-latest)`,
+# `test (macos-latest)`, and `wasm`. Auto-merge has to be allowed on the repository.
+# An optional `RELEASE_TOKEN` secret (a personal access token or a GitHub App token
+# with contents and pull requests) opens the pull request as that account, so the
+# checks start without an approval click and the merge itself triggers `push`.
+#
+# Action `build` packages the current main without opening a pull request, and
+# publishes only when that version has no tag yet.
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      action:
+        description: prepare opens the release pull request; build packages current main
+        type: choice
+        default: prepare
+        options:
+          - prepare
+          - build
+      bump:
+        description: Used when action is prepare
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
 
-# Read-only by default; only publishing gets write access.
+# Read-only by default; opening the pull request and publishing get write access.
 permissions:
   contents: read
 
@@ -23,19 +51,114 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'prepare'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      pr: ${{ steps.open.outputs.pr }}
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: true
+      - id: bump
+        run: .github/scripts/prepare-release.sh "${{ inputs.bump }}"
+      - id: open
+        env:
+          # A token other than GITHUB_TOKEN lets the pull request's checks start
+          # without approval and lets the merge trigger push workflows.
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.bump.outputs.version }}"
+          branch="release/v$version"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add Cargo.toml Cargo.lock CHANGELOG.md
+          git commit -m "Release v$version"
+          git push origin "HEAD:$branch"
+          {
+            echo "Bumps the version and records the changelog."
+            echo
+            echo "Auto-merge is enabled. After the required checks pass, this merges and the Release workflow tags \`v$version\` and publishes it."
+            echo
+            cat CHANGELOG.md
+          } > /tmp/release-pr-body.md
+          url="$(gh pr create --base main --head "$branch" --title "Release v$version" --body-file /tmp/release-pr-body.md)"
+          echo "pr=$url" >> "$GITHUB_OUTPUT"
+          echo "Opened $url"
+          if ! gh pr merge --auto --squash "$url"; then
+            echo "Could not enable auto-merge. Allow auto-merge on the repository, require the CI checks on main, then enable auto-merge on this pull request."
+            exit 1
+          fi
+
+  # prepare's merge is often done by GITHUB_TOKEN, which does not start a push
+  # workflow. Wait here, then tag and publish from this run.
+  wait:
+    needs: prepare
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'prepare'
+    runs-on: ubuntu-latest
+    timeout-minutes: 130
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      sha: ${{ steps.merged.outputs.sha }}
+    steps:
+      - id: merged
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          PR: ${{ needs.prepare.outputs.pr }}
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 120); do
+            state="$(gh pr view "$PR" --json state --jq .state)"
+            echo "pull request state: $state"
+            if [[ "$state" == "MERGED" ]]; then
+              sha="$(gh pr view "$PR" --json mergeCommit --jq .mergeCommit.oid)"
+              echo "sha=$sha" >> "$GITHUB_OUTPUT"
+              echo "merged as $sha"
+              exit 0
+            fi
+            if [[ "$state" == "CLOSED" ]]; then
+              echo "The release pull request was closed without merging."
+              exit 1
+            fi
+            sleep 60
+          done
+          echo "Timed out waiting for the release pull request to merge. If it merges later, run this workflow with action build to publish the untagged version."
+          exit 1
+
   check:
+    needs: wait
+    if: >-
+      always() &&
+      (
+        needs.wait.result == 'success' ||
+        (needs.wait.result == 'skipped' && github.event_name == 'push') ||
+        (needs.wait.result == 'skipped' && github.event_name == 'workflow_dispatch' && inputs.action == 'build')
+      )
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
       release: ${{ steps.version.outputs.release }}
+      sha: ${{ steps.version.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          ref: ${{ needs.wait.outputs.sha || github.sha }}
       - id: version
         run: |
           version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=${{ needs.wait.outputs.sha || github.sha }}" >> "$GITHUB_OUTPUT"
           if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
             echo "v$version is already released."
             echo "release=false" >> "$GITHUB_OUTPUT"
@@ -48,14 +171,17 @@ jobs:
     needs: check
     if: needs.check.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.check.outputs.sha }}
 
   linux:
-    needs: ci
+    needs: [ci, check]
     runs-on: ubuntu-22.04 # older glibc, so the binary runs on more distros
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          ref: ${{ needs.check.outputs.sha }}
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libwayland-dev libx11-dev
@@ -79,12 +205,13 @@ jobs:
             install.sh
 
   windows:
-    needs: ci
+    needs: [ci, check]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          ref: ${{ needs.check.outputs.sha }}
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo build --release --locked
@@ -107,12 +234,13 @@ jobs:
             omacus-windows-x86_64-setup.exe
 
   macos:
-    needs: ci
+    needs: [ci, check]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          ref: ${{ needs.check.outputs.sha }}
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
@@ -173,6 +301,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          ref: ${{ needs.check.outputs.sha }}
           fetch-depth: 0 # tags and history for the release notes
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
@@ -186,13 +315,29 @@ jobs:
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           tag_name: v${{ needs.check.outputs.version }}
-          target_commitish: ${{ github.sha }}
+          target_commitish: ${{ needs.check.outputs.sha }}
           name: Omacus v${{ needs.check.outputs.version }}
           body_path: notes.md
           files: dist/*
 
   install-test:
-    needs: publish
+    needs: [publish, check]
     permissions:
       contents: read
     uses: ./.github/workflows/install-test.yml
+    with:
+      ref: ${{ needs.check.outputs.sha }}
+
+  # A merge made with GITHUB_TOKEN does not start the site workflow. Deploy from
+  # here when this run waited out that merge. A normal push to main still deploys
+  # through site.yml on its own.
+  deploy-site:
+    needs: [publish, wait]
+    if: always() && needs.publish.result == 'success' && needs.wait.result == 'success'
+    uses: ./.github/workflows/site.yml
+    with:
+      ref: ${{ needs.wait.outputs.sha }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
