@@ -170,6 +170,7 @@
     <a href="#autocomplete">Autocomplete</a>
     <a href="#themes">Themes</a>
     <a href="#cli">Command line</a>
+    <a href="#mcp">MCP</a>
     <a href="#omarchy">Omarchy &amp; Hyprland</a>
     <a href="#sharing">Sharing &amp; web app</a>
     <a href="#files">Where files live</a>
@@ -536,18 +537,42 @@ total</pre>
 </div>
 
     <h2 id="cli">Command line</h2>
-    <p>The <code>omacus</code> command uses the same engine as the app.</p>
+    <p>The <code>omacus</code> command uses the same engine, and the same pages, as the app. With no arguments it opens the window. A bare expression still prints one answer.</p>
 <div class="annot">
-<code>omacus '$100 in EUR'</code><span class="c"># one expression → prints the answer</span>
-<code class="full">omacus '6pm PST in Tokyo'</code>
-<code>printf 'rent = $1450\nrent * 12\n' | omacus -</code><span class="c"># a whole page from stdin, one result per line</span>
+<code>omacus '3.5 km in miles'</code><span class="c"># 2.17 miles</span>
+<code>omacus eval '3.5 km in miles'</code>
+<code>omacus eval --json '2 + 2'</code><span class="c"># JSON, one entry per line</span>
+<code>printf 'a = 5\na * 3\n' | omacus eval</code><span class="c"># a whole page, one answer per line</span>
+<code class="full">printf 'a = 5\na * 3\n' | omacus -</code>
 <code class="full">omacus - &lt; ~/notes/budget.txt</code>
+<code>omacus pages list</code>
+<code>omacus pages show 'Trip Budget'</code><span class="c"># the page, with its answers</span>
+<code>omacus pages new 'Weekend Plans'</code>
+<code>omacus pages new Groceries --from-file list.txt</code>
+<code>omacus pages append Groceries 'milk $3'</code>
+<code>omacus pages rm 'Weekend Plans'</code><span class="c"># moved to Recently deleted</span>
+<code>omacus pages export 'Trip Budget' --md</code><span class="c"># a Markdown table on stdout</span>
+<code>omacus pages export 'Trip Budget' --pdf</code><span class="c"># a PDF in the export folder</span>
+<code>omacus completions bash</code><span class="c"># also zsh, fish, powershell</span>
 <code>omacus</code><span class="c"># no arguments: open the window</span>
 <code>omacus --version</code><span class="c"># which version you have</span>
 <code>omacus update</code><span class="c"># install the latest version</span>
 <code>omacus open '&lt;share link&gt;'</code><span class="c"># open a shared page in the window</span>
 </div>
-    <p>A single expression exits with status 1 when there's no answer, which makes it easy to use in scripts. On Windows, <code>omacus.exe "..."</code> works the same from a terminal.</p>
+    <p>A page can be named by its title, its id, or a unique prefix, so <code>trip</code> is enough for Trip Budget. If more than one page fits, omacus lists them and changes nothing. <code>omacus pages --help</code> lists every page command. A single expression exits with status 1 when there's no answer, which makes it easy to use in scripts. On Windows, <code>omacus.exe "..."</code> works the same from a terminal.</p>
+    <p>These commands read and write the pages in the <a href="#files">data folder</a>. The window re-reads that folder every few seconds, and again when it regains focus, so an edit from the command line shows up in the app. Set <code>OMACUS_DATA_DIR</code> to use a different folder. A locked page is not printed, exported, or changed unless you pass <code>--password</code>.</p>
+
+    <h2 id="mcp">MCP</h2>
+    <p><code>omacus mcp</code> runs a <a href="https://modelcontextprotocol.io">Model Context Protocol</a> server on stdin and stdout, so Claude Desktop, Cursor, and other clients can calculate and use your pages. The tools are <code>evaluate</code>, <code>list_pages</code>, <code>read_page</code>, <code>create_page</code>, <code>append_page</code>, <code>update_page</code>, and <code>delete_page</code> (which moves a page to Recently deleted). Each page is also a resource at <code>omacus://page/{id}</code>. A locked page is not returned without its password. The server uses the same files as the app, so the window picks up the edits.</p>
+    <p>Claude Desktop and Cursor take the same block. <code>omacus</code> has to be on <code>PATH</code>, which the installers arrange. For Claude, save it in <code>claude_desktop_config.json</code> (<code>~/Library/Application Support/Claude/</code> on macOS, <code>~/.config/Claude/</code> on Linux, <code>%APPDATA%\Claude\</code> on Windows). For Cursor, save it as <code>.cursor/mcp.json</code> in the project or in your home directory. Restart the client afterwards.</p>
+<pre>{
+  "mcpServers": {
+    "omacus": {
+      "command": "omacus",
+      "args": ["mcp"]
+    }
+  }
+}</pre>
 
     <h2 id="omarchy">Omarchy &amp; Hyprland</h2>
     <p>When the installer runs on Omarchy, it asks:</p>
@@ -618,6 +643,7 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
         <tr><td>Exchange rates and their cache</td><td><code>src/rates.rs</code></td></tr>
         <tr><td>Pages, saving and restoring</td><td><code>src/sheets.rs</code></td></tr>
         <tr><td>The window, sidebar and results column</td><td><code>src/app.rs</code></td></tr>
+        <tr><td>Command line and the MCP server</td><td><code>src/cli.rs</code>, <code>src/mcp.rs</code></td></tr>
         <tr><td>Syntax colors and autocomplete</td><td><code>src/highlight.rs</code>, <code>src/complete.rs</code></td></tr>
         <tr><td>Themes, live reloading</td><td><code>src/theme.rs</code></td></tr>
         <tr><td>The built-in help</td><td><code>src/help.rs</code></td></tr>

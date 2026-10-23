@@ -29,6 +29,11 @@ ureq = "3.4.2"
 # Folder picker for the PDF export directory. The default backend is the XDG
 # file portal (no GTK headers). macOS and Windows use their own dialogs.
 rfd = { version = "0.15.4", default-features = false, features = ["xdg-portal", "async-std"] }
+clap = { version = "4.5", features = ["derive"] }
+clap_complete = "4.5"
+# stdio MCP server (`omacus mcp`). Default features pull a client we don't run.
+rmcp = { version = "3.7.0", default-features = false, features = ["server", "macros", "transport-io"] }
+tokio = { version = "1", default-features = false, features = ["rt", "macros", "io-util", "sync"] }
 
 [build-dependencies]
 miniz_oxide = "0.8"

@@ -198,12 +198,42 @@ pub struct Store {
     conflicts: Vec<String>,
 }
 
+/// `OMACUS_DATA_DIR` when it is set, otherwise the per-user data folder
+/// (`~/.local/share/omacus`, and the equivalents on macOS and Windows).
+/// The window, the command line and the MCP server all use this.
+pub fn data_root() -> Option<PathBuf> {
+    match std::env::var_os("OMACUS_DATA_DIR") {
+        Some(dir) if !dir.is_empty() => Some(PathBuf::from(dir)),
+        _ => dirs::data_dir().map(|d| d.join("omacus")),
+    }
+}
+
 impl Store {
     pub fn load(welcome: &str) -> Self {
-        Self::load_in(dirs::data_dir().map(|d| d.join("omacus")), welcome)
+        Self::load_in(data_root(), welcome)
+    }
+
+    /// Pages already on disk. An empty library stays empty, so a command that
+    /// only lists pages does not create one.
+    pub fn open_library() -> Self {
+        Self::load_pages(data_root(), None)
+    }
+
+    /// Open the pages under `root` (a temp directory in tests).
+    #[cfg(test)]
+    pub(crate) fn open_at(root: PathBuf) -> Self {
+        Self::load_pages(Some(root), None)
+    }
+
+    pub fn directory(&self) -> Option<&Path> {
+        self.dir.as_deref()
     }
 
     fn load_in(root: Option<PathBuf>, welcome: &str) -> Self {
+        Self::load_pages(root, Some(welcome))
+    }
+
+    fn load_pages(root: Option<PathBuf>, welcome: Option<&str>) -> Self {
         let dir = root.as_ref().map(|r| pages_dir(r));
         let state: State = root
             .as_ref()
@@ -284,7 +314,9 @@ impl Store {
             conflicts: Vec::new(),
         };
         store.align_sheets();
-        if store.sheets.is_empty() {
+        if store.sheets.is_empty()
+            && let Some(welcome) = welcome
+        {
             store.new_sheet(welcome);
         }
         store.active = store
@@ -1738,6 +1770,15 @@ mod tests {
         assert_eq!(store.sheets.len(), 1);
         assert_eq!(store.current().title(), "Old notes");
         assert!(!root.join("sheet.txt").exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn an_empty_library_stays_empty() {
+        let root = temp_root("empty-lib");
+        let store = Store::open_at(root.clone());
+        assert!(store.sheets.is_empty());
+        assert_eq!(std::fs::read_dir(root.join("pages")).unwrap().count(), 0);
         let _ = std::fs::remove_dir_all(root);
     }
 

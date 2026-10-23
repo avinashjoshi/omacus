@@ -96,13 +96,65 @@ Suggestions for variables, units, keywords and time zones appear as you type, ea
 
 CLI:
 
+With no arguments, `omacus` opens the window. A bare expression still prints one answer.
+
 ```sh
-omacus '$100 in EUR'
-printf 'a = 5\na * 3\n' | omacus -
+omacus '3.5 km in miles'                         # 2.17 miles
+omacus eval '3.5 km in miles'
+omacus eval --json '2 + 2'                       # one JSON object per line
+printf 'a = 5\na * 3\n' | omacus eval            # a whole page, one answer per line
+printf 'a = 5\na * 3\n' | omacus -               # the same, the short form
+omacus pages list
+omacus pages show 'Trip Budget'                  # the page, with answers
+omacus pages new 'Weekend Plans'
+omacus pages new Groceries --from-file list.txt
+omacus pages append Groceries 'milk $3'
+omacus pages rm 'Weekend Plans'                  # moved to Recently deleted
+omacus pages export 'Trip Budget' --md           # a Markdown table on stdout
+omacus pages export 'Trip Budget' --pdf          # a PDF in the export folder
 omacus --version
-omacus update        # install the latest version
-omacus open '<link>' # open a shared page
+omacus update                                    # install the latest version
+omacus open '<link>'                             # open a shared page
+omacus completions bash                          # also zsh, fish, powershell
 ```
+
+A page can be named by its title, its id, or a unique prefix (`trip` is enough for
+Trip Budget). If more than one page fits, omacus lists them and changes nothing.
+`omacus eval` with no expression reads stdin; on a terminal it asks for one.
+`omacus pages --help` lists every page command.
+
+The command line uses the same pages as the window (`pages/` under the data folder
+in the table below). The window re-reads them every few seconds, and again when it
+regains focus, so an edit made here shows up in the app. Set `OMACUS_DATA_DIR` to
+use a different folder.
+
+A locked page is not printed, exported, or changed unless you pass `--password`.
+
+### MCP
+
+`omacus mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server
+on stdin and stdout, for Claude Desktop, Cursor, and anything else that speaks MCP.
+It evaluates expressions and reads and writes the same pages. `delete_page` moves a
+page to Recently deleted. A locked page is not returned without its password.
+
+Claude Desktop (`claude_desktop_config.json`) and Cursor (`.cursor/mcp.json`, in the
+project or in your home directory) take the same block. `omacus` needs to be on
+`PATH` (the installers put it there):
+
+```json
+{
+  "mcpServers": {
+    "omacus": {
+      "command": "omacus",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+On macOS the config file is `~/Library/Application Support/Claude/claude_desktop_config.json`.
+On Linux it is `~/.config/Claude/claude_desktop_config.json`. On Windows it is
+`%APPDATA%\Claude\claude_desktop_config.json`. Restart the client after saving it.
 
 ## Install
 
