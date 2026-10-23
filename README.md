@@ -1,7 +1,7 @@
 # Omacus
 
 *Oh-mah-kus.* A notepad calculator for Omarchy, Linux, macOS and Windows.
-**[omacus.com](https://omacus.com)** · [Try it in your browser](https://omacus.com/app) · [Docs](https://omacus.com/docs/) · [Download](https://omacus.com/download/)
+**[omacus.com](https://omacus.com)** · [Try it in your browser](https://app.omacus.com) · [Docs](https://omacus.com/docs/) · [Download](https://omacus.com/download/)
 
 [![Watch Omacus in one minute](assets/video-thumb.jpg)](https://omacus.com/#video)
 
@@ -76,7 +76,7 @@ A deleted page opens read-only from Recently deleted; Restore and Delete forever
 ### Sharing and the web app
 
 **Share** above a page (or `Ctrl+Shift+L`) copies a link like
-`https://omacus.com/app#v1.…` that opens the page, live, in [Omacus in the browser](https://omacus.com/app).
+`https://app.omacus.com#v1.…` that opens the page, live, in [Omacus in the browser](https://app.omacus.com).
 The page is compressed into the part after `#`, which browsers never send to a server, so it isn't
 uploaded anywhere; anyone with the link can read it.
 

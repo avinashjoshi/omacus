@@ -1,6 +1,6 @@
 # Omacus design language
 
-One look for the desktop app, the web app at `omacus.com/app`, and the website. Calm, precise, and quiet enough that the page someone is writing stays in front.
+One look for the desktop app, the web app at `app.omacus.com`, and the website. Calm, precise, and quiet enough that the page someone is writing stays in front.
 
 Screenshots of the pass that introduced this guide live in [`docs/design/`](design/): `before-*` and `after-*` for the desktop editor, settings, about, and the replace dialog, in light and dark; `after-picker-*` and `after-hover-*` for the autocomplete popup and a value card; `web-settings-*`, `web-about-dark`, and `web-home` for the web shell and the site.
 
@@ -246,7 +246,14 @@ A surface card, border, radius 12, centered at the bottom. It fades. Errors use 
 
 ### Banners
 
-The web install banner and the shared-page banner use `--app-accent-soft` (the accent at 14%) and the border token. One banner. It does not cover the first line of the page. Dismiss is a quiet control.
+The web install banner, the shared-page banner, the rates note, and the update banner use `--app-accent-soft` (the accent at 14%) and the border token. The update banner says "Update ready" and its button is Reload. It stays up until the open page has been saved. One banner does not cover the first line of the page. Dismiss is a quiet control. The rates note says when cached exchange rates could not be refreshed. A short note in the sidebar says when this browser refused to keep saved pages, and points at Export.
+
+### Editor
+
+The page fills the sheet. Focusing it shows the caret, not a ring, a shadow, or a tap highlight. Otherwise the contenteditable's focus outline, including the one from the site stylesheet, becomes a rounded frame around the whole page on iPhone Safari.
+
+Do: keep the accent focus ring on buttons, menus, sidebar rows, and fields.
+Don't: outline the editor, or restyle the empty-page hint. It stays secondary text.
 
 ### Empty states
 
@@ -280,7 +287,7 @@ Don't restyle the PDF operators to follow the screen theme. A printed page is bl
 ## Accessibility
 
 - Text that someone must read meets WCAG AA against its background: 4.5:1 at body size. The theme tests lock the built-ins. A new theme file should be checked the same way before it ships as a default.
-- Focus is an accent ring, 1.5px, from `design::apply` (`widgets.active.bg_stroke`) and from `design::field`. Don't remove it, and don't rely on color alone for the open page — the accent bar is there too.
+- Focus on a control is an accent ring, 1.5px, from `design::apply` (`widgets.active.bg_stroke`) and from `design::field`. Buttons, menus, sidebar rows, and fields keep it. The editor surface does not: the caret is the indicator, and a ring there frames the whole page. Don't remove the ring from a control, and don't rely on color alone for the open page — the accent bar is there too.
 - Every action that a pointer can do has a key. Esc closes the frontmost dialog or popup. The editor keeps its own keys (Ctrl+J, Ctrl+B, Ctrl+\, Ctrl+,).
 - Hit targets are at least 32×32, except the sidebar's top bar, which stays 28 so its buttons share a center line with the rows.
 - Don't convey state with color alone. A switch moves its knob. A selected row is filled. An error has words.

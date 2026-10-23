@@ -62,7 +62,7 @@ enum Command {
     Mcp,
     /// Open a share link in the window
     Open {
-        /// An omacus.com/app#… or omacus:// link
+        /// An app.omacus.com#… or omacus:// link
         link: String,
     },
     /// Install the latest version
