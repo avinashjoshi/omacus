@@ -7,10 +7,16 @@ The site workflow runs this while assembling omacus.com, so the published page
 does not call api.github.com from the browser. Release notes are markdown.
 The repeated install instructions are left off (the download page covers that).
 
+The headline is a bold title on the first line of the notes, then a sentence
+or two. Older notes that are still a list of commit subjects keep the first
+line as the headline.
+
 Smaller fixes fold under the newer entry, so a run of one-line patches does not
-read as a stack of equal announcements. A release stays on the timeline when it
-is a .0 version, carries a screenshot, explains itself with nested notes, has
-three or more changes, or is not just a fix.
+read as a stack of equal announcements. A `<!-- minor -->` marker folds a
+release even when its title does not look like a fix. A `<!-- internal -->`
+marker folds a release that has nothing new in the app, including a .0.
+Without a marker, a release stays on the timeline when it has a title, is a
+.0 version, carries a screenshot, or is not just a fix.
 
 Some release notes have quoted a private page. Those strings are matched below
 and never written to the page or the feed. The version tags are printed so the
@@ -89,6 +95,10 @@ TOKEN = re.compile(
 IMG_TAG = re.compile(r"<img\b[^>]*>", re.I)
 BULLET = re.compile(r"^( *)- (.*)$")
 COMPARE = re.compile(r"https://github\.com/\S+/compare/\S+")
+TITLE_LINE = re.compile(r"^\*\*(.+)\*\*$")
+DETAILS_LINE = re.compile(r"^\*\*Details:\*\*\s+\S+\s*$", re.I)
+FLAG = re.compile(r"<!--\s*(internal|minor)\s*-->", re.I)
+COMMENT = re.compile(r"<!--.*?-->", re.S)
 MAX_IMAGE = 8_000_000
 
 
@@ -219,11 +229,38 @@ def items_of(blocks):
     return [b[1] for b in blocks if b[0] == "item"]
 
 
-def is_minor(tag, blocks, images):
+def strip_flags(text):
+    """Return the notes without HTML comments, and the minor/internal markers."""
+    flags = {m.group(1).lower() for m in FLAG.finditer(text or "")}
+    return COMMENT.sub("", text or "").strip(), flags
+
+
+def split_title(text):
+    """A bold first line is the title. The rest is the summary and the bullets."""
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+    if i >= len(lines):
+        return "", text
+    match = TITLE_LINE.match(lines[i].strip())
+    if not match:
+        return "", text
+    return match.group(1).strip(), "\n".join(lines[i + 1:]).strip()
+
+
+def is_minor(tag, blocks, images, flags=(), title=""):
     """A fix, even one with a nested explanation. A .0 release, a screenshot,
-    or a note that announces something other than a fix stays on the timeline."""
+    a written title, or a note that announces something other than a fix stays
+    on the timeline. `internal` folds anyway. `minor` folds a patch."""
+    if "internal" in flags:
+        return True
     ver = version_tuple(tag)
     if images or (ver is not None and ver[2] == 0):
+        return False
+    if "minor" in flags:
+        return True
+    if title:
         return False
     items = items_of(blocks)
     if any(not looks_minor(it.text) for it in items):
@@ -381,11 +418,21 @@ def prepare(raw):
     flagged = private(body) or private(name)
     cleaned, line_hit = redact(whats_new(body))
     flagged = flagged or line_hit
-    if flagged and private(cleaned):
-        cleaned = ""
-    blocks = [] if (flagged and not cleaned) else parse_notes(cleaned)
-    if flagged and not blocks and not cleaned:
+    cleaned, flags = strip_flags(cleaned)
+    title, body_text = split_title(cleaned)
+    # The page adds its own Details link from the compare URL.
+    body_text = "\n".join(
+        line for line in body_text.splitlines() if not DETAILS_LINE.match(line.strip())
+    ).strip()
+    if flagged and private(title):
+        title = ""
+    if flagged and private(body_text):
+        body_text = ""
+    if flagged and not body_text and not title:
         blocks = [("p", REVISED)]
+        title = ""
+    else:
+        blocks = parse_notes(body_text)
     images = asset_images(raw)
     # Image text in the body is already inside `cleaned`. Asset names too.
     if any(private(u) or private(n) for u, n in images):
@@ -408,7 +455,8 @@ def prepare(raw):
         "prerelease": bool(raw.get("prerelease")),
         "blocks": blocks,
         "images": images,
-        "minor": is_minor(tag, blocks, images),
+        "title": title,
+        "minor": is_minor(tag, blocks, images, flags, title),
         "flagged": flagged,
         "revised": bool(flagged and blocks == [("p", REVISED)]),
     }
@@ -426,9 +474,11 @@ def group(releases):
 
 
 def title_and_body(rel, images):
-    """The headline is the first change. The rest of the notes follow it, without repeating that line."""
+    """The headline is the written title, or the first change when the notes are still a list."""
     if rel["revised"]:
         return REVISED, ""
+    if rel.get("title"):
+        return inline(rel["title"], images), render_blocks(rel["blocks"], images)
     blocks = rel["blocks"]
     top = items_of(blocks)
     if len(top) == 1 and all(kind == "item" for kind, _ in blocks):
@@ -457,6 +507,8 @@ def feed_html(rel, images):
 def plain_title(rel):
     if rel["revised"]:
         return "Notes being edited"
+    if rel.get("title"):
+        return plain(rel["title"])
     top = items_of(rel["blocks"])
     if top:
         return plain(top[0].text)
@@ -520,7 +572,7 @@ def entry_html(entry, images):
     pre = '<span class="pre">Pre-release</span>' if rel["prerelease"] else ""
     links = [f'<a href="{html.escape(rel["html_url"], quote=True)}">GitHub</a>']
     if rel["compare"] and not private(rel["compare"]):
-        links.append(f'<a href="{html.escape(rel["compare"], quote=True)}">Full changes</a>')
+        links.append(f'<a href="{html.escape(rel["compare"], quote=True)}">Details</a>')
     return f'''<li class="entry" id="{html.escape(rel["anchor"])}">
 <div class="entry-meta">
 <a class="version-pill" href="#{html.escape(rel["anchor"])}">{html.escape(rel["label"])}</a>
@@ -593,7 +645,7 @@ def page_html(entries, images):
     <header class="updates-hero">
       <span class="kicker">// updates</span>
       <h1>What's <em class="serif">new</em></h1>
-      <p class="updates-lead">Every release, newest first. The notes are the same ones as on GitHub, in plain words. Small fixes sit together under the change they followed, so the timeline stays readable.</p>
+      <p class="updates-lead">Every release, newest first. A short title, then what changed for you. Small fixes sit together under the next update, so the list stays readable.</p>
       <p class="updates-tools"><a href="/updates/feed.xml">RSS</a> · <a href="/download/">Download</a> · <a href="https://github.com/{REPO}/releases">GitHub</a></p>
     </header>
     <ol class="timeline">

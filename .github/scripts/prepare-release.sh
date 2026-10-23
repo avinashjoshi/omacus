@@ -62,26 +62,39 @@ if ! git describe --tags --abbrev=0 --match 'v*' HEAD >/dev/null 2>&1; then
   exit 1
 fi
 
-repo="${GITHUB_REPOSITORY:-avinashjoshi/omacus}"
-notes="$(.github/scripts/release-notes.sh "$new" "$repo")"
-section="$(
-  printf '%s\n' "$notes" | awk -v version="$new" '
-    /^## Install/ { exit }
-    NR == 1 { print "## " version; next }
-    { print }
-  '
-)"
-# Drop the trailing blank lines awk kept before the install heading.
-section="$(printf '%s\n' "$section" | sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}')"
+# ## Unreleased is the notes someone will read. Rename it to this version.
+# With no Unreleased section, draft from commit subjects. CI rejects that
+# draft on the release pull request until the notes are rewritten for users.
+set +e
+python3 .github/scripts/release_notes.py promote "$new"
+status=$?
+set -e
+if [[ $status -eq 0 ]]; then
+  :
+elif [[ $status -eq 2 ]]; then
+  repo="${GITHUB_REPOSITORY:-avinashjoshi/omacus}"
+  notes="$(.github/scripts/release-notes.sh "$new" "$repo")"
+  section="$(
+    printf '%s\n' "$notes" | awk -v version="$new" '
+      /^## Install/ { exit }
+      NR == 1 { print "## " version; next }
+      { print }
+    '
+  )"
+  # Drop the trailing blank lines awk kept before the install heading.
+  section="$(printf '%s\n' "$section" | sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}')"
 
-if [[ -f CHANGELOG.md ]]; then
-  {
-    printf '# Changelog\n\n%s\n\n' "$section"
-    awk 'NR>1 { print }' CHANGELOG.md | sed '1{/^$/d;}'
-  } > CHANGELOG.md.tmp
-  mv CHANGELOG.md.tmp CHANGELOG.md
+  if [[ -f CHANGELOG.md ]]; then
+    {
+      printf '# Changelog\n\n%s\n\n' "$section"
+      awk 'NR>1 { print }' CHANGELOG.md | sed '1{/^$/d;}'
+    } > CHANGELOG.md.tmp
+    mv CHANGELOG.md.tmp CHANGELOG.md
+  else
+    printf '# Changelog\n\n%s\n' "$section" > CHANGELOG.md
+  fi
 else
-  printf '# Changelog\n\n%s\n' "$section" > CHANGELOG.md
+  exit "$status"
 fi
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then

@@ -290,14 +290,21 @@ Ideas and feature requests are welcome too, and so are pull requests.
 
 ## Releasing
 
+Write the notes first, under `## Unreleased` in [`CHANGELOG.md`](CHANGELOG.md): a short title
+in bold, then one or two sentences for someone using Omacus. The voice is in
+[`docs/DESIGN.md`](docs/DESIGN.md).
+
 Run the [Release workflow](.github/workflows/release.yml) (Actions → Release → Run workflow)
 and leave the action on `prepare`. It opens a pull request that bumps `version` in `Cargo.toml`
-and prepends a changelog section. Auto-merge has to be allowed, and these checks have to be
+and renames that section to the version. Auto-merge has to be allowed, and these checks have to be
 required on `main`: `test (ubuntu-22.04)`, `test (windows-latest)`, `test (macos-latest)`, and
 `wasm`. The pull request merges when they pass. The workflow then tags `v<version>`, builds
-every package, and publishes a GitHub release with notes written from the commits since the
-last release ([`release-notes.sh`](.github/scripts/release-notes.sh)). Commit body lines
-starting with `- ` show up as sub-points in the notes.
+every package, and publishes a GitHub release from those notes, plus install links
+([`release-notes.sh`](.github/scripts/release-notes.sh)).
+
+If `## Unreleased` is missing, the pull request drafts notes from commit subjects, and CI
+rejects them. Notes that are only commit titles, or that mention pull requests, CI, or other
+plumbing, fail [`tests/check_release_notes.py`](tests/check_release_notes.py).
 
 Action `build` packages the current `main` without opening a pull request.
 
