@@ -69,7 +69,7 @@ check(js.includes("function allocateHandle"), "pages get a handle before the eng
 check(js.includes("Keep in step with xref::allocate_handle"), "the handle rules stay with the engine");
 check(css.includes(".cm-editor .t-ref"), "a page reference is coloured on its own");
 check(js.includes("hoverValueWith") && js.includes("suggestAt"), "cross-page hover and the @ picker use the engine");
-check(js.includes("lockedPages"), "a locked page is a hook until passwords land");
+check(js.includes("lockOpenPassword") && js.includes("function pageConcealed"), "a locked page stays closed until the password");
 check(css.includes(".cm-editor .t-def") && css.includes(".hover-value"), "definition and hover styles exist");
 check(js.includes('e.key === ","') && js.includes('e.key === "\\\\"'), "settings and the answers column have shortcuts");
 check(js.includes("previewHtml"), "preview renders from the engine");
