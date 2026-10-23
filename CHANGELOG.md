@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+**Your pages open again**
+
+The web app was stuck on Loading the engine. Your pages were still in this browser. It opens them again. If it cannot start, it lists the pages and can save a copy.
+
 ## 0.2.16
 
 **Two edits of one line stay on the page**
