@@ -132,8 +132,8 @@ let lastInput = Date.now();
 let pendingNew = null;
 
 const LOCKED_PAGE = "Locked page";
-const LOCK_ICON = `<svg class="lock-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="11" width="12" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`;
-const LOCK_OPEN_ICON = `<svg class="lock-ico open" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="11" width="12" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0"/></svg>`;
+// Sidebar glyphs are real SVG nodes. Parsing a markup string is a TrustedHTML
+// sink, and the page has no policy that would accept one.
 
 function noteActivity() {
   lastInput = Date.now();
@@ -1347,8 +1347,6 @@ addEventListener("pagehide", () => {
   folderKeys.clear();
 });
 
-const CHEVRON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`;
-const DOTS = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/></svg>`;
 
 function renderSidebar() {
   const rows = [];
@@ -1377,11 +1375,48 @@ function sideRow(kind, id, depth) {
   return row;
 }
 
-function iconNode(markup) {
-  const svg = markup.includes("xmlns=") ? markup : markup.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"');
-  const node = new DOMParser().parseFromString(svg, "image/svg+xml").documentElement;
-  if (node.namespaceURI !== "http://www.w3.org/2000/svg") return document.createElement("span");
-  return document.importNode(node, true);
+function svgEl(name, attrs) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", name);
+  for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+  return el;
+}
+
+function lockIcon(open) {
+  const svg = svgEl("svg", {
+    class: open ? "lock-ico open" : "lock-ico",
+    viewBox: "0 0 24 24",
+    "aria-hidden": "true",
+  });
+  svg.append(
+    svgEl("rect", { x: "6", y: "11", width: "12", height: "9", rx: "1.5" }),
+    svgEl("path", { d: open ? "M8 11V8a4 4 0 0 1 8 0" : "M8 11V8a4 4 0 0 1 8 0v3" }),
+  );
+  return svg;
+}
+
+function chevronIcon() {
+  const svg = svgEl("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" });
+  svg.append(svgEl("path", { d: "M9 6l6 6-6 6" }));
+  return svg;
+}
+
+function dotsIcon() {
+  const svg = svgEl("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" });
+  svg.append(
+    svgEl("circle", { cx: "6", cy: "12", r: "1.5" }),
+    svgEl("circle", { cx: "12", cy: "12", r: "1.5" }),
+    svgEl("circle", { cx: "18", cy: "12", r: "1.5" }),
+  );
+  return svg;
+}
+
+function shareIcon() {
+  const svg = svgEl("svg", { class: "ios-share", viewBox: "0 0 24 24", "aria-label": "Share" });
+  svg.append(
+    svgEl("path", { d: "M12 15V3M8 7l4-4 4 4" }),
+    svgEl("path", { d: "M7 10H5v11h14V10h-2" }),
+  );
+  return svg;
 }
 
 function moreButton(label) {
@@ -1390,7 +1425,7 @@ function moreButton(label) {
   button.className = "row-more";
   button.setAttribute("aria-label", label);
   button.setAttribute("aria-haspopup", "menu");
-  button.append(iconNode(DOTS));
+  button.append(dotsIcon());
   return button;
 }
 
@@ -1407,7 +1442,7 @@ function pageRow(id, text, shared, depth) {
   if (!shared && (isLock(state.texts.get(id) ?? "") || coveringLock(state.tree, id))) {
     const icon = document.createElement("span");
     icon.className = "lock-mark";
-    icon.append(iconNode(pageConcealed(id) ? LOCK_ICON : LOCK_OPEN_ICON));
+    icon.append(lockIcon(!pageConcealed(id)));
     name.append(icon);
   }
   if (shared) {
@@ -1430,7 +1465,7 @@ function folderRow(entry) {
   chevron.className = "chevron";
   chevron.setAttribute("aria-expanded", String(!entry.collapsed));
   chevron.setAttribute("aria-label", entry.collapsed ? "Expand folder" : "Collapse folder");
-  chevron.append(iconNode(CHEVRON));
+  chevron.append(chevronIcon());
   const name = document.createElement("button");
   name.type = "button";
   name.className = "side-name";
@@ -1441,7 +1476,7 @@ function folderRow(entry) {
   if (entry.locked) {
     const icon = document.createElement("span");
     icon.className = "lock-mark";
-    icon.append(iconNode(folderKeys.has(entry.id) ? LOCK_OPEN_ICON : LOCK_ICON));
+    icon.append(lockIcon(folderKeys.has(entry.id)));
     name.append(icon);
   }
   row.append(chevron, name, moreButton("Folder menu"));
@@ -4131,8 +4166,6 @@ function toast(message, undo, ms) {
 // Add to Home Screen steps on iPhone and iPad, which have no install prompt.
 
 const INSTALL_DISMISSED = "install-dismissed";
-const SHARE_ICON =
-  '<svg class="ios-share" viewBox="0 0 24 24" aria-label="Share"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M7 10H5v11h14V10h-2"/></svg>';
 let installPrompt = null;
 
 function ios() {
@@ -4155,7 +4188,7 @@ function showInstall() {
     lead.textContent = "Install Omacus: ";
     const step = document.createElement("b");
     step.textContent = "Add to Home Screen";
-    host.append(lead, "tap ", iconNode(SHARE_ICON), " then ", step, ". It works offline, like an app, and Safari keeps your pages.");
+    host.append(lead, "tap ", shareIcon(), " then ", step, ". It works offline, like an app, and Safari keeps your pages.");
     text = true;
   }
   banner.hidden = EMBED || dismissed || standalone() || !text || state.active === "shared";

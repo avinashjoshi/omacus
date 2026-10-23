@@ -82,6 +82,7 @@ check(css.includes(".cm-editor .t-def") && css.includes(".hover-value"), "defini
 check(js.includes('e.key === ","') && js.includes('e.key === "\\\\"'), "settings and the answers column have shortcuts");
 check(js.includes("previewBlocks"), "preview renders from the engine");
 check(!js.includes("innerHTML") && !js.includes("insertAdjacentHTML"), "the app builds nodes without HTML strings");
+check(!js.includes("DOMParser") && !js.includes("parseFromString"), "icons are SVG nodes, not parsed markup");
 check(html.includes('src="trust.js"'), "trusted types load before the app");
 check(js.includes("omacusScriptURL") && js.includes("scriptURL(WORKER)") && js.includes("scriptURL(new URL(\"sw.js\""), "workers use the page's script address");
 check(html.includes("Export everything"), "settings can export every page");
