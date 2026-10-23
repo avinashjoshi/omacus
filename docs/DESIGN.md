@@ -314,7 +314,7 @@ Don't: hardcode a count or a date in the page, point the page at `--app-*`, or p
 
 `omacus.com/sync` and the band on the homepage. A pill says Coming soon. The page describes end-to-end encrypted sync: named vaults (Personal, Family, Work), a 24-word recovery phrase, devices that stay unlocked once linked, offline use, and history. It does not offer a form, a sign-up, or a waitlist. The phrase shown on the page is an example, labeled as one.
 
-Do: use the marketing tokens. One accent. Say that this version does not sync.
+Do: use the marketing tokens. One accent. Say that this version does not sync. Paragraphs on the sync page and in this band use `--prose-gap`. Don't give them a margin of their own.
 Don't: collect an email, or describe sync as something the app already does. The launch video may show it as a feature; the website does not.
 
 ### Preview and PDF typography
