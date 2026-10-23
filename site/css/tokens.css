@@ -99,6 +99,36 @@
   --print-pill: #e8eef5;
 }
 
+/* Updates page, when the system is light. Same gold, on warm paper, darkened
+   so a label on the button and a link on the page both clear WCAG AA.
+   The rest of the marketing site stays on near-black. See docs/DESIGN.md. */
+@media (prefers-color-scheme: light) {
+  html[data-page="updates"] {
+    color-scheme: light;
+    --bg: #f6f5f2;
+    --bg-raise: #fffcf8;
+    --bg-deep: #efece6;
+    --panel: var(--white);
+    --panel-raise: var(--white);
+    --panel-2: #f3f1ec;
+    --edge: #e7e4dd;
+    --line: #e5e2db;
+    --line-faint: #efece6;
+    --line-soft: #e8e5de;
+    --line-2: #d5d1c8;
+    --line-strong: #cfcbc2;
+    --line-hover: #c4bfb6;
+    --text: #1c1b18;
+    --text-2: #3e3c37;
+    --muted: #6e6b64;
+    --faint: #726f6a;
+    --accent: #9e660a;
+    --accent-hi: #8a5608;
+    --accent-ink: #fff8ec;
+    --accent-glow: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+}
+
 [data-app-theme="dark"] {
   color-scheme: dark;
   --app-bg: #1a1b26;

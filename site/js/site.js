@@ -49,8 +49,21 @@
     menu.addEventListener("click", () => setOpen(!header.classList.contains("open")));
     for (const a of $$("#site-nav a")) a.addEventListener("click", () => setOpen(false));
     addEventListener("keydown", (e) => e.key === "Escape" && setOpen(false));
-    matchMedia("(min-width: 901px)").addEventListener("change", () => setOpen(false));
+    matchMedia("(min-width: 1021px)").addEventListener("change", () => setOpen(false));
   }
+
+  // A link to a smaller update (from the app's What's new) opens the group it was folded into.
+  const openHashedDetails = () => {
+    const id = decodeURIComponent(location.hash.replace(/^#/, ""));
+    if (!id) return;
+    const el = document.getElementById(id);
+    const details = el?.closest("details");
+    if (!details) return;
+    details.open = true;
+    el.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" });
+  };
+  openHashedDetails();
+  addEventListener("hashchange", openHashedDetails);
 
   // Copy buttons.
   for (const btn of $$("[data-copy]")) {

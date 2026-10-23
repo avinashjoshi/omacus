@@ -7,7 +7,7 @@ Omacus is a notepad calculator. You type on the left, in words and numbers; the 
 
 ## Install
 
-Omacus runs on Omarchy and any Linux, macOS (Apple Silicon and Intel) and Windows. Every [release](https://github.com/avinashjoshi/omacus/releases) has notes and downloads for each.
+Omacus runs on Omarchy and any Linux, macOS (Apple Silicon and Intel) and Windows. Every release has [notes](https://omacus.com/updates/) and [downloads](https://github.com/avinashjoshi/omacus/releases).
 
 ### Omarchy, Arch and any Linux
 
@@ -52,7 +52,7 @@ Prefer no installer? The [portable .zip](https://github.com/avinashjoshi/omacus/
 
 ### Updating
 
-The version is at the bottom of the sidebar. When a new one is out, a small dot appears next to it; click it to see what's new and choose **Update now**, and Omacus installs the new version and offers to restart. You can also check any time from **About** in the help window (`F1`). Your pages, keybind and settings stay as they are. From a terminal, `omacus update` does the same.
+The version is at the bottom of the sidebar. When a new one is out, a small dot appears next to it; click it to see what's new and choose **Update now**, and Omacus installs the new version and offers to restart. You can also check any time from **About** in the help window (`F1`). Your pages, keybind and settings stay as they are. From a terminal, `omacus update` does the same. The same notes are on the [updates page](https://omacus.com/updates/).
 
 On Windows, Update now swaps in the new `omacus.exe` where it's installed (or wherever you keep the portable one). If you installed the .deb or .rpm, the button opens the download page instead, so you update the same way you installed. Omacus checks GitHub for the latest version number when it starts (at most once an hour) and every 4 hours while it stays open; to turn that off, put `check_for_updates = false` in `settings.toml` (see [Where files live](https://omacus.com/docs/#files)).
 

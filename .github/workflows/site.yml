@@ -7,10 +7,23 @@ on:
     branches: [main]
     paths: ["site/**", "engine/**", "web/**", "install.sh", "install.ps1", "Cargo.toml", "Cargo.lock", ".github/workflows/site.yml"]
   workflow_dispatch:
+    inputs:
+      expect_version:
+        description: Wait until this version is on the releases API
+        required: false
+        default: ""
+        type: string
+  # A release published by hand. The Release workflow does not emit this event;
+  # it deploys the site itself and passes expect_version.
+  release:
+    types: [published]
   # The monthly refresh (freshen.yml) deploys through this after committing.
   workflow_call:
     inputs:
       ref:
+        type: string
+        default: ""
+      expect_version:
         type: string
         default: ""
 
@@ -55,13 +68,21 @@ jobs:
           wasm-bindgen --target web --no-typescript --out-dir _site/app/pkg \
             target/wasm32-unknown-unknown/release/omacus_web.wasm
           ls -l _site/app/pkg
+      - name: Updates page
+        # Static changelog from the GitHub releases API, before assets are hashed,
+        # so the new page picks up the same cache-busting as the rest of the site.
+        # A missing API keeps the copy already in site/updates.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OMACUS_EXPECT_VERSION: ${{ inputs.expect_version || (github.event_name == 'release' && github.event.release.tag_name) || '' }}
+        run: python3 site/tools/updates.py --out _site
       - name: Version assets
         # Cloudflare in front of omacus.com caches CSS and JS for hours, so pages point
         # at each file by its content hash and pick up a new version immediately.
         run: |
           # Screenshots, images and the video, wherever a page points at one ("/img/…"):
           # they change in place when the app's look changes.
-          for f in $(cd _site && find img media -type f \( -name '*.webp' -o -name '*.png' -o -name '*.jpg' -o -name '*.mp4' \)); do
+          for f in $(cd _site && find img media updates -type f \( -name '*.webp' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.gif' -o -name '*.mp4' \) 2>/dev/null); do
             hash=$(sha256sum "_site/$f" | cut -c1-10)
             find _site -name '*.html' -exec sed -i "s#\"/$f\"#\"/$f?v=$hash\"#g" {} +
           done
@@ -115,5 +136,5 @@ jobs:
         run: |
           key=$(basename site/[0-9a-f]*.txt .txt)
           curl -fsS -X POST https://api.indexnow.org/indexnow -H 'Content-Type: application/json' \
-            -d "{\"host\":\"omacus.com\",\"key\":\"$key\",\"keyLocation\":\"https://omacus.com/$key.txt\",\"urlList\":[\"https://omacus.com/\",\"https://omacus.com/docs/\",\"https://omacus.com/llms.txt\",\"https://omacus.com/llms-full.txt\"]}" \
+            -d "{\"host\":\"omacus.com\",\"key\":\"$key\",\"keyLocation\":\"https://omacus.com/$key.txt\",\"urlList\":[\"https://omacus.com/\",\"https://omacus.com/docs/\",\"https://omacus.com/updates/\",\"https://omacus.com/updates/feed.xml\",\"https://omacus.com/llms.txt\",\"https://omacus.com/llms-full.txt\"]}" \
             -w 'IndexNow: HTTP %{http_code}\n'

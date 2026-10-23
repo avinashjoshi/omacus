@@ -22,6 +22,8 @@ use serde::{Deserialize, Serialize};
 const LATEST_URL: &str = "https://api.github.com/repos/avinashjoshi/omacus/releases/latest";
 const REPO: &str = "avinashjoshi/omacus";
 pub const RELEASES_URL: &str = "https://github.com/avinashjoshi/omacus/releases";
+/// The site's changelog. What's new in the app opens this, at the new version.
+pub const UPDATES_PAGE: &str = "https://omacus.com/updates/";
 /// How old the last answer may be at launch, so reopening the app often doesn't ask again.
 const AT_LAUNCH: Duration = Duration::from_secs(60 * 60);
 /// How often a window that stays open asks.
@@ -36,9 +38,10 @@ pub fn current() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-/// The notes for a version, like "0.1.3".
+/// The notes for a version, like "0.1.3", on the site's updates page.
 pub fn notes_url(version: &str) -> String {
-    format!("{RELEASES_URL}/tag/v{version}")
+    let version = version.trim_start_matches('v');
+    format!("{UPDATES_PAGE}#v{version}")
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -641,6 +644,12 @@ mod tests {
         assert!(is_due(now, 0, now - hour, WHILE_OPEN));
         // A last check "in the future" doesn't block checking.
         assert!(is_due(now, now + 24 * hour, 0, WHILE_OPEN));
+    }
+
+    #[test]
+    fn whats_new_opens_the_updates_page() {
+        assert_eq!(notes_url("0.2.7"), "https://omacus.com/updates/#v0.2.7");
+        assert_eq!(notes_url("v0.2.7"), "https://omacus.com/updates/#v0.2.7");
     }
 
     #[test]
