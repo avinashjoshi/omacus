@@ -44,5 +44,6 @@ Key facts:
 - [One-minute video tour](https://omacus.com/#video): narrated, with captions
 - [Source code on GitHub](https://github.com/avinashjoshi/omacus)
 - [What's new](https://omacus.com/updates/): every release, in plain words. Feed: https://omacus.com/updates/feed.xml
+- [The story](https://omacus.com/story/): why Omacus exists, and how it was built
 - [Downloads for every version](https://github.com/avinashjoshi/omacus/releases)
 - [Report a bug or request a feature](https://github.com/avinashjoshi/omacus/issues/new/choose)
