@@ -2034,12 +2034,14 @@ kbd {
   letter-spacing: -0.02em;
 }
 
+/* One paragraph gap for docs, the sync page, and the coming-soon band. */
 .prose p,
 .prose ul,
 .prose ol,
 .prose pre,
 .prose .annot,
-.prose table {
+.prose table,
+.soon p {
   margin: 0 0 var(--prose-gap);
 }
 
@@ -3485,6 +3487,98 @@ html[data-page="updates"] .nav a:hover {
 
 @media (max-width: 800px) {
   .story-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Coming soon: the homepage band and omacus.com/sync. No form. */
+.soon {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: var(--space-6);
+  align-items: center;
+  margin-top: var(--space-6);
+  padding: var(--space-6);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+
+.soon h3 {
+  margin: var(--space-3) 0 var(--space-2);
+  font-size: var(--type-display);
+  letter-spacing: -0.02em;
+}
+
+.soon p {
+  color: var(--text-2);
+}
+
+.soon-mark {
+  display: inline-flex;
+  align-items: center;
+  height: var(--hit);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--accent-glow);
+  color: var(--accent);
+  font-size: var(--type-caption);
+}
+
+.vaults {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.vault {
+  padding: var(--space-4);
+  background: var(--bg-raise);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.vault b {
+  display: block;
+  margin-bottom: var(--space-1);
+}
+
+.vault span {
+  color: var(--muted);
+  font-size: var(--type-caption);
+}
+
+.phrase {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+  padding: var(--space-4);
+  background: var(--bg-raise);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.phrase span {
+  padding: var(--space-2) var(--space-3);
+  background: var(--panel);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: var(--type-caption);
+}
+
+.sync-note {
+  color: var(--muted);
+  font-size: var(--type-caption);
+}
+
+@media (max-width: 800px) {
+  .soon {
+    grid-template-columns: 1fr;
+  }
+
+  .phrase {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
