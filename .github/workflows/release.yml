@@ -1,16 +1,21 @@
 name: Release
 
-# Releasing opens a pull request. Run this workflow by hand with action `prepare`
-# (Actions → Release → Run workflow). That bumps `version` in Cargo.toml, renames
-# the changelog's Unreleased section (notes written for users) to the version, and
-# opens a pull request that auto-merges once the required checks on main pass.
-# Main is protected, so the version bump is never pushed there directly. A pull
-# request whose notes are commit titles, or mention pull requests and CI, fails
-# the release-notes check.
+# One change carries its own version bump. Run prepare-release.sh on that pull
+# request (version, lockfile, web app version, and the changelog section).
+# Merging it pushes the new version to main. The push below tags v<version>
+# and publishes, because that version has no tag yet. Main is protected, so
+# the bump still arrives through the pull request, not a direct push.
 #
-# After that pull request merges, this same run tags `v<version>` and publishes the
-# GitHub release. A push to main does the same when the merged version has no tag
-# yet, which covers a merge made by a person. A tag or release created by
+# Several changes already on main ship together as a release pull request.
+# Run this workflow by hand with action `prepare` (Actions → Release → Run
+# workflow). That runs the same script and opens a pull request that
+# auto-merges once the required checks on main pass. A pull request whose
+# notes are commit titles, or mention pull requests and CI, fails the
+# release-notes check.
+#
+# After a prepare pull request merges, this same run tags `v<version>` and publishes
+# the GitHub release. A push to main does the same when the merged version has no tag
+# yet, which is how a one-change pull request ships. A tag or release created by
 # GITHUB_TOKEN does not trigger other workflows, so the builds and the publish job
 # live here. After the tag is published, this run deploys omacus.com and the web app.
 #
