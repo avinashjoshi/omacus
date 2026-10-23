@@ -160,6 +160,72 @@ class UpdatesPage(unittest.TestCase):
         self.assertIn('href="/updates/" aria-current="page"', page)
         self.assertIn('href="/updates/feed.xml"', page)
 
+    def test_a_title_is_the_headline_and_the_sentence_follows(self):
+        notes = (
+            "**Lock pages and folders with a password**\n\n"
+            "A page stays locked until you type the password.\n\n"
+            "- Lock one page, or a whole folder\n\n"
+            "**Details:** https://github.com/avinashjoshi/omacus/compare/v1.3.0...v1.4.0"
+        )
+        page, feed, flagged, _ = build([release("v1.4.0", notes)])
+        self.assertEqual(flagged, [])
+        self.assertIn("<h2>Lock pages and folders with a password</h2>", page)
+        self.assertIn("A page stays locked until you type the password.", page)
+        self.assertIn("Lock one page, or a whole folder", page)
+        self.assertNotIn("<h2>Lock one page", page)
+        self.assertEqual(page.count(">Details</a>"), 1)
+        self.assertNotIn("Full changes", page)
+        self.assertNotIn("**Details:**", page)
+        self.assertIn("v1.4.0 — Lock pages and folders with a password", feed)
+
+    def test_a_titled_note_stays_on_the_timeline(self):
+        page, _, _, _ = build([
+            release("v1.8.2", "**A cleaner, calmer look**\n\nThe app and the website share one quiet look.", "2026-10-23T04:00:00Z"),
+            release("v1.8.1", "**See every update in one place**\n\nThe updates page lists each version in plain words.", "2026-10-23T03:00:00Z"),
+        ])
+        self.assertIn('<li class="entry" id="v1.8.2">', page)
+        self.assertIn('<li class="entry" id="v1.8.1">', page)
+        self.assertIn("<h2>A cleaner, calmer look</h2>", page)
+        self.assertIn("The app and the website share one quiet look.", page)
+
+    def test_a_minor_marker_folds_under_the_newer_entry(self):
+        page, _, _, _ = build([
+            release(
+                "v1.6.2",
+                "**Rename a name everywhere it appears**\n\nEvery line that uses it updates.",
+                "2026-10-23T04:00:00Z",
+            ),
+            release(
+                "v1.6.1",
+                "**Answers update as you type on a phone**\n\nA new line shows its answer immediately.\n\n<!-- minor -->",
+                "2026-10-23T03:00:00Z",
+            ),
+        ])
+        self.assertIn('<li class="entry" id="v1.6.2">', page)
+        self.assertNotIn('<li class="entry" id="v1.6.1">', page)
+        self.assertIn("Answers update as you type on a phone", page)
+        self.assertNotIn("<!--", page)
+        self.assertIn("1 smaller update", page)
+
+    def test_an_internal_release_folds_even_as_a_point_zero(self):
+        page, feed, _, _ = build([
+            release(
+                "v1.7.1",
+                "**Folders in the sidebar**\n\nDrag a page into a folder.",
+                "2026-10-23T04:00:00Z",
+            ),
+            release(
+                "v1.7.0",
+                "**Behind-the-scenes improvements to how updates ship**\n\nNothing you see in the app changed.\n\n<!-- internal -->",
+                "2026-10-23T03:00:00Z",
+            ),
+        ])
+        self.assertIn('<li class="entry" id="v1.7.1">', page)
+        self.assertNotIn('<li class="entry" id="v1.7.0">', page)
+        self.assertIn("Behind-the-scenes improvements to how updates ship", page)
+        self.assertNotIn("<!--", page)
+        self.assertIn("v1.7.0 — Behind-the-scenes improvements to how updates ship", feed)
+
 
 if __name__ == "__main__":
     unittest.main()

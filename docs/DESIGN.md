@@ -43,6 +43,16 @@ Plain words. Sentence case. Say "page", not "sheet", in anything a person reads.
 - Don't invent section labels in all caps. "Pages" and "Recently deleted", not "PAGES".
 - Don't use "simply", "just", or product jargon ("surface", "token", "modal") in the interface. Those words belong in this guide.
 
+### Release notes
+
+The updates page, the Atom feed, GitHub releases, and What's new in the app use the same words. Write them for someone using Omacus.
+
+- Benefit first. A short title, then one or two sentences. "Lock pages and folders with a password." "A cleaner, calmer look."
+- Plain words. No pull request numbers, no commit subjects, no CI, workflow, or tooling names.
+- A release that only changes how updates ship says "Behind-the-scenes improvements to how updates ship", and is folded under the neighboring entry.
+- A Details link to the full change list is enough for the history.
+- Examples use made-up pages: Trip Budget, Groceries, `@trip.total`. Never a real person's names or figures.
+
 ## Color
 
 Roles, not one-off hex values. Each built-in theme defines the role. Custom and Omarchy themes derive the same roles from the file they load: `text_secondary` and `text_muted` mix toward the background, `border` uses the mix constants below.
@@ -256,7 +266,7 @@ Don't add metrics, testimonials, or a changelog inside About. "What's new" opens
 
 ### Updates
 
-`omacus.com/updates` is a timeline of releases, newest first. A version is a pill (`--radius-pill`) in the accent. The date is caption size. The headline is the first line of the notes. Small fixes fold into a disclosure under the newer entry. Screenshots sit in the notes, with `--radius` and `--shadow-md`.
+`omacus.com/updates` is a timeline of releases, newest first. A version is a pill (`--radius-pill`) in the accent. The date is caption size. The headline is the release's title, a bold line at the top of the notes, and the sentences under it are the body. A release marked minor or internal folds into a disclosure under the newer entry. Screenshots sit in the notes, with `--radius` and `--shadow-md`. A Details link points at the full change list.
 
 Do: use the marketing tokens (`--bg`, `--text`, `--line`, `--accent`). Follow the 4px spacing scale. Keep one accent.
 Don't: point the page at `--app-*`, or put a hex color in `site.css`. Light mode only reassigns tokens in `tokens.css`.
