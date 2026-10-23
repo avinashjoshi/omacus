@@ -1,4 +1,4 @@
-/* omacus.com/app: the notepad calculator in the browser. Colours and fonts come
+/* app.omacus.com: the notepad calculator in the browser. Colours and fonts come
    from site.css; this is the app's layout. */
 
 /* Elements styled with a display value still hide with the hidden attribute. */
@@ -631,11 +631,27 @@ body.dragging-side .sheet-list {
 
 .rates-note {
   margin: 0;
-  padding: 8px 18px;
-  border-bottom: 1px solid var(--line);
-  background: linear-gradient(90deg, var(--app-accent-soft), transparent);
-  color: var(--text);
-  font-size: 13.5px;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--app-line);
+  background: var(--app-accent-soft);
+  color: var(--app-fg);
+  font-size: var(--type-body);
+}
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--app-line);
+  background: var(--app-accent-soft);
+  color: var(--app-fg);
+  font-size: var(--type-body);
+}
+
+.update-banner p {
+  flex: 1;
+  margin: 0;
 }
 
 .shared-banner b {
@@ -1511,6 +1527,7 @@ body.answers-inline .md .pill {
   body.app-page:has(.page-preview:not([hidden])) .editor,
   body.app-page .shared-banner,
   body.app-page .rates-note,
+  body.app-page .update-banner,
   body.app-page .install-banner,
   body.app-page .confirm,
   body.app-page .loading,

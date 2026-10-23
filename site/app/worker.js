@@ -1,4 +1,4 @@
-// The calculation for omacus.com/app, off the page's thread: the engine runs here,
+// The calculation for app.omacus.com, off the page's thread: the engine runs here,
 // so a slow line (100000!) or a long sheet never stops typing or scrolling. The page
 // (app.js) sends the newest text and draws the answers as they come back.
 //

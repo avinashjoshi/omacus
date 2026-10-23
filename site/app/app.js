@@ -1,6 +1,6 @@
-// omacus.com/app: the notepad calculator in the browser. The math is the desktop
+// app.omacus.com: the notepad calculator in the browser. The math is the desktop
 // app's own engine, compiled to WebAssembly (pkg/, built from web/ in the repo).
-// Sheets live in this browser's localStorage; a share link carries a sheet in the
+// Pages live in this browser's IndexedDB; a share link carries a page in the
 // part after "#", which browsers never send to the server.
 
 import init, {
@@ -18,8 +18,12 @@ import {
   insertNode, moveSibling, pageIds, pagesUnder, place, removeNode, renameFolder, sanitize, siblingEnds, toggleFolder, validDrop,
   visible,
 } from "./tree.js";
+import {
+  ready as storeReady, get as storeGet, set as storeSet, remove as storeRemove, adopt as storeAdopt,
+  drained as storeDrained, keys as storeKeys, persistGranted, selfTab,
+} from "./store.js";
 
-const WASM = "/app/pkg/omacus_web_bg.wasm";
+const WASM = new URL("pkg/omacus_web_bg.wasm", import.meta.url).href;
 const WORKER = new URL("./worker.js", import.meta.url).href;
 const PREFIX = "omacus:";
 const RATES_URL = "https://open.er-api.com/v6/latest/USD";
@@ -116,7 +120,7 @@ let resultsExact = false;
 const state = { order: [], active: null, texts: new Map(), shared: null, tree: [], handles: new Map() };
 // Password lock is a hook for a feature that has not landed. Nothing sets this.
 // A reference to a locked page shows "🔒 locked" instead of the value.
-// Plaintext and content keys stay in memory. localStorage only ever sees ciphertext
+// Plaintext and content keys stay in memory. Storage only ever sees ciphertext
 // for a locked page. `plains` is the open text; `pageKeys` is an individual lock.
 const plains = new Map();
 const pageKeys = new Map();
@@ -619,30 +623,18 @@ setInterval(() => {
 }, 5000);
 
 // ---------------------------------------------------------------------------------
-// Storage: one localStorage entry per sheet, plus the order and the active one.
+// Storage: IndexedDB, with localStorage as the previous store and the fallback
+// when persistent storage is denied. `storeReady()` runs before the first read.
 
 const store = {
-  get(key) {
-    try {
-      return localStorage.getItem(PREFIX + key);
-    } catch {
-      return null;
-    }
-  },
+  get: (key) => storeGet(key),
   set(key, value) {
-    try {
-      localStorage.setItem(PREFIX + key, value);
-      return true;
-    } catch {
+    return storeSet(key, value).catch(() => {
       toast("Couldn't save: this browser's storage is full or turned off.");
       return false;
-    }
+    });
   },
-  remove(key) {
-    try {
-      localStorage.removeItem(PREFIX + key);
-    } catch {}
-  },
+  remove: (key) => storeRemove(key),
 };
 
 // Colors live in site/css/tokens.css (data-app-theme). Auto follows this device.
@@ -756,22 +748,14 @@ $("[data-setting=lock-minutes]")?.addEventListener("change", (e) => {
 
 // Older builds stored each page under `sheet:`. Read those once and write `page:`.
 function migratePageKeys() {
-  let legacy = [];
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key?.startsWith(PREFIX + "sheet:")) legacy.push(key);
-    }
-  } catch {
-    return;
-  }
-  for (const key of legacy) {
-    const id = key.slice((PREFIX + "sheet:").length);
+  for (const key of storeKeys()) {
+    if (!key.startsWith("sheet:")) continue;
+    const id = key.slice("sheet:".length);
     if (store.get("page:" + id) == null) {
-      const value = localStorage.getItem(key);
+      const value = store.get(key);
       if (value != null) store.set("page:" + id, value);
     }
-    store.remove("sheet:" + id);
+    store.remove(key);
   }
 }
 
@@ -820,15 +804,9 @@ function saveIndex() {
   }));
 }
 
-let persistAsked = false;
 function saveSheet(id) {
-  if (id === "shared") return;
-  store.set("page:" + id, state.texts.get(id) ?? "");
-  // Ask the browser to keep this data rather than clearing it to free space.
-  if (!persistAsked) {
-    persistAsked = true;
-    navigator.storage?.persist?.().catch(() => {});
-  }
+  if (id === "shared" || !id) return Promise.resolve(false);
+  return store.set("page:" + id, state.texts.get(id) ?? "");
 }
 
 function newId() {
@@ -1022,7 +1000,7 @@ function applyEdits(edits, blurb, cursor) {
     view.dispatch(change);
     applyingRename = false;
   } else {
-    toast(esc(blurb || "Updated"), { label: "Undo", run: restoreCrossUndo });
+    toast(blurb || "Updated", { label: "Undo", run: restoreCrossUndo });
     evaluate();
   }
 }
@@ -1124,8 +1102,9 @@ function title(text) {
 }
 
 // Other tabs: pick up their changes, unless this tab is mid-edit on the same sheet.
-addEventListener("storage", (e) => {
-  if (EMBED || !e.key?.startsWith(PREFIX)) return;
+function onStoreWrite(key, value) {
+  if (EMBED || typeof key !== "string") return;
+  storeAdopt(key, value);
   const typing = view.hasFocus && pendingSave;
   const before = currentText();
   const mine = state.active;
@@ -1135,7 +1114,20 @@ addEventListener("storage", (e) => {
   if (mine === "shared" || state.order.includes(mine)) state.active = mine;
   renderSidebar();
   if (!typing && currentText() !== before) showSheet();
+}
+addEventListener("storage", (e) => {
+  if (!e.key?.startsWith(PREFIX) || e.key === PREFIX + "migrated") return;
+  onStoreWrite(e.key.slice(PREFIX.length), e.newValue);
 });
+try {
+  const pagesChannel = new BroadcastChannel("omacus");
+  pagesChannel.onmessage = (e) => {
+    if (!e.data || typeof e.data.key !== "string" || e.data.tab === selfTab) return;
+    onStoreWrite(e.data.key, e.data.value);
+  };
+} catch {
+  // This tab still has its own copy. Another tab will not push updates here.
+}
 
 // ---------------------------------------------------------------------------------
 // The sheet on screen.
@@ -1281,8 +1273,9 @@ function flushSave() {
   if (pendingSave) {
     clearTimeout(pendingSave);
     pendingSave = null;
-    saveSheet(state.active);
+    return saveSheet(state.active);
   }
+  return Promise.resolve(false);
 }
 addEventListener("pagehide", () => {
   flushSave();
@@ -1321,13 +1314,20 @@ function sideRow(kind, id, depth) {
   return row;
 }
 
+function iconNode(markup) {
+  const svg = markup.includes("xmlns=") ? markup : markup.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"');
+  const node = new DOMParser().parseFromString(svg, "image/svg+xml").documentElement;
+  if (node.namespaceURI !== "http://www.w3.org/2000/svg") return document.createElement("span");
+  return document.importNode(node, true);
+}
+
 function moreButton(label) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "row-more";
   button.setAttribute("aria-label", label);
   button.setAttribute("aria-haspopup", "menu");
-  button.innerHTML = DOTS;
+  button.append(iconNode(DOTS));
   return button;
 }
 
@@ -1344,7 +1344,7 @@ function pageRow(id, text, shared, depth) {
   if (!shared && (isLock(state.texts.get(id) ?? "") || coveringLock(state.tree, id))) {
     const icon = document.createElement("span");
     icon.className = "lock-mark";
-    icon.innerHTML = pageConcealed(id) ? LOCK_ICON : LOCK_OPEN_ICON;
+    icon.append(iconNode(pageConcealed(id) ? LOCK_ICON : LOCK_OPEN_ICON));
     name.append(icon);
   }
   if (shared) {
@@ -1367,7 +1367,7 @@ function folderRow(entry) {
   chevron.className = "chevron";
   chevron.setAttribute("aria-expanded", String(!entry.collapsed));
   chevron.setAttribute("aria-label", entry.collapsed ? "Expand folder" : "Collapse folder");
-  chevron.innerHTML = CHEVRON;
+  chevron.append(iconNode(CHEVRON));
   const name = document.createElement("button");
   name.type = "button";
   name.className = "side-name";
@@ -1378,19 +1378,19 @@ function folderRow(entry) {
   if (entry.locked) {
     const icon = document.createElement("span");
     icon.className = "lock-mark";
-    icon.innerHTML = folderKeys.has(entry.id) ? LOCK_OPEN_ICON : LOCK_ICON;
+    icon.append(iconNode(folderKeys.has(entry.id) ? LOCK_OPEN_ICON : LOCK_ICON));
     name.append(icon);
   }
   row.append(chevron, name, moreButton("Folder menu"));
   return row;
 }
 
-const TRASH_KEY = PREFIX + "trash";
+const TRASH_KEY = "trash";
 const TRASH_CAP = 30;
 
 function loadTrash() {
   try {
-    const raw = JSON.parse(localStorage.getItem(TRASH_KEY) || "[]");
+    const raw = JSON.parse(store.get(TRASH_KEY) || "[]");
     return Array.isArray(raw) ? raw.filter((t) => t && t.id && typeof t.text === "string") : [];
   } catch {
     return [];
@@ -1398,7 +1398,7 @@ function loadTrash() {
 }
 
 function saveTrash(items) {
-  localStorage.setItem(TRASH_KEY, JSON.stringify(items.slice(0, TRASH_CAP)));
+  store.set(TRASH_KEY, JSON.stringify(items.slice(0, TRASH_CAP)));
 }
 
 function renderDeleted() {
@@ -1494,7 +1494,7 @@ function refreshPagePreview() {
     pill.title = "Click to copy";
     pill.addEventListener("click", () => {
       const value = pill.dataset.value || pill.textContent;
-      copy(value).then(() => toast(`Copied <b>${esc(value)}</b>`));
+      copy(value).then(() => toast(copiedMessage(value)));
     });
   }
 }
@@ -1529,7 +1529,7 @@ function restoreTrashed(id) {
   state.active = id;
   saveIndex();
   showSheet();
-  toast(`Restored “${esc(title(item.text))}”.`);
+  toast(`Restored “${title(item.text)}”.`);
 }
 
 // ---------------------------------------------------------------------------------
@@ -1553,9 +1553,9 @@ class Answer extends WidgetType {
     // Stale: from before an edit above it, until its new answer arrives.
     span.className = this.r.stale ? "res stale" : "res";
     span.title = "Click to copy";
-    span.innerHTML =
-      (this.r.color ? `<span class="swatch" style="background:${esc(this.r.color)}"></span>` : "") +
-      `<b>${esc(this.r.display)}</b>`;
+    const swatch = swatchOr(this.r.color);
+    if (swatch) span.append(swatch);
+    span.append(answerLabel(this.r.display));
     span.addEventListener("mousedown", (e) => e.preventDefault());
     span.addEventListener("click", () => copyAnswer(span, this.r.display));
     return span;
@@ -1587,7 +1587,7 @@ class Note extends WidgetType {
 function copyAnswer(span, display) {
   copy(display).then(() => {
     span.classList.add("copied");
-    toast(`Copied <b>${esc(display)}</b>`);
+    toast(`Copied ${display}`);
     setTimeout(() => span.classList.remove("copied"), 900);
   });
 }
@@ -2541,24 +2541,23 @@ function tokens(line, vars, define) {
   return out.sort((x, y) => x[0] - y[0]);
 }
 
-function esc(s) {
-  return s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
-}
-
-
 // ---------------------------------------------------------------------------------
 // Share links: "#v1." then the sheet, deflated and base64url-encoded, by the engine
 // (the desktop app makes and reads exactly the same links).
 
+function sharePageUrl(payload) {
+  return `https://app.omacus.com#${payload}`;
+}
+
 async function share() {
   if (refuseConcealed()) return;
   const text = editingText();
-  const url = `${location.origin}/app#${shareEncode(text)}`;
+  const url = sharePageUrl(shareEncode(text));
   await copy(url);
   const n = url.length.toLocaleString();
-  if (url.length > 8000) toast(`Link copied (${n} characters). <small>Long links can be cut off by some apps; for a long page, Copy as Markdown table is safer.</small>`);
-  else if (url.length > 2000) toast(`Link copied (${n} characters). <small>Fine for chat apps; some email and SMS may cut it.</small>`);
-  else toast("Link copied. <small>Anyone with it can open this page.</small>");
+  if (url.length > 8000) toast(linkCopied(n, "Long links can be cut off by some apps; for a long page, Copy as Markdown table is safer."));
+  else if (url.length > 2000) toast(linkCopied(n, "Fine for chat apps; some email and SMS may cut it."));
+  else toast(linkCopied(null, "Anyone with it can open this page."));
 }
 
 async function openShared() {
@@ -2592,7 +2591,7 @@ function openInApp() {
   setTimeout(() => {
     removeEventListener("blur", away);
     if (!left) {
-      toast('Nothing opened it. <a href="/download/">Get Omacus</a> <small>(0.1.10 or newer opens links)</small>');
+      toast(desktopMissing());
     }
   }, 1600);
 }
@@ -2682,7 +2681,7 @@ async function action(name) {
   } else if (name === "print-preview") {
     printPagePreview();
   } else if (name === "export-preview") {
-    toast("In the print dialog, choose <b>Save as PDF</b>.");
+    toast("In the print dialog, choose Save as PDF.");
     printPagePreview();
   } else if (name === "new") {
     flushSave();
@@ -2728,6 +2727,8 @@ async function action(name) {
     installPrompt?.prompt();
   } else if (name === "dismiss-install") {
     dismissInstall();
+  } else if (name === "apply-update") {
+    applyUpdate();
   } else if (name === "restore-trash") {
     if (preview) restoreTrashed(preview.id);
   } else if (name === "purge-trash") {
@@ -2751,13 +2752,7 @@ async function action(name) {
   } else if (name === "close-settings") {
     closeSettings();
   } else if (name === "privacy") {
-    toast(
-      "<b>Private.</b> Pages are saved in this browser, on this device, and never uploaded. " +
-        "A share link carries the page after the #, which browsers don't send to any server. " +
-        '<a href="/privacy/" target="_blank" rel="noopener">Privacy</a>',
-      null,
-      7000,
-    );
+    toast(privacyNote(), null, 7000);
   }
 }
 
@@ -2803,7 +2798,7 @@ function commitDelete() {
     saveIndex();
     if (preview?.id === id) clearPreview();
     renderDeleted();
-    if (item) toast(`Deleted “${esc(heading(item.text))}” forever.`);
+    if (item) toast(`Deleted “${heading(item.text)}” forever.`);
     return;
   }
   el.confirm.hidden = true;
@@ -2845,7 +2840,7 @@ function commitDeletePage(id) {
   }
   saveIndex();
   showSheet();
-  toast(`Deleted “${esc(label)}”.`, {
+  toast(`Deleted “${label}”.`, {
     label: "Undo",
     run() {
       dropPlaceholder();
@@ -2889,7 +2884,7 @@ function commitDeleteFolder(id) {
   }
   saveIndex();
   showSheet();
-  toast(`Deleted “${esc(name)}”.`, {
+  toast(`Deleted “${name}”.`, {
     label: "Undo",
     run() {
       dropPlaceholder();
@@ -3805,9 +3800,69 @@ async function copy(text) {
   }
 }
 
+function swatchOr(color) {
+  if (!color) return null;
+  const swatch = document.createElement("span");
+  swatch.className = "swatch";
+  swatch.style.background = color;
+  return swatch;
+}
+
+function answerLabel(display) {
+  const b = document.createElement("b");
+  b.textContent = display;
+  return b;
+}
+
+function copiedMessage(value) {
+  const span = document.createElement("span");
+  span.append("Copied ");
+  span.append(answerLabel(value));
+  return span;
+}
+
+function linkCopied(count, note) {
+  const span = document.createElement("span");
+  span.append(count ? `Link copied (${count} characters). ` : "Link copied. ");
+  const small = document.createElement("small");
+  small.textContent = note;
+  span.append(small);
+  return span;
+}
+
+function desktopMissing() {
+  const span = document.createElement("span");
+  span.append("Nothing opened it. ");
+  const link = document.createElement("a");
+  link.href = "https://omacus.com/download/";
+  link.textContent = "Get Omacus";
+  span.append(link);
+  const small = document.createElement("small");
+  small.textContent = " (0.1.10 or newer opens links)";
+  span.append(small);
+  return span;
+}
+
+function privacyNote() {
+  const span = document.createElement("span");
+  const title = document.createElement("b");
+  title.textContent = "Private. ";
+  span.append(title, "Pages are saved in this browser, on this device, and never uploaded. A share link carries the page after the #, which browsers don't send to any server. ");
+  const link = document.createElement("a");
+  link.href = "https://omacus.com/privacy/";
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.textContent = "Privacy";
+  span.append(link);
+  return span;
+}
+
 let toastTimer = 0;
-function toast(html, undo, ms) {
-  el.toast.innerHTML = `<span>${html}</span>`;
+function toast(message, undo, ms) {
+  const span = document.createElement("span");
+  if (typeof message === "string") span.textContent = message;
+  else span.append(message);
+  el.toast.replaceChildren(span);
   if (undo) {
     const b = document.createElement("button");
     b.textContent = undo.label;
@@ -3827,7 +3882,7 @@ function toast(html, undo, ms) {
 // says it can be installed: an Install button where the browser offers one, and the
 // Add to Home Screen steps on iPhone and iPad, which have no install prompt.
 
-const INSTALL_DISMISSED = "omacus:install-dismissed";
+const INSTALL_DISMISSED = "install-dismissed";
 const SHARE_ICON =
   '<svg class="ios-share" viewBox="0 0 24 24" aria-label="Share"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M7 10H5v11h14V10h-2"/></svg>';
 let installPrompt = null;
@@ -3838,24 +3893,29 @@ function ios() {
 
 function showInstall() {
   const banner = $("[data-install-banner]");
-  let dismissed = false;
-  try {
-    dismissed = localStorage.getItem(INSTALL_DISMISSED) === "1";
-  } catch {}
-  const text = installPrompt
-    ? "<b>Install Omacus.</b> It opens in its own window and works offline."
-    : ios()
-      ? `<b>Install Omacus:</b> tap ${SHARE_ICON} then <b>Add to Home Screen</b>. It works offline, like an app, and Safari keeps your pages.`
-      : null;
+  const dismissed = store.get(INSTALL_DISMISSED) === "1";
+  const host = $("[data-install-text]");
+  host.replaceChildren();
+  let text = false;
+  if (installPrompt) {
+    const b = document.createElement("b");
+    b.textContent = "Install Omacus. ";
+    host.append(b, "It opens in its own window and works offline.");
+    text = true;
+  } else if (ios()) {
+    const lead = document.createElement("b");
+    lead.textContent = "Install Omacus: ";
+    const step = document.createElement("b");
+    step.textContent = "Add to Home Screen";
+    host.append(lead, "tap ", iconNode(SHARE_ICON), " then ", step, ". It works offline, like an app, and Safari keeps your pages.");
+    text = true;
+  }
   banner.hidden = EMBED || dismissed || standalone() || !text || state.active === "shared";
-  if (text) $("[data-install-text]").innerHTML = text;
   $("[data-action=install]", banner).hidden = !installPrompt;
 }
 
 function dismissInstall() {
-  try {
-    localStorage.setItem(INSTALL_DISMISSED, "1");
-  } catch {}
+  store.set(INSTALL_DISMISSED, "1");
   $("[data-install-banner]").hidden = true;
 }
 
@@ -3876,6 +3936,40 @@ function standalone() {
   return matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 }
 
+let applyingUpdate = false;
+let waitingUpdate = null;
+
+function offerUpdate(reg) {
+  if (!navigator.serviceWorker.controller || !reg?.waiting) return;
+  waitingUpdate = reg;
+  const banner = $("[data-update-banner]");
+  if (banner) banner.hidden = false;
+}
+
+function watchUpdate(reg) {
+  const installed = (worker) => {
+    worker?.addEventListener("statechange", () => {
+      if (worker.state === "installed") offerUpdate(reg);
+    });
+  };
+  reg.addEventListener("updatefound", () => installed(reg.installing));
+  if (reg.waiting) offerUpdate(reg);
+}
+
+async function applyUpdate() {
+  applyingUpdate = true;
+  await flushSave();
+  await storeDrained();
+  const reg = waitingUpdate || (await navigator.serviceWorker.getRegistration());
+  const waiting = reg?.waiting;
+  if (!waiting) {
+    location.reload();
+    return;
+  }
+  waiting.postMessage({ type: "skip-waiting" });
+  setTimeout(() => location.reload(), 1500);
+}
+
 async function goOffline() {
   if (!("serviceWorker" in navigator)) return;
   // Local previews serve files at fixed URLs, which the worker would keep serving
@@ -3888,12 +3982,21 @@ async function goOffline() {
     return;
   }
   try {
-    const reg = await navigator.serviceWorker.register("/app/sw.js", { scope: "/app/" });
+    const reg = await navigator.serviceWorker.register(new URL("sw.js", import.meta.url), { scope: "./" });
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (applyingUpdate) location.reload();
+    });
+    // The first install takes over so this visit is enough for a later offline reload.
+    // An update waits and offers Reload, after the open page has been saved.
+    if (!navigator.serviceWorker.controller) {
+      (reg.installing || reg.waiting)?.postMessage({ type: "skip-waiting" });
+    }
     await navigator.serviceWorker.ready;
-    // What this page loaded before the worker took over, for offline use.
+    watchUpdate(reg);
+    const base = new URL("./", import.meta.url).href;
     const urls = [
       ...new Set([
-        `${location.origin}/app/`,
+        base,
         WORKER,
         ...performance
           .getEntriesByType("resource")
@@ -3912,12 +4015,17 @@ async function goOffline() {
 // Start.
 
 async function start() {
+  await storeReady();
+  settings = loadSettings();
+  applySettings();
+  const persistNote = $("[data-persist-note]");
+  if (persistNote) persistNote.hidden = EMBED || persistGranted();
   if (EMBED) {
     el.page.classList.add("embed");
     const open = $("[data-embed-open]");
     open.hidden = false;
     // Carry the edits along to the full app.
-    open.addEventListener("click", () => (open.href = `/app#${shareEncode(currentText())}`));
+    open.addEventListener("click", () => (open.href = sharePageUrl(shareEncode(currentText()))));
   } else {
     load();
     if (!state.order.length) addSheet(WELCOME);

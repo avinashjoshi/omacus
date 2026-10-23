@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the engine for the browser into site/app/pkg (what omacus.com/app loads).
+# Build the engine for the browser into site/app/pkg (what app.omacus.com loads).
 # Needs: rustup target add wasm32-unknown-unknown; cargo install wasm-bindgen-cli --version 0.2.129
 set -euo pipefail
 cd "$(dirname "$0")/../.."

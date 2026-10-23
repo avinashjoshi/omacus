@@ -1,6 +1,6 @@
 # Omacus design language
 
-One look for the desktop app, the web app at `omacus.com/app`, and the website. Calm, precise, and quiet enough that the page someone is writing stays in front.
+One look for the desktop app, the web app at `app.omacus.com`, and the website. Calm, precise, and quiet enough that the page someone is writing stays in front.
 
 Screenshots of the pass that introduced this guide live in [`docs/design/`](design/): `before-*` and `after-*` for the desktop editor, settings, about, and the replace dialog, in light and dark; `after-picker-*` and `after-hover-*` for the autocomplete popup and a value card; `web-settings-*`, `web-about-dark`, and `web-home` for the web shell and the site.
 
@@ -236,7 +236,7 @@ A surface card, border, radius 12, centered at the bottom. It fades. Errors use 
 
 ### Banners
 
-The web install banner and the shared-page banner use `--app-accent-soft` (the accent at 14%) and the border token. One banner. It does not cover the first line of the page. Dismiss is a quiet control.
+The web install banner, the shared-page banner, the rates note, and the update banner use `--app-accent-soft` (the accent at 14%) and the border token. The update banner says "Update ready" and its button is Reload. It stays up until the open page has been saved. One banner does not cover the first line of the page. Dismiss is a quiet control. The rates note says when cached exchange rates could not be refreshed. A short note in the sidebar says when this browser refused to keep saved pages, and points at Export.
 
 ### Empty states
 

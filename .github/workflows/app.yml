@@ -1,0 +1,135 @@
+name: App
+
+# Deploys the web app to Cloudflare Pages (app.omacus.com). omacus.com itself
+# stays on GitHub Pages. Secrets stay in the environment: this file never prints them.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "engine/**"
+      - "web/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/app.yml"
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Assemble
+        run: |
+          set -euo pipefail
+          set +x
+          cargo install wasm-bindgen-cli --version 0.2.129 --locked
+          cargo build -p omacus-web --release --locked --target wasm32-unknown-unknown
+          mkdir -p dist/pkg dist/css dist/fonts dist/img
+          wasm-bindgen --target web --no-typescript --out-dir dist/pkg \
+            target/wasm32-unknown-unknown/release/omacus_web.wasm
+          cp site/app/index.html site/app/app.js site/app/app.css site/app/editor.js \
+            site/app/worker.js site/app/tree.js site/app/store.js site/app/sw.js \
+            site/app/manifest.webmanifest site/app/migrate.js site/app/migrate.html \
+            site/app/migrate-client.js site/app/migrate-protocol.js site/app/_headers dist/
+          cp site/css/site.css site/css/tokens.css dist/css/
+          cp site/fonts/*.woff2 dist/fonts/
+          cp site/img/icon.svg site/img/icon-192.png site/img/icon-512.png site/img/apple-touch-icon.png dist/img/
+          for f in omacus_web_bg.wasm omacus_web.js; do
+            hash=$(sha256sum "dist/pkg/$f" | cut -c1-10)
+            sed -i "s#pkg/$f\"#pkg/$f?v=$hash\"#g" dist/app.js dist/worker.js
+          done
+          hash=$(sha256sum dist/worker.js | cut -c1-10)
+          sed -i "s#\"./worker.js\"#\"./worker.js?v=$hash\"#" dist/app.js
+          hash=$(sha256sum dist/editor.js | cut -c1-10)
+          sed -i "s#\"./editor.js\"#\"./editor.js?v=$hash\"#" dist/app.js
+          hash=$(sha256sum dist/tree.js | cut -c1-10)
+          sed -i "s#\"./tree.js\"#\"./tree.js?v=$hash\"#" dist/app.js
+          hash=$(sha256sum dist/store.js | cut -c1-10)
+          sed -i "s#\"./store.js\"#\"./store.js?v=$hash\"#" dist/app.js dist/migrate.js
+          hash=$(sha256sum dist/migrate-protocol.js | cut -c1-10)
+          sed -i "s#\"./migrate-protocol.js\"#\"./migrate-protocol.js?v=$hash\"#" dist/migrate.js dist/migrate-client.js
+          hash=$(sha256sum dist/app.css | cut -c1-10)
+          sed -i "s#\"app.css\"#\"app.css?v=$hash\"#" dist/index.html
+          hash=$(sha256sum dist/app.js | cut -c1-10)
+          sed -i "s#\"app.js\"#\"app.js?v=$hash\"#" dist/index.html
+          test -f dist/_headers
+          grep -q "wasm-unsafe-eval" dist/_headers
+          grep -q "open.er-api.com" dist/_headers
+          ! grep -q "unsafe-inline" dist/_headers
+      - name: Publish app.omacus.com
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          set +x
+          if [ -z "${CLOUDFLARE_API_TOKEN}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID}" ]; then
+            echo "Cloudflare credentials are not set on this repository."
+            exit 1
+          fi
+          zone=232a20ef78c41a58eb56f2d7ae03d15d
+          project=omacus-app
+          cf() {
+            local method="$1" path="$2" body="${3:-}"
+            local args=(-sS -o /tmp/cf-body.json -w "%{http_code}" -X "$method"
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
+              -H "Content-Type: application/json"
+              "https://api.cloudflare.com/client/v4${path}")
+            if [ -n "$body" ]; then
+              curl "${args[@]}" --data "$body"
+            else
+              curl "${args[@]}"
+            fi
+          }
+          fail() {
+            echo "$1"
+            jq -c '.errors // empty' /tmp/cf-body.json || true
+            exit 1
+          }
+          code="$(cf POST "/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects" '{"name":"omacus-app","production_branch":"main"}')"
+          if [ "$code" != "200" ]; then
+            if ! jq -e '.errors[]? | .message | test("already|duplicate";"i")' /tmp/cf-body.json >/dev/null; then
+              fail "Could not create the Pages project (HTTP ${code})"
+            fi
+            echo "Pages project already exists"
+          fi
+          code="$(cf GET "/zones/${zone}/dns_records?type=CNAME&name=app.omacus.com")"
+          [ "$code" = "200" ] || fail "Could not read DNS (HTTP ${code})"
+          id="$(jq -r '.result[0].id // empty' /tmp/cf-body.json)"
+          content="$(jq -r '.result[0].content // empty' /tmp/cf-body.json)"
+          proxied="$(jq -r '.result[0].proxied // false' /tmp/cf-body.json)"
+          record='{"type":"CNAME","name":"app","content":"omacus-app.pages.dev","proxied":true,"ttl":1}'
+          if [ -z "$id" ]; then
+            code="$(cf POST "/zones/${zone}/dns_records" "$record")"
+            [ "$code" = "200" ] || fail "Could not create the DNS record (HTTP ${code})"
+          elif [ "$content" != "omacus-app.pages.dev" ] || [ "$proxied" != "true" ]; then
+            code="$(cf PATCH "/zones/${zone}/dns_records/${id}" "$record")"
+            [ "$code" = "200" ] || fail "Could not update the DNS record (HTTP ${code})"
+          else
+            echo "DNS record already points at the Pages project"
+          fi
+          code="$(cf POST "/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${project}/domains" '{"name":"app.omacus.com"}')"
+          if [ "$code" != "200" ]; then
+            if ! jq -e '.errors[]? | .message | test("already|exists";"i")' /tmp/cf-body.json >/dev/null; then
+              fail "Could not attach app.omacus.com (HTTP ${code})"
+            fi
+            echo "Custom domain already attached"
+          fi
+          npm install --no-save wrangler@4
+          npx wrangler pages deploy dist --project-name "$project" --branch main --commit-dirty=true

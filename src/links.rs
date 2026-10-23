@@ -146,8 +146,10 @@ mod tests {
     fn reads_links_from_arguments() {
         let link = omacus_engine::share::link("# Hi\n2 + 2");
         assert_eq!(from_arg(&link).as_deref(), Some("# Hi\n2 + 2"));
-        let scheme = link.replace("https://omacus.com/app", "omacus://open");
+        let scheme = link.replace("https://app.omacus.com", "omacus://open");
         assert_eq!(from_arg(&scheme).as_deref(), Some("# Hi\n2 + 2"));
+        let old = link.replace("https://app.omacus.com", "https://omacus.com/app");
+        assert_eq!(from_arg(&old).as_deref(), Some("# Hi\n2 + 2"));
         assert_eq!(from_arg("2 + 2"), None);
     }
 }
