@@ -117,8 +117,33 @@ check(html.includes(">Settings</span>"), "settings in the sidebar has a label");
 check(js.includes("function pageLockChoice"), "Lock on a page with no password asks for one");
 check(js.includes("Save this password in a password manager"), "a new lock says to save the password");
 check(js.includes("removePageLock(id, password)"), "removing a lock checks the password");
-check(css.includes("background-color: var(--app-side)") && css.includes("-webkit-backdrop-filter: none"), "the top bar is a solid surface");
+check(/\.bar \{[^}]*background-color: var\(--app-bg\)/.test(css), "the top bar matches the page");
+check(/\.bar \{[^}]*-webkit-backdrop-filter: none/.test(css) && /\.bar \{[^}]*backdrop-filter: none/.test(css), "the top bar has no blur");
+check(/\.bar \.icon-btn \{[^}]*background-color: var\(--app-bg\)/.test(css), "buttons in the bar match the bar");
+check(/html:has\(body\.app-page\) \{[^}]*background: var\(--app-bg\)/.test(css), "the safe area matches the page");
 check(css.includes("border-bottom: 1px solid var(--app-line-strong)"), "the top bar has a clear bottom edge");
+check(
+  /@media \(max-width: 760px\)[\s\S]*?\.settings-card \{[^}]*top: calc\(var\(--bar\) \+ var\(--safe-top\)\)/.test(css),
+  "settings starts below the top bar on a phone",
+);
+check(/\.drawer-scrim \{[^}]*position: fixed/.test(css), "the drawer scrim covers the page");
+check(
+  /\.drawer-scrim \{[^}]*background: color-mix\(in srgb, var\(--black\) 64%, transparent\)/.test(css),
+  "the drawer scrim is a dim over the page",
+);
+check(/\.app-page\.drawer \.empty-hint \{\s*visibility: hidden/.test(css), "the empty hint does not show beside an open drawer");
+check(/name === "new"[\s\S]{0,240}setDrawer\(false\)/.test(js), "a new page closes the phone drawer");
+check(html.includes('<meta name="theme-color" content="#1a1b26" media="(prefers-color-scheme: dark)">'), "dark theme-color matches the page");
+check(html.includes('<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">'), "light theme-color matches the page");
+check(html.includes('name="apple-mobile-web-app-status-bar-style" content="black-translucent"'), "the status bar lets the page colour show");
+check(js.includes('getPropertyValue("--app-bg")'), "a chosen theme sets theme-color from the page background");
+check(js.includes('name === "light" || name === "paper" ? "default" : "black-translucent"'), "the status bar text follows the theme");
+check(!html.includes("Saved in this browser"), "the sidebar footer does not repeat where pages are saved");
+check(!html.includes("side-note"), "the sidebar has no privacy paragraph");
+check(html.includes("Pages stay in this browser. Nothing is uploaded."), "About says pages stay in this browser");
+check(html.includes("Home Screen so Safari keeps them."), "About mentions the Home Screen");
+check(html.indexOf("data-persist-note") > html.indexOf('data-settings-panel="about"'), "a refused save is explained in About");
+check(/<div class="side-foot">\s*<a class="side-version"/.test(html), "the sidebar footer is the version");
 check(css.includes("font: 500 var(--type-body) / 1.3 var(--sans)"), "chrome text uses the interface face");
 {
   const cargo = readFileSync(join(root, "Cargo.toml"), "utf8");

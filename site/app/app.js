@@ -706,14 +706,38 @@ function themeName() {
   return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
+// The first matching theme-color wins, so Auto keeps the light and dark tags
+// and a chosen theme replaces them with the page background.
+const themeColorDefaults = [...document.querySelectorAll('meta[name="theme-color"]')].map((meta) => ({
+  content: meta.getAttribute("content") || "",
+  media: meta.getAttribute("media") || "",
+}));
+
+function syncThemeChrome() {
+  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.remove();
+  const explicit = settings.theme !== "auto";
+  const specs = explicit
+    ? [{ content: getComputedStyle(document.documentElement).getPropertyValue("--app-bg").trim(), media: "" }]
+    : themeColorDefaults;
+  for (const spec of specs) {
+    const meta = document.createElement("meta");
+    meta.setAttribute("name", "theme-color");
+    if (spec.media) meta.setAttribute("media", spec.media);
+    meta.setAttribute("content", spec.content);
+    document.head.appendChild(meta);
+  }
+  const status = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+  if (status) {
+    const name = themeName();
+    status.content = name === "light" || name === "paper" ? "default" : "black-translucent";
+  }
+}
+
 function applySettings() {
   const name = themeName();
   document.documentElement.dataset.appTheme = name;
   document.body.classList.toggle("answers-inline", settings.hideAnswers);
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) {
-    meta.content = getComputedStyle(document.documentElement).getPropertyValue("--app-side").trim();
-  }
+  syncThemeChrome();
 }
 
 function updateThemeNote() {
@@ -2717,6 +2741,9 @@ async function action(name) {
     if (addSheet("")) {
       showSheet();
       view.focus();
+      // The phone drawer was covering the blank page, and the empty hint stays
+      // hidden while that drawer is open.
+      setDrawer(false);
     }
   } else if (name === "lock" || name === "lock-now") {
     const id = state.active;
