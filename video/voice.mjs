@@ -1,11 +1,20 @@
 // Narration with ElevenLabs: one clip per scene, with word timings for captions.
 //
-//   node voice.mjs                list voices, then generate any clips that changed
-//   VOICE="Name" node voice.mjs   use a specific voice from your library
-//   VOICE_ID=... MODEL=... node voice.mjs   any voice id, and another model (e.g. eleven_v3)
+//   cd video && node voice.mjs
 //
 // The API key is read from ~/.config/elevenlabs/api_key and only sent to ElevenLabs.
+// Voice: Jessica Anne Bogart, id lxYfHSkYm1EzQzGhdbfc. Model: eleven_v4 (override with MODEL).
+// Spoken spellings stay in SAY below: Omacus is "O-mah-cus", Omarchy is "Omahchee".
+// Captions keep the spelling in each scene's `vo`.
+//
+// Writes, for every scene id in composition.js:
+//   video/build/vo/<id>.mp3
+//   video/build/vo/<id>.json
+//   video/build/timings.json
+//
 // Clips are cached by text and voice, so re-running costs nothing unless a line changed.
+//   VOICE="Name" node voice.mjs              a voice from your own library
+//   VOICE_ID=... MODEL=... node voice.mjs    another voice id or model
 import { readFile, writeFile, mkdir, access } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";

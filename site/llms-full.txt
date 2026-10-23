@@ -143,7 +143,7 @@ More examples in the guide: [Convert currencies as you type](https://omacus.com/
 
 ## Variables
 
-Write `name = value` to remember something for the rest of the page. Variable names are letters, digits and underscores. The name where you define it is one colour, and a later use of it is another. Keywords and units have a third. Hover a name, or a number such as `1.5k`, to see its value. Click an answer to copy it.
+Write `name = value` to remember something for the rest of the page. Variable names are letters, digits and underscores. The name where you define it is one colour, and a later use of it is another. Keywords and units have a third. Hover a name, or a number such as `1.5k`, to see its value. Click an answer to copy it. A value from another page is `@handle.variable`, for example `@trip.total`. The handle is the page's short name. See [Folders, locks & handles](https://omacus.com/docs/#folders).
 
 | You type | Omacus shows |
 |---|---|
@@ -279,9 +279,20 @@ The sidebar lists your pages; a page's title is its first line. Create as many a
 - **Picks up where you left off.** Order, the open page, each page's cursor, and whether the sidebar is expanded (and how wide) all come back next time. Drag the sidebar's right edge to resize it. `Ctrl B` collapses it to a thin rail; click the logo there to open it again.
 
 - **Deleting is safe.** Deleted pages move to Recently deleted (a `trash` folder next to your pages). Click one to read it; Restore puts it back, and Delete forever removes it.
-- **Plain text.** Each page is a `.txt` file, so you can search, sync or back them up with anything.
+- **Plain text.** Each page is a `.txt` file, so you can search it or back it up with anything.
 
-The **⋯** above a page, the **⋯** on its row in the sidebar, and a right-click on that row all open the same menu: *New page*, *Move up*, *Move down*, *Copy with answers*, *Copy as Markdown table*, *Share link* and *Delete page*.
+The **⋯** above a page, the **⋯** on its row in the sidebar, and a right-click on that row all open the same menu: Share link, Copy with answers, Copy as Markdown table, Preview, Handle…, New page, Move up, Move down, Move to folder…, Lock… (or Unlock…, Change password…, and Remove lock…), Lock now, Delete page, and Settings.
+
+The first time Omacus opens, and only when you have no pages yet, it adds the welcome page and an Examples folder: Trip Budget, Groceries, Monthly budget, Cooking, and Time zones. Monthly budget reads `@groceries.total` and `@trip.total`. Deleting those pages does not bring them back. A library that already has pages is left as it is.
+
+## Folders, locks & handles
+
+- **Folders.** Pages can sit in folders, two levels deep. Drag a page onto a folder, or choose Move to folder… . A folder's menu adds a page, adds a nested folder, renames the folder, or deletes it. New folder is also in the sidebar.
+- **A password lock.** Lock… on a page or a folder seals the file with Argon2id and XChaCha20-Poly1305. A forgotten password cannot be recovered. Unlock… opens it for this session. Change password… and Remove lock… need the current password. Lock now seals every open page and folder. Settings chooses how soon an unlocked page locks again: 1, 5, 15, 30, or 60 minutes, or Never. Quitting locks them too. The command line and MCP skip a locked page unless you pass its password.
+
+- **Handles.** Each page has a short name taken from its title, so Trip Budget is `trip`. Handle… changes it. Another page reads a value with `@handle.variable`. `@trip.total` is the last assignment of `total` on that page. Typing `@` lists pages. F2 renames a variable on this page and in `@handle.name` on the others.
+
+End-to-end encrypted sync, with named vaults and a recovery phrase, is described at [Sync](https://omacus.com/sync/). It is not in this version. Pages stay on this device.
 
 ## Sharing & the web app
 
@@ -303,7 +314,9 @@ A shared page opens as a new page (or switches to it, if you already have it):
 
 ### The web app
 
-[app.omacus.com](https://app.omacus.com) is Omacus in any modern browser, on a computer or a phone, with nothing to install. Pages you make there are saved in that browser on that device, and are never uploaded. Export them from the ⋯ menu as a `.zip` of `.txt` files, the same format as the desktop app's pages folder, and import them anywhere.
+[app.omacus.com](https://app.omacus.com) is Omacus in any modern browser, on a computer or a phone, with nothing to install. Pages you make there are saved in that browser on that device, and are never uploaded. The same first-run Examples folder, folders, locks, and `@handle.variable` references are there. Export them from the ⋯ menu as a `.zip` of `.txt` files, the same format as the desktop app's pages folder, and import them anywhere.
+
+The browser keeps a smaller set of shortcuts: `Ctrl B`, `Ctrl J`, `Alt ↑` / `Alt ↓`, `Ctrl Shift L`, `Ctrl ,`, `Ctrl \`, `Ctrl P`, and `F2`. New page, Move to folder…, and Lock… are in the ⋯ menu. The web app's themes are Auto, Light, Dark, Paper, and Dusk.
 
 Chrome, Edge and Android can install it as an app (⋯ → *Install as an app*), and it works offline once opened. Cached exchange rates keep currency math working, and the page says when rates may be stale. On iPhone and iPad, choose Share → *Add to Home Screen*: Safari otherwise clears a site's data after seven days without a visit.
 
@@ -327,10 +340,10 @@ On macOS, use `⌘` where this says `Ctrl`, and `⌥` for `Alt`.
 | `Ctrl Shift M` | Copy the page as a Markdown table, for Slack, GitHub or a doc (also in the ⋯ menu) |
 | `Ctrl Shift L` | Copy a share link to the page (see [Sharing](https://omacus.com/docs/#sharing)) |
 | `Ctrl Z` / `Ctrl Shift Z` | Undo / redo (each page has its own history) |
-| `F2` | Rename a variable, everywhere on the page. Enter applies, Esc cancels. Right-click or hover a name for the same. On a phone, long-press the name or tap Rename |
+| `F2` | Rename a variable, everywhere on the page. Enter applies, Esc cancels. Right-click a name for the same. On a phone, long-press the name or tap Rename |
 | `Ctrl +` / `Ctrl −` / `Ctrl 0` | Zoom in / out / reset |
 | `F1` or `Ctrl /` | Help: shortcuts, live syntax examples, tips |
-| `Ctrl ,` | Settings: theme, answers column, update checks |
+| `Ctrl ,` | Settings: theme, answers column, lock again after, export folder, update checks |
 | `Ctrl \` | Hide the answers column (answers sit after each line) |
 | `Ctrl P` | Preview the page. Print and Export PDF use that view |
 | `Esc` | Close the switcher, preview, help, settings, or a dialog |
@@ -486,7 +499,7 @@ Anyone you give the link to. The page is inside the link itself, after the `#`, 
 
 ### Is my data sent anywhere?
 
-No. Pages stay on your disk. Omacus makes two kinds of request: one for exchange rates, and a check of the latest version number on GitHub. Neither sends anything about you or your pages, and the version check can be turned off with `check_for_updates = false` in `settings.toml` (see [Where files live](https://omacus.com/docs/#files)).
+Pages stay on your disk. This version does not sync. Omacus makes two kinds of request: one for exchange rates, and a check of the latest version number on GitHub. Neither sends anything about you or your pages, and the version check can be turned off with `check_for_updates = false` in `settings.toml` (see [Where files live](https://omacus.com/docs/#files)). [Sync](https://omacus.com/sync/) describes a later, end-to-end encrypted way to keep vaults across devices. It is not in this version.
 
 ## How it works
 

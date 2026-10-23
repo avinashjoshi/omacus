@@ -63,7 +63,9 @@ body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: ant
   font-family: var(--mono); }
 #side { background: var(--app-side); border-right: 1px solid #1d1d1d; padding: 26px 16px; display: flex; flex-direction: column; }
 #side .head { display: flex; justify-content: space-between; color: #5a5a5a; font: 500 15px var(--mono); letter-spacing: .08em; padding: 0 8px 14px; }
+#side .folder { padding: 4px 14px 6px; color: var(--app-dim); font: 600 16px var(--sans); }
 #side .sheet { position: relative; padding: 12px 18px; margin-bottom: 4px; border-radius: 8px; color: var(--app-dim); font-size: 19px; white-space: nowrap; overflow: hidden; }
+#side .sheet.in { padding-left: 32px; font-size: 17px; }
 #side .sheet.on { background: var(--app-sel); color: var(--app-fg); }
 #side .sheet.on::before { content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 4px; border-radius: 2px; background: var(--app-accent); }
 #side .foot { margin-top: auto; display: flex; align-items: center; gap: 12px; padding: 8px; color: var(--app-dim); font: 500 17px var(--sans); }
@@ -103,7 +105,23 @@ body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: ant
   box-shadow: 0 30px 60px -20px #000; font: 600 22px var(--sans); color: var(--text); white-space: nowrap; z-index: 3; }
 #toast span { color: var(--muted); font-weight: 500; }
 
-/* The phone, with omacus.com/app */
+/* Sync: vaults, a recovery phrase, two devices. */
+#sync { display: grid; place-items: center; }
+#sync .panel { width: 1080px; padding: 48px 52px 40px; border-radius: 24px; background: #121212; border: 1px solid #2a2a2a;
+  box-shadow: 0 80px 160px -40px rgba(0,0,0,.9); }
+#sync .kicker { margin: 8px 0 16px; color: var(--muted); font: 600 18px var(--sans); }
+#sync .vaults, #sync .devices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+#sync .devices { grid-template-columns: 1fr 1fr; margin-top: 22px; }
+#sync .vault, #sync .device { padding: 22px 24px; border-radius: 16px; background: #0d0d0d; border: 1px solid #2a2a2a; }
+#sync .vault.on { border-color: var(--app-accent); }
+#sync .vault b, #sync .device b { display: block; font: 600 28px var(--display); letter-spacing: -0.02em; }
+#sync .vault span, #sync .device span, #sync .note { color: var(--text-2); font: 500 18px var(--sans); }
+#sync .device span { color: var(--accent); }
+#sync .phrase { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+#sync .phrase span { padding: 8px 10px; border-radius: 8px; background: #0d0d0d; color: var(--text-2); font: 500 16px var(--mono); }
+#sync .note { margin: 14px 0 0; }
+
+/* The phone, with app.omacus.com */
 #phone { display: flex; align-items: flex-start; justify-content: flex-end; padding: 46px 240px 0 0; }
 #phone .device { position: relative; width: 450px; height: 850px; border-radius: 70px; padding: 18px; background: #050505;
   border: 2px solid #2c2c2c; box-shadow: 0 0 0 8px #141414, 0 60px 140px -30px rgba(0,0,0,.95), 0 40px 120px -50px rgba(240,161,42,.35); overflow: hidden; }
@@ -246,14 +264,14 @@ body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: ant
     <div id="window">
       <aside id="side">
         <div id="pill"></div>
-        <div class="head"><span>SHEETS</span><span>+</span></div>
+        <div class="head"><span>Pages</span><span>+</span></div>
         <div id="sheets"></div>
         <div class="foot"><img src="/assets/icon-64.png" alt=""><span>omacus</span><span class="v" id="ver"></span><span class="q">?</span></div>
       </aside>
       <div id="main">
-        <div id="winbar"><span class="share"><svg viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 12v7h14v-7"/></svg>Share</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div id="winbar"><span class="share"><svg viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 12v7h14v-7"/></svg>Share link</span><span class="dots"><i></i><i></i><i></i></span></div>
         <ul id="lines"></ul>
-        <div id="toast">Link copied. <span>Anyone with it can open this sheet.</span></div>
+        <div id="toast">Link copied. <span>Anyone with it can open this page.</span></div>
         <div id="copyhl"></div>
         <svg id="cursor" viewBox="0 0 24 24"><path d="M4 2l15 11-6.5 1.2L9 21z" fill="#fff" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/></svg>
         <div id="scrim"></div>
@@ -272,7 +290,24 @@ body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: ant
     <div class="status"><span>9:41</span><span class="sig"></span></div>
     <div class="appbar"><span class="burger"><i></i><i></i><i></i></span><span class="title">/ Kyoto in autumn</span><span class="lock"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span><span class="btn">Share link</span></div>
     <ul class="lines"></ul>
-    <div class="url"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>omacus.com/app</div>
+    <div class="url"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>app.omacus.com</div>
+  </div>
+</div>
+<div id="sync" class="layer">
+  <div class="panel">
+    <p class="kicker">Vaults</p>
+    <div class="vaults">
+      <div class="vault on"><b>Personal</b><span>Trip Budget · Groceries</span></div>
+      <div class="vault"><b>Family</b><span>Cooking · Time zones</span></div>
+      <div class="vault"><b>Work</b><span>Monthly budget</span></div>
+    </div>
+    <p class="kicker">Recovery phrase</p>
+    <div class="phrase"></div>
+    <p class="note">Example words. Write yours down. They restore every vault.</p>
+    <div class="devices">
+      <div class="device"><b>Desktop</b><span>Synced</span></div>
+      <div class="device"><b>Phone</b><span>Synced</span></div>
+    </div>
   </div>
 </div>
 <div id="themes" class="layer"></div>

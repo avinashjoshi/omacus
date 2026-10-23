@@ -67,15 +67,25 @@ adds the notepad conventions on top.
 | `Ctrl+\` | Hide the answers column |
 | `Ctrl+P` | Preview the page (print and export PDF from there) |
 
-The ⋯ above a page (or on its row in the sidebar, or a right-click) has the same actions, and Settings. The gear at the bottom of the sidebar (and of the collapsed strip) opens Settings too, and so does typing `settings` in the page switcher (`Ctrl+J`). Settings lives in the same window as About, Keyboard, Syntax and Tips. Export PDF writes `Page title.pdf` into Downloads, or a folder chosen in Settings. If that file is already there, Omacus asks before replacing it. A page's title is its first line.
-Pages are plain text in `~/.local/share/omacus/pages/`; order, cursors, and whether the
+The ⋯ above a page (or on its row in the sidebar, or a right-click) opens Share link, Copy with answers, Copy as Markdown table, Preview, Handle…, New page, Move up, Move down, Move to folder…, Lock… (or Unlock…, Change password…, and Remove lock…), Lock now, Delete page, and Settings. The gear at the bottom of the sidebar (and of the collapsed strip) opens Settings too, and so does typing `settings` in the page switcher (`Ctrl+J`). Settings lives in the same window as About, Keyboard, Syntax and Tips. It chooses the theme, the answers column, how soon a lock returns, the PDF export folder, and update checks. Export PDF writes `Page title.pdf` into Downloads, or a folder chosen there. If that file is already there, Omacus asks before replacing it. A page's title is its first line.
+Pages are plain text in `~/.local/share/omacus/pages/`; order, cursors, handles, folders, and whether the
 sidebar is expanded (and how wide) are in `~/.local/share/omacus/state.json`.
 A folder named `sheets` from an older version is renamed to `pages` the first time this version opens.
 A deleted page opens read-only from Recently deleted; Restore and Delete forever are explicit.
 
+The first time Omacus opens, and only when there are no pages yet, it adds a welcome page and an Examples folder: Trip Budget, Groceries, Monthly budget, Cooking, and Time zones. Monthly budget reads `@groceries.total` and `@trip.total`. Deleting those pages does not bring them back, and an existing library is left as it is.
+
+Pages can sit in folders, two levels deep. Drag a page onto a folder, or choose Move to folder… . A folder's own menu adds a page, adds a nested folder, renames it, or deletes it.
+
+**Lock…** on a page or a folder asks for a password. The file on disk is sealed with Argon2id and XChaCha20-Poly1305. A forgotten password cannot be recovered. Unlock… opens it for this session. Change password… and Remove lock… need the current password. Lock now seals every open page and folder. Settings chooses how soon an unlocked page locks again: 1, 5, 15, 30, or 60 minutes, or Never. Quitting locks them too.
+
+Each page has a short handle, taken from its title (Trip Budget is `trip`). **Handle…** changes it. Another page reads a value with `@handle.variable`, so `@trip.total` is the last assignment of `total` on that page. Typing `@` lists pages. Renaming a variable with F2 updates `@handle.name` on the other pages too.
+
+End-to-end encrypted sync, with named vaults and a recovery phrase, is described at [omacus.com/sync](https://omacus.com/sync/). It is not in this version. Pages stay on this device.
+
 ### Sharing and the web app
 
-**Share** above a page (or `Ctrl+Shift+L`) copies a link like
+**Share link** in the page menu (or `Ctrl+Shift+L`) copies a link like
 `https://app.omacus.com#v1.…` that opens the page, live, in [Omacus in the browser](https://app.omacus.com).
 The page is compressed into the part after `#`, which browsers never send to a server, so it isn't
 uploaded anywhere; anyone with the link can read it.

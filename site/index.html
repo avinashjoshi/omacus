@@ -81,6 +81,8 @@
    "releaseNotes": "https://omacus.com/updates/",
    "image": "https://omacus.com/img/icon.svg",
    "screenshot": [
+    "https://omacus.com/img/screens/examples-dark.webp",
+    "https://omacus.com/img/screens/web-examples.webp",
     "https://omacus.com/img/screens/matte-black.webp",
     "https://omacus.com/img/screens/tokyo-night.webp",
     "https://omacus.com/img/screens/help-syntax.webp"
@@ -93,6 +95,8 @@
     "Percentages: of, on, off, as a percent of",
     "Variables, totals, averages and previous-line references",
     "Multiple pages saved automatically as plain text",
+    "Folders, password locks, and values from another page with @handle.variable",
+    "PDF preview and export",
     "Autocomplete for variables, units and time zones",
     "Follows the Omarchy theme, or system light and dark mode",
     "Command-line interface"
@@ -198,7 +202,7 @@
      "name": "Where are my pages stored?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "As plain text files on your own disk, so you can search, sync or back them up like any other notes. Nothing is uploaded."
+      "text": "As plain text files on your own disk, so you can search them or back them up. Nothing is uploaded. This version does not sync. Encrypted sync is described at omacus.com/sync and is not built yet."
      }
     }
    ]
@@ -379,7 +383,7 @@
   <section id="web-app">
     <div class="wrap split flip">
       <div class="shot web reveal">
-        <img src="/img/screens/web-app.webp" width="1470" height="900" alt="Omacus in a browser at app.omacus.com, with a trip page and its answers" loading="lazy">
+        <img src="/img/screens/web-examples.webp" width="1470" height="900" alt="Omacus in a browser, with Trip Budget open and the Examples folder in the sidebar" loading="lazy">
       </div>
       <div class="split-text reveal">
         <span class="kicker">// in your browser</span>
@@ -401,16 +405,16 @@
       <div class="split-text reveal">
         <span class="kicker">// pages</span>
         <h2>Nothing to save. <em class="serif">Ever.</em></h2>
-        <p>Keep a page per trip, budget or invoice. Like Sublime Text, every keystroke is saved, and closing the window loses nothing.</p>
+        <p>Keep a page per trip, budget or invoice. Like Sublime Text, every keystroke is saved, and closing the window loses nothing. A fresh library opens with an Examples folder: Trip Budget, Groceries, and a monthly budget that reads <code>@trip.total</code>.</p>
         <ul class="checks">
           <li><b>Reopens exactly where you left off</b>, cursor included.</li>
-          <li><b>Plain text files</b> on disk, so you can search, sync or back them up.</li>
-          <li><b>Deleted pages go to the trash</b>, not into the void.</li>
-          <li><b>Autocomplete</b> for your variables, units and time zones.</li>
+          <li><b>Folders, two levels deep</b>, and a password lock on a page or a folder.</li>
+          <li><b>Plain text files</b> on disk, so you can search them or back them up.</li>
+          <li><b>Deleted pages go to the trash</b>, and can be restored.</li>
         </ul>
       </div>
       <div class="shot reveal">
-        <img src="/img/screens/tokyo-night.webp" width="1470" height="900" alt="Omacus showing an invoice page, with a sidebar of other pages, in the Tokyo Night theme" loading="lazy">
+        <img src="/img/screens/examples-dark.webp" width="1470" height="900" alt="Omacus with Trip Budget open and the Examples folder in the sidebar" loading="lazy">
       </div>
     </div>
   </section>
@@ -496,13 +500,13 @@
       <div class="section-head center reveal">
         <span class="kicker">// private by design</span>
         <h2>Your pages stay <em class="serif">yours</em>.</h2>
-        <p>No account, no cloud, no tracking in the app. What you write never leaves your device unless you send it.</p>
+        <p>No account, and no tracking in the app. This version keeps every page on your device. What you write never leaves unless you send it.</p>
       </div>
       <div class="privacy reveal">
         <article>
           <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
           <h3>On your computer</h3>
-          <p>Pages are plain text files in a folder on your disk. Search them, sync them, back them up; they're yours.</p>
+          <p>Pages are plain text files in a folder on your disk. Search them, back them up; they're yours.</p>
         </article>
         <article>
           <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></svg>
@@ -516,6 +520,19 @@
         </article>
       </div>
       <p class="privacy-note reveal">The only things Omacus fetches are exchange rates, and on the desktop, a check for new versions. Neither carries anything you've written. <a href="/privacy/">All of it, in plain words</a></p>
+      <div class="soon reveal">
+        <div>
+          <span class="soon-mark">Coming soon</span>
+          <h3>Your pages, on every device you link.</h3>
+          <p>End-to-end encrypted sync is on the way. Named vaults such as Personal, Family, and Work. A 24-word recovery phrase restores them on a new device. Nobody, including Omacus, can read the pages or the keys. It is not in this version.</p>
+          <p><a class="btn" href="/sync/">Read how sync will work <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a></p>
+        </div>
+        <div class="vaults" aria-hidden="true">
+          <article class="vault"><b>Personal</b><span>Trip Budget · Groceries</span></article>
+          <article class="vault"><b>Family</b><span>Cooking · Time zones</span></article>
+          <article class="vault"><b>Work</b><span>Monthly budget</span></article>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -557,7 +574,7 @@
         </div>
         <div>
           <h3>Where are my pages stored?</h3>
-          <p>As plain text files on your own disk, so you can search, sync or back them up like any other notes. Nothing is uploaded.</p>
+          <p>As plain text files on your own disk, so you can search them or back them up. Nothing is uploaded. This version does not sync. <a href="/sync/">Encrypted sync</a> is described separately, and it is not built yet.</p>
         </div>
       </div>
       <p class="faq-more reveal">More in the <a href="/guides/">guides</a> and <a href="/docs/">docs</a>, real pages in <a href="/use-cases/">use cases</a>, or <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">ask on GitHub</a>.</p>
@@ -602,6 +619,7 @@
       <a href="/use-cases/">Use cases</a>
       <a href="/updates/">Updates</a>
       <a href="/story/">Story</a>
+      <a href="/sync/">Sync</a>
       <a href="/privacy/">Privacy</a>
       <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">Report an issue</a>
       <a href="https://github.com/avinashjoshi/omacus">GitHub</a>

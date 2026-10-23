@@ -4,7 +4,7 @@
 
 Key facts:
 
-- Install on Linux or macOS: `curl -fsSL https://omacus.com/install | bash`. Windows: a portable `omacus.exe` from https://omacus.com/download/. All downloads: https://omacus.com/download/
+- Install on Linux or macOS: `curl -fsSL https://omacus.com/install | bash`. Windows: an installer (`omacus-windows-x86_64-setup.exe`) or a portable `omacus.exe` from https://omacus.com/download/. All downloads: https://omacus.com/download/
 - Packages: .deb (Ubuntu, Debian), .rpm (Fedora, openSUSE), .tar.gz (any x86_64 Linux), .dmg for Apple Silicon or Intel, .zip (64-bit Windows).
 - Examples: `6pm PST in Tokyo` gives `10:00 AM JST (next day)`; `3pm PST on Dec 1 in London` gives `11:00 PM GMT, Tue 1 Dec`; `15% off $1,299` gives `$1,104.15`; `3.5 km in miles` gives `2.17 miles`; `rate = $85/hour` then `rate * 30 hours` gives `$2,550`.
 - Works offline; the network is only used to refresh exchange rates and, on launch and every few hours, to check for a new version (which can be turned off). No account, no telemetry.
@@ -13,7 +13,10 @@ Key facts:
 - Web app: https://app.omacus.com runs the same engine in any browser (WebAssembly), saves pages in the browser, installs as an app and works offline. If exchange rates can't be refreshed, it says rates may be stale. Ctrl+P previews a page as rendered notes (headings, lists, tables) with each answer in brackets; that view is what prints. Settings is a tab beside About: Ctrl+, or the gear at the bottom of the sidebar (and the collapsed strip) opens it. Export PDF writes the page title into Downloads, or a folder chosen there, and asks before replacing an existing file. In the browser the browser chooses the folder. Preview keeps each source line, blank lines, and # or // comments, and lines answers up on the right when the answers column is on.
 - A markdown prefix (`#`, `-`, `*`, `1.`, `- [ ]`, `>`) comes off before the math, so `- hotel = 3 nights * $180` defines hotel. `#` at the start of a line is a heading; `#` later on the line is a comment, drawn in the comment colour. A defined name, a use of it, and keywords or units are three colours. Hover a name or a number to see its value. Variables carry across prose. Table cells are not calculated.
 - Autocomplete shows a kind and a short description. Tab accepts. Enter accepts only after Ctrl+Space; otherwise Enter is a new line. Click an answer to copy it.
-- Sharing: Ctrl+Shift+L copies a link (https://app.omacus.com#v1.…) that carries the page after the "#", so it is never uploaded; it opens live in the browser or, with "Open in Omacus", in the desktop app.
+- Sharing: Share link in the page menu, or Ctrl+Shift+L, copies a link (https://app.omacus.com#v1.…) that carries the page after the "#", so it is never uploaded; it opens live in the browser or, with "Open in Omacus", in the desktop app.
+- Pages can sit in folders, two levels deep. A page or a folder can be locked with a password (Argon2id and XChaCha20-Poly1305). A forgotten password cannot be recovered. Remove lock needs the current password. Settings chooses how soon an unlocked page locks again (1, 5, 15, 30, or 60 minutes, or Never).
+- Each page has a handle taken from its title (Trip Budget is `trip`). Another page reads a value with `@handle.variable`, for example `@trip.total`. The first launch, when there are no pages yet, adds a welcome page and an Examples folder (Trip Budget, Groceries, Monthly budget, Cooking, Time zones). Deleting those pages does not bring them back, and an existing library is not overwritten.
+- End-to-end encrypted sync, with named vaults and a 24-word recovery phrase, is described at https://omacus.com/sync/ and is not in this version. Pages stay on the device.
 - On Omarchy it follows the active theme live, and the installer offers a Hyprland keybind (default Super+Ctrl+Alt+=) and a floating-window rule.
 - Written in Rust with egui; the math engine is fend. Author: Avinash Joshi.
 
@@ -26,7 +29,9 @@ Key facts:
 - [Keyboard shortcuts](https://omacus.com/docs/#shortcuts)
 - [Command line](https://omacus.com/docs/#cli) and [MCP](https://omacus.com/docs/#mcp)
 - [Omarchy and Hyprland](https://omacus.com/docs/#omarchy)
+- [Folders, locks and handles](https://omacus.com/docs/#folders)
 - [FAQ](https://omacus.com/docs/#faq)
+- [Sync (coming soon, not in this version)](https://omacus.com/sync/)
 - [How it works](https://omacus.com/docs/#how-it-works)
 
 ## Guides
