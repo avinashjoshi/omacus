@@ -15,7 +15,7 @@ The code is the source of truth. The guide describes it. If they disagree, chang
 | Website and web shell | `site/css/tokens.css`, imported first by `site/css/site.css` |
 | Which app theme is on | `documentElement.dataset.appTheme` (`light`, `dark`, `paper`, `dusk`) |
 
-`site/app/app.js` does not set color literals. It sets `data-app-theme`, and the browser resolves `--app-side` for the theme-color of the chrome, so the status bar is the same solid surface as the top bar. Built-in palettes in `tokens.css` are checked against `src/theme.rs` by `tests/check_design.py` (borders included). A hardcoded `Color32::from_rgb(…)` or `hex("#…")` outside `src/theme.rs`, or a hex color in any other file under `site/**/*.css`, fails CI. A justified exception is a `design-allow` comment on that line, or a path in `tests/design-allow.txt`.
+`site/app/app.js` does not set color literals. It sets `data-app-theme`, and reads `--app-bg` for the theme-color when a theme is chosen, so the status bar is the same solid colour as the page. Auto keeps the light and dark `theme-color` tags. Built-in palettes in `tokens.css` are checked against `src/theme.rs` by `tests/check_design.py` (borders included). A hardcoded `Color32::from_rgb(…)` or `hex("#…")` outside `src/theme.rs`, or a hex color in any other file under `site/**/*.css`, fails CI. A justified exception is a `design-allow` comment on that line, or a path in `tests/design-allow.txt`.
 
 A swatch painted from a calculated color (`Color32::from_rgb(r, g, b)` with variables) is not a token. Leave it.
 
@@ -59,7 +59,7 @@ Roles, not one-off hex values. Each built-in theme defines the role. Custom and 
 
 | Role | Rust | CSS | Use |
 | --- | --- | --- | --- |
-| Background | `background` | `--app-bg` | The page and the main panel |
+| Background | `background` | `--app-bg` | The page, the top bar, and the safe areas |
 | Surface | `surface()` / `sidebar` | `--app-side` | Sidebar, dialogs, popups, setting cards |
 | Border | `border()` | `--app-line` | Hairline around cards, fields, menus |
 | Border, strong | `border_strong()` | `--app-line-strong` | Hovered controls, separators that must show |
@@ -214,17 +214,19 @@ The stored values do not change meaning. "Hide the answers column" on means the 
 
 ### App bar
 
-The bar is a solid surface (`--app-side`) with a strong border under it (`--app-line-strong`). It pads by the top safe area, so the notch and the status bar sit on that surface. The page name, the pages button, and the ⋯ button use the interface face and the text color. The slash before the name stays secondary.
+The bar is a solid surface in the page background (`--app-bg`), the same colour as `theme-color` and the safe areas, with a strong border under it (`--app-line-strong`). It pads by the top safe area, so the notch and the clock sit on that surface with no seam. Light and paper use a light status bar. Dark and dusk use a translucent status bar, so the clock is drawn on the bar. The page name, the pages button, and the ⋯ button use the interface face and the text color. Buttons in the bar use the same fill as the bar. The slash before the name stays secondary.
 
-Do: keep the bar opaque. No blur and no translucent fill.
-Don't: set the page name in the monospace face, or let the bar blend into the page.
+Do: keep the bar opaque. No blur and no translucent fill. Keep the light and dark `theme-color` tags in step with `--app-bg`.
+Don't: set the page name in the monospace face, paint the bar in `--app-side`, or drop the border. The border is what separates the bar from the page.
 
 ### Sidebar footer
 
-A labeled Settings row, About, the version (`omacus vX.Y.Z`, a link to the updates page), and a line that pages are saved in this browser. The same footer is used on a phone and in a wide window. It sits above the home indicator.
+A labeled Settings row, About, and the version (`omacus vX.Y.Z`, a link to the updates page). The same footer is used on a phone and in a wide window. It sits above the home indicator. Where pages are kept is said in About, not under the version.
+
+On a phone the pages list is a drawer. A scrim covers the rest of the page, and the empty-page hint does not show through it.
 
 Do: say Settings in words, next to the gear.
-Don't: a gear with no label, or a version that is not the release in `Cargo.toml`.
+Don't: a gear with no label, a version that is not the release in `Cargo.toml`, or a privacy paragraph in the footer.
 
 ### Page menu
 
@@ -265,13 +267,15 @@ The page switcher and folder rename use the same frame with tighter padding. The
 Do: one question, two actions.
 Don't: a third button that repeats Cancel, or a dialog wider than the sentence needs. 380px is enough for replace and handle. 340px is enough for delete.
 
+On a phone, Settings and About are one full-width sheet that starts at the bottom of the top bar. The title and Close stay on screen, and the sheet clears the home indicator. A wide window keeps the centered card.
+
 ### Toasts
 
 A surface card, border, radius 12, centered at the bottom. It fades. Errors use `danger()`. Undo and "Open folder" are quiet text buttons in the accent. One toast. A new one replaces the old one.
 
 ### Banners
 
-The web install banner, the shared-page banner, the rates note, and the update banner use `--app-accent-soft` (the accent at 14%) and the border token. The update banner says "Update ready" and its button is Reload. It stays up until the open page has been saved. One banner does not cover the first line of the page. Dismiss is a quiet control. The rates note says when cached exchange rates could not be refreshed. A short note in the sidebar says when this browser refused to keep saved pages, and points at Export.
+The web install banner, the shared-page banner, the rates note, and the update banner use `--app-accent-soft` (the accent at 14%) and the border token. The update banner says "Update ready" and its button is Reload. It stays up until the open page has been saved. One banner does not cover the first line of the page. Dismiss is a quiet control. The rates note says when cached exchange rates could not be refreshed. A short note in About says when this browser refused to keep saved pages, and points at Export.
 
 ### Editor
 
@@ -292,7 +296,7 @@ Lock is the "Lock again after" combo (1, 5, 15, 30, or 60 minutes, or Never). Th
 
 ### About
 
-The wordmark, "Math, the way you write it.", then two cards: the version (and the update actions) and "Private by design". Links are accent, frame-less: Website, Docs, What's new, Privacy, Report an issue, Source code. The license line is muted.
+The wordmark, "Math, the way you write it.", then two cards on the desktop: the version (and the update actions) and "Private by design". That card says pages stay on this computer as plain text files. In the web app, About says pages stay in this browser, nothing is uploaded, export a copy from Settings, and on iPhone and iPad add Omacus to the Home Screen so Safari keeps them. If the browser refused to keep saved pages, a line there says so and points at Export. Links are accent, frame-less: Website, Docs, What's new, Privacy, Report an issue, Source code. The license line is muted.
 
 Don't add metrics, testimonials, or a changelog inside About. "What's new" opens the updates page.
 
