@@ -4,7 +4,7 @@
 // part after "#", which browsers never send to the server.
 
 import init, {
-  Calc, shareEncode, shareDecode, layoutAnswers, realignMap, pageMarks, previewHtml, variables, wordKind,
+  Calc, shareEncode, shareDecode, layoutAnswers, realignMap, pageMarks, previewBlocks, variables, wordKind,
   bindingAt, renameVariable, definitionChange, pageRefAt, rewriteVarRefs, renameBlurb, propagateRename, propagateHandle,
   lockCreate, lockWrap, lockSeal, lockOpen, lockUnwrap, lockOpenPassword, lockIs,
 } from "./pkg/omacus_web.js";
@@ -23,6 +23,7 @@ import {
   drained as storeDrained, keys as storeKeys, persistGranted, selfTab,
 } from "./store.js";
 import { allocateHandle, freshLibrary, seedAction } from "./seed.js";
+import { backupEntries, mergeBackup, parseBackup, unzipNamed, zipBytes } from "./backup.js";
 
 const WASM = new URL("pkg/omacus_web_bg.wasm", import.meta.url).href;
 const WORKER = new URL("./worker.js", import.meta.url).href;
@@ -130,8 +131,9 @@ const folderKeys = new Map();
 let lastInput = Date.now();
 let pendingNew = null;
 
-const LOCK_ICON = `<svg class="lock-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="11" width="12" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`;
-const LOCK_OPEN_ICON = `<svg class="lock-ico open" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="11" width="12" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0"/></svg>`;
+const LOCKED_PAGE = "Locked page";
+// Sidebar glyphs are real SVG nodes. Parsing a markup string is a TrustedHTML
+// sink, and the page has no policy that would accept one.
 
 function noteActivity() {
   lastInput = Date.now();
@@ -214,7 +216,7 @@ function shownPlain(id) {
 
 function pageLabel(id) {
   if (id === "shared") return heading(state.shared?.text ?? "");
-  if (pageConcealed(id)) return "Locked";
+  if (pageConcealed(id)) return LOCKED_PAGE;
   return heading(shownPlain(id));
 }
 
@@ -757,6 +759,13 @@ function showSettingsTab(name) {
   if (title) title.textContent = tab === "about" ? "About" : "Settings";
 }
 
+function showBuildHash() {
+  const node = $("[data-build-hash]");
+  if (!node) return;
+  const hash = (document.querySelector('meta[name="omacus-build"]')?.content || "").trim();
+  node.textContent = /^[0-9a-f]{64}$/i.test(hash) ? hash : "Not a published build.";
+}
+
 function openSettings(tab = "settings") {
   closeMenu();
   if (!el.settings) return;
@@ -767,6 +776,7 @@ function openSettings(tab = "settings") {
   const lockAfter = $("[data-setting=lock-minutes]", el.settings);
   if (lockAfter) lockAfter.value = String(settings.lockMinutes ?? 5);
   updateThemeNote();
+  showBuildHash();
   showSettingsTab(tab);
   el.settings.hidden = false;
 }
@@ -965,7 +975,7 @@ function pageCatalog() {
     pages.push({
       id,
       handle: state.handles.get(id) || "",
-      title: concealed ? "Locked" : heading(text),
+      title: concealed ? LOCKED_PAGE : heading(text),
       text,
       locked: concealed,
       deleted: false,
@@ -979,7 +989,7 @@ function pageCatalog() {
     pages.push({
       id: item.id,
       handle: item.handle || state.handles.get(item.id) || "",
-      title: locked ? "Locked" : heading(text),
+      title: locked ? LOCKED_PAGE : heading(text),
       text,
       locked,
       deleted: true,
@@ -1337,8 +1347,6 @@ addEventListener("pagehide", () => {
   folderKeys.clear();
 });
 
-const CHEVRON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`;
-const DOTS = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/></svg>`;
 
 function renderSidebar() {
   const rows = [];
@@ -1351,7 +1359,7 @@ function renderSidebar() {
   el.sheets.replaceChildren(...rows, fill);
   paintDrop();
   if (!preview) {
-    const name = state.active === "shared" ? title(state.shared?.text ?? "") : pageConcealed(state.active) ? "Locked" : title(shownPlain(state.active));
+    const name = state.active === "shared" ? title(state.shared?.text ?? "") : pageConcealed(state.active) ? LOCKED_PAGE : title(shownPlain(state.active));
     el.title.textContent = name;
     document.title = `${name} · Omacus`;
   }
@@ -1367,11 +1375,48 @@ function sideRow(kind, id, depth) {
   return row;
 }
 
-function iconNode(markup) {
-  const svg = markup.includes("xmlns=") ? markup : markup.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"');
-  const node = new DOMParser().parseFromString(svg, "image/svg+xml").documentElement;
-  if (node.namespaceURI !== "http://www.w3.org/2000/svg") return document.createElement("span");
-  return document.importNode(node, true);
+function svgEl(name, attrs) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", name);
+  for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+  return el;
+}
+
+function lockIcon(open) {
+  const svg = svgEl("svg", {
+    class: open ? "lock-ico open" : "lock-ico",
+    viewBox: "0 0 24 24",
+    "aria-hidden": "true",
+  });
+  svg.append(
+    svgEl("rect", { x: "6", y: "11", width: "12", height: "9", rx: "1.5" }),
+    svgEl("path", { d: open ? "M8 11V8a4 4 0 0 1 8 0" : "M8 11V8a4 4 0 0 1 8 0v3" }),
+  );
+  return svg;
+}
+
+function chevronIcon() {
+  const svg = svgEl("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" });
+  svg.append(svgEl("path", { d: "M9 6l6 6-6 6" }));
+  return svg;
+}
+
+function dotsIcon() {
+  const svg = svgEl("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" });
+  svg.append(
+    svgEl("circle", { cx: "6", cy: "12", r: "1.5" }),
+    svgEl("circle", { cx: "12", cy: "12", r: "1.5" }),
+    svgEl("circle", { cx: "18", cy: "12", r: "1.5" }),
+  );
+  return svg;
+}
+
+function shareIcon() {
+  const svg = svgEl("svg", { class: "ios-share", viewBox: "0 0 24 24", "aria-label": "Share" });
+  svg.append(
+    svgEl("path", { d: "M12 15V3M8 7l4-4 4 4" }),
+    svgEl("path", { d: "M7 10H5v11h14V10h-2" }),
+  );
+  return svg;
 }
 
 function moreButton(label) {
@@ -1380,7 +1425,7 @@ function moreButton(label) {
   button.className = "row-more";
   button.setAttribute("aria-label", label);
   button.setAttribute("aria-haspopup", "menu");
-  button.append(iconNode(DOTS));
+  button.append(dotsIcon());
   return button;
 }
 
@@ -1397,7 +1442,7 @@ function pageRow(id, text, shared, depth) {
   if (!shared && (isLock(state.texts.get(id) ?? "") || coveringLock(state.tree, id))) {
     const icon = document.createElement("span");
     icon.className = "lock-mark";
-    icon.append(iconNode(pageConcealed(id) ? LOCK_ICON : LOCK_OPEN_ICON));
+    icon.append(lockIcon(!pageConcealed(id)));
     name.append(icon);
   }
   if (shared) {
@@ -1420,7 +1465,7 @@ function folderRow(entry) {
   chevron.className = "chevron";
   chevron.setAttribute("aria-expanded", String(!entry.collapsed));
   chevron.setAttribute("aria-label", entry.collapsed ? "Expand folder" : "Collapse folder");
-  chevron.append(iconNode(CHEVRON));
+  chevron.append(chevronIcon());
   const name = document.createElement("button");
   name.type = "button";
   name.className = "side-name";
@@ -1431,7 +1476,7 @@ function folderRow(entry) {
   if (entry.locked) {
     const icon = document.createElement("span");
     icon.className = "lock-mark";
-    icon.append(iconNode(folderKeys.has(entry.id) ? LOCK_OPEN_ICON : LOCK_ICON));
+    icon.append(lockIcon(folderKeys.has(entry.id)));
     name.append(icon);
   }
   row.append(chevron, name, moreButton("Folder menu"));
@@ -1467,7 +1512,7 @@ function renderDeleted() {
   for (const item of items) {
     const b = document.createElement("button");
     b.type = "button";
-    const name = isLock(item.text) ? "Locked" : heading(item.text);
+    const name = isLock(item.text) ? LOCKED_PAGE : heading(item.text);
     b.textContent = name;
     b.title = name;
     if (preview?.id === item.id) b.setAttribute("aria-current", "true");
@@ -1482,7 +1527,7 @@ function showPreview(item) {
   closePagePreview();
   preview = item;
   const locked = isLock(item.text);
-  const name = locked ? "Locked" : heading(item.text);
+  const name = locked ? LOCKED_PAGE : heading(item.text);
   if (el.preview) el.preview.hidden = false;
   if (el.previewTitle) el.previewTitle.textContent = name;
   if (el.previewBody) {
@@ -1494,7 +1539,7 @@ function showPreview(item) {
   if (el.editor) el.editor.hidden = true;
   hideGate();
   if (el.title) el.title.textContent = name;
-  document.title = `${locked ? "Locked" : title(item.text)} · Omacus`;
+  document.title = `${locked ? LOCKED_PAGE : title(item.text)} · Omacus`;
   renderSidebar();
 }
 
@@ -1538,18 +1583,147 @@ function togglePagePreview() {
   }
 }
 
+function safeLink(href) {
+  return href.startsWith("https://") || href.startsWith("http://") || href.startsWith("mailto:");
+}
+
+function appendInlines(parent, inlines) {
+  for (const inline of inlines || []) {
+    if (inline.t === "strong" || inline.t === "em" || inline.t === "code") {
+      const tag = inline.t === "strong" ? "strong" : inline.t === "em" ? "em" : "code";
+      const node = document.createElement(tag);
+      node.textContent = inline.s || "";
+      parent.append(node);
+    } else if (inline.t === "link" && safeLink(inline.href || "")) {
+      const link = document.createElement("a");
+      link.href = inline.href;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = inline.s || "";
+      parent.append(link);
+    } else {
+      parent.append(document.createTextNode(inline.s || ""));
+    }
+  }
+}
+
+function appendRich(parent, rich, prefix) {
+  const expr = document.createElement("span");
+  expr.className = "expr";
+  if (prefix) expr.append(prefix);
+  const bodyEmpty = !(rich?.inlines || []).some((inline) => inline.t !== "text" || inline.s);
+  if (!bodyEmpty) appendInlines(expr, rich.inlines);
+  if (rich?.comment != null) {
+    const note = document.createElement("span");
+    note.className = "note";
+    if (rich.comment) note.textContent = rich.comment;
+    else note.append(document.createElement("br"));
+    expr.append(note);
+  }
+  parent.append(expr);
+  if (rich?.answer) {
+    const pill = document.createElement("button");
+    pill.type = "button";
+    pill.className = "pill";
+    pill.dataset.value = rich.answer;
+    pill.textContent = `[ ${rich.answer} ]`;
+    pill.title = "Click to copy";
+    pill.addEventListener("click", () => {
+      copy(pill.dataset.value || pill.textContent).then(() => toast(copiedMessage(pill.dataset.value)));
+    });
+    parent.append(pill);
+  }
+}
+
+function renderPreview(host, blocks) {
+  host.replaceChildren();
+  const article = document.createElement("article");
+  article.className = "md";
+  for (const block of blocks || []) {
+    if (block.t === "heading") {
+      const level = Math.min(6, Math.max(1, Number(block.level) || 1));
+      const heading = document.createElement(`h${level}`);
+      appendRich(heading, block.rich);
+      article.append(heading);
+    } else if (block.t === "lines") {
+      for (const rich of block.rows || []) {
+        const p = document.createElement("p");
+        p.className = "line";
+        appendRich(p, rich);
+        article.append(p);
+      }
+    } else if (block.t === "blank") {
+      const p = document.createElement("p");
+      p.className = "line blank";
+      p.append(document.createElement("br"));
+      article.append(p);
+    } else if (block.t === "list") {
+      const list = document.createElement(block.ordered ? "ol" : "ul");
+      (block.items || []).forEach((item, i) => {
+        const li = document.createElement("li");
+        if (item.number) li.value = item.number;
+        if (item.checked != null) li.className = "task";
+        const mark = document.createElement("span");
+        if (item.checked == null) {
+          mark.className = "mark";
+          mark.textContent = block.ordered ? `${item.number || i + 1}. ` : "• ";
+        }
+        if (item.checked != null) {
+          const box = document.createElement("input");
+          box.type = "checkbox";
+          box.disabled = true;
+          box.checked = !!item.checked;
+          mark.append(box);
+        }
+        appendRich(li, item.rich, mark.childNodes.length || mark.textContent ? mark : null);
+        list.append(li);
+      });
+      article.append(list);
+    } else if (block.t === "code") {
+      const pre = document.createElement("pre");
+      pre.className = "code";
+      const code = document.createElement("code");
+      code.textContent = (block.lines || []).join("\n");
+      pre.append(code);
+      article.append(pre);
+    } else if (block.t === "quote") {
+      const quote = document.createElement("blockquote");
+      for (const rich of block.rows || []) {
+        const p = document.createElement("p");
+        p.className = "line";
+        appendRich(p, rich);
+        quote.append(p);
+      }
+      article.append(quote);
+    } else if (block.t === "table") {
+      const table = document.createElement("table");
+      (block.rows || []).forEach((row, n) => {
+        const tr = document.createElement("tr");
+        const cell = block.header && n === 0 ? "th" : "td";
+        for (const inlines of row) {
+          const td = document.createElement(cell);
+          appendInlines(td, inlines);
+          tr.append(td);
+        }
+        table.append(tr);
+      });
+      article.append(table);
+    }
+  }
+  host.append(article);
+}
+
 function refreshPagePreview() {
   if (!pagePreviewOpen || !el.pagePreviewBody || !engineReady) return;
   const text = view.state.doc.toString();
   const answers = view.state.field(sheetField).answers;
-  el.pagePreviewBody.innerHTML = previewHtml(text, JSON.stringify(answers));
-  for (const pill of el.pagePreviewBody.querySelectorAll(".pill")) {
-    pill.title = "Click to copy";
-    pill.addEventListener("click", () => {
-      const value = pill.dataset.value || pill.textContent;
-      copy(value).then(() => toast(copiedMessage(value)));
-    });
+  let blocks = [];
+  try {
+    blocks = JSON.parse(previewBlocks(text, JSON.stringify(answers)));
+  } catch {
+    blocks = [];
   }
+  renderPreview(el.pagePreviewBody, blocks);
 }
 
 function printPagePreview() {
@@ -2373,10 +2547,15 @@ let answered = 0; // the seq of the newest text fully answered
 let heardAt = 0; // when the worker last said anything
 const copies = new Map(); // seq -> { sheet, text, resolve }, copies on their way
 
+function scriptURL(url) {
+  const make = globalThis.omacusScriptURL;
+  return typeof make === "function" ? make(url) : url;
+}
+
 function startWorker() {
   worker?.terminate();
   try {
-    worker = new Worker(WORKER, { type: "module" });
+    worker = new Worker(scriptURL(WORKER), { type: "module" });
   } catch {
     worker = null;
     return;
@@ -2797,7 +2976,7 @@ async function action(name) {
     if (preview) restoreTrashed(preview.id);
   } else if (name === "purge-trash") {
     if (!preview || !el.confirm) return;
-  const purgeName = isLock(preview.text) ? "Locked" : heading(preview.text);
+  const purgeName = isLock(preview.text) ? LOCKED_PAGE : heading(preview.text);
   el.confirmText.textContent = `Delete “${purgeName}” forever? This can't be undone.`;
   el.confirm.hidden = false;
   const yes = $("[data-confirm-yes]");
@@ -2883,7 +3062,7 @@ function dropPlaceholder() {
 function commitDeletePage(id) {
   const text = state.texts.get(id);
   if (text == null) return;
-  const label = isLock(text) ? "Locked" : title(shownPlain(id) || text);
+  const label = isLock(text) ? LOCKED_PAGE : title(shownPlain(id) || text);
   forgetPage(id);
   const wasActive = state.active === id;
   const oldAt = state.order.indexOf(id);
@@ -3131,7 +3310,7 @@ function switcherItems(query) {
   }
   const q = query.trim().toLowerCase();
   const addPage = (id, text, concealed) => {
-    const label = concealed ? "Locked" : heading(text);
+    const label = concealed ? LOCKED_PAGE : heading(text);
     const hay = concealed ? label : `${label}\n${text}`;
     if (!q || hay.toLowerCase().includes(q)) hits.push({ kind: "page", id, label });
   };
@@ -3784,37 +3963,86 @@ function folderLockState(id) {
 
 function exportZip() {
   flushSave();
-  const used = new Set();
-  let skipped = 0;
-  const files = [];
+  const version = document.querySelector('meta[name="omacus-version"]')?.content || "";
+  const pages = [];
   for (const id of state.order) {
-    if (pageConcealed(id)) {
-      skipped += 1;
-      continue;
-    }
-    const plain = shownPlain(id);
-    let name = title(plain).replace(/[\\/:*?"<>|…]/g, "").trim() || "Untitled";
-    let unique = name;
-    for (let n = 2; used.has(unique.toLowerCase()); n++) unique = `${name} ${n}`;
-    used.add(unique.toLowerCase());
-    files.push({ name: `${unique}.txt`, data: new TextEncoder().encode(plain) });
+    pages.push({ id, text: state.texts.get(id) ?? "" });
   }
-  const blob = zip(files);
+  const bytes = zipBytes(backupEntries({
+    version,
+    library: {
+      order: state.order,
+      active: state.active,
+      tree: state.tree,
+      handles: Object.fromEntries(state.handles),
+    },
+    settings,
+    trash: loadTrash(),
+    pages,
+  }));
+  const blob = new Blob([bytes], { type: "application/zip" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `omacus-pages-${new Date().toISOString().slice(0, 10)}.zip`;
+  a.download = "omacus-backup.zip";
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  let note = `Exported ${files.length} page${files.length === 1 ? "" : "s"}.`;
-  if (skipped) note += " Locked pages are excluded from export unless unlocked.";
+  const locked = pages.filter((page) => isLock(page.text)).length;
+  let note = `Exported everything (${pages.length} page${pages.length === 1 ? "" : "s"}).`;
+  if (locked) note += " Locked pages stay locked in the file.";
   toast(note);
+}
+
+function applyMerged(merged) {
+  for (const page of merged.pages) {
+    if (!state.texts.has(page.id)) {
+      state.texts.set(page.id, page.text);
+      store.set("page:" + page.id, page.text);
+    }
+  }
+  state.tree = merged.tree;
+  syncOrder();
+  if (!state.order.includes(state.active)) state.active = state.order[0] ?? null;
+  saveIndex();
+  if (merged.trash?.length && !loadTrash().length) saveTrash(merged.trash);
+  if (merged.settings) {
+    const before = JSON.stringify(settings);
+    if (merged.settings.theme && settings.theme === "auto") settings.theme = merged.settings.theme;
+    if (settings.hideAnswers == null && merged.settings.hideAnswers != null) settings.hideAnswers = !!merged.settings.hideAnswers;
+    if (settings.lockMinutes == null && merged.settings.lockMinutes != null) settings.lockMinutes = merged.settings.lockMinutes;
+    if (JSON.stringify(settings) !== before) {
+      saveSettings();
+      applySettings();
+    }
+  }
 }
 
 el.importInput.addEventListener("change", async () => {
   let count = 0;
   for (const file of el.importInput.files) {
-    const texts = file.name.toLowerCase().endsWith(".zip") ? await unzip(file) : [await file.text()];
-    for (const text of texts) {
+    if (file.name.toLowerCase().endsWith(".zip")) {
+      const entries = await unzipNamed(file);
+      const backup = parseBackup(entries);
+      if (backup) {
+        const merged = mergeBackup({
+          pages: [...state.texts].map(([id, text]) => ({ id, text })),
+          tree: state.tree,
+          trash: loadTrash(),
+          settings,
+        }, backup);
+        applyMerged(merged);
+        count += merged.added.length;
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.name.toLowerCase().endsWith(".txt")) continue;
+        const text = entry.text;
+        if (!state.order.some((id) => state.texts.get(id) === text)) {
+          addSheet(text, { select: count === 0 });
+          count++;
+        }
+      }
+    } else {
+      const text = await file.text();
       if (!state.order.some((id) => state.texts.get(id) === text)) {
         addSheet(text, { select: count === 0 });
         count++;
@@ -3825,93 +4053,6 @@ el.importInput.addEventListener("change", async () => {
   showSheet();
   toast(count ? `Imported ${count} page${count === 1 ? "" : "s"}.` : "Nothing new to import.");
 });
-
-const CRC = new Uint32Array(256).map((_, n) => {
-  let c = n;
-  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-  return c >>> 0;
-});
-function crc32(bytes) {
-  let c = 0xffffffff;
-  for (const b of bytes) c = CRC[(c ^ b) & 0xff] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-}
-
-// A zip of stored (uncompressed) files: small sheets need nothing more.
-function zip(files) {
-  const parts = [];
-  const central = [];
-  let offset = 0;
-  for (const f of files) {
-    const name = new TextEncoder().encode(f.name);
-    const crc = crc32(f.data);
-    const local = new DataView(new ArrayBuffer(30));
-    local.setUint32(0, 0x04034b50, true);
-    local.setUint16(4, 20, true);
-    local.setUint16(6, 0x0800, true); // UTF-8 names
-    local.setUint32(14, crc, true);
-    local.setUint32(18, f.data.length, true);
-    local.setUint32(22, f.data.length, true);
-    local.setUint16(26, name.length, true);
-    parts.push(local, name, f.data);
-    const entry = new DataView(new ArrayBuffer(46));
-    entry.setUint32(0, 0x02014b50, true);
-    entry.setUint16(4, 20, true);
-    entry.setUint16(6, 20, true);
-    entry.setUint16(8, 0x0800, true);
-    entry.setUint32(16, crc, true);
-    entry.setUint32(20, f.data.length, true);
-    entry.setUint32(24, f.data.length, true);
-    entry.setUint16(28, name.length, true);
-    entry.setUint32(42, offset, true);
-    central.push(entry, name);
-    offset += 30 + name.length + f.data.length;
-  }
-  const size = central.reduce((n, p) => n + p.byteLength, 0);
-  const end = new DataView(new ArrayBuffer(22));
-  end.setUint32(0, 0x06054b50, true);
-  end.setUint16(8, files.length, true);
-  end.setUint16(10, files.length, true);
-  end.setUint32(12, size, true);
-  end.setUint32(16, offset, true);
-  return new Blob([...parts, ...central, end], { type: "application/zip" });
-}
-
-// The .txt files in a zip, stored or deflated.
-async function unzip(file) {
-  const buf = new Uint8Array(await file.arrayBuffer());
-  const view = new DataView(buf.buffer);
-  let eocd = -1;
-  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) {
-    if (view.getUint32(i, true) === 0x06054b50) {
-      eocd = i;
-      break;
-    }
-  }
-  if (eocd < 0) return [];
-  const texts = [];
-  let p = view.getUint32(eocd + 16, true);
-  for (let n = view.getUint16(eocd + 10, true); n > 0 && p + 46 <= buf.length; n--) {
-    if (view.getUint32(p, true) !== 0x02014b50) break;
-    const method = view.getUint16(p + 10, true);
-    const size = view.getUint32(p + 20, true);
-    const nameLen = view.getUint16(p + 28, true);
-    const extra = view.getUint16(p + 30, true);
-    const note = view.getUint16(p + 32, true);
-    const local = view.getUint32(p + 42, true);
-    const name = new TextDecoder().decode(buf.subarray(p + 46, p + 46 + nameLen));
-    p += 46 + nameLen + extra + note;
-    if (!name.toLowerCase().endsWith(".txt") || name.split("/").pop().startsWith(".")) continue;
-    const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
-    const data = buf.subarray(start, start + size);
-    if (method === 0) texts.push(new TextDecoder().decode(data));
-    else if (method === 8) {
-      const out = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-      texts.push(await new Response(out).text());
-    }
-  }
-  return texts;
-}
 
 // ---------------------------------------------------------------------------------
 // Small things.
@@ -4025,8 +4166,6 @@ function toast(message, undo, ms) {
 // Add to Home Screen steps on iPhone and iPad, which have no install prompt.
 
 const INSTALL_DISMISSED = "install-dismissed";
-const SHARE_ICON =
-  '<svg class="ios-share" viewBox="0 0 24 24" aria-label="Share"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M7 10H5v11h14V10h-2"/></svg>';
 let installPrompt = null;
 
 function ios() {
@@ -4049,7 +4188,7 @@ function showInstall() {
     lead.textContent = "Install Omacus: ";
     const step = document.createElement("b");
     step.textContent = "Add to Home Screen";
-    host.append(lead, "tap ", iconNode(SHARE_ICON), " then ", step, ". It works offline, like an app, and Safari keeps your pages.");
+    host.append(lead, "tap ", shareIcon(), " then ", step, ". It works offline, like an app, and Safari keeps your pages.");
     text = true;
   }
   banner.hidden = EMBED || dismissed || standalone() || !text || state.active === "shared";
@@ -4124,7 +4263,7 @@ async function goOffline() {
     return;
   }
   try {
-    const reg = await navigator.serviceWorker.register(new URL("sw.js", import.meta.url), { scope: "./" });
+    const reg = await navigator.serviceWorker.register(scriptURL(new URL("sw.js", import.meta.url).href), { scope: "./" });
     navigator.serviceWorker.addEventListener("controllerchange", () => {
       if (applyingUpdate) location.reload();
     });
@@ -4162,6 +4301,8 @@ async function start() {
   applySettings();
   const persistNote = $("[data-persist-note]");
   if (persistNote) persistNote.hidden = EMBED || persistGranted();
+  showBuildHash();
+  if (!EMBED) showInstall();
   if (EMBED) {
     el.page.classList.add("embed");
     const open = $("[data-embed-open]");

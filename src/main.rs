@@ -2,6 +2,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app;
+mod backup;
 mod calc;
 mod cli;
 mod design;

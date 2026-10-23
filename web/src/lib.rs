@@ -439,10 +439,75 @@ pub fn page_marks(line: &str) -> String {
 /// value (and a real error, not a name hint) becomes `[ value ]`.
 #[wasm_bindgen(js_name = previewHtml)]
 pub fn preview_html(text: &str, answers_json: &str) -> String {
+    let refs = preview_answers(answers_json);
+    let borrowed: Vec<Option<&str>> = refs.iter().map(|s| s.as_deref()).collect();
+    omacus_engine::markdown::preview_html(text, &borrowed)
+}
+
+/// The same preview as JSON blocks, so the page can build DOM nodes.
+/// `answers_json` matches `previewHtml`.
+#[wasm_bindgen(js_name = previewBlocks)]
+pub fn preview_blocks(text: &str, answers_json: &str) -> String {
+    let refs = preview_answers(answers_json);
+    let borrowed: Vec<Option<&str>> = refs.iter().map(|s| s.as_deref()).collect();
+    let blocks = omacus_engine::markdown::render(text, &borrowed);
+    serde_json::to_string(&blocks.iter().map(block_json).collect::<Vec<_>>())
+        .unwrap_or_else(|_| "[]".into())
+}
+
+fn preview_answers(answers_json: &str) -> Vec<Option<String>> {
     let parsed: Vec<serde_json::Value> = serde_json::from_str(answers_json).unwrap_or_default();
-    let answers: Vec<Option<String>> = parsed.iter().map(pill_text).collect();
-    let refs: Vec<Option<&str>> = answers.iter().map(|s| s.as_deref()).collect();
-    omacus_engine::markdown::preview_html(text, &refs)
+    parsed.iter().map(pill_text).collect()
+}
+
+fn inline_json(inline: &omacus_engine::markdown::Inline) -> serde_json::Value {
+    use omacus_engine::markdown::Inline;
+    match inline {
+        Inline::Text(s) => json!({"t": "text", "s": s}),
+        Inline::Strong(s) => json!({"t": "strong", "s": s}),
+        Inline::Em(s) => json!({"t": "em", "s": s}),
+        Inline::Code(s) => json!({"t": "code", "s": s}),
+        Inline::Link { text, href } => json!({"t": "link", "s": text, "href": href}),
+    }
+}
+
+fn rich_json(rich: &omacus_engine::markdown::Rich) -> serde_json::Value {
+    json!({
+        "inlines": rich.inlines.iter().map(inline_json).collect::<Vec<_>>(),
+        "comment": rich.comment,
+        "answer": rich.answer,
+    })
+}
+
+fn block_json(block: &omacus_engine::markdown::Block) -> serde_json::Value {
+    use omacus_engine::markdown::Block;
+    match block {
+        Block::Heading { level, rich } => {
+            json!({"t": "heading", "level": level, "rich": rich_json(rich)})
+        }
+        Block::Lines(rows) => {
+            json!({"t": "lines", "rows": rows.iter().map(rich_json).collect::<Vec<_>>()})
+        }
+        Block::Blank => json!({"t": "blank"}),
+        Block::List { ordered, items } => json!({
+            "t": "list",
+            "ordered": ordered,
+            "items": items.iter().map(|item| json!({
+                "checked": item.checked,
+                "number": item.number,
+                "rich": rich_json(&item.rich),
+            })).collect::<Vec<_>>(),
+        }),
+        Block::Quote(rows) => {
+            json!({"t": "quote", "rows": rows.iter().map(rich_json).collect::<Vec<_>>()})
+        }
+        Block::Code { lines } => json!({"t": "code", "lines": lines}),
+        Block::Table { header, rows } => json!({
+            "t": "table",
+            "header": header,
+            "rows": rows.iter().map(|row| row.iter().map(|cell| cell.iter().map(inline_json).collect::<Vec<_>>()).collect::<Vec<_>>()).collect::<Vec<_>>(),
+        }),
+    }
 }
 
 fn pill_text(result: &serde_json::Value) -> Option<String> {
@@ -952,6 +1017,24 @@ mod tests {
         );
         assert!(html.contains("pack sunscreen"), "{html}");
         assert!(!html.contains("# monthly"), "{html}");
+    }
+
+    #[test]
+    fn preview_blocks_keep_answers_as_text() {
+        let calc = Calc::new();
+        let text = "# Trip Budget\nferry = $40\n<script>alert(1)</script>\n";
+        let answers = calc.evaluate(text);
+        let raw = preview_blocks(text, &answers);
+        let blocks: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert!(blocks.is_array(), "{raw}");
+        assert!(raw.contains("Trip Budget"), "{raw}");
+        assert!(raw.contains("$40"), "{raw}");
+        assert!(raw.contains("<script>alert(1)</script>"), "{raw}");
+        assert!(!raw.contains("<article"), "{raw}");
+        let fenced = preview_blocks("```\nmilk = $3\na < b\n```\n", "[]");
+        assert!(fenced.contains("milk = $3"), "{fenced}");
+        assert!(fenced.contains("a < b"), "{fenced}");
+        assert!(!fenced.contains("<pre"), "{fenced}");
     }
 
     #[test]
