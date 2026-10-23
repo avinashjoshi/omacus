@@ -594,6 +594,33 @@ const SYMBOL_CODES: &[(char, &str)] = &[
     ('₺', "TRY"),
 ];
 
+/// Phone keyboards swap in characters the parser doesn't treat as the ASCII
+/// they replace: a no-break space, a smart quote, or an en dash for minus.
+fn normalize_typing(line: &str) -> std::borrow::Cow<'_, str> {
+    let odd = line.chars().any(|c| typing_char(c).is_some());
+    if !odd {
+        return std::borrow::Cow::Borrowed(line);
+    }
+    std::borrow::Cow::Owned(
+        line.chars()
+            .filter_map(|c| match c {
+                '\u{feff}' => None,
+                _ => Some(typing_char(c).unwrap_or(c)),
+            })
+            .collect(),
+    )
+}
+
+fn typing_char(c: char) -> Option<char> {
+    Some(match c {
+        '\u{00a0}' | '\u{2007}' | '\u{202f}' | '\u{2008}' | '\u{2009}' | '\u{200a}' => ' ',
+        '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}' => '\'',
+        '\u{201c}' | '\u{201d}' | '\u{201e}' | '\u{201f}' => '"',
+        '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2212}' => '-',
+        _ => return None,
+    })
+}
+
 impl Engine {
     pub fn new(rates: Rates) -> Self {
         Self { rates, clock: None }
@@ -691,6 +718,8 @@ impl Engine {
 
     /// Line `i` of a sheet, given the state the lines above it left.
     fn eval_in(&self, st: &mut State, i: usize, line: &str, defs: &HashSet<String>) -> LineResult {
+        let normalized = normalize_typing(line);
+        let line = normalized.as_ref();
         let class = markdown::classify(line);
         match class.form {
             markdown::Form::Blank => {
@@ -2911,6 +2940,16 @@ mod tests {
 
     fn one(line: &str) -> String {
         eval(line).pop().unwrap()
+    }
+
+    #[test]
+    fn a_phone_keyboard_still_calculates() {
+        assert_eq!(one("test=100"), "100");
+        assert_eq!(eval("test=100\ntest*2"), vec!["100", "200"]);
+        assert_eq!(one("test\u{00a0}=\u{00a0}100"), "100");
+        assert_eq!(one("100 \u{2013} 20"), "80");
+        assert_eq!(one("100 \u{2212} 20"), "80");
+        assert_eq!(one("\u{201c}hi\u{201d}"), "");
     }
 
     #[test]

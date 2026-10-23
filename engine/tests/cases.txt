@@ -882,3 +882,7 @@ total => $30
 ## Week 1
 Mon $20 => $20
 total => $20
+---
+# A name typed against the equals sign, the way a phone keyboard does
+test=100 => 100
+test*2 => 200

@@ -755,14 +755,14 @@ const editorKeys = [
       armingExplicit = true;
       const opened = startCompletion(view);
       armingExplicit = false;
-      explicitCompletion = completionStatus(view) === "active";
+      explicitCompletion = completionOpen(view.state);
       return opened;
     },
   },
   {
     key: "Enter",
     run(view) {
-      if (!explicitCompletion || completionStatus(view) !== "active") return false;
+      if (!explicitCompletion || !completionOpen(view.state)) return false;
       explicitCompletion = false;
       return acceptCompletion(view);
     },
@@ -780,13 +780,109 @@ const editorExtensions = [
   autocompletion({ override: [completions], defaultKeymap: false, icons: false }),
   hoverTooltip(hoverSource, { hoverTime: 250 }),
   EditorView.updateListener.of((update) => {
-    if (!armingExplicit && completionStatus(update.view) !== "active") explicitCompletion = false;
+    // A doc change has to recalculate even when the completion check throws.
+    // completionStatus wants the state; passing the view throws, which used to
+    // skip this and leave the new line blank and the lines below it dimmed.
     if (update.docChanged) onInput();
+    if (!armingExplicit && !completionOpen(update.state)) explicitCompletion = false;
   }),
-  EditorView.contentAttributes.of({ spellcheck: "false", autocapitalize: "off", autocorrect: "off", "aria-label": "Page" }),
+  EditorView.contentAttributes.of({
+    spellcheck: "false",
+    autocapitalize: "off",
+    autocorrect: "off",
+    autocomplete: "off",
+    "aria-label": "Page",
+  }),
 ];
 
+// completionStatus reads an EditorState. A throw means it isn't open, so
+// Enter stays a newline.
+function completionOpen(state) {
+  try {
+    return completionStatus(state) === "active";
+  } catch {
+    return false;
+  }
+}
+
 const view = new EditorView({ parent: el.host, state: EditorState.create({ doc: "", extensions: editorExtensions }) });
+
+// An iPhone keyboard can show composition or an autocorrect in the DOM before
+// that text is in the document. Once the editor's own update has had a turn,
+// if the DOM is still ahead, commit it so the answer column sees it.
+function plainTyped(text) {
+  return text.replace(/\u200b/g, "").replace(/[\u00a0\u2007\u202f\u2008\u2009\u200a\u2018\u2019\u201a\u201b\u201c\u201d\u201e\u201f\u2010\u2011\u2012\u2013\u2014\u2212\ufeff]/g, (ch) => {
+    if ("\u2018\u2019\u201a\u201b".includes(ch)) return "'";
+    if ("\u201c\u201d\u201e\u201f".includes(ch)) return '"';
+    if ("\u2010\u2011\u2012\u2013\u2014\u2212".includes(ch)) return "-";
+    if (ch === "\ufeff") return "";
+    return " ";
+  });
+}
+// The answer widget sits in the line. Reading textContent would copy "100" back
+// into the page as more math.
+function lineSource(el) {
+  let text = "";
+  const walk = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.nodeValue;
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const cls = node.classList;
+    if (cls.contains("res") || cls.contains("cm-widget") || cls.contains("cm-widgetBuffer")) return;
+    if (node.contentEditable === "false") return;
+    for (const child of node.childNodes) walk(child);
+  };
+  walk(el);
+  return plainTyped(text);
+}
+function typedFromDom() {
+  const lines = [...view.contentDOM.querySelectorAll(".cm-line")];
+  if (!lines.length) return null;
+  return lines.map(lineSource).join("\n");
+}
+function caretInDom() {
+  const sel = document.getSelection();
+  if (!sel?.anchorNode || !view.contentDOM.contains(sel.anchorNode)) return null;
+  let index = 0;
+  for (const line of view.contentDOM.querySelectorAll(".cm-line")) {
+    if (line.contains(sel.anchorNode)) {
+      const range = document.createRange();
+      range.setStart(line, 0);
+      range.setEnd(sel.anchorNode, sel.anchorOffset);
+      return index + plainTyped(range.toString()).length;
+    }
+    index += lineSource(line).length + 1;
+  }
+  return null;
+}
+let committingTyped = false;
+let typedFrame = 0;
+function commitTypedText() {
+  if (committingTyped || !view.hasFocus) return;
+  const dom = typedFromDom();
+  if (dom == null) return;
+  const doc = view.state.doc.toString();
+  if (dom === doc) return;
+  const caret = caretInDom();
+  committingTyped = true;
+  view.dispatch({
+    changes: { from: 0, to: view.state.doc.length, insert: dom },
+    selection: { anchor: Math.max(0, Math.min(dom.length, caret ?? dom.length)) },
+  });
+  committingTyped = false;
+}
+function scheduleTypedCommit() {
+  cancelAnimationFrame(typedFrame);
+  typedFrame = requestAnimationFrame(() => {
+    typedFrame = 0;
+    commitTypedText();
+  });
+}
+for (const type of ["input", "compositionupdate", "compositionend", "beforeinput"]) {
+  view.contentDOM.addEventListener(type, scheduleTypedCommit);
+}
 
 // The calculation runs in a worker (worker.js), so the page never waits on it. The
 // page sends each new text; the worker works on the newest, in slices, and sends
