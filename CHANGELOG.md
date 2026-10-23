@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+**Keep a copy of everything**
+
+Export everything in Settings saves your pages, folders, settings, and Recently deleted in one file. Locked pages are included, and they stay locked.
+
+- Settings shows the hash of this web app. The same hash is on the release page, so you can confirm this copy matches the one that was published.
+- A locked page is named Locked page in the list, and a reference to it stays locked until you open it.
+- On iPhone, Add to Home Screen is offered as soon as the app opens.
+
 ## 0.2.14
 
 **PDFs use the page better**

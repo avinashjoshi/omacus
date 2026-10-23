@@ -1,5 +1,6 @@
 /target
 /site/app/pkg
+/site/app/build-hash.txt
 __pycache__/
 installer/dmg-background.tiff
 node_modules/

@@ -230,7 +230,7 @@ Don't: a gear with no label, a version that is not the release in `Cargo.toml`, 
 
 ### Page menu
 
-The ⋯ menu is for the open page: Rename, Share link, Copy / Export, Handle, Lock or Unlock, Remove lock, Move to folder, and Delete. Copy / Export opens a second list: Copy with answers, Copy as Markdown table, and Preview. On the web that list also has Open in the desktop app. New page, New folder, Import, Export all, Settings, About, and the desktop download live in the sidebar or in Settings.
+The ⋯ menu is for the open page: Rename, Share link, Copy / Export, Handle, Lock or Unlock, Remove lock, Move to folder, and Delete. Copy / Export opens a second list: Copy with answers, Copy as Markdown table, and Preview. On the web that list also has Open in the desktop app. New page, New folder, Import, Settings, About, and the desktop download live in the sidebar or in Settings. A backup of every page lives in Settings, as Export everything.
 
 Do: a row at least 32px. Arrow keys move through the list. Esc closes it, or steps back from Copy / Export. Back is a row, so a thumb can leave the second list.
 Don't: put Settings, New page, or the storage note in the page menu.
@@ -290,9 +290,11 @@ An empty page shows `empty_sheet_hint`: where pages are, and Ctrl+B / Ctrl+J. Se
 
 ### Settings
 
-Grouped cards on the surface color, with a caption above each group: Appearance, Answers, Lock, Export, Updates. Each row is a label, a description, and a control aligned to the right. The path of `settings.toml` is a caption under the groups.
+Grouped cards on the surface color, with a caption above each group: Appearance, Answers, Lock, Export, Updates. The web app adds a This copy group after Export. Each row is a label, a description, and a control aligned to the right. The path of `settings.toml` is a caption under the groups.
 
-Lock is the "Lock again after" combo (1, 5, 15, 30, or 60 minutes, or Never). The web select is `data-setting=lock-minutes`, with 5 selected. Desktop keeps the folder picker, Omarchy, Custom, and update checks. The web app's Export group holds Export all pages, Import pages, and the desktop download, plus a note that the desktop app chooses the PDF folder. The web checkbox `data-setting=hide-answers` still means hide when checked. The lock dialog uses the shared dialog frame. Choosing Lock on a page with no password asks for a password and a confirmation, tells you to save it in a password manager, then locks the page. Remove lock asks for the current password and stores the page without one. A wrong password leaves the page as it was. "Remove lock" is a danger button. Unlock, Lock, and Change stay primary.
+Lock is the "Lock again after" combo (1, 5, 15, 30, or 60 minutes, or Never). The web select is `data-setting=lock-minutes`, with 5 selected. Desktop keeps the folder picker, Omarchy, Custom, and update checks. Export everything is a quiet button in the Export group, on the desktop and on the web. It writes one file of pages, folders, settings, and Recently deleted. Locked pages stay locked in that file. The web app's Export group also holds Import pages and the desktop download, plus a note that the desktop app chooses the PDF folder. The web checkbox `data-setting=hide-answers` still means hide when checked. The lock dialog uses the shared dialog frame. Choosing Lock on a page with no password asks for a password and a confirmation, tells you to save it in a password manager, then locks the page. Remove lock asks for the current password and stores the page without one. A wrong password leaves the page as it was. "Remove lock" is a danger button. Unlock, Lock, and Change stay primary.
+
+This copy is web only. Its caption is Build. The hash sits under the help line in `.build-hash`: mono, caption size, `--app-fg`, wrapping anywhere. An unpublished copy says Not a published build. The node is `data-build-hash`.
 
 ### About
 

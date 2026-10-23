@@ -80,10 +80,16 @@ check(js.includes("hoverValueWith") && js.includes("suggestAt"), "cross-page hov
 check(js.includes("lockOpenPassword") && js.includes("function pageConcealed"), "a locked page stays closed until the password");
 check(css.includes(".cm-editor .t-def") && css.includes(".hover-value"), "definition and hover styles exist");
 check(js.includes('e.key === ","') && js.includes('e.key === "\\\\"'), "settings and the answers column have shortcuts");
-check(js.includes("previewHtml"), "preview renders from the engine");
+check(js.includes("previewBlocks"), "preview renders from the engine");
+check(!js.includes("innerHTML") && !js.includes("insertAdjacentHTML"), "the app builds nodes without HTML strings");
+check(html.includes('src="trust.js"'), "trusted types load before the app");
+check(js.includes("omacusScriptURL") && js.includes("scriptURL(WORKER)") && js.includes("scriptURL(new URL(\"sw.js\""), "workers use the page's script address");
+check(html.includes("Export everything"), "settings can export every page");
+check(html.includes("data-build-hash"), "settings shows the build hash");
+check(js.includes("Add to Home Screen"), "iPhone gets an Add to Home Screen prompt");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-6"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('const CACHE = "omacus-app-7"'), "the app cache name moved past the cache-first shell");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
 check(!sw.includes("omacus-app-2"), "the old app cache name is gone");
 check(sw.includes("if (res.ok)") && sw.includes("cache.put"), "only a successful response is stored for offline");
@@ -94,7 +100,7 @@ check(sw.includes('type === "skip-waiting"') && sw.includes("self.skipWaiting()"
 check(!sw.includes("self.registration.unregister"), "the worker stays registered so an offline check can use it");
 check(html.includes("Update ready") && html.includes('data-action="apply-update"'), "an update offers a reload");
 check(js.includes("async function applyUpdate") && js.includes("await flushSave()"), "reload waits until the open edit is saved");
-check((js.match(/innerHTML/g) || []).length === 1 && js.includes("el.pagePreviewBody.innerHTML = previewHtml"), "only the sanitized preview assigns innerHTML");
+check(!js.includes("previewHtml"), "the preview is not assigned as HTML");
 check(!siteJs.includes("innerHTML") && !siteJs.includes("insertAdjacentHTML"), "the marketing site builds nodes without HTML strings");
 check(siteJs.includes("migrateStoredPages"), "a visit to the site copies saved pages to the app");
 check(js.includes('has("sw")'), "a local preview can register the worker with ?sw=1");
@@ -112,7 +118,7 @@ check(html.includes('data-settings-tab="about"'), "settings and about share one 
 check(html.includes('data-action="about"'), "About opens from the sidebar");
 check(html.includes("Copy / Export"), "copy and export share one page-menu item");
 check(!html.includes("Export all pages (.zip)"), "export all is not in the page menu");
-check(html.includes("Export all pages"), "settings can export every page");
+check(!html.includes("Export all pages"), "the old export label is gone");
 check(html.includes(">Settings</span>"), "settings in the sidebar has a label");
 check(js.includes("function pageLockChoice"), "Lock on a page with no password asks for one");
 check(js.includes("Save this password in a password manager"), "a new lock says to save the password");
@@ -1169,8 +1175,8 @@ async function waitForAppCache() {
     try {
       last = await evalJson(`(async () => {
         const keys = await caches.keys();
-        if (!keys.includes("omacus-app-6")) return "no-cache";
-        const urls = (await (await caches.open("omacus-app-6")).keys()).map((k) => new URL(k.url).pathname);
+        if (!keys.includes("omacus-app-7")) return "no-cache";
+        const urls = (await (await caches.open("omacus-app-7")).keys()).map((k) => new URL(k.url).pathname);
         const need = ["/app/", "/app/app.js", "/app/pkg/omacus_web_bg.wasm"];
         const missing = need.filter((path) => !urls.includes(path));
         return missing.length ? "missing " + missing.join(",") : "ready";

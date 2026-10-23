@@ -9,6 +9,7 @@
   <meta name="theme-color" content="#1a1b26" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
   <meta name="omacus-version" content="0.2.14">
+  <meta name="omacus-build" content="">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Omacus">
   <meta property="og:url" content="https://app.omacus.com/">
@@ -258,11 +259,17 @@
           <h3>Export</h3>
           <p class="setting-help">The desktop app chooses the PDF folder and can check for updates. Here, Print and Export PDF use the page title, and the browser decides where the file goes.</p>
           <div class="setting-actions">
-            <button class="btn small" type="button" data-action="export">Export all pages</button>
+            <button class="btn small" type="button" data-action="export">Export everything</button>
             <button class="btn small" type="button" data-action="import">Import pages…</button>
             <a class="btn small" href="https://omacus.com/download/">Get the desktop app</a>
             <button class="btn small" type="button" data-action="install" hidden data-install>Install as an app</button>
           </div>
+        </section>
+        <section class="settings-group">
+          <h3>This copy</h3>
+          <div class="setting-label">Build</div>
+          <p class="setting-help">The hash of this web app. It matches the hash on the release page when this is that copy.</p>
+          <p class="build-hash" data-build-hash></p>
         </section>
       </div>
       <div data-settings-panel="about" hidden>
@@ -285,6 +292,7 @@
   <div class="toast" role="status" aria-live="polite" hidden data-toast></div>
   <input type="file" accept=".txt,.zip,text/plain,application/zip" multiple hidden data-import>
 
+  <script src="trust.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

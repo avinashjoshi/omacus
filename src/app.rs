@@ -691,37 +691,14 @@ rental = rent + 50
         let mut pages = Vec::new();
         for sheet in &self.store.sheets {
             seen.insert(sheet.id.clone());
-            pages.push(engine::xref::Page {
-                id: sheet.id.clone(),
-                handle: sheet.handle.clone(),
-                title: sheet.heading(),
-                text: if sheet.revealed() {
-                    sheet.text.clone()
-                } else {
-                    String::new()
-                },
-                locked: !sheet.revealed(),
-                deleted: false,
-                elsewhere: for_rename && sheet.id != active && self.store.opened_elsewhere(sheet),
-            });
+            let elsewhere = for_rename && sheet.id != active && self.store.opened_elsewhere(sheet);
+            pages.push(self.store.as_reference(sheet, false, elsewhere));
         }
         for sheet in self.store.pending_sheets() {
             if !seen.insert(sheet.id.clone()) {
                 continue;
             }
-            pages.push(engine::xref::Page {
-                id: sheet.id.clone(),
-                handle: sheet.handle.clone(),
-                title: sheet.heading(),
-                text: if sheet.revealed() {
-                    sheet.text.clone()
-                } else {
-                    String::new()
-                },
-                locked: !sheet.revealed(),
-                deleted: true,
-                elsewhere: false,
-            });
+            pages.push(self.store.as_reference(sheet, true, false));
         }
         for item in &self.trash {
             if !seen.insert(item.id.clone()) {
@@ -1781,6 +1758,30 @@ rental = rent + 50
         }
     }
 
+    fn export_everything(&mut self) {
+        let Some(root) = self.store.library_root() else {
+            self.toast = Some(Toast::error("No folder for pages.".to_string()));
+            return;
+        };
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("Export everything")
+            .set_file_name("omacus-backup.zip")
+            .add_filter("Zip", &["zip"]);
+        if let Some(dir) = &self.settings.export_dir {
+            dialog = dialog.set_directory(dir);
+        }
+        let Some(path) = dialog.save_file() else {
+            return;
+        };
+        match crate::backup::export_library(&root, settings::path().as_deref(), &path) {
+            Ok(n) => {
+                let pages = if n == 1 { "page" } else { "pages" };
+                self.toast = Some(Toast::info(format!("Exported everything ({n} {pages}).")));
+            }
+            Err(e) => self.toast = Some(Toast::error(e)),
+        }
+    }
+
     fn reload_theme(&mut self, ctx: &egui::Context) {
         self.theme = Theme::resolve(self.settings.theme, self.system_dark);
         apply_visuals(ctx, &self.theme);
@@ -1815,6 +1816,9 @@ rental = rent + 50
             Some(help::Action::SettingsChanged) => {
                 self.persist_settings();
                 self.reload_theme(ctx);
+            }
+            Some(help::Action::ExportEverything) => {
+                self.export_everything();
             }
             None => {}
         }
@@ -2625,7 +2629,7 @@ rental = rent + 50
                     let trash = self.trash.clone();
                     for item in trash {
                         let heading = if item.locked {
-                            "Locked".to_string()
+                            crate::sheets::LOCKED_TITLE.to_string()
                         } else {
                             heading_of(&item.text)
                         };
@@ -4166,7 +4170,7 @@ rental = rent + 50
     fn preview_sheet(&mut self, ui: &mut egui::Ui, item: &Trashed) {
         let theme = self.theme.clone();
         let heading = if item.locked {
-            "Locked".to_string()
+            crate::sheets::LOCKED_TITLE.to_string()
         } else {
             heading_of(&item.text)
         };
@@ -4716,7 +4720,7 @@ rental = rent + 50
             .find(|t| t.id == id)
             .map(|t| {
                 if t.locked {
-                    "Locked".into()
+                    crate::sheets::LOCKED_TITLE.into()
                 } else {
                     heading_of(&t.text)
                 }
