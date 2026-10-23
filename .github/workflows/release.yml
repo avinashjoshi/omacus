@@ -383,6 +383,11 @@ jobs:
       always() &&
       needs.publish.result == 'success' &&
       needs.check.outputs.release == 'true'
+    # The app workflow writes the build hash onto the GitHub release, so this
+    # call has to allow that write. A caller that only grants a read cannot
+    # start the release workflow.
+    permissions:
+      contents: write
     uses: ./.github/workflows/app.yml
     with:
       ref: ${{ needs.check.outputs.sha }}
