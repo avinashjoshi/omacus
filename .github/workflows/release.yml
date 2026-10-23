@@ -359,11 +359,17 @@ jobs:
       pages: write
       id-token: write
 
-  # Same as the site: a merge made with GITHUB_TOKEN does not start app.yml.
+  # The web app ships with this release, not on an ordinary push to main.
+  # app.yml has no push trigger, so this is the deploy. It runs when the
+  # release pull request has merged and the tag is published (wait is skipped
+  # on that push; publish is what matters).
   deploy-app:
-    needs: [publish, wait, check]
-    if: always() && needs.publish.result == 'success' && needs.wait.result == 'success'
+    needs: [publish, check]
+    if: >-
+      always() &&
+      needs.publish.result == 'success' &&
+      needs.check.outputs.release == 'true'
     uses: ./.github/workflows/app.yml
     with:
-      ref: ${{ needs.wait.outputs.sha }}
+      ref: ${{ needs.check.outputs.sha }}
     secrets: inherit

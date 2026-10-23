@@ -2,16 +2,11 @@ name: App
 
 # Deploys the web app to Cloudflare Pages (app.omacus.com). omacus.com itself
 # stays on GitHub Pages. Secrets stay in the environment: this file never prints them.
+#
+# A push to main does not deploy. The Release workflow calls this after it
+# publishes the tag, from that same commit, so the sidebar version matches
+# the desktop release. workflow_dispatch is only for retrying that deploy.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "site/**"
-      - "engine/**"
-      - "web/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".github/workflows/app.yml"
   workflow_dispatch:
   workflow_call:
     inputs:

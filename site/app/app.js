@@ -224,6 +224,22 @@ function anyUnlocked() {
   return false;
 }
 
+// What Lock does for this page. A page with no password must ask for one.
+// "relock" closes a lock this session already opened. "unlock" is a closed lock.
+function pageLockChoice(id) {
+  if (!id || id === "shared" || !pageIds(state.tree).includes(id)) return "none";
+  const covered = !!(coveringLock(state.tree, id) && !individualLock(id));
+  const own = isLock(state.texts.get(id) ?? "") && !covered;
+  if (pageConcealed(id)) return "unlock";
+  if (own || covered) return "relock";
+  return "create";
+}
+
+function ownPageLock(id) {
+  if (!id || id === "shared") return false;
+  return isLock(state.texts.get(id) ?? "") && !(coveringLock(state.tree, id) && !individualLock(id));
+}
+
 function parseLockResult(raw) {
   try {
     return JSON.parse(raw);
@@ -358,6 +374,8 @@ function closeLock() {
   pendingNew = null;
 }
 
+const PASSWORD_NUDGE = "Save this password in a password manager. A forgotten password can't be recovered.";
+
 function openLock(mode, id) {
   if (!el.lock) return;
   closeMenu();
@@ -366,21 +384,26 @@ function openLock(mode, id) {
   el.lock.dataset.mode = mode;
   el.lock.dataset.id = id;
   const copy = {
-    "create-page": ["Lock page", "A forgotten password can't be recovered.", "Lock"],
-    "create-folder": ["Lock folder", "One password locks every page in this folder. A forgotten password can't be recovered.", "Lock"],
+    "create-page": ["Lock page", PASSWORD_NUDGE, "Lock"],
+    "create-folder": ["Lock folder", `One password locks every page in this folder. ${PASSWORD_NUDGE}`, "Lock"],
     "unlock-folder": ["Unlock folder", "Enter the password to open the pages in this folder.", "Unlock"],
-    "change-page": ["Change password", "A forgotten password can't be recovered.", "Change"],
-    "change-folder": ["Change password", "A forgotten password can't be recovered.", "Change"],
-    "remove-page": ["Remove lock", "This page will be stored without a password.", "Remove lock"],
+    "change-page": ["Change password", PASSWORD_NUDGE, "Change"],
+    "change-folder": ["Change password", PASSWORD_NUDGE, "Change"],
+    "remove-page": ["Remove lock", "Enter the password. The page stays on this device, without a lock.", "Remove lock"],
     "remove-folder": ["Remove lock", "Pages in this folder will be stored without a password.", "Remove lock"],
-  }[mode] || ["Lock", "A forgotten password can't be recovered.", "Lock"];
+  }[mode] || ["Lock", PASSWORD_NUDGE, "Lock"];
   if (el.lockTitle) el.lockTitle.textContent = copy[0];
   if (el.lockDetail) el.lockDetail.textContent = copy[1];
-  if (el.lockYes) el.lockYes.textContent = copy[2];
+  if (el.lockYes) {
+    el.lockYes.textContent = copy[2];
+    const remove = mode.startsWith("remove");
+    el.lockYes.classList.toggle("primary", !remove);
+    el.lockYes.classList.toggle("danger", remove);
+  }
   const change = mode.startsWith("change");
   const remove = mode.startsWith("remove");
   if (el.lockCurrent) el.lockCurrent.hidden = !change;
-  if (el.lockPassword) el.lockPassword.hidden = remove;
+  if (el.lockPassword) el.lockPassword.hidden = false;
   if (el.lockConfirm) el.lockConfirm.hidden = remove || mode === "unlock-folder";
   for (const input of [el.lockCurrent, el.lockPassword, el.lockConfirm]) {
     if (input) input.value = "";
@@ -393,7 +416,7 @@ function openLock(mode, id) {
   // Drop a value card that was already open. The lock dialog is the only popup.
   view.dispatch({});
   const focus = change ? el.lockCurrent : el.lockPassword;
-  if (!remove) focus?.focus();
+  focus?.focus();
 }
 
 function lockError(message) {
@@ -424,14 +447,19 @@ function submitLock() {
   else if (mode === "unlock-folder") error = unlockFolder(id, password);
   else if (mode === "change-page") error = changePagePassword(id, current, password);
   else if (mode === "change-folder") error = changeFolderPassword(id, current, password);
-  else if (mode === "remove-page") error = removePageLock(id);
+  else if (mode === "remove-page") error = removePageLock(id, password);
   else if (mode === "remove-folder") error = removeFolderLock(id);
   if (error) {
     lockError(error);
     return;
   }
   const folder = pendingNew;
+  const created = mode === "create-page" || mode === "create-folder";
   closeLock();
+  if (created) {
+    lockNow();
+    return;
+  }
   if (mode === "unlock-folder" && folder) {
     pendingNew = null;
     addSheet("", { parent: folder.parent });
@@ -486,13 +514,19 @@ function changePagePassword(id, current, next) {
   return null;
 }
 
-function removePageLock(id) {
-  if (!plains.has(id)) return "Unlock this page first.";
+function removePageLock(id, password) {
+  const stored = state.texts.get(id) ?? "";
   const cover = coveringLock(state.tree, id);
-  if (cover && sameWrap(wrapOfStored(state.texts.get(id) ?? ""), cover.lock)) {
+  if (cover && sameWrap(wrapOfStored(stored), cover.lock)) {
     return "The folder is locked. Remove that lock instead.";
   }
-  state.texts.set(id, plains.get(id));
+  if (!isLock(stored)) return "This page isn't locked.";
+  const opened = parseLockResult(lockOpenPassword(password, stored, id));
+  if (!opened.ok) return opened.error;
+  // A wrong password never reaches here. An open page may have an edit that
+  // is newer than the sealed copy; keep that text once the password checks out.
+  const plain = plains.has(id) ? plains.get(id) : opened.text;
+  state.texts.set(id, plain);
   forgetPage(id);
   saveSheet(id);
   return null;
@@ -676,7 +710,7 @@ function applySettings() {
   document.body.classList.toggle("answers-inline", settings.hideAnswers);
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) {
-    meta.content = getComputedStyle(document.documentElement).getPropertyValue("--app-bg").trim();
+    meta.content = getComputedStyle(document.documentElement).getPropertyValue("--app-side").trim();
   }
 }
 
@@ -2689,9 +2723,17 @@ async function action(name) {
       showSheet();
       view.focus();
     }
-  } else if (name === "lock-now") {
-    if (anyUnlocked()) lockNow();
-    else toast("Nothing is unlocked.");
+  } else if (name === "lock" || name === "lock-now") {
+    const id = state.active;
+    const choice = pageLockChoice(id);
+    if (choice === "create") openLock("create-page", id);
+    else if (choice === "relock") lockNow();
+    else if (choice === "unlock") {
+      showSheet();
+      el.gatePassword?.focus();
+    } else toast("Open a page to lock it.");
+  } else if (name === "remove-lock") {
+    if (state.active && state.active !== "shared") openLock("remove-page", state.active);
   } else if (name === "close-lock") {
     closeLock();
   } else if (name === "lock-submit") {
@@ -3202,15 +3244,14 @@ function openRowMenu(row, x, y) {
   items.push({ label: "Move to folder…", run: () => openMove(id) });
   items.push("sep");
   const covered = !!(coveringLock(state.tree, id) && !individualLock(id));
-  const concealed = pageConcealed(id);
-  const locked = isLock(state.texts.get(id) ?? "") || !!coveringLock(state.tree, id);
-  if (concealed) items.push({ label: "Unlock…", run: () => select(id) });
-  else if (!covered && !locked) items.push({ label: "Lock…", run: () => openLock("create-page", id) });
-  else if (!covered) {
+  const choice = pageLockChoice(id);
+  if (choice === "unlock") items.push({ label: "Unlock…", run: () => select(id) });
+  else if (choice === "create") items.push({ label: "Lock…", run: () => openLock("create-page", id) });
+  else if (choice === "relock" && !covered) {
+    items.push({ label: "Lock now", run: () => lockNow() });
     items.push({ label: "Change password…", run: () => openLock("change-page", id) });
-    items.push({ label: "Remove lock…", run: () => openLock("remove-page", id) });
-  }
-  if (anyUnlocked()) items.push({ label: "Lock now", run: () => lockNow() });
+  } else if (choice === "relock") items.push({ label: "Lock now", run: () => lockNow() });
+  if (ownPageLock(id)) items.push({ label: "Remove lock…", run: () => openLock("remove-page", id) });
   items.push("sep", { label: "Delete page", danger: true, run: () => deletePage(id) });
   openMenu(x, y, items);
 }
@@ -3440,9 +3481,25 @@ document.addEventListener("click", (e) => {
   const tab = e.target.closest?.("[data-settings-tab]");
   if (tab) showSettingsTab(tab.dataset.settingsTab);
   if (button) action(button.dataset.action);
+  const submenu = e.target.closest?.("[data-menu-open]");
+  if (submenu && el.menu?.contains(submenu)) {
+    showMenuPanel(submenu.dataset.menuOpen);
+    queueMicrotask(() => focusMenuItem(0));
+  }
+  const back = e.target.closest?.("[data-menu-back]");
+  if (back && el.menu?.contains(back)) {
+    showMenuPanel("page");
+    queueMicrotask(() => focusMenuItem(0));
+  }
   if (e.target.closest?.("[data-menu-button]")) {
-    el.menu.hidden = !el.menu.hidden;
-    el.menuButton.setAttribute("aria-expanded", String(!el.menu.hidden));
+    const willOpen = el.menu.hidden;
+    el.menu.hidden = !willOpen;
+    el.menuButton.setAttribute("aria-expanded", String(willOpen));
+    if (willOpen) {
+      showMenuPanel("page");
+      syncLockMenu();
+      queueMicrotask(() => focusMenuItem(0));
+    }
   } else if (!e.target.closest?.("[data-menu]")) closeMenu();
   if (e.target.closest?.(".sheets-toggle")) setDrawer(!el.page.classList.contains("drawer"));
   else if (e.target.closest?.("[data-scrim]")) setDrawer(false);
@@ -3464,9 +3521,42 @@ document.addEventListener(
   { capture: true, passive: false },
 );
 
+function showMenuPanel(name) {
+  if (!el.menu) return;
+  for (const panel of el.menu.querySelectorAll("[data-menu-panel]")) {
+    panel.hidden = panel.dataset.menuPanel !== name;
+  }
+}
+
+function activeMenuItems() {
+  const panel = el.menu?.querySelector("[data-menu-panel]:not([hidden])");
+  if (!panel) return [];
+  return [...panel.querySelectorAll('[role="menuitem"]')].filter((node) => !node.hidden);
+}
+
+function focusMenuItem(index) {
+  const items = activeMenuItems();
+  if (!items.length) return;
+  items[(index + items.length) % items.length].focus();
+}
+
+function syncLockMenu() {
+  const choice = pageLockChoice(state.active);
+  const lockBtn = el.menu?.querySelector('[data-action="lock"]');
+  const removeBtn = el.menu?.querySelector('[data-action="remove-lock"]');
+  const labels = { create: "Lock…", relock: "Lock now", unlock: "Unlock…", none: "Lock…" };
+  if (lockBtn) {
+    lockBtn.textContent = labels[choice] || "Lock…";
+    lockBtn.hidden = choice === "none";
+  }
+  if (removeBtn) removeBtn.hidden = !ownPageLock(state.active);
+}
+
 function closeMenu() {
+  if (!el.menu) return;
   el.menu.hidden = true;
   el.menuButton.setAttribute("aria-expanded", "false");
+  showMenuPanel("page");
 }
 
 function inNameField(target) {
@@ -3479,6 +3569,31 @@ addEventListener(
   (e) => {
     // A folder name, a variable rename, or a handle is a normal text field.
     if (inNameField(e.target)) return;
+    if (el.menu && !el.menu.hidden) {
+      const items = activeMenuItems();
+      const index = items.indexOf(document.activeElement);
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        e.stopPropagation();
+        const delta = e.key === "ArrowDown" ? 1 : -1;
+        focusMenuItem(index < 0 ? 0 : index + delta);
+        return;
+      }
+      if (e.key === "ArrowRight" && document.activeElement?.dataset?.menuOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        showMenuPanel(document.activeElement.dataset.menuOpen);
+        focusMenuItem(0);
+        return;
+      }
+      if (e.key === "ArrowLeft" && el.menu.querySelector('[data-menu-panel="copy"]:not([hidden])')) {
+        e.preventDefault();
+        e.stopPropagation();
+        showMenuPanel("page");
+        focusMenuItem(0);
+        return;
+      }
+    }
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "b") {
       e.preventDefault();
       if (matchMedia("(max-width: 760px)").matches) {
@@ -3557,6 +3672,11 @@ addEventListener("keydown", (e) => {
     if (pagePreviewOpen) {
       closePagePreview();
       view.focus();
+      return;
+    }
+    if (el.menu && !el.menu.hidden && el.menu.querySelector('[data-menu-panel="copy"]:not([hidden])')) {
+      showMenuPanel("page");
+      focusMenuItem(0);
       return;
     }
     closeMenu();

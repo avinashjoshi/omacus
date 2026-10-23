@@ -55,6 +55,16 @@ count = locked.count(needle)
 if count != 1:
     raise SystemExit(f"expected one omacus entry in Cargo.lock, found {count}")
 lock_path.write_text(locked.replace(needle, repl, 1))
+
+html_path = pathlib.Path("site/app/index.html")
+html = html_path.read_text()
+meta = f'name="omacus-version" content="{current}"'
+meta_new = f'name="omacus-version" content="{new}"'
+label = f">omacus v{current}<"
+label_new = f">omacus v{new}<"
+if meta not in html or label not in html:
+    raise SystemExit("web app version in site/app/index.html does not match Cargo.toml")
+html_path.write_text(html.replace(meta, meta_new, 1).replace(label, label_new, 1))
 PY
 
 if ! git describe --tags --abbrev=0 --match 'v*' HEAD >/dev/null 2>&1; then
