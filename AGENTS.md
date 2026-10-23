@@ -36,14 +36,23 @@ To try the web app (`site/app`), build the engine for it first:
 
 Releasing does not push straight to `main`. Write the notes first, under
 `## Unreleased` in `CHANGELOG.md`: a short title in bold, then one or two
-sentences for someone using Omacus (see Voice in `docs/DESIGN.md`). Run the
-Release workflow with action `prepare` (see `.github/workflows/release.yml`).
-It opens a pull request that bumps `version` in `Cargo.toml` and renames that
-section to the version. With auto-merge allowed and the CI checks required on
-`main`, that pull request merges when the checks pass, and the workflow then
-tags `v<version>` and publishes the GitHub release from those notes. The checks
-to require are `test (ubuntu-22.04)`, `test (windows-latest)`,
-`test (macos-latest)`, and `wasm`.
+sentences for someone using Omacus (see Voice in `docs/DESIGN.md`).
+
+One change ships in its own pull request. On that branch, run
+`.github/scripts/prepare-release.sh patch` (or `minor`, or `major`). It bumps
+`version` in `Cargo.toml` and `Cargo.lock`, the same version in
+`site/app/index.html`, and renames `## Unreleased` to that version. Merging
+the pull request tags `v<version>` and publishes the release: a push to
+`main` whose version has no tag yet runs the Release workflow
+(`.github/workflows/release.yml`).
+
+A separate release pull request is only for several changes already on
+`main` that should ship together. Run the Release workflow with action
+`prepare`. It runs the same script and opens that pull request. With
+auto-merge allowed and the CI checks required on `main`, it merges when the
+checks pass, and the workflow then tags and publishes. The checks to require
+are `test (ubuntu-22.04)`, `test (windows-latest)`, `test (macos-latest)`,
+and `wasm`.
 
 If `## Unreleased` is missing, the pull request drafts notes from commit
 subjects, and CI rejects them (`tests/check_release_notes.py`). Notes that are
