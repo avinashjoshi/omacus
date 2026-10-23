@@ -90,7 +90,9 @@ check(html.includes("data-build-hash"), "settings shows the build hash");
 check(js.includes("Add to Home Screen"), "iPhone gets an Add to Home Screen prompt");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-7"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('const CACHE = "omacus-app-8"'), "the app cache name moved past the cache-first shell");
+check(html.includes("data-pick"), "a same-line conflict can ask which line to keep");
+check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
 check(!sw.includes("omacus-app-2"), "the old app cache name is gone");
 check(sw.includes("if (res.ok)") && sw.includes("cache.put"), "only a successful response is stored for offline");
@@ -1176,8 +1178,8 @@ async function waitForAppCache() {
     try {
       last = await evalJson(`(async () => {
         const keys = await caches.keys();
-        if (!keys.includes("omacus-app-7")) return "no-cache";
-        const urls = (await (await caches.open("omacus-app-7")).keys()).map((k) => new URL(k.url).pathname);
+        if (!keys.includes("omacus-app-8")) return "no-cache";
+        const urls = (await (await caches.open("omacus-app-8")).keys()).map((k) => new URL(k.url).pathname);
         const need = ["/app/", "/app/app.js", "/app/pkg/omacus_web_bg.wasm"];
         const missing = need.filter((path) => !urls.includes(path));
         return missing.length ? "missing " + missing.join(",") : "ready";

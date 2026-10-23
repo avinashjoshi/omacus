@@ -1,0 +1,17 @@
+[package]
+name = "omacus-doc"
+version = "0.0.0"
+edition = "2024"
+description = "Local library documents for Omacus. No network."
+license = "MIT"
+publish = false
+
+[dependencies]
+sha2 = "0.11"
+
+# Desktop builds stay free of the wasm JS bindings. The web build opts in.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+automerge = "=0.12.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+automerge = { version = "=0.12.0", features = ["wasm"] }

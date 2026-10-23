@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+**Two edits of one line stay on the page**
+
+When a page changes here and in another copy, lines that differ are kept together. When both copies changed the same line, Omacus asks you to pick one. A copy of the library is saved before this starts, and the pages stay as they are if that copy cannot be written.
+
 ## 0.2.15
 
 **Keep a copy of everything**

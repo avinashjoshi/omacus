@@ -55,7 +55,7 @@ const server = createServer((req, res) => {
   }
   let body = readFileSync(file);
   if (path.endsWith("/sw.js")) {
-    const text = body.toString("utf8").replaceAll("omacus-app-7", `omacus-app-e2e-${generation()}`);
+    const text = body.toString("utf8").replaceAll("omacus-app-8", `omacus-app-e2e-${generation()}`);
     body = Buffer.from(text);
     common["cache-control"] = "no-cache, no-store";
   }
