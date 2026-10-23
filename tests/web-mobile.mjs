@@ -358,7 +358,7 @@ if (shots) await shot(join(shots, "desktop.png"));
 const pkg = existsSync(join(site, "app/pkg/omacus_web.js"));
 if (pkg) {
   // app.js imports the wasm package, so the module (and Settings) only runs when it exists.
-  await waitFor(`document.documentElement.style.getPropertyValue("--app-bg").trim() !== ""`);
+  await waitFor(`document.documentElement.dataset.appTheme`);
   await evalJson(`document.querySelector("[data-loading]")?.remove()`);
   await waitFor(`document.querySelector(".res")`, 20000);
   await evalJson(`document.querySelector("[data-menu-button]").click()`);

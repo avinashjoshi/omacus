@@ -12,6 +12,7 @@ use eframe::egui::{
 };
 
 use crate::calc::Calculator;
+use crate::design;
 use crate::help;
 use crate::highlight;
 use crate::pdf;
@@ -24,7 +25,7 @@ use crate::update::{self, Method, State, Updates};
 use omacus_engine::{self as engine, Engine, Kind, LineResult, complete};
 
 const FONT_SIZE: f32 = 16.0;
-const GAP: f32 = 32.0;
+const GAP: f32 = theme::token::SPACE_6;
 /// Collapsed sidebar: an expand button, + and the logo, not an overlay tab. Its
 /// logo sits where the open sidebar's is, 24 points in.
 const SIDEBAR_RAIL: f32 = 48.0;
@@ -630,7 +631,10 @@ impl OmacusApp {
                 .unwrap_or_else(Instant::now),
             cursor_line: None,
             help: match std::env::var("OMACUS_SCREENSHOT_HELP").ok().as_deref() {
-                Some("update" | "switcher" | "preview" | "replace" | "rename" | "renamed")
+                Some(
+                    "update" | "switcher" | "preview" | "replace" | "rename" | "renamed" | "picker"
+                    | "hover",
+                )
                 | None => None,
                 Some("settings") => Some(help::Tab::Settings),
                 Some(name) => Some(help::Tab::from_name(name)),
@@ -1951,15 +1955,11 @@ rental = rent + 50
         let mut picked: Option<Jump> = None;
         let mut close = false;
 
-        let frame = Frame::NONE
-            .fill(theme.sidebar)
-            .stroke(egui::Stroke::new(1.0, theme.selection))
-            .corner_radius(CornerRadius::same(10))
-            .inner_margin(Margin::same(8));
+        let frame = design::dialog_pad(&theme, Margin::same(8));
         let width = (ctx.content_rect().width() - 80.0).clamp(280.0, 460.0);
         let modal = egui::Modal::new(egui::Id::unique("omacus-switcher"))
             .frame(frame)
-            .backdrop_color(Color32::from_black_alpha(110))
+            .backdrop_color(design::backdrop(&theme))
             .area(
                 egui::Modal::default_area(egui::Id::unique("omacus-switcher-area"))
                     .anchor(Align2::CENTER_TOP, vec2(0.0, 80.0)),
@@ -1991,14 +1991,16 @@ rental = rent + 50
                     ui.add_space(4.0);
                 }
                 for (row, hit) in hits.iter().take(9).enumerate() {
-                    let (rect, resp) =
-                        ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
+                    let (rect, resp) = ui.allocate_exact_size(
+                        vec2(ui.available_width(), theme::token::HIT),
+                        Sense::click(),
+                    );
                     if row == selected {
                         ui.painter()
-                            .rect_filled(rect, CornerRadius::same(6), theme.selection);
+                            .rect_filled(rect, design::radius_row(), theme.selection);
                     } else if resp.hovered() {
                         ui.painter()
-                            .rect_filled(rect, CornerRadius::same(6), theme.hover);
+                            .rect_filled(rect, design::radius_row(), theme.hover);
                     }
                     let color = if row == selected {
                         theme.foreground
@@ -2106,13 +2108,15 @@ rental = rent + 50
             .interactable(undo || folder.is_some())
             .show(ctx, |ui| {
                 Frame::NONE
-                    .fill(theme.selection.gamma_multiply(fade))
-                    .corner_radius(CornerRadius::same(8))
-                    .inner_margin(Margin::symmetric(14, 8))
+                    .fill(theme.surface().gamma_multiply(fade))
+                    .stroke(egui::Stroke::new(1.0, theme.border().gamma_multiply(fade)))
+                    .corner_radius(CornerRadius::same(theme::token::RADIUS_LG))
+                    .inner_margin(Margin::symmetric(16, 8))
+                    .shadow(design::shadow(&theme))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             let color = if error {
-                                theme.variable
+                                theme.danger()
                             } else {
                                 theme.foreground
                             };
@@ -2189,14 +2193,10 @@ rental = rent + 50
             ),
         };
 
-        let frame = Frame::NONE
-            .fill(theme.sidebar)
-            .stroke(egui::Stroke::new(1.0, theme.selection))
-            .corner_radius(CornerRadius::same(10))
-            .inner_margin(Margin::symmetric(24, 20));
+        let frame = design::dialog_pad(&theme, Margin::symmetric(24, 20));
         let modal = egui::Modal::new(egui::Id::unique("omacus-update"))
             .frame(frame)
-            .backdrop_color(Color32::from_black_alpha(150))
+            .backdrop_color(design::backdrop(&theme))
             .show(ctx, |ui| {
                 ui.set_width(380.0);
                 ui.horizontal(|ui| {
@@ -2211,25 +2211,15 @@ rental = rent + 50
                 ui.label(egui::RichText::new(body).size(13.5).color(theme.dim));
                 ui.add_space(18.0);
                 ui.horizontal(|ui| {
-                    let primary = |ui: &mut egui::Ui, label: &str| {
-                        ui.add(
-                            egui::Button::new(
-                                egui::RichText::new(label)
-                                    .size(13.5)
-                                    .color(theme.background),
-                            )
-                            .fill(theme.accent)
-                            .corner_radius(CornerRadius::same(6))
-                            .min_size(vec2(0.0, 30.0)),
-                        )
-                    };
                     match (&state, method) {
                         (State::Installing, _) => {
                             ui.spinner();
                         }
-                        (State::Installed, _) => restart = primary(ui, "Restart").clicked(),
+                        (State::Installed, _) => {
+                            restart = design::primary(ui, &theme, "Restart").clicked()
+                        }
                         (State::Failed(_), _) | (_, Method::Download) => {
-                            if primary(ui, "Download").clicked() {
+                            if design::primary(ui, &theme, "Download").clicked() {
                                 ui.ctx().open_url(egui::OpenUrl::new_tab(format!(
                                     "{}/latest",
                                     update::RELEASES_URL
@@ -2237,20 +2227,11 @@ rental = rent + 50
                             }
                         }
                         (_, Method::Installer | Method::Replace) => {
-                            install = primary(ui, "Update now").clicked()
+                            install = design::primary(ui, &theme, "Update now").clicked()
                         }
                     }
                     if !busy {
-                        let quiet = |label: &str| {
-                            egui::Button::new(
-                                egui::RichText::new(label)
-                                    .size(13.5)
-                                    .color(theme.foreground),
-                            )
-                            .corner_radius(CornerRadius::same(6))
-                            .min_size(vec2(0.0, 30.0))
-                        };
-                        if ui.add(quiet("What's new")).clicked() {
+                        if design::quiet(ui, &theme, "What's new").clicked() {
                             ui.ctx()
                                 .open_url(egui::OpenUrl::new_tab(update::notes_url(&latest)));
                         }
@@ -2259,7 +2240,7 @@ rental = rent + 50
                         } else {
                             "Not now"
                         };
-                        close = ui.add(quiet(later)).clicked();
+                        close = design::quiet(ui, &theme, later).clicked();
                     }
                 });
             });
@@ -2302,13 +2283,13 @@ rental = rent + 50
         let lit = dots.hovered() || menu.is_open();
         let painter = ui.painter();
         if lit {
-            painter.rect_filled(dots_rect, CornerRadius::same(7), theme.hover);
+            painter.rect_filled(dots_rect, design::radius_row(), theme.hover);
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
         painter.rect_stroke(
             dots_rect,
-            CornerRadius::same(7),
-            egui::Stroke::new(1.0, theme.selection),
+            design::radius_row(),
+            egui::Stroke::new(1.0, theme.border()),
             egui::StrokeKind::Inside,
         );
         let color = if lit { theme.foreground } else { theme.dim };
@@ -2364,7 +2345,11 @@ rental = rent + 50
         });
         let painter = ui.painter();
         if about.hovered() {
-            painter.rect_filled(about_rect, CornerRadius::same(6), theme.hover);
+            painter.rect_filled(
+                about_rect,
+                CornerRadius::same(theme::token::RADIUS_SM),
+                theme.hover,
+            );
         }
         let logo =
             Rect::from_center_size(pos2(row.left() + 14.0, row.center().y), vec2(18.0, 18.0));
@@ -2440,9 +2425,9 @@ rental = rent + 50
         ui.painter().text(
             pos2(row.left() + 14.0, row.center().y),
             Align2::LEFT_CENTER,
-            "PAGES",
-            FontId::proportional(11.0),
-            theme.comment,
+            "Pages",
+            FontId::proportional(theme::token::TYPE_CAPTION),
+            theme.text_muted(),
         );
         let id = ui.scope_id();
         let collapse = icon_button(
@@ -2627,7 +2612,7 @@ rental = rent + 50
                 }
                 if !self.trash.is_empty() {
                     ui.add_space(14.0);
-                    section_label(ui, &theme, "RECENTLY DELETED");
+                    section_label(ui, &theme, "Recently deleted");
                     ui.add_space(4.0);
                     let trash = self.trash.clone();
                     for item in trash {
@@ -2767,7 +2752,7 @@ rental = rent + 50
             }
             ui.painter().rect_stroke(
                 rect,
-                CornerRadius::same(5),
+                design::radius_row(),
                 egui::Stroke::new(1.5, self.theme.accent),
                 egui::StrokeKind::Inside,
             );
@@ -2818,10 +2803,14 @@ rental = rent + 50
             Order::Tooltip,
             egui::Id::unique("omacus-drag"),
         ));
-        painter.rect_filled(rect, CornerRadius::same(6), theme.sidebar);
+        painter.rect_filled(
+            rect,
+            CornerRadius::same(theme::token::RADIUS_SM),
+            theme.sidebar,
+        );
         painter.rect_stroke(
             rect,
-            CornerRadius::same(6),
+            CornerRadius::same(theme::token::RADIUS_SM),
             egui::Stroke::new(1.0, theme.accent),
             egui::StrokeKind::Inside,
         );
@@ -3027,12 +3016,21 @@ rental = rent + 50
         }
 
         if self.store.current().text.trim().is_empty() {
-            ui.painter().text(
-                response.rect.left_top() + vec2(2.0, 2.0),
-                Align2::LEFT_TOP,
+            let mut job = egui::text::LayoutJob::default();
+            job.append(
                 empty_sheet_hint(self.store.sidebar),
-                FontId::proportional(14.0),
-                theme.comment,
+                0.0,
+                egui::TextFormat::simple(
+                    FontId::proportional(theme::token::TYPE_LABEL),
+                    theme.text_secondary(),
+                ),
+            );
+            job.wrap.max_width = (response.rect.width() - 8.0).max(40.0);
+            let galley = ui.ctx().fonts_mut(|fonts| fonts.layout_job(job));
+            ui.painter().galley(
+                response.rect.left_top() + vec2(2.0, 2.0),
+                galley,
+                theme.text_secondary(),
             );
         }
 
@@ -3186,7 +3184,7 @@ rental = rent + 50
             ui.painter().rect_stroke(
                 square,
                 CornerRadius::same(3),
-                egui::Stroke::new(1.0, theme.selection),
+                egui::Stroke::new(1.0, theme.border()),
                 egui::StrokeKind::Inside,
             );
         }
@@ -3195,6 +3193,49 @@ rental = rent + 50
             galley,
             color,
         );
+    }
+
+    /// Pins a popup or hover card for `OMACUS_SCREENSHOT_HELP`. The editor clears
+    /// `popup` when the cursor has not moved, so this runs after the editor.
+    fn stage_screenshot(&mut self, ctx: &egui::Context) {
+        let Ok(mode) = std::env::var("OMACUS_SCREENSHOT_HELP") else {
+            return;
+        };
+        match mode.as_str() {
+            "picker" => {
+                self.popup = Some(Popup {
+                    start: 0,
+                    end: 0,
+                    items: vec![
+                        complete::Suggestion {
+                            text: "@trip".into(),
+                            kind: "page",
+                            detail: "Trip Budget".into(),
+                        },
+                        complete::Suggestion {
+                            text: "total".into(),
+                            kind: "variable",
+                            detail: "Trip Budget".into(),
+                        },
+                    ],
+                    selected: 0,
+                    anchor: pos2(360.0, 168.0),
+                    anchored: true,
+                    explicit: true,
+                });
+            }
+            "hover" => {
+                let token = Rect::from_min_size(pos2(300.0, 150.0), vec2(72.0, 20.0));
+                paint_hover_tip(
+                    ctx,
+                    &self.theme,
+                    token,
+                    "$186",
+                    &["rent + groceries".into()],
+                );
+            }
+            _ => {}
+        }
     }
 
     fn popup(&mut self, ctx: &egui::Context) {
@@ -3206,67 +3247,62 @@ rental = rent + 50
             .order(Order::Foreground)
             .fixed_pos(popup.anchor)
             .show(ctx, |ui| {
-                Frame::NONE
-                    .fill(theme.sidebar)
-                    .stroke(egui::Stroke::new(1.0, theme.selection))
-                    .corner_radius(CornerRadius::same(6))
-                    .inner_margin(Margin::same(4))
-                    .show(ui, |ui| {
-                        let width = popup
-                            .items
-                            .iter()
-                            .map(|item| {
-                                item.text.chars().count()
-                                    + item.kind_label().chars().count()
-                                    + item.detail.chars().count()
-                                    + 6
-                            })
-                            .max()
-                            .unwrap_or(8) as f32
-                            * (FONT_SIZE - 2.0)
-                            * 0.62
-                            + 16.0;
-                        let width = width.clamp(220.0, 520.0);
-                        for (i, item) in popup.items.iter().enumerate() {
-                            let (rect, resp) =
-                                ui.allocate_exact_size(vec2(width, 26.0), Sense::click());
-                            let selected = i == popup.selected;
-                            if selected || resp.hovered() {
-                                ui.painter().rect_filled(
-                                    rect,
-                                    CornerRadius::same(4),
-                                    theme.selection,
-                                );
-                            }
-                            let color = if selected {
-                                theme.accent
-                            } else {
-                                theme.foreground
-                            };
-                            ui.painter().text(
-                                pos2(rect.left() + 8.0, rect.center().y),
-                                Align2::LEFT_CENTER,
-                                &item.text,
-                                font.clone(),
-                                color,
-                            );
-                            let meta = format!("{} · {}", item.kind_label(), item.detail);
-                            ui.painter().text(
-                                pos2(rect.right() - 8.0, rect.center().y),
-                                Align2::RIGHT_CENTER,
-                                meta,
-                                font.clone(),
-                                if selected {
-                                    theme.foreground
-                                } else {
-                                    theme.dim
-                                },
-                            );
-                            if resp.clicked() {
-                                clicked = Some(i);
-                            }
+                design::popup(theme).show(ui, |ui| {
+                    let width = popup
+                        .items
+                        .iter()
+                        .map(|item| {
+                            item.text.chars().count()
+                                + item.kind_label().chars().count()
+                                + item.detail.chars().count()
+                                + 6
+                        })
+                        .max()
+                        .unwrap_or(8) as f32
+                        * (FONT_SIZE - 2.0)
+                        * 0.62
+                        + 16.0;
+                    let width = width.clamp(220.0, 520.0);
+                    for (i, item) in popup.items.iter().enumerate() {
+                        let (rect, resp) =
+                            ui.allocate_exact_size(vec2(width, theme::token::HIT), Sense::click());
+                        let selected = i == popup.selected;
+                        if selected {
+                            ui.painter()
+                                .rect_filled(rect, design::radius_row(), theme.selection);
+                        } else if resp.hovered() {
+                            ui.painter()
+                                .rect_filled(rect, design::radius_row(), theme.hover);
                         }
-                    });
+                        let color = if selected {
+                            theme.accent
+                        } else {
+                            theme.foreground
+                        };
+                        ui.painter().text(
+                            pos2(rect.left() + 8.0, rect.center().y),
+                            Align2::LEFT_CENTER,
+                            &item.text,
+                            font.clone(),
+                            color,
+                        );
+                        let meta = format!("{} · {}", item.kind_label(), item.detail);
+                        ui.painter().text(
+                            pos2(rect.right() - 8.0, rect.center().y),
+                            Align2::RIGHT_CENTER,
+                            meta,
+                            font.clone(),
+                            if selected {
+                                theme.foreground
+                            } else {
+                                theme.dim
+                            },
+                        );
+                        if resp.clicked() {
+                            clicked = Some(i);
+                        }
+                    }
+                });
             });
         if let Some(i) = clicked {
             self.accept_completion(i);
@@ -3429,31 +3465,22 @@ rental = rent + 50
             .fixed_pos(pos)
             .interactable(true)
             .show(ui.ctx(), |ui| {
-                Frame::NONE
-                    .fill(theme.sidebar)
-                    .stroke(egui::Stroke::new(1.0, theme.accent))
-                    .corner_radius(CornerRadius::same(6))
-                    .inner_margin(Margin::same(6))
-                    .show(ui, |ui| {
-                        let width = (buffer.chars().count().max(8) as f32) * 10.0 + 12.0;
-                        let chars = buffer.chars().count();
-                        let out = TextEdit::singleline(&mut buffer)
-                            .id(egui::Id::unique("omacus-rename-field"))
-                            .font(FontId::monospace(FONT_SIZE))
-                            .desired_width(width.clamp(96.0, 280.0))
-                            .hint_text("New name")
-                            .show(ui);
-                        place_name_caret(ui.ctx(), &out, chars, focus);
-                        if let Some(err) = &error {
-                            ui.label(
-                                egui::RichText::new(err)
-                                    .size(12.5)
-                                    .color(Color32::from_rgb(214, 90, 74)),
-                            );
-                        } else if let Some(Some(blurb)) = &blurb {
-                            ui.label(egui::RichText::new(blurb).size(12.0).color(theme.dim));
-                        }
-                    });
+                design::field(&theme).show(ui, |ui| {
+                    let width = (buffer.chars().count().max(8) as f32) * 10.0 + 12.0;
+                    let chars = buffer.chars().count();
+                    let out = TextEdit::singleline(&mut buffer)
+                        .id(egui::Id::unique("omacus-rename-field"))
+                        .font(FontId::monospace(FONT_SIZE))
+                        .desired_width(width.clamp(96.0, 280.0))
+                        .hint_text("New name")
+                        .show(ui);
+                    place_name_caret(ui.ctx(), &out, chars, focus);
+                    if let Some(err) = &error {
+                        ui.label(egui::RichText::new(err).size(12.5).color(theme.danger()));
+                    } else if let Some(Some(blurb)) = &blurb {
+                        ui.label(egui::RichText::new(blurb).size(12.0).color(theme.dim));
+                    }
+                });
                 written = Some(buffer);
             });
         if let Some(session) = &mut self.rename {
@@ -3482,48 +3509,32 @@ rental = rent + 50
             .fixed_pos(anchor)
             .interactable(true)
             .show(ui.ctx(), |ui| {
-                Frame::NONE
-                    .fill(theme.sidebar)
-                    .stroke(egui::Stroke::new(1.0, theme.selection))
-                    .corner_radius(CornerRadius::same(6))
-                    .inner_margin(Margin::symmetric(8, 4))
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            if prompt.apply {
-                                if ui
-                                    .add(
-                                        egui::Button::new(
-                                            egui::RichText::new(&prompt.label)
-                                                .size(13.0)
-                                                .color(theme.background),
-                                        )
-                                        .fill(theme.accent)
-                                        .corner_radius(CornerRadius::same(6)),
-                                    )
-                                    .clicked()
-                                {
-                                    apply = true;
-                                }
-                            } else {
-                                ui.label(
-                                    egui::RichText::new(&prompt.label)
-                                        .size(13.0)
-                                        .color(Color32::from_rgb(214, 90, 74)),
-                                );
+                design::popup_pad(&theme, Margin::symmetric(8, 4)).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if prompt.apply {
+                            if design::primary(ui, &theme, &prompt.label).clicked() {
+                                apply = true;
                             }
-                            if ui
-                                .add(
-                                    egui::Button::new(
-                                        egui::RichText::new("Dismiss").size(12.5).color(theme.dim),
-                                    )
-                                    .frame(false),
+                        } else {
+                            ui.label(
+                                egui::RichText::new(&prompt.label)
+                                    .size(13.0)
+                                    .color(theme.danger()),
+                            );
+                        }
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new("Dismiss").size(12.5).color(theme.dim),
                                 )
-                                .clicked()
-                            {
-                                dismiss = true;
-                            }
-                        });
+                                .frame(false),
+                            )
+                            .clicked()
+                        {
+                            dismiss = true;
+                        }
                     });
+                });
             });
         if apply {
             self.apply_ref_prompt(ui.ctx());
@@ -3912,19 +3923,15 @@ rental = rent + 50
         };
         let mut save = false;
         let mut cancel = false;
-        let frame = Frame::NONE
-            .fill(theme.sidebar)
-            .stroke(egui::Stroke::new(1.0, theme.selection))
-            .corner_radius(CornerRadius::same(10))
-            .inner_margin(Margin::symmetric(20, 16));
+        let frame = design::dialog(&theme);
         let modal = egui::Modal::new(egui::Id::unique("omacus-handle"))
             .frame(frame)
-            .backdrop_color(Color32::from_black_alpha(140))
+            .backdrop_color(design::backdrop(&theme))
             .show(ctx, |ui| {
                 ui.set_width(380.0);
                 ui.label(
                     egui::RichText::new(format!("Handle for \u{201c}{title}\u{201d}"))
-                        .size(16.0)
+                        .size(theme::token::TYPE_TITLE)
                         .color(theme.foreground),
                 );
                 ui.add_space(6.0);
@@ -3952,38 +3959,13 @@ rental = rent + 50
                     ui.label(
                         egui::RichText::new(note)
                             .size(12.5)
-                            .color(if bad {
-                                Color32::from_rgb(214, 90, 74)
-                            } else {
-                                theme.dim
-                            }),
+                            .color(if bad { theme.danger() } else { theme.dim }),
                     );
                 }
                 ui.add_space(14.0);
                 ui.horizontal(|ui| {
-                    save = ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new("Save")
-                                    .size(13.5)
-                                    .color(theme.background),
-                            )
-                            .fill(theme.accent)
-                            .corner_radius(CornerRadius::same(6))
-                            .min_size(vec2(0.0, 30.0)),
-                        )
-                        .clicked();
-                    cancel = ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new("Cancel")
-                                    .size(13.5)
-                                    .color(theme.foreground),
-                            )
-                            .corner_radius(CornerRadius::same(6))
-                            .min_size(vec2(0.0, 30.0)),
-                        )
-                        .clicked();
+                    save = design::primary(ui, &theme, "Save").clicked();
+                    cancel = design::quiet(ui, &theme, "Cancel").clicked();
                 });
             });
         if let Some(edit) = &mut self.handle_edit {
@@ -4096,7 +4078,11 @@ rental = rent + 50
         );
         let painter = ui.painter();
         let color = if rail.hovered() {
-            painter.rect_filled(toggle, CornerRadius::same(6), theme.hover);
+            painter.rect_filled(
+                toggle,
+                CornerRadius::same(theme::token::RADIUS_SM),
+                theme.hover,
+            );
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             theme.foreground
         } else {
@@ -4178,28 +4164,19 @@ rental = rent + 50
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new(heading)
-                    .size(16.0)
+                    .size(theme::token::TYPE_TITLE)
                     .color(theme.foreground),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let forever = ui.add(
                     egui::Button::new(
                         egui::RichText::new("Delete forever")
-                            .size(13.0)
-                            .color(theme.dim),
+                            .size(theme::token::TYPE_BODY)
+                            .color(theme.danger()),
                     )
                     .frame(false),
                 );
-                let restore = ui.add(
-                    egui::Button::new(
-                        egui::RichText::new("Restore")
-                            .size(13.5)
-                            .color(theme.background),
-                    )
-                    .fill(theme.accent)
-                    .corner_radius(CornerRadius::same(6))
-                    .min_size(vec2(0.0, 28.0)),
-                );
+                let restore = design::primary(ui, &theme, "Restore");
                 if forever.clicked() {
                     self.purge_id = Some(item.id.clone());
                 }
@@ -4307,48 +4284,23 @@ rental = rent + 50
         let theme = self.theme.clone();
         let mut replace = false;
         let mut cancel = false;
-        let frame = Frame::NONE
-            .fill(theme.sidebar)
-            .stroke(egui::Stroke::new(1.0, theme.selection))
-            .corner_radius(CornerRadius::same(10))
-            .inner_margin(Margin::symmetric(20, 16));
+        let frame = design::dialog(&theme);
         let modal = egui::Modal::new(egui::Id::unique("omacus-replace"))
             .frame(frame)
-            .backdrop_color(Color32::from_black_alpha(140))
+            .backdrop_color(design::backdrop(&theme))
             .show(ctx, |ui| {
                 ui.set_width(380.0);
                 ui.label(
                     egui::RichText::new(format!(
                         "{file_name} already exists in {folder_label}. Replace it?"
                     ))
-                    .size(16.0)
+                    .size(theme::token::TYPE_TITLE)
                     .color(theme.foreground),
                 );
                 ui.add_space(14.0);
                 ui.horizontal(|ui| {
-                    replace = ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new("Replace")
-                                    .size(13.5)
-                                    .color(theme.background),
-                            )
-                            .fill(theme.accent)
-                            .corner_radius(CornerRadius::same(6))
-                            .min_size(vec2(0.0, 30.0)),
-                        )
-                        .clicked();
-                    cancel = ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new("Cancel")
-                                    .size(13.5)
-                                    .color(theme.foreground),
-                            )
-                            .corner_radius(CornerRadius::same(6))
-                            .min_size(vec2(0.0, 30.0)),
-                        )
-                        .clicked();
+                    replace = design::primary(ui, &theme, "Replace").clicked();
+                    cancel = design::quiet(ui, &theme, "Cancel").clicked();
                 });
             });
         if modal.should_close() {
@@ -4391,48 +4343,23 @@ rental = rent + 50
         let theme = self.theme.clone();
         let mut delete = false;
         let mut cancel = false;
-        let frame = Frame::NONE
-            .fill(theme.sidebar)
-            .stroke(egui::Stroke::new(1.0, theme.selection))
-            .corner_radius(CornerRadius::same(10))
-            .inner_margin(Margin::symmetric(20, 16));
+        let frame = design::dialog(&theme);
         let modal = egui::Modal::new(egui::Id::unique("omacus-delete"))
             .frame(frame)
-            .backdrop_color(Color32::from_black_alpha(140))
+            .backdrop_color(design::backdrop(&theme))
             .show(ctx, |ui| {
                 ui.set_width(340.0);
                 ui.label(
                     egui::RichText::new(format!("Delete \u{201c}{title}\u{201d}?"))
-                        .size(16.0)
+                        .size(theme::token::TYPE_TITLE)
                         .color(theme.foreground),
                 );
                 ui.add_space(6.0);
                 ui.label(egui::RichText::new(detail).size(13.0).color(theme.dim));
                 ui.add_space(14.0);
                 ui.horizontal(|ui| {
-                    delete = ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new("Delete")
-                                    .size(13.5)
-                                    .color(theme.background),
-                            )
-                            .fill(theme.accent)
-                            .corner_radius(CornerRadius::same(6))
-                            .min_size(vec2(0.0, 30.0)),
-                        )
-                        .clicked();
-                    cancel = ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new("Cancel")
-                                    .size(13.5)
-                                    .color(theme.foreground),
-                            )
-                            .corner_radius(CornerRadius::same(6))
-                            .min_size(vec2(0.0, 30.0)),
-                        )
-                        .clicked();
+                    delete = design::danger(ui, &theme, "Delete").clicked();
+                    cancel = design::quiet(ui, &theme, "Cancel").clicked();
                 });
             });
         if modal.should_close() {
@@ -4481,23 +4408,12 @@ rental = rent + 50
             ui.add_space(6.0);
             ui.label(
                 egui::RichText::new(&self.gate_error)
-                    .size(12.5)
-                    .color(theme.keyword),
+                    .size(theme::token::TYPE_CAPTION)
+                    .color(theme.danger()),
             );
         }
         ui.add_space(10.0);
-        let button = ui
-            .add(
-                egui::Button::new(
-                    egui::RichText::new("Unlock")
-                        .size(13.5)
-                        .color(theme.background),
-                )
-                .fill(theme.accent)
-                .corner_radius(CornerRadius::same(6))
-                .min_size(vec2(0.0, 30.0)),
-            )
-            .clicked();
+        let button = design::primary(ui, &theme, "Unlock").clicked();
         if submit || button {
             self.submit_gate();
         }
@@ -4553,23 +4469,23 @@ rental = rent + 50
                 LockFields::None,
             ),
         };
-        let frame = Frame::NONE
-            .fill(theme.sidebar)
-            .stroke(egui::Stroke::new(1.0, theme.selection))
-            .corner_radius(CornerRadius::same(10))
-            .inner_margin(Margin::symmetric(16, 14));
+        let frame = design::dialog(&theme);
         let modal = egui::Modal::new(egui::Id::unique("omacus-lock"))
             .frame(frame)
-            .backdrop_color(Color32::from_black_alpha(140))
+            .backdrop_color(design::backdrop(&theme))
             .show(ctx, |ui| {
                 ui.set_width(320.0);
                 ui.label(
                     egui::RichText::new(title)
-                        .size(16.0)
+                        .size(theme::token::TYPE_TITLE)
                         .color(theme.foreground),
                 );
                 ui.add_space(6.0);
-                ui.label(egui::RichText::new(detail).size(13.0).color(theme.dim));
+                ui.label(
+                    egui::RichText::new(detail)
+                        .size(theme::token::TYPE_BODY)
+                        .color(theme.text_secondary()),
+                );
                 ui.add_space(10.0);
                 let enter = match fields {
                     LockFields::None => false,
@@ -4594,34 +4510,24 @@ rental = rent + 50
                 };
                 if !error.is_empty() {
                     ui.add_space(6.0);
-                    ui.label(egui::RichText::new(&error).size(12.5).color(theme.keyword));
+                    ui.label(
+                        egui::RichText::new(&error)
+                            .size(theme::token::TYPE_CAPTION)
+                            .color(theme.danger()),
+                    );
                 }
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
-                    submit = ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new(confirm_label)
-                                    .size(13.5)
-                                    .color(theme.background),
-                            )
-                            .fill(theme.accent)
-                            .corner_radius(CornerRadius::same(6))
-                            .min_size(vec2(0.0, 30.0)),
-                        )
-                        .clicked()
-                        || enter;
-                    cancel = ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new("Cancel")
-                                    .size(13.5)
-                                    .color(theme.foreground),
-                            )
-                            .corner_radius(CornerRadius::same(6))
-                            .min_size(vec2(0.0, 30.0)),
-                        )
-                        .clicked();
+                    let remove = matches!(
+                        ask,
+                        LockAsk::RemovePage(_) | LockAsk::RemoveFolder(_)
+                    );
+                    submit = if remove {
+                        design::danger(ui, &theme, confirm_label).clicked()
+                    } else {
+                        design::primary(ui, &theme, confirm_label).clicked()
+                    } || enter;
+                    cancel = design::quiet(ui, &theme, "Cancel").clicked();
                 });
             });
         self.lock_password = password;
@@ -4653,19 +4559,15 @@ rental = rent + 50
         let current = self.store.folder_of(&page_id);
         let mut picked: Option<Option<String>> = None;
         let mut cancel = false;
-        let frame = Frame::NONE
-            .fill(theme.sidebar)
-            .stroke(egui::Stroke::new(1.0, theme.selection))
-            .corner_radius(CornerRadius::same(10))
-            .inner_margin(Margin::symmetric(16, 14));
+        let frame = design::dialog_pad(&theme, Margin::symmetric(16, 14));
         let modal = egui::Modal::new(egui::Id::unique("omacus-move"))
             .frame(frame)
-            .backdrop_color(Color32::from_black_alpha(140))
+            .backdrop_color(design::backdrop(&theme))
             .show(ctx, |ui| {
                 ui.set_width(300.0);
                 ui.label(
                     egui::RichText::new("Move to folder")
-                        .size(16.0)
+                        .size(theme::token::TYPE_TITLE)
                         .color(theme.foreground),
                 );
                 ui.add_space(8.0);
@@ -4681,7 +4583,7 @@ rental = rent + 50
                                 .size(13.5)
                                 .color(theme.foreground),
                         )
-                        .min_size(vec2(ui.available_width(), 28.0)),
+                        .min_size(vec2(ui.available_width(), theme::token::HIT)),
                     )
                     .clicked()
                 {
@@ -4713,7 +4615,7 @@ rental = rent + 50
                                 egui::Button::new(
                                     egui::RichText::new(name).size(13.5).color(theme.foreground),
                                 )
-                                .min_size(vec2(ui.available_width(), 28.0)),
+                                .min_size(vec2(ui.available_width(), theme::token::HIT)),
                             )
                             .clicked()
                         {
@@ -4722,17 +4624,7 @@ rental = rent + 50
                     });
                 }
                 ui.add_space(8.0);
-                cancel = ui
-                    .add(
-                        egui::Button::new(
-                            egui::RichText::new("Cancel")
-                                .size(13.5)
-                                .color(theme.foreground),
-                        )
-                        .corner_radius(CornerRadius::same(6))
-                        .min_size(vec2(0.0, 30.0)),
-                    )
-                    .clicked();
+                cancel = design::quiet(ui, &theme, "Cancel").clicked();
             });
         if modal.should_close() {
             cancel = true;
@@ -4762,19 +4654,15 @@ rental = rent + 50
         let mut shown = rename.text.clone();
         let select_all = rename.select_all;
         let mut cancel = false;
-        let frame = Frame::NONE
-            .fill(theme.sidebar)
-            .stroke(egui::Stroke::new(1.0, theme.selection))
-            .corner_radius(CornerRadius::same(10))
-            .inner_margin(Margin::symmetric(16, 14));
+        let frame = design::dialog_pad(&theme, Margin::symmetric(16, 14));
         let modal = egui::Modal::new(egui::Id::unique("omacus-rename-folder"))
             .frame(frame)
-            .backdrop_color(Color32::from_black_alpha(140))
+            .backdrop_color(design::backdrop(&theme))
             .show(ctx, |ui| {
                 ui.set_width(300.0);
                 ui.label(
                     egui::RichText::new("Rename folder")
-                        .size(16.0)
+                        .size(theme::token::TYPE_TITLE)
                         .color(theme.foreground),
                 );
                 ui.add_space(8.0);
@@ -4794,17 +4682,7 @@ rental = rent + 50
                         .color(theme.comment),
                 );
                 ui.add_space(8.0);
-                cancel = ui
-                    .add(
-                        egui::Button::new(
-                            egui::RichText::new("Cancel")
-                                .size(13.5)
-                                .color(theme.foreground),
-                        )
-                        .corner_radius(CornerRadius::same(6))
-                        .min_size(vec2(0.0, 30.0)),
-                    )
-                    .clicked();
+                cancel = design::quiet(ui, &theme, "Cancel").clicked();
             });
         if let Some(rename) = &mut self.rename_folder {
             rename.text = shown;
@@ -4841,19 +4719,15 @@ rental = rent + 50
         let theme = self.theme.clone();
         let mut purge = false;
         let mut cancel = false;
-        let frame = Frame::NONE
-            .fill(theme.sidebar)
-            .stroke(egui::Stroke::new(1.0, theme.selection))
-            .corner_radius(CornerRadius::same(10))
-            .inner_margin(Margin::symmetric(20, 16));
+        let frame = design::dialog(&theme);
         let modal = egui::Modal::new(egui::Id::unique("omacus-purge"))
             .frame(frame)
-            .backdrop_color(Color32::from_black_alpha(140))
+            .backdrop_color(design::backdrop(&theme))
             .show(ctx, |ui| {
                 ui.set_width(340.0);
                 ui.label(
                     egui::RichText::new(format!("Delete \u{201c}{title}\u{201d} forever?"))
-                        .size(16.0)
+                        .size(theme::token::TYPE_TITLE)
                         .color(theme.foreground),
                 );
                 ui.add_space(6.0);
@@ -4866,29 +4740,8 @@ rental = rent + 50
                 );
                 ui.add_space(14.0);
                 ui.horizontal(|ui| {
-                    purge = ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new("Delete forever")
-                                    .size(13.5)
-                                    .color(theme.background),
-                            )
-                            .fill(theme.accent)
-                            .corner_radius(CornerRadius::same(6))
-                            .min_size(vec2(0.0, 30.0)),
-                        )
-                        .clicked();
-                    cancel = ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new("Cancel")
-                                    .size(13.5)
-                                    .color(theme.foreground),
-                            )
-                            .corner_radius(CornerRadius::same(6))
-                            .min_size(vec2(0.0, 30.0)),
-                        )
-                        .clicked();
+                    purge = design::danger(ui, &theme, "Delete forever").clicked();
+                    cancel = design::quiet(ui, &theme, "Cancel").clicked();
                 });
             });
         if modal.should_close() {
@@ -4944,8 +4797,8 @@ impl eframe::App for OmacusApp {
         let frame = Frame::NONE
             .fill(self.theme.background)
             .inner_margin(Margin {
-                left: 24,
-                right: 24,
+                left: theme::token::SPACE_5 as i8,
+                right: theme::token::SPACE_5 as i8,
                 top: 8,
                 bottom: 20,
             });
@@ -4970,6 +4823,7 @@ impl eframe::App for OmacusApp {
             }
         });
 
+        self.stage_screenshot(&ctx);
         self.popup(&ctx);
         self.show_help(&ctx);
         self.show_update(&ctx);
@@ -5236,8 +5090,11 @@ fn icon_button(
 ) -> egui::Response {
     let resp = ui.interact(rect, id, Sense::click());
     let color = if resp.hovered() {
-        ui.painter()
-            .rect_filled(rect, CornerRadius::same(6), theme.hover);
+        ui.painter().rect_filled(
+            rect,
+            CornerRadius::same(theme::token::RADIUS_SM),
+            theme.hover,
+        );
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         theme.foreground
     } else {
@@ -5311,7 +5168,7 @@ fn paint_hover_tip(
     painter.rect_stroke(
         tip,
         CornerRadius::same(8),
-        egui::Stroke::new(1.0, theme.selection),
+        egui::Stroke::new(1.0, theme.border()),
         egui::StrokeKind::Inside,
     );
     painter.galley(tip.min + vec2(12.0, 8.0), galley.clone(), theme.accent);
@@ -5466,15 +5323,15 @@ fn icon_slot(row: Rect, slot: usize) -> Rect {
     Rect::from_center_size(pos2(x, row.center().y), Vec2::splat(ICON_BOX))
 }
 
-/// "PAGES", "RECENTLY DELETED": lined up with the page names below.
+/// "Pages", "Recently deleted": lined up with the page names below.
 fn section_label(ui: &mut egui::Ui, theme: &Theme, text: &str) {
     let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::hover());
     ui.painter().text(
         pos2(row.left() + 14.0, row.center().y),
         Align2::LEFT_CENTER,
         text,
-        FontId::proportional(11.0),
-        theme.comment,
+        FontId::proportional(theme::token::TYPE_CAPTION),
+        theme.text_muted(),
     );
 }
 
@@ -5482,7 +5339,7 @@ fn section_label(ui: &mut egui::Ui, theme: &Theme, text: &str) {
 fn dots_button(ui: &egui::Ui, resp: &egui::Response, theme: &Theme, open: bool) {
     let painter = ui.painter();
     if resp.hovered() || open {
-        painter.rect_filled(resp.rect, CornerRadius::same(6), theme.hover);
+        painter.rect_filled(resp.rect, design::radius_row(), theme.hover);
     }
     let color = if resp.hovered() || open {
         theme.foreground
@@ -5510,21 +5367,7 @@ fn load_logo(ctx: &egui::Context, name: &str, png: &[u8]) -> egui::TextureHandle
 }
 
 fn apply_visuals(ctx: &egui::Context, theme: &Theme) {
-    let mut v = if theme.dark {
-        egui::Visuals::dark()
-    } else {
-        egui::Visuals::light()
-    };
-    v.panel_fill = theme.background;
-    v.window_fill = theme.sidebar;
-    v.extreme_bg_color = theme.background;
-    v.override_text_color = Some(theme.foreground);
-    v.selection.bg_fill = theme.selection;
-    v.selection.stroke.color = theme.foreground;
-    v.text_cursor.stroke.color = theme.accent;
-    v.text_cursor.stroke.width = 2.0;
-    v.widgets.hovered.weak_bg_fill = theme.hover;
-    ctx.set_visuals(v);
+    design::apply(ctx, theme);
 }
 
 /// JetBrains Mono ships inside the binary so Omacus looks the same everywhere.
@@ -5916,12 +5759,12 @@ fn sidebar_row(ui: &mut egui::Ui, theme: &Theme, look: RowLook<'_>) -> egui::Res
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), SIDEBAR_ROW), sense);
     let painter = ui.painter();
     if look.selected {
-        painter.rect_filled(rect, CornerRadius::same(5), theme.selection);
+        painter.rect_filled(rect, design::radius_row(), theme.selection);
         if look.accent {
             painter.rect_filled(sidebar_accent(rect), CornerRadius::same(2), theme.accent);
         }
     } else if resp.hovered() {
-        painter.rect_filled(rect, CornerRadius::same(5), theme.hover);
+        painter.rect_filled(rect, design::radius_row(), theme.hover);
     }
     let color = if look.selected {
         theme.foreground

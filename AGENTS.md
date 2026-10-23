@@ -14,6 +14,13 @@ fix: a line in `engine/tests/cases.txt` (see the notes at its top), a unit test,
 or a check in `tests/`. Answers mustn't depend on today's date or the machine's
 speed.
 
+## Design
+
+Read `docs/DESIGN.md` before changing the desktop app, the web app, or the website.
+Colors, type, spacing, and radii come from `src/theme.rs` and `site/css/tokens.css`.
+When you add a component, add it to the guide. A UI pull request includes before
+and after screenshots.
+
 ## Before a PR
 
     cargo fmt --check

@@ -1,0 +1,11 @@
+# Paths allowed to carry a color literal that is not a screen token.
+# One path per line, relative to the repo root. A trailing comment says why.
+# A source line that contains `design-allow` is also skipped, which is the
+# right escape when one example in a file is a calculator colour (`#ff8800`)
+# rather than a paint colour.
+#
+# src/pdf.rs keeps answer ink as a PDF operator string ("0.102 0.227 0.357").
+# That is not a hex literal, so this file does not need to list it.
+# HTML theme-color in site/**/*.html is the colour the browser chrome shows
+# before CSS loads. It is not a stylesheet, so this check does not scan it.
+# Keep it equal to --bg-ink in site/css/tokens.css.
