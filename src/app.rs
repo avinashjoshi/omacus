@@ -4518,10 +4518,7 @@ rental = rent + 50
                 }
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
-                    let remove = matches!(
-                        ask,
-                        LockAsk::RemovePage(_) | LockAsk::RemoveFolder(_)
-                    );
+                    let remove = matches!(ask, LockAsk::RemovePage(_) | LockAsk::RemoveFolder(_));
                     submit = if remove {
                         design::danger(ui, &theme, confirm_label).clicked()
                     } else {
