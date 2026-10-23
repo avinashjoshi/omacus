@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.15
 
 **Keep a copy of everything**
 
