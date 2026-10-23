@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.18
+
+**The Home Screen app fills the screen**
+
+On iPhone, the top bar is a solid colour, the same as the page. The page and the sidebar reach the bottom edge. A screen reader note no longer shows on the page.
+
 ## 0.2.17
 
 **Your pages open again**

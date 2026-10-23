@@ -214,10 +214,12 @@ The stored values do not change meaning. "Hide the answers column" on means the 
 
 ### App bar
 
-The bar is a solid surface in the page background (`--app-bg`), the same colour as `theme-color` and the safe areas, with a strong border under it (`--app-line-strong`). It pads by the top safe area, so the notch and the clock sit on that surface with no seam. Light and paper use a light status bar. Dark and dusk use a translucent status bar, so the clock is drawn on the bar. The page name, the pages button, and the ⋯ button use the interface face and the text color. Buttons in the bar use the same fill as the bar. The slash before the name stays secondary.
+The bar is a solid surface in the page background (`--app-bg`), the same colour as `theme-color` and the safe areas, with a strong border under it (`--app-line-strong`). It pads by the top safe area, so the notch and the clock sit on that surface with no seam. The status bar is that same solid colour in light and dark. It is not translucent and it is not blurred. The page name, the pages button, and the ⋯ button use the interface face and the text color. Buttons in the bar use the same fill as the bar. The slash before the name stays secondary.
+
+On an iPhone where Omacus is on the Home Screen, the page and the sidebar reach the bottom edge of the screen. The home indicator stays padding inside them, not an empty strip under them.
 
 Do: keep the bar opaque. No blur and no translucent fill. Keep the light and dark `theme-color` tags in step with `--app-bg`.
-Don't: set the page name in the monospace face, paint the bar in `--app-side`, or drop the border. The border is what separates the bar from the page.
+Don't: set the page name in the monospace face, paint the bar in `--app-side`, drop the border, or ask the status bar to be translucent. The border is what separates the bar from the page.
 
 ### Sidebar footer
 
