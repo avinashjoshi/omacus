@@ -14,6 +14,10 @@ while [[ $# -gt 0 ]]; do
       mode="site"
       out="site/app"
       shift
+      # `--into site` names the tree. Anything else after the flag is a mistake.
+      if [[ $# -gt 0 && "$1" == "site" ]]; then
+        shift
+      fi
       ;;
     --dist)
       mode="dist"
