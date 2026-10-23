@@ -1,10 +1,12 @@
 //! A preview, as a PDF. Standard Helvetica, so it opens everywhere and needs no
 //! embedded font. Characters Helvetica can't draw become a close ASCII stand-in.
 //!
-//! The page is set like a short document: a real margin, a heading hierarchy,
-//! body leading that can be read, and each answer in brackets in a dark ink
-//! that still shows up when the page is printed in black and white. A wrapped
-//! line, a list item and a table row move to the next page together.
+//! The page is set like a short document: a slim margin (about 0.55in) on every
+//! page, a heading hierarchy, body leading that can be read, and each answer in
+//! brackets in a dark ink that still shows up when the page is printed in black
+//! and white. A wrapped line, a list item and a table row move to the next page
+//! together. A fenced code block is Courier, on a light fill, and a long line
+//! wraps inside the body width.
 
 use std::path::{Path, PathBuf};
 
@@ -12,10 +14,19 @@ use omacus_engine::markdown::{Block, Inline, Rich};
 
 const PAGE_W: f32 = 612.0;
 const PAGE_H: f32 = 792.0;
-const MARGIN_X: f32 = 68.0;
-const MARGIN_TOP: f32 = 72.0;
-const MARGIN_BOTTOM: f32 = 68.0;
+/// 40pt is 0.56in, about 14mm. The same inset on every side of every page.
+const MARGIN_X: f32 = 40.0;
+const MARGIN_TOP: f32 = 40.0;
+const MARGIN_BOTTOM: f32 = 40.0;
 const CONTENT_W: f32 = PAGE_W - MARGIN_X * 2.0;
+const CODE_SIZE: f32 = 9.5;
+const CODE_LEADING: f32 = 13.0;
+/// Inside the code block, not an extra indent from the body edge.
+const CODE_PAD_X: f32 = 6.0;
+const CODE_PAD_Y: f32 = 4.0;
+/// Inside the bottom margin, under the text: the rule, then the label.
+const FOOTER_Y: f32 = 16.0;
+const FOOTER_RULE: f32 = 28.0;
 /// Dark blue. It stays readable when a printer turns the page grey.
 const ANSWER_INK: &str = "0.102 0.227 0.357";
 
@@ -95,17 +106,22 @@ pub fn open_folder(dir: &Path) -> Result<(), String> {
 pub fn bytes(title: &str, blocks: &[Block], answers_column: bool) -> Vec<u8> {
     let pages = layout(title, blocks, answers_column);
     let pages = if pages.is_empty() {
-        vec!["BT /F1 11 Tf 0 0 0 rg 68 720 Td ( ) Tj ET".to_string()]
+        vec![format!(
+            "BT /F1 11 Tf 0 0 0 rg {} {} Td ( ) Tj ET",
+            num(MARGIN_X),
+            num(PAGE_H - MARGIN_TOP - 12.0)
+        )]
     } else {
         pages
     };
-    // 1 catalog, 2 pages, 3–5 fonts, then content/page pairs.
+    // 1 catalog, 2 pages, 3–6 fonts (Courier is the code face), then content/page pairs.
     let mut objects: Vec<Vec<u8>> = vec![
         Vec::new(),
         Vec::new(),
         font_object("Helvetica"),
         font_object("Helvetica-Bold"),
         font_object("Helvetica-Oblique"),
+        font_object("Courier"),
     ];
 
     let mut kids = Vec::new();
@@ -116,7 +132,7 @@ pub fn bytes(title: &str, blocks: &[Block], answers_column: bool) -> Vec<u8> {
         let stream = format!("<< /Length {} >>\nstream\n{data}endstream", data.len());
         objects.push(stream.into_bytes());
         let page = format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content_id} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> >>"
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content_id} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> >> >>"
         );
         objects.push(page.into_bytes());
         kids.push(format!("{page_id} 0 R"));
@@ -205,6 +221,8 @@ struct Group {
     /// Set when the answers column is on: drawn at the right margin of the first line.
     column_answer: Option<String>,
     mark: Mark,
+    /// A fenced block: one light box, Courier, wrapped to the body width.
+    code: bool,
 }
 
 fn layout(title: &str, blocks: &[Block], answers_column: bool) -> Vec<String> {
@@ -229,7 +247,7 @@ fn answer_reserve(blocks: &[Block]) -> f32 {
             Block::Heading { rich, .. } => see(rich),
             Block::Lines(rows) | Block::Quote(rows) => rows.iter().for_each(&mut see),
             Block::List { items, .. } => items.iter().for_each(|item| see(&item.rich)),
-            Block::Table { .. } | Block::Blank => {}
+            Block::Table { .. } | Block::Code { .. } | Block::Blank => {}
         }
     }
     if widest == 0.0 {
@@ -268,6 +286,7 @@ fn groups_of(blocks: &[Block], column: bool, reserve: f32) -> Vec<Group> {
                         bar: false,
                         column_answer,
                         mark: Mark::None,
+                        code: false,
                     },
                     &mut after,
                 );
@@ -286,6 +305,7 @@ fn groups_of(blocks: &[Block], column: bool, reserve: f32) -> Vec<Group> {
                             bar: false,
                             column_answer,
                             mark: Mark::None,
+                            code: false,
                         },
                         &mut after,
                     );
@@ -303,6 +323,7 @@ fn groups_of(blocks: &[Block], column: bool, reserve: f32) -> Vec<Group> {
                         bar: false,
                         column_answer: None,
                         mark: Mark::None,
+                        code: false,
                     },
                     &mut after,
                 );
@@ -329,6 +350,7 @@ fn groups_of(blocks: &[Block], column: bool, reserve: f32) -> Vec<Group> {
                             bar: false,
                             column_answer,
                             mark,
+                            code: false,
                         },
                         &mut after,
                     );
@@ -348,11 +370,50 @@ fn groups_of(blocks: &[Block], column: bool, reserve: f32) -> Vec<Group> {
                             bar: true,
                             column_answer,
                             mark: Mark::None,
+                            code: false,
                         },
                         &mut after,
                     );
                 }
                 after = 10.0;
+            }
+            Block::Code { lines } => {
+                let width = code_wrap_chars();
+                let source = if lines.is_empty() {
+                    vec![String::new()]
+                } else {
+                    lines.clone()
+                };
+                let mut runs = Vec::new();
+                for line in source {
+                    for row in wrap_code(&line, width) {
+                        runs.push(run(
+                            CODE_SIZE,
+                            CODE_LEADING,
+                            false,
+                            false,
+                            CODE_PAD_X,
+                            vec![Span {
+                                text: row,
+                                ink: Ink::Body,
+                            }],
+                        ));
+                    }
+                }
+                push(
+                    &mut groups,
+                    Group {
+                        gap: 8.0,
+                        runs,
+                        rule: Rule::None,
+                        bar: false,
+                        column_answer: None,
+                        mark: Mark::None,
+                        code: true,
+                    },
+                    &mut after,
+                );
+                after = 8.0;
             }
             Block::Table { header, rows } => {
                 let plain_rows: Vec<Vec<String>> = rows
@@ -377,6 +438,7 @@ fn groups_of(blocks: &[Block], column: bool, reserve: f32) -> Vec<Group> {
                             bar: false,
                             column_answer: None,
                             mark: Mark::None,
+                            code: false,
                         },
                         &mut after,
                     );
@@ -601,8 +663,138 @@ fn wrap_chars(size: f32, indent: f32, reserve: f32) -> usize {
     ((width / (size * 0.52)) as usize).max(12)
 }
 
+/// How many Courier characters fit inside the code block's padding.
+fn code_wrap_chars() -> usize {
+    let inner = (CONTENT_W - CODE_PAD_X * 2.0).max(48.0);
+    ((inner / (CODE_SIZE * 0.6)) as usize).max(12)
+}
+
+/// Like [`wrap`], and a token longer than the measure breaks so it stays on the page.
+fn wrap_code(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(8);
+    if text.is_empty() {
+        return vec![String::new()];
+    }
+    let mut rows = Vec::new();
+    let mut line: Vec<char> = Vec::new();
+    let flush = |line: &mut Vec<char>, rows: &mut Vec<String>| {
+        if !line.is_empty() {
+            rows.push(line.drain(..).collect());
+        }
+    };
+    for (i, word) in text.split(' ').enumerate() {
+        if i > 0 && !line.is_empty() {
+            if line.len() >= width {
+                flush(&mut line, &mut rows);
+            }
+            if !line.is_empty() {
+                line.push(' ');
+            }
+        }
+        for ch in word.chars() {
+            if line.len() >= width {
+                flush(&mut line, &mut rows);
+            }
+            line.push(ch);
+        }
+    }
+    flush(&mut line, &mut rows);
+    if rows.is_empty() {
+        rows.push(String::new());
+    }
+    rows
+}
+
+struct Sheet<'a> {
+    pages: &'a mut Vec<String>,
+    ops: &'a mut String,
+    y: &'a mut f32,
+    started: &'a mut bool,
+    in_text: &'a mut bool,
+    page_no: &'a mut u32,
+    title: &'a str,
+}
+
+fn paint_code(sheet: &mut Sheet<'_>, group: &Group) {
+    close_text(sheet.ops, sheet.in_text);
+    let top = PAGE_H - MARGIN_TOP;
+    let mut remaining = group.runs.as_slice();
+    if remaining.is_empty() {
+        *sheet.started = true;
+        return;
+    }
+    let mut first = true;
+    while !remaining.is_empty() {
+        let at_top = (*sheet.y - top).abs() < 0.5;
+        let gap = if at_top || !first { 0.0 } else { group.gap };
+        let min_box = CODE_PAD_Y * 2.0 + remaining[0].leading;
+        if *sheet.started && *sheet.y - gap - min_box < MARGIN_BOTTOM {
+            paint_footer(sheet.ops, sheet.title, *sheet.page_no);
+            sheet.pages.push(std::mem::take(sheet.ops));
+            *sheet.page_no += 1;
+            *sheet.y = top;
+            continue;
+        }
+        *sheet.y -= gap;
+        let room = (*sheet.y - MARGIN_BOTTOM - CODE_PAD_Y * 2.0).max(0.0);
+        let mut count = 0;
+        let mut used = 0.0;
+        for run in remaining {
+            if count > 0 && used + run.leading > room + 0.5 {
+                break;
+            }
+            used += run.leading;
+            count += 1;
+            if used > room + 0.5 {
+                break;
+            }
+        }
+        count = count.max(1);
+        let (chunk, rest) = remaining.split_at(count);
+        remaining = rest;
+        let box_h = CODE_PAD_Y * 2.0 + chunk.iter().map(|run| run.leading).sum::<f32>();
+        let box_bottom = *sheet.y - box_h;
+        sheet.ops.push_str(&format!(
+            "0.96 0.96 0.95 rg\n{} {} {} {} re\nf\n0.75 0.75 0.73 RG\n0.6 w\n{} {} {} {} re\nS\n",
+            num(MARGIN_X),
+            num(box_bottom),
+            num(CONTENT_W),
+            num(box_h),
+            num(MARGIN_X),
+            num(box_bottom),
+            num(CONTENT_W),
+            num(box_h),
+        ));
+        sheet.ops.push_str("BT\n");
+        let mut baseline = *sheet.y - CODE_PAD_Y - CODE_SIZE * 0.80;
+        for run in chunk {
+            sheet.ops.push_str(&format!(
+                "/F4 {} Tf\n0.11 0.11 0.11 rg\n1 0 0 1 {} {} Tm\n",
+                num(CODE_SIZE),
+                num(MARGIN_X + run.indent),
+                num(baseline),
+            ));
+            for span in &run.spans {
+                if span.text.is_empty() {
+                    continue;
+                }
+                sheet
+                    .ops
+                    .push_str(&format!("({}) Tj\n", pdf_text(&span.text)));
+            }
+            baseline -= run.leading;
+        }
+        sheet.ops.push_str("ET\n");
+        *sheet.in_text = false;
+        *sheet.y = box_bottom;
+        *sheet.started = true;
+        first = false;
+    }
+}
+
 /// Groups that fit on a fresh page move there whole, so a wrapped line is not
-/// torn across the page break.
+/// torn across the page break. A code block may split, and each piece keeps
+/// its fill and the same inset.
 fn paginate(title: &str, groups: &[Group]) -> Vec<String> {
     let top = PAGE_H - MARGIN_TOP;
     let usable = top - MARGIN_BOTTOM;
@@ -614,6 +806,21 @@ fn paginate(title: &str, groups: &[Group]) -> Vec<String> {
     let mut page_no = 1_u32;
 
     for group in groups {
+        if group.code {
+            paint_code(
+                &mut Sheet {
+                    pages: &mut pages,
+                    ops: &mut ops,
+                    y: &mut y,
+                    started: &mut started,
+                    in_text: &mut in_text,
+                    page_no: &mut page_no,
+                    title,
+                },
+                group,
+            );
+            continue;
+        }
         let rule_room = match group.rule {
             Rule::None => 0.0,
             Rule::Accent => 8.0,
@@ -783,13 +990,13 @@ fn draw_mark(ops: &mut String, in_text: &mut bool, mark: Mark, baseline: f32) {
 }
 
 fn paint_footer(ops: &mut String, title: &str, page: u32) {
-    let y = 36.0;
+    let y = FOOTER_Y;
     ops.push_str(&format!(
         "0.78 0.78 0.78 RG\n0.4 w\n{} {} m {} {} l S\n",
         num(MARGIN_X),
-        num(y + 14.0),
+        num(FOOTER_RULE),
         num(PAGE_W - MARGIN_X),
-        num(y + 14.0),
+        num(FOOTER_RULE),
     ));
     let page_s = page.to_string();
     let page_w = page_s.chars().count() as f32 * 9.0 * 0.52;
@@ -934,7 +1141,9 @@ mod tests {
     use omacus_engine::markdown::render;
 
     fn streams(pdf: &str) -> Vec<&str> {
-        pdf.split("stream\n")
+        // "endstream" contains "stream", so the delimiter has to be the
+        // newline that opens a content stream.
+        pdf.split("\nstream\n")
             .skip(1)
             .filter_map(|s| s.split("endstream").next())
             .collect()
@@ -993,6 +1202,14 @@ mod tests {
             quiet[0], 0,
             "the long line should have moved onto the next page"
         );
+        assert!(
+            pages.iter().all(|page| page.contains("1 0 0 1 40 ")),
+            "body text starts at the slim margin"
+        );
+        assert!(
+            !text.contains("1 0 0 1 68 "),
+            "the old one-inch margin remains"
+        );
     }
 
     #[test]
@@ -1044,6 +1261,100 @@ Hotel: 5 nights * $240
             let path = std::path::Path::new(&dir).join("northwind.pdf");
             std::fs::write(path, bytes).expect("write sample pdf");
         }
+    }
+
+    fn trip_budget_with_code() -> (&'static str, Vec<Option<&'static str>>) {
+        let source = "\
+# Trip Budget
+
+Groceries for the week.
+
+```
+milk = 2 + 2
+rent = 1400
+note = milk-and-rent-and-a-long-unbroken-line-that-must-stay-on-the-page-instead-of-running-off-the-right-edge-of-the-paper
+```
+
+Hotel: 3 nights * $180
+";
+        let answers = vec![
+            None,       // heading
+            None,       // blank
+            None,       // Groceries
+            None,       // blank
+            None,       // fence
+            Some("$4"), // milk
+            Some("1400"),
+            None, // long note
+            None, // fence
+            None, // blank
+            Some("$540"),
+        ];
+        (source, answers)
+    }
+
+    #[test]
+    fn a_code_block_stays_on_the_page_with_a_thin_margin() {
+        let (source, answers) = trip_budget_with_code();
+        let bytes = bytes("Trip Budget", &render(source, &answers), true);
+        if let Ok(dir) = std::env::var("OMACUS_SHOTS") {
+            std::fs::write(std::path::Path::new(&dir).join("trip-budget.pdf"), &bytes)
+                .expect("write sample pdf");
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        let long = "milk-and-rent-and-a-long-unbroken-line-that-must-stay-on-the-page-instead-of-running-off-the-right-edge-of-the-paper";
+        assert!(text.contains("milk = 2 + 2"));
+        assert!(
+            !text.contains("[ $4 ]"),
+            "a line inside a fence is not calculated"
+        );
+        assert!(text.contains("[ $540 ]"));
+        assert!(text.contains("/Courier"));
+        assert!(text.contains("0.96 0.96 0.95 rg"));
+        assert!(
+            text.contains("1 0 0 1 40 "),
+            "body text uses the slim margin"
+        );
+        assert!(
+            text.contains("1 0 0 1 46 "),
+            "code sits 6pt inside that margin"
+        );
+        assert!(!text.contains("1 0 0 1 68 "));
+        assert!(
+            !text.contains(&format!("({long})")),
+            "the long line runs off the page"
+        );
+        assert!(text.contains(&long[..24]));
+        assert!(text.contains(&long[long.len() - 24..]));
+        assert!(
+            !text.contains("(`) Tj"),
+            "the fence marker leaked onto the page"
+        );
+        assert!(
+            text.contains("40 28 m"),
+            "the footer rule sits inside the margin"
+        );
+    }
+
+    #[test]
+    fn a_long_code_block_continues_on_the_next_page() {
+        let mut lines = vec!["# Trip Budget".to_string(), String::new(), "```".into()];
+        for i in 0..90 {
+            lines.push(format!("groceries {i} = {i}"));
+        }
+        lines.push("```".into());
+        let source = lines.join("\n");
+        let answers = vec![None; source.lines().count()];
+        let text =
+            String::from_utf8_lossy(&bytes("Trip Budget", &render(&source, &answers), false))
+                .into_owned();
+        let pages = streams(&text);
+        assert!(pages.len() >= 2, "got {} pages", pages.len());
+        assert!(pages[0].contains("1 0 0 1 46 "));
+        assert!(pages[1].contains("0.96 0.96 0.95 rg"));
+        assert!(pages[1].contains("1 0 0 1 46 "));
+        assert!(pages.iter().any(|page| page.contains("groceries 0 = 0")));
+        assert!(pages.iter().any(|page| page.contains("groceries 89 = 89")));
     }
 
     #[test]

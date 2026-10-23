@@ -58,4 +58,6 @@ The web app at app.omacus.com stays on the same version as the desktop app.
 link `omacus vX.Y.Z`). It must match `version` in `Cargo.toml`. A push to
 `main` does not deploy the web app. The Release workflow deploys it after the
 tag is published, from that same commit (`.github/workflows/app.yml` is only
-called from the release, or retried by hand).
+called from the release, or retried by hand). The same run deploys omacus.com,
+including the updates page, after the tag exists, so that page does not have
+to outwait the desktop builds.

@@ -2,7 +2,10 @@
 //!
 //! This is what Ctrl+P shows, and what Print and Export PDF send out.
 
-use eframe::egui::{self, CornerRadius, FontFamily, FontId, RichText, Sense, Vec2};
+use eframe::egui::{
+    self, CornerRadius, FontFamily, FontId, Frame, Margin, RichText, Sense, Stroke, TextWrapMode,
+    Vec2,
+};
 
 use crate::design;
 use crate::theme::{self, Theme};
@@ -176,6 +179,29 @@ fn block_ui(
             );
             ui.painter()
                 .rect_filled(bar, CornerRadius::same(1), theme.accent);
+            ui.add_space(8.0);
+        }
+        Block::Code { lines } => {
+            let text = if lines.is_empty() {
+                " ".to_string()
+            } else {
+                lines.join("\n")
+            };
+            Frame::NONE
+                .fill(theme.hover)
+                .stroke(Stroke::new(1.0, theme.border()))
+                .corner_radius(CornerRadius::same(theme::token::RADIUS_SM))
+                .inner_margin(Margin::symmetric(8, 6))
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(text)
+                                .font(FontId::monospace(13.0))
+                                .color(theme.foreground),
+                        )
+                        .wrap_mode(TextWrapMode::Wrap),
+                    );
+                });
             ui.add_space(8.0);
         }
         Block::Table { header, rows } => {

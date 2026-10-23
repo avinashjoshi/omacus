@@ -103,7 +103,9 @@ The updates page follows the system. In light mode the same roles sit on warm pa
 
 ### Print and PDF
 
-Preview and PDF are ink on paper, not a screen theme. CSS print colors are `--print-*` in `tokens.css`. The PDF itself writes the operator strings in `src/pdf.rs` (`ANSWER_INK` and the body gray). Those bytes are covered by tests. Don't recolor a PDF to match the screen accent.
+Preview and PDF are ink on paper, not a screen theme. CSS print colors are `--print-*` in `tokens.css`. The PDF itself writes the operator strings in `src/pdf.rs` (`ANSWER_INK`, the body gray, and the code fill `0.96 0.96 0.95` with stroke `0.75 0.75 0.73`). Those bytes are covered by tests. Don't recolor a PDF to match the screen accent.
+
+A page has a 40pt margin (0.55in, about 14mm) on every side. The footer rule and the page number sit inside that bottom margin, under the text. A fenced code block is Courier, the same width as the body, with 6pt of padding on the sides and 4pt above and below. Its fill is `--print-code` on the web and that gray in the PDF, and its edge is a hairline. A line longer than the measure wraps, including one long token. The web print stylesheet uses the same 0.55in page margin and clears the on-screen preview padding, so the two do not stack.
 
 ## Typography
 
@@ -313,6 +315,8 @@ Don't: hardcode a count or a date in the page, point the page at `--app-*`, or p
 ### Preview and PDF typography
 
 The preview is a document: title at 16px, body in the proportional face, answers in brackets in the accent (or `--print-accent` / `ANSWER_INK` when printed). Edit is a primary button. Print and Export PDF are quiet buttons. "Delete forever" on a trashed page is danger text, not a filled button, so Restore stays the one primary action.
+
+A fenced code block in the on-screen preview uses the hover fill, the border token, an 8px radius, and the monospace face, with 8px of side padding and 6px above and below. A long line wraps. Print and PDF use the paper fill and Courier, above, not the screen accent.
 
 Don't restyle the PDF operators to follow the screen theme. A printed page is black, gray, and a dark blue that still reads when the printer is grayscale.
 

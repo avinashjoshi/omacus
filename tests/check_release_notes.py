@@ -53,6 +53,24 @@ class ReleaseNotes(unittest.TestCase):
         found = release_notes.problems(bad)
         self.assertTrue(any("plumbing" in item for item in found))
 
+    def test_a_note_about_the_notes_fails(self):
+        bad = (
+            "**The web app works offline**\n\n"
+            "The web app keeps working with no connection. "
+            "What's new is a short title and a sentence or two, on the updates page and in the app.\n"
+        )
+        found = release_notes.problems(bad)
+        self.assertTrue(any("note about the notes" in item for item in found))
+        self.assertEqual(release_notes.problems(GOOD), [])
+
+    def test_the_release_title_is_the_headline(self):
+        self.assertEqual(release_notes.headline(GOOD), "Clearer release notes")
+        self.assertIsNone(release_notes.GENERIC_TITLE.match(release_notes.headline(GOOD)))
+        self.assertIsNotNone(release_notes.GENERIC_TITLE.match("Omacus v0.2.13"))
+        titled = "**Omacus v0.2.13**\n\nA sentence about the app that someone can read.\n"
+        self.assertIn("just the version", " ".join(release_notes.problems(titled)))
+        self.assertEqual(release_notes.headline("Omacus v0.2.13\n\nA sentence about the app.\n"), "")
+
     def test_a_behind_the_scenes_note_passes(self):
         self.assertEqual(release_notes.problems(BEHIND), [])
 
