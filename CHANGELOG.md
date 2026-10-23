@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.13
 
 **A clearer app on your phone**
 
