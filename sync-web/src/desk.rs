@@ -1992,4 +1992,67 @@ mod tests {
             Err(SyncKeyError::Sealed)
         ));
     }
+
+    #[test]
+    fn a_beta_account_opens_once_and_seals_one_object_per_page() {
+        let (mut founder, _) = confirmed_desk();
+        let set = omacus_engine::sync_keys::PageSet {
+            doc: Vec::new(),
+            pages: vec![
+                ("groceries".into(), "lentils\n".into()),
+                ("pantry".into(), "oats\n".into()),
+            ],
+            meta: omacus_engine::sync_keys::SyncMeta::default(),
+        };
+        let packed = set.to_bytes().unwrap();
+        let signed = founder.seal_pages(&packed).unwrap();
+        assert!(signed.starts_with(b"OMACUS-SYNC/1\n"));
+        assert!(!omacus_engine::sync_objects::is_v2(&signed));
+        let unsigned = &signed[..signed.len() - 80];
+
+        let file = founder.export_local().unwrap();
+        let stored = sync_keys::open_device_store(&file).unwrap();
+        let old_file = sync_keys::store_device(
+            &stored.device,
+            &stored.vault,
+            &stored.account,
+            stored.epoch,
+            &stored.chain,
+            &stored.kek,
+            &stored.recovery_public,
+            false,
+        )
+        .unwrap();
+        let mut old = Desk::import_local(&old_file).unwrap();
+        let opened = old.open_library(unsigned, &[], &[], &[]).unwrap();
+        assert!(opened.legacy, "a version 1 copy is still one sealed blob");
+        assert!(opened.republish, "the phone publishes the current format");
+        assert!(opened.member);
+
+        let planned = old.seal_library(&opened.packed, &[]).unwrap();
+        assert_eq!(planned.objects.len(), 2, "each page is its own object");
+        let record = old.library_record().unwrap();
+        assert!(omacus_engine::sync_objects::is_v2(&record));
+        assert!(record.len() > unsigned.len());
+        assert!(matches!(
+            old.open_library(unsigned, &[], &[], &[]),
+            Err(SyncKeyError::Sealed)
+        ));
+
+        let incoming: Vec<_> = planned
+            .objects
+            .iter()
+            .map(|object| omacus_engine::sync_objects::Incoming {
+                id: object.id,
+                revision: 1,
+                body: object.body.clone(),
+            })
+            .collect();
+        let again = old.open_library(&record, &incoming, &[], &[]).unwrap();
+        assert!(!again.legacy);
+        let round = omacus_engine::sync_keys::PageSet::from_bytes(&again.packed).unwrap();
+        assert_eq!(round.pages.len(), 2);
+        assert!(round.pages.iter().any(|(_, text)| text.contains("lentils")));
+        assert!(round.pages.iter().any(|(_, text)| text.contains("oats")));
+    }
 }
