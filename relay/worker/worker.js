@@ -1,4 +1,4 @@
-// Private sync test relay (1.0.0-beta.15) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.16) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
 // Each account lives in its own object. A directory object maps an invite
 // hash to that account, so a join does not list every account.
@@ -14,7 +14,7 @@ import { adminAuthorized, deviceCount, handleAdmin, isolateAllow, noteError } fr
 import { allowPut, authorize } from "./auth.js";
 import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
 
-const LABEL = "1.0.0-beta.15";
+const LABEL = "1.0.0-beta.16";
 const MAX_RECORD = 256 * 1024, MAX_MANIFEST = 1024 * 1024, MAX_OBJECT = 4 * 1024 * 1024 + 64;
 const MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024, MAX_BODY = 8 * 1024 * 1024;
 const MAX_REQUESTS = 8, MAX_USES = 20;
@@ -39,11 +39,15 @@ const ERR = {
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Omacus-Device, X-Omacus-Time, X-Omacus-Nonce, X-Omacus-Signature, X-Omacus-Proof",
+  "Access-Control-Allow-Headers": "Content-Type, If-None-Match, X-Omacus-Device, X-Omacus-Time, X-Omacus-Nonce, X-Omacus-Signature, X-Omacus-Proof",
+  "Access-Control-Expose-Headers": "ETag",
   "Cache-Control": "no-store",
 };
-const json = (status, value) =>
-  new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json", ...CORS } });
+const json = (status, value, extra) =>
+  new Response(JSON.stringify(value), {
+    status,
+    headers: { "Content-Type": "application/json", ...CORS, ...(extra || {}) },
+  });
 const fail = (name) => { throw name; };
 function dropExpired(m, now) {
   if (!m.requests) m.requests = {};
@@ -211,7 +215,19 @@ export class Mailboxes extends DurableObject {
       const admin = request.headers.get("x-omacus-admin") === "1";
       const ip = request.headers.get("cf-connecting-ip") || "local";
       const [status, value] = await this.route(request.method, url.pathname, body, access, admin, request.headers, raw, ip);
-      return json(status, value);
+      if (status === 304) {
+        const revision = value && Number.isInteger(value.revision) ? value.revision : 0;
+        return new Response(null, {
+          status: 304,
+          headers: { ETag: `"${revision}"`, "Cache-Control": "no-store", ...CORS },
+        });
+      }
+      const extra = {};
+      if (value && typeof value.record === "string" && Number.isInteger(value.revision)) {
+        extra.ETag = `"${value.revision}"`;
+        extra["Cache-Control"] = "no-store";
+      }
+      return json(status, value, extra);
     } catch (e) {
       const name = Object.hasOwn(ERR, e) ? e : "Other";
       try { await noteError(this.store, name); } catch { /* the reply still names the failure */ }
@@ -312,6 +328,7 @@ export class Mailboxes extends DurableObject {
     if (method === "GET" && sub === undefined) {
       return this.change(account, async (m, txn) => {
         await authed(m);
+        if (header("if-none-match").trim() === `"${m.revision}"`) return [304, { revision: m.revision }];
         const listed = await txn.list({ prefix: `o:${account}:` });
         const objects = [...listed].map(([key, value]) => ({
           id: key.slice(`o:${account}:`.length),

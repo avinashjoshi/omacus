@@ -142,7 +142,7 @@ All bodies are JSON. `/v1/` answers are JSON. A missing mailbox is 404.
 | GET | `/v1/health` | | `{ label }` |
 | POST | `/v1/access` | `{ code }` | `{ ok: true }` |
 | POST | `/v1/mailboxes` | `{ account, record, code, objects? }` | `{ revision, objects }` |
-| GET | `/v1/mailboxes/:account` | | `{ revision, record, objects: [{ id, revision, bytes }] }` |
+| GET | `/v1/mailboxes/:account` | `If-None-Match: "<revision>"` optional | `{ revision, record, objects: [{ id, revision, bytes }] }`, or `304` with an empty body when that revision is still current |
 | PUT | `/v1/mailboxes/:account` | `{ revision, record, objects?: [{ id, base, body }], drop?: [id] }` | `{ revision, objects: [{ id, revision }] }` |
 | POST | `/v1/mailboxes/:account/objects` | `{ ids }` | `{ objects: [{ id, revision, body }] }` |
 | POST | `/v1/mailboxes/:account/invites` | `{ hash }` | `{ ok: true }` |
@@ -158,6 +158,8 @@ PUT with an empty `objects` and an empty `drop` is a version 1 replace of the re
 One HTTP body is at most 8 MiB. One account holds at most 100,000 objects. The manifest cap is 1 MiB. There is no 256 KiB cap on the set of pages.
 
 Creating a mailbox may include objects. Each `base` is 0. The revision comes back as 1.
+
+A quiet poll sends `If-None-Match` with the revision it already has. When that revision is still current the server answers `304` and does not send the record or the object list. The client downloads those only after the revision changes. The tag is the quoted decimal revision, such as `"4"`. A missing header, a different revision, or `*` still returns the record.
 
 The admin routes are not part of this protocol. They are described in `docs/sync-ops.md`. They do not return page text, names, or keys.
 

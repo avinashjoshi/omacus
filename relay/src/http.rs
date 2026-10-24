@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use crate::LABEL;
 use crate::store::{ObjectWrite, Store, StoreError};
 
-const CORS: &str = "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, X-Omacus-Device, X-Omacus-Time, X-Omacus-Nonce, X-Omacus-Signature, X-Omacus-Proof\r\n";
+const CORS: &str = "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, If-None-Match, X-Omacus-Device, X-Omacus-Time, X-Omacus-Nonce, X-Omacus-Signature, X-Omacus-Proof\r\nAccess-Control-Expose-Headers: ETag\r\n";
 
 pub fn serve(listener: TcpListener, www: PathBuf, site: PathBuf, store: Arc<Mutex<Store>>) {
     for stream in listener.incoming() {
@@ -81,6 +81,7 @@ fn handle(
             &mut stream,
             400,
             &json!({"message": "That copy could not be read."}),
+            None,
         );
     }
     while buf.len() < head_end + length {
@@ -96,11 +97,24 @@ fn handle(
     let body = buf[head_end..head_end + length].to_vec();
     let path = target.split('?').next().unwrap_or("/");
     if method == "OPTIONS" {
-        return write_bytes(&mut stream, 204, "No Content", "text/plain", b"", true);
+        return write_bytes(
+            &mut stream,
+            204,
+            "No Content",
+            "text/plain",
+            b"",
+            true,
+            None,
+        );
     }
     if path.starts_with("/v1/") {
         let (status, payload) = api(method, path, &body, &headers, &ip, store);
-        return write_json(&mut stream, status, &payload);
+        if status == 304 {
+            let revision = payload.get("revision").and_then(Value::as_u64).unwrap_or(0);
+            return write_not_modified(&mut stream, &format!("\"{revision}\""));
+        }
+        let etag = mailbox_etag(&payload);
+        return write_json(&mut stream, status, &payload, etag.as_deref());
     }
     serve_file(&mut stream, www, site, path)
 }
@@ -178,6 +192,15 @@ fn route(
     match (method, sub, id) {
         ("GET", None, None) => {
             let (revision, record) = store.get(account)?;
+            if same_revision(
+                headers
+                    .get("if-none-match")
+                    .map(String::as_str)
+                    .unwrap_or(""),
+                revision,
+            ) {
+                return Ok((304, json!({"revision": revision})));
+            }
             let objects = object_heads(store, account)?;
             Ok((
                 200,
@@ -366,6 +389,7 @@ fn serve_file(stream: &mut TcpStream, www: &Path, site: &Path, path: &str) -> st
             stream,
             404,
             &json!({"message": "That copy could not be read."}),
+            None,
         );
     }
     let file = if rel.is_empty() {
@@ -384,6 +408,7 @@ fn serve_file(stream: &mut TcpStream, www: &Path, site: &Path, path: &str) -> st
             stream,
             404,
             &json!({"message": "That copy could not be read."}),
+            None,
         );
     };
     let kind = match file.extension().and_then(|ext| ext.to_str()) {
@@ -395,10 +420,32 @@ fn serve_file(stream: &mut TcpStream, www: &Path, site: &Path, path: &str) -> st
         Some("woff2") => "font/woff2",
         _ => "application/octet-stream",
     };
-    write_bytes(stream, 200, "OK", kind, &bytes, false)
+    write_bytes(stream, 200, "OK", kind, &bytes, false, None)
 }
 
-fn write_json(stream: &mut TcpStream, status: u16, value: &Value) -> std::io::Result<()> {
+fn same_revision(header: &str, revision: u64) -> bool {
+    header.trim() == format!("\"{revision}\"")
+}
+
+fn mailbox_etag(payload: &Value) -> Option<String> {
+    let revision = payload.get("revision")?.as_u64()?;
+    payload.get("record")?;
+    Some(format!("\"{revision}\""))
+}
+
+fn write_not_modified(stream: &mut TcpStream, etag: &str) -> std::io::Result<()> {
+    let head = format!(
+        "HTTP/1.1 304 Not Modified\r\nContent-Length: 0\r\nConnection: close\r\nCache-Control: no-store\r\nETag: {etag}\r\n{CORS}\r\n"
+    );
+    stream.write_all(head.as_bytes())
+}
+
+fn write_json(
+    stream: &mut TcpStream,
+    status: u16,
+    value: &Value,
+    etag: Option<&str>,
+) -> std::io::Result<()> {
     let reason = reason(status);
     let body = value.to_string();
     write_bytes(
@@ -408,6 +455,7 @@ fn write_json(stream: &mut TcpStream, status: u16, value: &Value) -> std::io::Re
         "application/json",
         body.as_bytes(),
         true,
+        etag,
     )
 }
 
@@ -418,11 +466,15 @@ fn write_bytes(
     content_type: &str,
     body: &[u8],
     cors: bool,
+    etag: Option<&str>,
 ) -> std::io::Result<()> {
     let mut head = format!(
         "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n",
         body.len()
     );
+    if let Some(etag) = etag {
+        head.push_str(&format!("ETag: {etag}\r\n"));
+    }
     if cors {
         head.push_str(CORS);
     }
@@ -448,4 +500,19 @@ fn find_header(buf: &[u8]) -> Option<usize> {
     buf.windows(4)
         .position(|window| window == b"\r\n\r\n")
         .map(|index| index + 4)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_revision;
+
+    #[test]
+    fn a_matching_revision_tag_is_the_only_one_that_skips_the_record() {
+        assert!(same_revision("\"4\"", 4));
+        assert!(same_revision(" \"4\" ", 4));
+        assert!(!same_revision("\"3\"", 4));
+        assert!(!same_revision("4", 4));
+        assert!(!same_revision("*", 4));
+        assert!(!same_revision("W/\"4\"", 4));
+    }
 }

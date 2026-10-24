@@ -4,7 +4,7 @@ import { SYNC_URL } from "./sync-config.js";
 import { beginSave, finishSave, noteLocalEdit } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 
-const LABEL = "omacus 1.0.0-beta.15";
+const LABEL = "omacus 1.0.0-beta.16";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 
@@ -437,7 +437,7 @@ export async function mountSync(api) {
     return state.asks.filter((n) => state.picks[n]).map((n) => [n, state.picks[n]]);
   }
 
-  async function callServer(method, path, body, origin, authMode) {
+  async function callServer(method, path, body, origin, authMode, extra) {
     const base = (origin || syncOrigin()).replace(/\/$/, "");
     const url = `${base}${path}`;
     const text = body ? JSON.stringify(body) : "";
@@ -455,18 +455,21 @@ export async function mountSync(api) {
       headers["X-Omacus-Nonce"] = signed.nonce;
       headers["X-Omacus-Signature"] = signed.signature;
     }
+    if (extra) Object.assign(headers, extra);
     let response;
     try {
       response = await fetch(url, {
         method,
         headers,
         body: body ? text : undefined,
+        cache: "no-store",
       });
     } catch {
       const error = new Error("Offline. Your pages are still here.");
       error.offline = true;
       throw error;
     }
+    if (response.status === 304) return { unchanged: true };
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       const error = new Error(data.message || "Couldn't sync.");
@@ -729,8 +732,8 @@ export async function mountSync(api) {
         clearTimeout(saveTimer);
         setChip("Offline", "off");
       }
-      const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
-      if (mailbox.revision !== state.revision) {
+      const mailbox = await readMailbox();
+      if (mailbox && mailbox.revision !== state.revision) {
         armSaving();
         await pull(mailbox);
       }
@@ -759,6 +762,13 @@ export async function mountSync(api) {
   function schedule() {
     clearTimeout(timer);
     timer = setTimeout(() => tick(), 800);
+  }
+
+  async function readMailbox() {
+    const extra = state.revision ? { "If-None-Match": `"${state.revision}"` } : undefined;
+    const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`, undefined, undefined, undefined, extra);
+    if (mailbox.unchanged) return null;
+    return mailbox;
   }
 
   async function findRequest() {

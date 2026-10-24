@@ -306,7 +306,7 @@ const other = "cd".repeat(32);
   const home = await worker.fetch(new Request("https://sync.omacus.com/"), closed.env);
   assert(home.status === 404, "production served the app");
   const health = await worker.fetch(new Request("https://sync-test.omacus.com/v1/health"), closed.env);
-  assert((await health.json()).label === "1.0.0-beta.15", "label");
+  assert((await health.json()).label === "1.0.0-beta.16", "label");
 }
 
 {

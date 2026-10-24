@@ -10,4 +10,4 @@ pub mod http;
 pub mod invite;
 pub mod store;
 
-pub const LABEL: &str = "1.0.0-beta.15";
+pub const LABEL: &str = "1.0.0-beta.16";
