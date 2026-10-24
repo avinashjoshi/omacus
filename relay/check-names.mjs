@@ -10,7 +10,7 @@ const out = "/opt/cursor/artifacts/sync-test";
 fs.mkdirSync(out, { recursive: true });
 
 const PHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
-const NAMES = ["Trip notes", "Desk", "Harbor phone"];
+const NAMES = ["Trip notes", "Desk", "Harbor phone", "Cabin phone", "Window desk"];
 const leaks = [];
 let account = "";
 let puts = 0;
@@ -74,6 +74,34 @@ async function countTitle(page, name) {
   return rows.filter((row) => row.trim() === name).length;
 }
 
+async function placeOf(page, name) {
+  return page.evaluate((title) => {
+    const row = [...document.querySelectorAll(".side-row")].find((node) =>
+      [...node.querySelectorAll(".side-name span")].some((span) => span.textContent.trim() === title));
+    return row?.dataset.place || "";
+  }, name);
+}
+
+async function moveViaMenu(page, name, destination) {
+  const row = page.locator(".side-row").filter({ has: page.locator(".side-name span", { hasText: new RegExp(`^${name}$`) }) });
+  await row.locator(".row-more").click();
+  await page.getByRole("menuitem", { name: "Move to…" }).click();
+  await page.locator("[data-sync-dest]").waitFor();
+  await page.getByRole("button", { name: destination, exact: true }).click();
+}
+
+async function dragToSection(page, name, section) {
+  const row = page.locator(".side-row").filter({ has: page.locator(".side-name span", { hasText: new RegExp(`^${name}$`) }) });
+  const target = page.locator(`[data-drop-section='${section}']`);
+  const from = await row.boundingBox();
+  const to = await target.boundingBox();
+  if (!from || !to) throw new Error(`drag boxes ${name} ${section}`);
+  await page.mouse.move(from.x + 36, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to.x + 28, to.y + to.height / 2, { steps: 18 });
+  await page.mouse.up();
+}
+
 async function commitField(page, label, value) {
   const field = page.getByRole("textbox", { name: label });
   await field.fill(value);
@@ -125,7 +153,7 @@ const pageB = await openApp(contextB);
 
 try {
   const health = await (await fetch(relay + "/v1/health")).json();
-  if (health.label !== "1.0.0-beta.6") throw new Error(`relay label ${health.label}`);
+  if (health.label !== "1.0.0-beta.7") throw new Error(`relay label ${health.label}`);
 
   await openSync(pageA);
   const guessed = await pageA.getByRole("textbox", { name: "Name this phone or computer" }).inputValue();
@@ -150,7 +178,7 @@ try {
   await commitField(pageA, "Name for these pages", "Trip notes");
   await pageA.getByRole("heading", { name: "Sync is on" }).waitFor();
   await waitPuts(beforeRename);
-  if ((await pageA.locator("[data-sync-section='vault']").innerText()) !== "Trip notes") {
+  if (!(await pageA.locator("[data-sync-section='vault']").innerText()).includes("Trip notes")) {
     throw new Error("sidebar did not take the page-set name");
   }
   const before = await titles(pageA);
@@ -172,59 +200,141 @@ try {
   await pageA.locator("[data-sync-set]").waitFor({ timeout: 60000 });
   await pageA.waitForFunction(() => document.querySelector(".sync-devices")?.innerText.includes("Harbor phone"), null, { timeout: 20000 });
   await pageB.waitForFunction(() => document.querySelector(".sync-devices")?.innerText.includes("Desk"), null, { timeout: 20000 });
-  if ((await pageB.locator("[data-sync-section='vault']").innerText()) !== "Trip notes") {
+  if (!(await pageB.locator("[data-sync-section='vault']").innerText()).includes("Trip notes")) {
     throw new Error("the other phone did not show Trip notes");
   }
   const afterRename = await titles(pageA);
   if (afterRename.length < before.length) throw new Error("renaming dropped a page");
 
+  const beforeDevice = puts;
+  await pageA.locator(".sync-device").filter({ hasText: "Harbor phone" }).getByRole("button", { name: "Rename" }).click();
+  await commitField(pageA, "Name for this phone or computer", "Cabin phone");
+  await waitPuts(beforeDevice);
+  await pageA.waitForFunction(() => document.querySelector(".sync-devices")?.innerText.includes("Cabin phone"), null, { timeout: 10000 });
+  await pageB.waitForFunction(() => {
+    const field = document.querySelector("[aria-label='Name this phone or computer']");
+    return field?.value === "Cabin phone";
+  }, null, { timeout: 20000 });
+  const beforeDesk = puts;
+  await pageB.locator(".sync-device").filter({ hasText: "Desk" }).getByRole("button", { name: "Rename" }).click();
+  await commitField(pageB, "Name for this phone or computer", "Window desk");
+  await pageB.waitForFunction(() => document.querySelector(".sync-devices")?.innerText.includes("Window desk"), null, { timeout: 10000 });
+  await pageA.waitForFunction(() => {
+    const field = document.querySelector("[aria-label='Name this phone or computer']");
+    return field?.value === "Window desk";
+  }, null, { timeout: 20000 });
+  if (puts <= beforeDesk) throw new Error("renaming the other computer did not publish");
+  if ((await titles(pageA)).length < before.length) throw new Error("renaming a phone dropped a page");
+
   await closeSettings(pageA);
+  await closeSettings(pageB);
   await pageA.locator(".side-head [aria-label='New page']").click();
   await writePage(pageA, "# Lentils\nlentils = 180 g\n");
   await pageA.waitForFunction(() => [...document.querySelectorAll(".side-name span")].some((node) => node.textContent.trim() === "Lentils"), null, { timeout: 10000 });
+  await pageA.locator(".side-head [aria-label='New page']").click();
+  await writePage(pageA, "# Pantry\noats = 2\n");
+  await pageA.waitForFunction(() => [...document.querySelectorAll(".side-name span")].some((node) => node.textContent.trim() === "Pantry"), null, { timeout: 10000 });
   await pageB.waitForFunction(() => [...document.querySelectorAll(".side-name span")].filter((node) => node.textContent.trim() === "Lentils").length === 1, null, { timeout: 20000 });
+  await pageB.waitForFunction(() => [...document.querySelectorAll(".side-name span")].filter((node) => node.textContent.trim() === "Pantry").length === 1, null, { timeout: 20000 });
 
-  await openSync(pageA);
-  const lentils = pageA.locator("[data-sync-page='Lentils']");
-  if (await lentils.count() !== 1) throw new Error(`settings listed Lentils ${await lentils.count()} times`);
-  await lentils.getByRole("button", { name: "Keep here" }).click();
-  await pageA.locator("[data-sync-section='local']").waitFor();
-  await closeSettings(pageA);
-  await pageA.waitForFunction(() => {
-    const row = [...document.querySelectorAll(".side-row")].find((node) => [...node.querySelectorAll(".side-name span")].some((span) => span.textContent.trim() === "Lentils"));
-    return row?.querySelector(".sync-place")?.dataset.local === "1" && row.querySelector(".sync-place")?.textContent === "Here";
-  }, null, { timeout: 10000 });
-  if (await countTitle(pageA, "Lentils") !== 1) throw new Error("moving Lentils duplicated it");
+  await pageA.locator(".side-name").filter({ hasText: /^Lentils$/ }).click({ modifiers: ["Control"] });
+  await pageA.locator(".side-name").filter({ hasText: /^Pantry$/ }).click({ modifiers: ["Control"] });
+  await moveViaMenu(pageA, "Lentils", "On this computer");
+  const ask = await pageA.locator("[data-sync-move-detail]").innerText();
+  const askTitle = await pageA.locator("[data-sync-move-title]").innerText();
+  if (!askTitle.includes("2 pages")) throw new Error(`confirm title ${askTitle}`);
+  if (!ask.includes("Nothing is deleted") || !ask.includes("will not get later changes")) {
+    throw new Error(`confirm copy ${ask}`);
+  }
+  await pageA.setViewportSize({ width: 1280, height: 800 });
+  await pageA.evaluate(() => { document.documentElement.dataset.appTheme = "light"; });
+  await shot(pageA, "names-move-laptop");
+  await pageA.getByRole("button", { name: "Not now" }).click();
+  if (await placeOf(pageA, "Lentils") !== "synced") throw new Error("cancel moved Lentils");
+  if (await placeOf(pageA, "Pantry") !== "synced") throw new Error("cancel moved Pantry");
+
+  const beforeMove = puts;
+  await moveViaMenu(pageA, "Lentils", "On this computer");
+  await pageA.getByRole("button", { name: "Move", exact: true }).click();
+  await waitPuts(beforeMove);
+  if (await placeOf(pageA, "Lentils") !== "local") throw new Error("Lentils stayed in the set");
+  if (await placeOf(pageA, "Pantry") !== "local") throw new Error("Pantry stayed in the set");
+  if (await countTitle(pageA, "Lentils") !== 1 || await countTitle(pageA, "Pantry") !== 1) {
+    throw new Error("moving two pages duplicated one");
+  }
+  const beforeUndo = puts;
+  await pageA.getByRole("button", { name: "Undo" }).click();
+  await waitPuts(beforeUndo);
+  if (await placeOf(pageA, "Lentils") !== "synced" || await placeOf(pageA, "Pantry") !== "synced") {
+    throw new Error("undo did not put the pages back");
+  }
+  if (await countTitle(pageA, "Lentils") !== 1 || await countTitle(pageA, "Pantry") !== 1) {
+    throw new Error("undo duplicated a page");
+  }
+
+  await dragToSection(pageA, "Lentils", "local");
+  await pageA.locator("[data-sync-move]").waitFor({ timeout: 5000 });
+  const one = await pageA.locator("[data-sync-move-title]").innerText();
+  if (!one.includes("Lentils")) throw new Error(`drag confirm ${one}`);
+  const beforeOne = puts;
+  await pageA.getByRole("button", { name: "Move", exact: true }).click();
+  await waitPuts(beforeOne);
+  if (await placeOf(pageA, "Lentils") !== "local") throw new Error("drag left Lentils in the set");
+  if (await placeOf(pageA, "Pantry") !== "synced") throw new Error("drag moved Pantry too");
+  if (await countTitle(pageA, "Lentils") !== 1) throw new Error("dragging Lentils duplicated it");
+  await pageA.evaluate(() => {
+    const toast = document.querySelector("[data-toast]");
+    if (toast) toast.hidden = true;
+  });
+  await pageB.waitForFunction(() => {
+    const place = (title) => {
+      const row = [...document.querySelectorAll(".side-row")].find((node) =>
+        [...node.querySelectorAll(".side-name span")].some((span) => span.textContent.trim() === title));
+      return row?.dataset.place || "";
+    };
+    return place("Lentils") === "local" && place("Pantry") === "synced";
+  }, null, { timeout: 20000 });
+
+  await pageA.locator("[data-sync-section='vault'] button").click();
+  if (await pageA.locator("[data-sync-section='vault'] button").getAttribute("aria-expanded") !== "false") {
+    throw new Error("the page set did not collapse");
+  }
+  if ((await titles(pageA)).some((row) => row.trim() === "Trip Budget")) throw new Error("a collapsed section still listed Trip Budget");
+  if (await countTitle(pageA, "Lentils") !== 1) throw new Error("collapsing hid the page that stays here");
+  await pageA.locator("[data-sync-section='vault'] button").click();
 
   await openNamed(pageA, "Lentils");
   await pageA.locator(".cm-content").click();
   await pageA.keyboard.press("Control+End");
-  await pageA.keyboard.insertText("oats = 2\n");
-  await pageA.waitForTimeout(400);
+  await pageA.keyboard.insertText("\nmustard = 1\n");
+  await pageA.locator(".cm-content").getByText("mustard = 1").waitFor({ timeout: 5000 });
   await openNamed(pageA, "Trip Budget");
   await pageA.locator(".cm-content").click();
   await pageA.keyboard.press("Control+End");
   await pageA.keyboard.insertText("\nsesame = 12 g\n");
   await pageA.waitForTimeout(400);
-  await closeSettings(pageB).catch(() => {});
   await openNamed(pageB, "Trip Budget");
   await pageB.locator(".cm-content").getByText("sesame = 12 g").waitFor({ timeout: 20000 });
   await settled(pageA);
   await pageB.waitForTimeout(4500);
   await openNamed(pageB, "Lentils");
   const held = await pageB.locator(".cm-content").innerText();
-  if (held.includes("oats = 2")) throw new Error("a page kept here was sent to the other phone");
+  if (held.includes("mustard = 1")) throw new Error("a page kept here was sent to the other phone");
   if (!held.includes("lentils = 180 g")) throw new Error("the other phone lost Lentils");
 
-  await openSync(pageA);
-  await pageA.locator("[data-sync-page='Lentils']").getByRole("button", { name: "Sync this page" }).click();
-  await closeSettings(pageA);
-  await pageB.locator(".cm-content").getByText("oats = 2").waitFor({ timeout: 20000 });
+  await openNamed(pageA, "Lentils");
+  const beforeMoveText = await pageA.locator(".cm-content").innerText();
+  if (!beforeMoveText.includes("mustard = 1")) throw new Error(`Desk lost mustard before the move: ${beforeMoveText.slice(0, 180)}`);
+  await moveViaMenu(pageA, "Lentils", "Trip notes");
+  await pageA.getByRole("button", { name: "Move", exact: true }).click();
+  await settled(pageA);
+  await openNamed(pageB, "Lentils");
+  await pageB.locator(".cm-content").getByText("mustard = 1").waitFor({ timeout: 20000 });
   if (await countTitle(pageA, "Lentils") !== 1) throw new Error("moving Lentils back duplicated it on Desk");
   if (await countTitle(pageB, "Lentils") !== 1) throw new Error("moving Lentils back duplicated it on the phone");
   await openNamed(pageA, "Lentils");
   const lentilText = await pageA.locator(".cm-content").innerText();
-  if (!lentilText.includes("lentils = 180 g") || !lentilText.includes("oats = 2")) throw new Error("Desk lost the Lentils lines");
+  if (!lentilText.includes("lentils = 180 g") || !lentilText.includes("mustard = 1")) throw new Error("Desk lost the Lentils lines");
 
   await pageA.reload({ waitUntil: "domcontentloaded" });
   await pageB.reload({ waitUntil: "domcontentloaded" });
@@ -234,7 +344,7 @@ try {
   await pageB.waitForFunction(() => [...document.querySelectorAll(".side-name span")].filter((node) => node.textContent.trim() === "Lentils").length === 1, null, { timeout: 20000 });
   await openNamed(pageA, "Lentils");
   const reloaded = await pageA.locator(".cm-content").innerText();
-  if (!reloaded.includes("oats = 2")) throw new Error("reload lost oats");
+  if (!reloaded.includes("mustard = 1")) throw new Error("reload lost mustard");
   await openNamed(pageA, "Trip Budget");
   if (!(await pageA.locator(".cm-content").innerText()).includes("sesame = 12 g")) throw new Error("reload lost sesame");
 
@@ -257,8 +367,8 @@ try {
   if (new Set(widths).size !== 1) throw new Error(`chip width jumped ${widths.join(",")}`);
 
   await openSync(pageA);
-  await pageA.locator(".sync-device").filter({ hasText: "Harbor phone" }).getByRole("button", { name: "Remove" }).click();
-  await pageA.getByRole("heading", { name: "Remove Harbor phone?" }).waitFor();
+  await pageA.locator(".sync-device").filter({ hasText: "Cabin phone" }).getByRole("button", { name: "Remove" }).click();
+  await pageA.getByRole("heading", { name: "Remove Cabin phone?" }).waitFor();
   await pageA.setViewportSize({ width: 1280, height: 800 });
   await pageA.evaluate(() => { document.documentElement.dataset.appTheme = "light"; });
   await shot(pageA, "names-remove-laptop");
@@ -275,6 +385,12 @@ try {
   await pageB.locator(".sheets-toggle").click();
   await pageB.waitForFunction(() => document.querySelector(".side")?.getBoundingClientRect().left >= 0, null, { timeout: 5000 });
   await shot(pageB, "names-sidebar-phone");
+  const phoneRow = pageB.locator(".side-row").filter({ has: pageB.locator(".side-name span", { hasText: /^Pantry$/ }) });
+  await phoneRow.locator(".row-more").click();
+  await pageB.getByRole("menuitem", { name: "Move to…" }).click();
+  await pageB.locator("[data-sync-dest]").waitFor();
+  await shot(pageB, "names-move-phone");
+  await pageB.getByRole("button", { name: "Cancel" }).click();
   await pageB.locator(".sheets-toggle").click();
   await openSync(pageB);
   await shot(pageB, "names-settings-phone");

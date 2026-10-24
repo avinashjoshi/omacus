@@ -192,6 +192,21 @@
           <button class="btn small" type="button" data-action="close-lock">Cancel</button>
         </div>
       </div>
+      <div class="confirm" hidden data-sync-dest role="dialog" aria-modal="true" aria-labelledby="sync-dest-title">
+        <p id="sync-dest-title">Move to…</p>
+        <div class="move-list" data-sync-dest-list></div>
+        <div>
+          <button class="btn small" type="button" data-sync-dest-cancel>Cancel</button>
+        </div>
+      </div>
+      <div class="confirm" hidden data-sync-move role="dialog" aria-modal="true" aria-labelledby="sync-move-title">
+        <p id="sync-move-title" data-sync-move-title></p>
+        <p class="confirm-note" data-sync-move-detail></p>
+        <div>
+          <button class="btn small primary" type="button" data-sync-move-yes>Move</button>
+          <button class="btn small" type="button" data-sync-move-no>Not now</button>
+        </div>
+      </div>
       <div class="confirm" hidden data-rename role="dialog" aria-modal="true" aria-labelledby="rename-title">
         <p id="rename-title">Rename folder</p>
         <input data-rename-input type="text" maxlength="80" autocomplete="off" spellcheck="false" aria-label="Folder name">

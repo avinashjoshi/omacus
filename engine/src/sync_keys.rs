@@ -2667,4 +2667,187 @@ mod tests {
                 .all(|window| window != phone.as_bytes())
         );
     }
+
+    #[test]
+    fn a_hundred_pages_leave_together_and_come_back_once() {
+        let mut library = omacus_doc::Library::new();
+        let mut pages = Vec::new();
+        let mut membership = Vec::new();
+        for n in 0..100usize {
+            let id = format!("page-{n:03}");
+            let text = format!("line {n}\n");
+            library.reconcile(&id, &text, None);
+            library.note_written(&id, &text);
+            pages.push((id.clone(), text));
+            if n.is_multiple_of(2) {
+                membership.push(PageMember {
+                    id,
+                    rev: 1,
+                    in_vault: false,
+                });
+            }
+        }
+        let doc = library.save();
+        let renamed = "Cabin phone";
+        let local = PageSet {
+            doc: doc.clone(),
+            pages: pages.clone(),
+            meta: SyncMeta {
+                vault_name: "My pages".into(),
+                name_rev: 1,
+                devices: vec![DeviceLabel {
+                    id: [9; 16],
+                    rev: 4,
+                    name: renamed.into(),
+                }],
+                membership,
+            },
+        };
+        let remote = PageSet {
+            doc: doc.clone(),
+            pages: pages
+                .iter()
+                .map(|(id, text)| (id.clone(), format!("{text}extra\n")))
+                .collect(),
+            meta: SyncMeta {
+                vault_name: "My pages".into(),
+                name_rev: 1,
+                devices: vec![DeviceLabel {
+                    id: [9; 16],
+                    rev: 2,
+                    name: "Harbor phone".into(),
+                }],
+                membership: vec![],
+            },
+        };
+        let merged = local.merge(remote);
+        assert_eq!(merged.pages.len(), 50, "even pages stay out of the set");
+        let mut seen: Vec<_> = merged.pages.iter().map(|(id, _)| id.clone()).collect();
+        seen.sort();
+        seen.dedup();
+        assert_eq!(seen.len(), 50, "a page that leaves is not copied");
+        assert!(merged.pages.iter().all(|(id, _)| {
+            let n: usize = id.rsplit('-').next().unwrap().parse().unwrap();
+            !n.is_multiple_of(2)
+        }));
+        let sample = merged
+            .pages
+            .iter()
+            .find(|(id, _)| id == "page-001")
+            .unwrap();
+        assert!(sample.1.contains("extra"), "{}", sample.1);
+        assert_eq!(merged.meta.devices.len(), 1);
+        assert_eq!(merged.meta.devices[0].name, renamed);
+        assert_eq!(merged.meta.devices[0].rev, 4);
+
+        let mut back = merged;
+        let returning: Vec<_> = back
+            .meta
+            .membership
+            .iter()
+            .filter(|member| {
+                let n: usize = member.id.rsplit('-').next().unwrap().parse().unwrap();
+                n.is_multiple_of(2)
+            })
+            .map(|member| member.id.clone())
+            .collect();
+        for member in &mut back.meta.membership {
+            if returning.iter().any(|id| id == &member.id) {
+                member.rev = 2;
+                member.in_vault = true;
+            }
+        }
+        for id in &returning {
+            let n: usize = id.rsplit('-').next().unwrap().parse().unwrap();
+            back.pages.push((id.clone(), format!("line {n}\nback\n")));
+        }
+        let shared = back.doc.clone();
+        let returned = back.merge(PageSet {
+            doc: shared,
+            pages: pages
+                .into_iter()
+                .filter(|(id, _)| {
+                    let n: usize = id.rsplit('-').next().unwrap().parse().unwrap();
+                    !n.is_multiple_of(2)
+                })
+                .collect(),
+            meta: SyncMeta::default(),
+        });
+        assert_eq!(returned.pages.len(), 100);
+        let mut back_ids: Vec<_> = returned.pages.iter().map(|(id, _)| id.clone()).collect();
+        back_ids.sort();
+        back_ids.dedup();
+        assert_eq!(
+            back_ids.len(),
+            100,
+            "coming back does not add a second page"
+        );
+        assert!(
+            returned
+                .pages
+                .iter()
+                .any(|(id, text)| id == "page-000" && text.contains("back"))
+        );
+        let sealed = seal_page(
+            &VaultKey::generate().unwrap(),
+            1,
+            b"pages",
+            &returned.to_bytes().unwrap(),
+        )
+        .unwrap();
+        assert!(
+            sealed
+                .windows(renamed.len())
+                .all(|window| window != renamed.as_bytes())
+        );
+    }
+
+    #[test]
+    fn a_page_that_comes_back_keeps_the_line_typed_while_it_was_here() {
+        let mut library = omacus_doc::Library::new();
+        library.reconcile("lentils", "# Lentils\nlentils = 180 g\n", None);
+        library.note_written("lentils", "# Lentils\nlentils = 180 g\n");
+        let shared = library.save();
+        let mut stripped = omacus_doc::Library::load(&shared).unwrap();
+        assert!(stripped.remove_page("lentils"));
+        let doc = stripped.save();
+        let member = PageMember {
+            id: "lentils".into(),
+            rev: 3,
+            in_vault: true,
+        };
+        let stale = PageSet {
+            doc: doc.clone(),
+            pages: vec![("lentils".into(), "# Lentils\nlentils = 180 g\n".into())],
+            meta: SyncMeta {
+                vault_name: "Trip notes".into(),
+                name_rev: 1,
+                membership: vec![member.clone()],
+                ..SyncMeta::default()
+            },
+        };
+        let fresh = PageSet {
+            doc,
+            pages: vec![(
+                "lentils".into(),
+                "# Lentils\nlentils = 180 g\n\nmustard = 1\n".into(),
+            )],
+            meta: SyncMeta {
+                vault_name: "Trip notes".into(),
+                name_rev: 1,
+                membership: vec![member],
+                ..SyncMeta::default()
+            },
+        };
+        let merged = stale.merge(fresh);
+        let shown: Vec<_> = merged
+            .pages
+            .iter()
+            .map(|(id, text)| format!("{id}: {text:?}"))
+            .collect();
+        assert_eq!(merged.pages.len(), 1, "{shown:?}");
+        let text = &merged.pages[0].1;
+        assert!(text.contains("lentils = 180 g"), "{text}");
+        assert!(text.contains("mustard = 1"), "{text}");
+    }
 }

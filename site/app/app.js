@@ -108,6 +108,11 @@ const el = {
   pagePreviewBody: $("[data-page-preview-body]"),
   move: $("[data-move]"),
   moveList: $("[data-move-list]"),
+  syncDest: $("[data-sync-dest]"),
+  syncDestList: $("[data-sync-dest-list]"),
+  syncMove: $("[data-sync-move]"),
+  syncMoveTitle: $("[data-sync-move-title]"),
+  syncMoveDetail: $("[data-sync-move-detail]"),
   rename: $("[data-rename]"),
   renameInput: $("[data-rename-input]"),
   switcher: $("[data-switcher]"),
@@ -916,9 +921,14 @@ function installLibrary(lib) {
 let syncTouched = () => {};
 let applyingRemote = false;
 let syncPlaces = null;
+const sideCollapsed = { vault: false, local: false };
+let sidePick = new Set();
+let sideAnchor = "";
+let pendingMove = null;
 
 function setSyncPlaces(places) {
   syncPlaces = places || null;
+  if (!syncPlaces) sidePick.clear();
   renderSidebar();
 }
 
@@ -936,12 +946,141 @@ function filterSyncedTree(nodes, local) {
   return out;
 }
 
-function sideCaption(text, kind) {
+function sideCaption(text, kind, count) {
   const row = document.createElement("div");
   row.className = "side-sync-label";
   row.dataset.syncSection = kind;
-  row.textContent = text;
+  row.dataset.dropSection = kind;
+  const open = !sideCollapsed[kind];
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "side-section";
+  button.setAttribute("aria-expanded", String(open));
+  button.setAttribute("aria-label", `${open ? "Collapse" : "Expand"} ${text}`);
+  const mark = document.createElement("span");
+  mark.className = "chevron";
+  mark.append(chevronIcon());
+  const label = document.createElement("span");
+  label.textContent = `${text} · ${count}`;
+  button.append(mark, label);
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    sideCollapsed[kind] = !sideCollapsed[kind];
+    renderSidebar();
+  });
+  row.append(button);
   return row;
+}
+
+function sidePickNote() {
+  const row = document.createElement("div");
+  row.className = "side-sync-label";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "side-section";
+  button.textContent = sidePick.size === 1 ? "1 selected · Clear" : `${sidePick.size} selected · Clear`;
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    sidePick.clear();
+    renderSidebar();
+  });
+  row.append(button);
+  return row;
+}
+
+function syncSectionOf(id) {
+  if (!syncPlaces) return null;
+  return (syncPlaces.localIds || []).includes(id) ? "local" : "vault";
+}
+
+function herePhrase() {
+  return (syncPlaces?.here || "On this computer").replace(/^On /, "this ");
+}
+
+function closeSyncDest() {
+  if (el.syncDest) el.syncDest.hidden = true;
+}
+
+function closeSyncMove() {
+  if (el.syncMove) el.syncMove.hidden = true;
+  pendingMove = null;
+}
+
+function syncDestinations() {
+  if (!syncPlaces) return [];
+  return [
+    { id: "vault", label: syncPlaces.vaultName || "My pages" },
+    { id: "local", label: syncPlaces.here || "On this computer" },
+  ];
+}
+
+function openSyncDest(ids) {
+  const unique = [...new Set(ids)].filter((id) => pageIds(state.tree).includes(id));
+  if (!unique.length || !el.syncDest || !el.syncDestList) return;
+  const places = new Set(unique.map(syncSectionOf));
+  el.syncDestList.replaceChildren();
+  for (const dest of syncDestinations()) {
+    if (places.size === 1 && places.has(dest.id)) continue;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = dest.label;
+    button.addEventListener("click", () => {
+      closeSyncDest();
+      askSyncMove(unique, dest.id === "vault");
+    });
+    el.syncDestList.append(button);
+  }
+  if (!el.syncDestList.childElementCount) return;
+  el.syncDest.hidden = false;
+  el.syncDestList.querySelector("button")?.focus();
+}
+
+function askSyncMove(ids, inVault) {
+  const unique = [...new Set(ids)].filter((id) => pageIds(state.tree).includes(id));
+  if (!unique.length || !syncPlaces || !el.syncMove) return;
+  const name = syncPlaces.vaultName || "My pages";
+  const place = herePhrase();
+  const many = unique.length > 1;
+  pendingMove = { ids: unique, inVault };
+  if (inVault) {
+    el.syncMoveTitle.textContent = many
+      ? `Move ${unique.length} pages into ${name}?`
+      : `Move “${pageLabel(unique[0])}” into ${name}?`;
+    el.syncMoveDetail.textContent = many
+      ? `They join ${name}. Other phones and computers get these copies. If they already have one, it stays one page. Nothing is deleted. You can move them back.`
+      : `It joins ${name}. Other phones and computers get this copy. If they already have it, it stays one page. Nothing is deleted. You can move it back.`;
+  } else {
+    el.syncMoveTitle.textContent = many
+      ? `Move ${unique.length} pages out of ${name}?`
+      : `Move “${pageLabel(unique[0])}” out of ${name}?`;
+    el.syncMoveDetail.textContent = many
+      ? `They stay on ${place}. Other phones and computers take them out of ${name}. The copy already there stays there and will not get later changes. Nothing is deleted. You can move them back.`
+      : `It stays on ${place}. Other phones and computers take it out of ${name}. The copy already there stays there and will not get later changes. Nothing is deleted. You can move it back.`;
+  }
+  el.syncMove.hidden = false;
+  $("[data-sync-move-yes]")?.focus();
+}
+
+function commitSyncMove() {
+  if (!pendingMove || typeof syncPlaces?.move !== "function") {
+    closeSyncMove();
+    return;
+  }
+  const { ids, inVault } = pendingMove;
+  closeSyncMove();
+  syncPlaces.move(ids, inVault);
+  sidePick.clear();
+  const where = inVault ? (syncPlaces.vaultName || "My pages") : (syncPlaces.here || "On this computer");
+  const message = ids.length === 1
+    ? `Moved ${pageLabel(ids[0])} to ${where}.`
+    : `Moved ${ids.length} pages to ${where}.`;
+  toast(message, {
+    label: "Undo",
+    run: () => syncPlaces.move(ids, !inVault),
+  }, 10000);
+  renderSidebar();
 }
 function noteSyncEdit() {
   if (!applyingRemote) syncTouched();
@@ -1590,6 +1729,26 @@ function onInput() {
 const editorStates = new Map();
 let shownId = null;
 
+// The open editor is the copy the person just typed. A sync refresh can
+// replace the saved text for another page; it must not throw this one away.
+function rememberOpenEditor() {
+  if (!view || shownId == null) return;
+  editorStates.set(shownId, view.state);
+  if (applyingRemote || shownId === "shared" || pageConcealed(shownId)) return;
+  const live = view.state.doc.toString();
+  if (keyFor(shownId)) {
+    plains.set(shownId, live);
+    const sealed = reseal(shownId, live);
+    if (sealed) state.texts.set(shownId, sealed);
+    return;
+  }
+  if ((state.texts.get(shownId) ?? "") === live) return;
+  state.texts.set(shownId, live);
+  clearTimeout(pendingSave);
+  pendingSave = null;
+  saveSheet(shownId);
+}
+
 function showSheet() {
   switchingPage = true;
   closeRename();
@@ -1600,7 +1759,9 @@ function showSheet() {
   refDismissed = false;
   closePagePreview();
   clearPreview();
-  if (shownId !== null) editorStates.set(shownId, view.state);
+  const leaving = shownId !== state.active;
+  if (leaving) rememberOpenEditor();
+  else if (shownId !== null) editorStates.set(shownId, view.state);
   shownId = state.active;
   results = [];
   resultsText = "";
@@ -1667,14 +1828,24 @@ function renderSidebar() {
     }
   } else {
     const local = new Set(syncPlaces.localIds || []);
-    rows.push(sideCaption(syncPlaces.vaultName || "My pages", "vault"));
-    for (const entry of visible(filterSyncedTree(state.tree, local))) {
-      rows.push(entry.type === "folder" ? folderRow(entry) : pageRow(entry.id, shownPlain(entry.id), false, entry.depth, "synced"));
-    }
-    rows.push(sideCaption(syncPlaces.here || "On this computer", "local"));
+    const known = new Set(pageIds(state.tree));
+    for (const id of sidePick) if (!known.has(id)) sidePick.delete(id);
+    const vaultIds = [];
+    const hereIds = [];
     for (const id of pageIds(state.tree)) {
-      if (!local.has(id) || !state.texts.has(id)) continue;
-      rows.push(pageRow(id, shownPlain(id), false, 0, "local"));
+      if (!state.texts.has(id)) continue;
+      (local.has(id) ? hereIds : vaultIds).push(id);
+    }
+    if (sidePick.size) rows.push(sidePickNote());
+    rows.push(sideCaption(syncPlaces.vaultName || "My pages", "vault", vaultIds.length));
+    if (!sideCollapsed.vault) {
+      for (const entry of visible(filterSyncedTree(state.tree, local))) {
+        rows.push(entry.type === "folder" ? folderRow(entry) : pageRow(entry.id, shownPlain(entry.id), false, entry.depth, "synced"));
+      }
+    }
+    rows.push(sideCaption(syncPlaces.here || "On this computer", "local", hereIds.length));
+    if (!sideCollapsed.local) {
+      for (const id of hereIds) rows.push(pageRow(id, shownPlain(id), false, 0, "local"));
     }
   }
   const fill = document.createElement("div");
@@ -1775,13 +1946,8 @@ function pageRow(id, text, shared, depth, place) {
     name.append(tag);
   }
   row.append(name);
-  if (!shared && place) {
-    const tag = document.createElement("i");
-    tag.className = "sync-place";
-    tag.dataset.local = place === "local" ? "1" : "0";
-    tag.textContent = place === "local" ? "Here" : "Synced";
-    row.append(tag);
-  }
+  if (!shared && place) row.dataset.place = place === "local" ? "local" : "synced";
+  if (!shared && sidePick.has(id)) row.dataset.picked = "1";
   if (!shared) row.append(moreButton("Page menu"));
   if (id === state.active && !preview) row.setAttribute("aria-current", "true");
   return row;
@@ -2755,9 +2921,13 @@ const editorExtensions = [
     // completionStatus wants the state; passing the view throws, which used to
     // skip this and leave the new line blank and the lines below it dimmed.
     if (update.docChanged) {
-      noteCrossUndo(update);
-      if (!committingTyped && !switchingPage) {
-        noteDefinitionEdit(update.view, update.startState.doc.toString(), update.state.doc.toString());
+      try {
+        noteCrossUndo(update);
+        if (!committingTyped && !switchingPage) {
+          noteDefinitionEdit(update.view, update.startState.doc.toString(), update.state.doc.toString());
+        }
+      } catch {
+        // The rename offer can fail. The typed line still has to be kept.
       }
       onInput();
     }
@@ -3778,10 +3948,18 @@ function openRowMenu(row, x, y) {
   if (!ends.last) items.push({ label: "Move down", run: () => nudge(id, 1) });
   items.push({ label: "Move to folder…", run: () => openMove(id) });
   if (syncPlaces && typeof syncPlaces.move === "function") {
-    const local = (syncPlaces.localIds || []).includes(id);
     items.push({
-      label: local ? `Sync with ${syncPlaces.vaultName || "My pages"}` : (syncPlaces.keep || "Keep on this computer"),
-      run: () => syncPlaces.move(id, local),
+      label: "Move to…",
+      run: () => openSyncDest(sidePick.has(id) ? [...sidePick] : [id]),
+    });
+    items.push({
+      label: sidePick.has(id) ? "Deselect" : "Select",
+      run: () => {
+        if (sidePick.has(id)) sidePick.delete(id);
+        else sidePick.add(id);
+        sideAnchor = id;
+        renderSidebar();
+      },
     });
   }
   items.push("sep");
@@ -3815,9 +3993,12 @@ function ensureChip() {
 
 function showChip() {
   const chip = ensureChip();
-  chip.textContent = drag.kind === "folder"
-    ? folders(state.tree).find((folder) => folder.id === drag.id)?.name || "Folder"
-    : pageLabel(drag.id);
+  const count = drag.kind === "page" && sidePick.has(drag.id) ? sidePick.size : 1;
+  chip.textContent = count > 1
+    ? `${count} pages`
+    : drag.kind === "folder"
+      ? folders(state.tree).find((folder) => folder.id === drag.id)?.name || "Folder"
+      : pageLabel(drag.id);
   chip.hidden = false;
 }
 
@@ -3839,7 +4020,12 @@ function paintDrop() {
   for (const row of el.sheets.querySelectorAll(".side-row")) {
     row.classList.remove("drop-before", "drop-after", "drop-into");
   }
+  for (const label of el.sheets.querySelectorAll(".side-sync-label")) label.classList.remove("drop-into");
   if (!drag?.active || !drag.spot) return;
+  if (drag.spot.kind === "sync") {
+    el.sheets.querySelector(`[data-drop-section="${drag.spot.section}"]`)?.classList.add("drop-into");
+    return;
+  }
   if (drag.spot.kind === "root") {
     el.sheets.classList.add("drop-end");
     return;
@@ -3866,6 +4052,17 @@ function chooseSpot(row, clientY) {
 function spotAt(x, y) {
   const hit = document.elementFromPoint(x, y);
   const row = hit?.closest?.(".side-row");
+  if (syncPlaces && drag?.kind === "page") {
+    const sectionNode = hit?.closest?.("[data-drop-section]");
+    let target = sectionNode && el.sheets.contains(sectionNode) ? sectionNode.dataset.dropSection : null;
+    if (!target && row && el.sheets.contains(row) && row.dataset.kind === "page") {
+      target = row.dataset.place === "local" ? "local" : row.dataset.place === "synced" ? "vault" : null;
+    }
+    const fill = hit?.closest?.(".side-fill");
+    if (!target && fill && el.sheets.contains(fill)) target = "local";
+    const from = syncSectionOf(drag.id);
+    if (target && from && target !== from) return { kind: "sync", section: target };
+  }
   if (row && el.sheets.contains(row) && row.dataset.kind !== "shared") return chooseSpot(row, y);
   if (hit?.closest?.("[data-sheets]") && validDrop(state.tree, drag.id, { kind: "root" })) return { kind: "root" };
   return null;
@@ -3938,8 +4135,16 @@ function onSidePointerUp(e) {
   hideChip();
   document.body.classList.remove("dragging-side");
   if (e.type === "pointercancel" || !finished.active) return;
+  // The click that finishes the drag must not also open the page. A later
+  // click, after the confirm dialog, still opens the page it lands on.
   ignoreClick = true;
-  if (finished.spot) applyPlace(finished.id, finished.spot);
+  setTimeout(() => {
+    ignoreClick = false;
+  }, 0);
+  if (finished.spot?.kind === "sync") {
+    const ids = finished.kind === "page" && sidePick.has(finished.id) ? [...sidePick] : [finished.id];
+    askSyncMove(ids, finished.spot.section === "vault");
+  } else if (finished.spot) applyPlace(finished.id, finished.spot);
   renderSidebar();
 }
 
@@ -3959,6 +4164,26 @@ function onSideClick(e) {
   }
   const row = e.target.closest?.(".side-row");
   if (!row) return;
+  if (row.dataset.kind === "page" && syncPlaces && (e.ctrlKey || e.metaKey)) {
+    if (sidePick.has(row.dataset.id)) sidePick.delete(row.dataset.id);
+    else sidePick.add(row.dataset.id);
+    sideAnchor = row.dataset.id;
+    renderSidebar();
+    return;
+  }
+  if (row.dataset.kind === "page" && syncPlaces && e.shiftKey && sideAnchor) {
+    const order = [...el.sheets.querySelectorAll(".side-row[data-kind='page']")].map((item) => item.dataset.id);
+    const from = order.indexOf(sideAnchor);
+    const to = order.indexOf(row.dataset.id);
+    if (from >= 0 && to >= 0) {
+      const [lo, hi] = from < to ? [from, to] : [to, from];
+      sidePick = new Set(order.slice(lo, hi + 1));
+      renderSidebar();
+      return;
+    }
+  }
+  if (row.dataset.kind === "page" && sidePick.size && !e.shiftKey && !e.ctrlKey && !e.metaKey) sidePick.clear();
+  if (row.dataset.kind === "page") sideAnchor = row.dataset.id;
   if (row.dataset.kind === "folder") {
     toggleFolder(state.tree, row.dataset.id);
     saveIndex();
@@ -4153,7 +4378,7 @@ addEventListener(
     if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if ((el.confirm && !el.confirm.hidden) || (el.pick && !el.pick.hidden) || (el.rename && !el.rename.hidden) || (el.move && !el.move.hidden) || (el.switcher && !el.switcher.hidden)) return;
+      if ((el.confirm && !el.confirm.hidden) || (el.pick && !el.pick.hidden) || (el.rename && !el.rename.hidden) || (el.move && !el.move.hidden) || (el.syncMove && !el.syncMove.hidden) || (el.syncDest && !el.syncDest.hidden) || (el.switcher && !el.switcher.hidden)) return;
       if (state.active && state.active !== "shared") {
         e.preventDefault();
         e.stopPropagation();
@@ -4185,6 +4410,14 @@ addEventListener("keydown", (e) => {
     }
     if (el.lock && !el.lock.hidden) {
       closeLock();
+      return;
+    }
+    if (el.syncMove && !el.syncMove.hidden) {
+      closeSyncMove();
+      return;
+    }
+    if (el.syncDest && !el.syncDest.hidden) {
+      closeSyncDest();
       return;
     }
     if (el.move && !el.move.hidden) {
@@ -4291,6 +4524,9 @@ el.handleInput?.addEventListener("keydown", (event) => {
 $("[data-handle-save]")?.addEventListener("click", commitHandle);
 $("[data-handle-cancel]")?.addEventListener("click", closeHandleDialog);
 
+$("[data-sync-move-yes]")?.addEventListener("click", commitSyncMove);
+$("[data-sync-move-no]")?.addEventListener("click", closeSyncMove);
+$("[data-sync-dest-cancel]")?.addEventListener("click", closeSyncDest);
 $("[data-confirm-yes]")?.addEventListener("click", commitDelete);
 $("[data-confirm-no]")?.addEventListener("click", () => {
   if (el.confirm) el.confirm.hidden = true;
@@ -4695,8 +4931,11 @@ async function applyRemoteLibrary(nextDoc, pages) {
     // `nextDoc` is already the merged document. Folding it into the copy
     // already on this device would put a deleted line back.
     let doc = nextDoc && nextDoc.length ? nextDoc : (docBytes && docBytes.length ? docBytes : null);
+    const stay = new Set(syncPlaces?.localIds || []);
+    const activeBefore = state.active && state.active !== "shared" ? (state.texts.get(state.active) ?? "") : null;
     for (const [id, text] of pages) {
       if (!id || id === "shared") continue;
+      if (stay.has(id) && state.texts.has(id)) continue;
       const body = typeof text === "string" ? text : "";
       if (doc && doc.length && !isLock(body)) {
         let shown = "";
@@ -4736,7 +4975,8 @@ async function applyRemoteLibrary(nextDoc, pages) {
     if (state.active !== "shared" && !state.order.includes(state.active)) state.active = state.order[0] ?? state.active;
     saveIndex();
     renderSidebar();
-    if (state.active && state.active !== "shared") showSheet();
+    const activeAfter = state.active && state.active !== "shared" ? (state.texts.get(state.active) ?? "") : null;
+    if (activeBefore !== activeAfter && state.active && state.active !== "shared") showSheet();
     showDocConflicts();
   } finally {
     applyingRemote = false;

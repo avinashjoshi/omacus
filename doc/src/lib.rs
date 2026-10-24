@@ -1046,7 +1046,14 @@ fn prepare_library(doc: &[u8], pages: &[(String, String)]) -> Library {
         if id.is_empty() {
             continue;
         }
-        if lib.snapshot(id).as_deref() != Some(text.as_str()) {
+        // A page the document no longer carries is added once after the merge.
+        // Putting it back on each side first makes two copies, and the new
+        // lines disappear.
+        let shown = lib.snapshot(id);
+        if shown.is_none() {
+            continue;
+        }
+        if shown.as_deref() != Some(text.as_str()) {
             lib.reconcile(id, text, None);
             lib.note_written(id, text);
         }
@@ -1059,21 +1066,47 @@ fn finish_library(
     local_pages: &[(String, String)],
     remote_pages: &[(String, String)],
 ) -> (Vec<u8>, Vec<(String, String)>) {
+    let mut pending: Vec<(String, Vec<&str>)> = Vec::new();
     for (id, text) in local_pages.iter().chain(remote_pages.iter()) {
         if id.is_empty() {
             continue;
         }
-        if lib.snapshot(id).is_none() {
-            lib.reconcile(id, text, None);
-            lib.note_written(id, text);
+        if let Some((_, texts)) = pending.iter_mut().find(|(have, _)| have == id) {
+            if !texts.contains(&text.as_str()) {
+                texts.push(text.as_str());
+            }
+        } else {
+            pending.push((id.clone(), vec![text.as_str()]));
         }
     }
+    for (id, texts) in pending {
+        if lib.snapshot(&id).is_some() {
+            continue;
+        }
+        let combined = union_many(&texts);
+        lib.reconcile(&id, &combined, None);
+        lib.note_written(&id, &combined);
+    }
+    let mut seen = HashSet::new();
     let pages = lib
         .page_ids()
         .into_iter()
+        .filter(|id| seen.insert(id.clone()))
         .filter_map(|id| lib.snapshot(&id).map(|text| (id, text)))
         .collect();
     (lib.save(), pages)
+}
+
+fn union_many(texts: &[&str]) -> String {
+    let mut combined = String::new();
+    for text in texts {
+        combined = if combined.is_empty() {
+            (*text).to_string()
+        } else {
+            union_lines(&combined, text)
+        };
+    }
+    combined
 }
 
 struct LineRef {
