@@ -92,7 +92,7 @@ check(html.includes("data-build-hash"), "settings shows the build hash");
 check(js.includes("Add to Home Screen"), "iPhone gets an Add to Home Screen prompt");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-9"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('const CACHE = "omacus-app-10"'), "the app cache name moved past the cache-first shell");
 check(html.includes("data-pick"), "a same-line conflict can ask which line to keep");
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
@@ -157,9 +157,14 @@ check(/\.app-page\.drawer \.empty-hint \{\s*visibility: hidden/.test(css), "the 
 check(/name === "new"[\s\S]{0,240}setDrawer\(false\)/.test(js), "a new page closes the phone drawer");
 check(html.includes('<meta name="theme-color" content="#1a1b26" media="(prefers-color-scheme: dark)">'), "dark theme-color matches the page");
 check(html.includes('<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">'), "light theme-color matches the page");
-check(html.includes('name="apple-mobile-web-app-status-bar-style" content="black-translucent"'), "the status bar lets the page colour show");
+check(!html.includes("black-translucent") && !js.includes("black-translucent"), "the status bar is not a translucent scrim");
+check(html.includes('src="frame.js"'), "the installed app measures the screen before the page is drawn");
+check(js.includes('meta[name="apple-mobile-web-app-status-bar-style"]') && js.includes("status.remove()"), "an old translucent status bar is dropped");
 check(js.includes('getPropertyValue("--app-bg")'), "a chosen theme sets theme-color from the page background");
-check(js.includes('name === "light" || name === "paper" ? "default" : "black-translucent"'), "the status bar text follows the theme");
+const frame = readFileSync(join(site, "app/frame.js"), "utf8");
+check(frame.includes("screen.height") && frame.includes("innerHeight") && frame.includes("gap < 120"), "the missing strip is the screen minus the viewport, and a desktop window is left alone");
+check(css.includes("--standalone-gap") && css.includes("display-mode: standalone"), "the installed app fills the strip under the page");
+check(css.includes("clip-path: inset(50%)"), "the screen reader line stays off the page");
 check(!html.includes("Saved in this browser"), "the sidebar footer does not repeat where pages are saved");
 check(!html.includes("side-note"), "the sidebar has no privacy paragraph");
 check(html.includes("Pages stay in this browser. Nothing is uploaded."), "About says pages stay in this browser");
@@ -368,11 +373,15 @@ const mobile = await evalJson(`(() => {
   const editor = document.querySelector("[data-editor]");
   const sr = side.getBoundingClientRect();
   const fr = foot.getBoundingClientRect();
+  const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--standalone-gap")) || 0;
+  const edge = window.innerHeight + gap;
   return {
     font: parseFloat(getComputedStyle(editor).fontSize),
     sideBottom: sr.bottom,
     sideTop: sr.top,
     innerHeight: window.innerHeight,
+    edge,
+    gap,
     paddingBottom: parseFloat(getComputedStyle(side).paddingBottom),
     footBottom: fr.bottom,
     scrim: getComputedStyle(scrim).display,
@@ -382,9 +391,9 @@ const mobile = await evalJson(`(() => {
 })()`);
 
 check(mobile.font >= 16, `phone editor font is ${mobile.font}px, want >= 16`);
-check(Math.abs(mobile.sideBottom - mobile.innerHeight) <= 1, `drawer bottom ${mobile.sideBottom} != screen ${mobile.innerHeight}`);
+check(Math.abs(mobile.sideBottom - mobile.edge) <= 1, `drawer bottom ${mobile.sideBottom} != screen edge ${mobile.edge} (gap ${mobile.gap})`);
 check(mobile.paddingBottom === 34, `drawer padding-bottom is ${mobile.paddingBottom}, want 34`);
-check(mobile.footBottom <= mobile.innerHeight - 34 + 1, `footer is cut by the home indicator (${mobile.footBottom} > ${mobile.innerHeight - 34})`);
+check(mobile.footBottom <= mobile.edge - 34 + 1, `footer is cut by the home indicator (${mobile.footBottom} > ${mobile.edge - 34})`);
 check(mobile.scrim === "block", `scrim display is ${mobile.scrim} while the drawer is open`);
 check(mobile.position === "fixed", `phone drawer position is ${mobile.position}`);
 check(mobile.sideTop >= 47, "drawer starts below the status bar");

@@ -65,7 +65,7 @@ wasm-bindgen --target web --no-typescript --out-dir "$out/pkg" \
   target/wasm32-unknown-unknown/release/omacus_web.wasm
 cp site/app/index.html site/app/app.js site/app/app.css site/app/editor.js \
   site/app/worker.js site/app/tree.js site/app/store.js site/app/sw.js \
-  site/app/trust.js site/app/recover.js site/app/backup.js \
+  site/app/trust.js site/app/recover.js site/app/frame.js site/app/backup.js \
   site/app/seed.js site/app/examples.js \
   site/app/manifest.webmanifest site/app/migrate.js site/app/migrate.html \
   site/app/migrate-client.js site/app/migrate-protocol.js site/app/_headers "$out/"
@@ -115,6 +115,8 @@ short="$(sha256sum "$out/app.css" | cut -c1-10)"
 sed -i "s#\"app.css\"#\"app.css?v=$short\"#" "$out/index.html"
 short="$(sha256sum "$out/trust.js" | cut -c1-10)"
 sed -i "s#\"trust.js\"#\"trust.js?v=$short\"#" "$out/index.html"
+short="$(sha256sum "$out/frame.js" | cut -c1-10)"
+sed -i "s#\"frame.js\"#\"frame.js?v=$short\"#" "$out/index.html"
 short="$(sha256sum "$out/recover.js" | cut -c1-10)"
 sed -i "s#\"recover.js\"#\"recover.js?v=$short\"#" "$out/index.html"
 short="$(sha256sum "$out/app.js" | cut -c1-10)"

@@ -27,8 +27,9 @@ html:has(body.app-page) {
   --line-h: 1.7;
   --font-size: 15px;
   --res-w: 12ch;
-  /* Fixed to the viewport, not 100dvh. On an installed iPhone, 100dvh and the
-     visual screen disagree by the home-indicator inset and the shell clips. */
+  /* Fixed to the viewport. Safari's toolbar is the viewport. The installed
+     app's viewport stops short of the screen; the standalone rule below
+     adds that strip back. */
   position: fixed;
   inset: 0;
   display: flex;
@@ -101,6 +102,7 @@ html:has(body.app-page) {
   padding: var(--safe-top) max(14px, var(--safe-right)) 0 max(14px, var(--safe-left));
   border-bottom: 1px solid var(--app-line-strong);
   background-color: var(--app-bg);
+  background-image: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -2014,15 +2016,19 @@ body.answers-inline .md .pill {
 /* CodeMirror announces edits here. Its own rule is an inline style, which this
    page does not allow, so the words would sit on the sheet. */
 .cm-announced {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+  pointer-events: none;
 }
 
 .boot-fail {
@@ -2275,6 +2281,42 @@ body.answers-inline .md .pill {
 
 .drawer-scrim {
   display: none;
+}
+
+/* Home Screen: the layout viewport is shorter than the phone. Grow the shell
+   by that strip. The sidebar and the scrim are fixed to the short viewport,
+   so they grow by the same amount. The home indicator stays padding. */
+@media (display-mode: standalone) {
+  .app-page {
+    bottom: auto;
+    height: calc(100% + var(--standalone-gap, var(--safe-bottom)));
+  }
+}
+
+@media (display-mode: standalone) and (max-width: 760px) {
+  .side,
+  .drawer-scrim,
+  .settings-card {
+    bottom: calc(var(--standalone-gap, var(--safe-bottom)) * -1);
+  }
+}
+
+@media (max-width: 760px) {
+  html.standalone .app-page {
+    bottom: auto;
+    height: calc(100% + var(--standalone-gap, var(--safe-bottom)));
+  }
+
+  html.standalone .side,
+  html.standalone .drawer-scrim,
+  html.standalone .settings-card {
+    bottom: calc(var(--standalone-gap, var(--safe-bottom)) * -1);
+  }
+}
+
+html.standalone .app-page {
+  bottom: auto;
+  height: calc(100% + var(--standalone-gap, var(--safe-bottom)));
 }
 
 /* Tablets use the wide layout, but iPad still zooms a focused field under 16px. */

@@ -744,11 +744,10 @@ function syncThemeChrome() {
     meta.setAttribute("content", spec.content);
     document.head.appendChild(meta);
   }
+  // A translucent status bar is a frosted scrim over the header on the Home
+  // Screen. Drop it. theme-color, set above, is the solid page colour.
   const status = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
-  if (status) {
-    const name = themeName();
-    status.content = name === "light" || name === "paper" ? "default" : "black-translucent";
-  }
+  if (status) status.remove();
 }
 
 function applySettings() {
