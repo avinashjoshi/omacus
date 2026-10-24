@@ -211,6 +211,7 @@ fn encode_manifest(
     meta: &SyncMeta,
     slots: &[Slot],
     folders: &[FolderRow],
+    generation: u64,
 ) -> Result<Vec<u8>, SyncKeyError> {
     if slots.len() > MAX_PAGE_COUNT || folders.len() > 4096 {
         return Err(SyncKeyError::Corrupt);
@@ -243,6 +244,7 @@ fn encode_manifest(
         out.extend_from_slice(&slot.hash);
         out.extend_from_slice(&slot.content_key);
     }
+    out.extend_from_slice(&generation.to_be_bytes());
     if out.len() > MAX_MANIFEST {
         return Err(SyncKeyError::Corrupt);
     }
@@ -253,6 +255,7 @@ struct Decoded {
     meta: SyncMeta,
     folders: Vec<FolderRow>,
     entries: Vec<Entry>,
+    generation: u64,
 }
 
 fn take_str(bytes: &[u8], at: &mut usize) -> Result<String, SyncKeyError> {
@@ -364,6 +367,19 @@ fn decode_manifest(bytes: &[u8]) -> Result<Decoded, SyncKeyError> {
             content_key,
         });
     }
+    let generation = if at == bytes.len() {
+        0
+    } else if at + 8 == bytes.len() {
+        let generation = u64::from_be_bytes(
+            bytes[at..at + 8]
+                .try_into()
+                .map_err(|_| SyncKeyError::Corrupt)?,
+        );
+        at += 8;
+        generation
+    } else {
+        return Err(SyncKeyError::Corrupt);
+    };
     if at != bytes.len() {
         return Err(SyncKeyError::Corrupt);
     }
@@ -371,7 +387,12 @@ fn decode_manifest(bytes: &[u8]) -> Result<Decoded, SyncKeyError> {
         meta,
         folders,
         entries,
+        generation,
     })
+}
+
+pub fn manifest_generation(bytes: &[u8]) -> Result<u64, SyncKeyError> {
+    Ok(decode_manifest(bytes)?.generation)
 }
 
 pub fn plan(
@@ -379,6 +400,7 @@ pub fn plan(
     epoch: u64,
     set: &PageSet,
     previous: &[Slot],
+    generation: u64,
 ) -> Result<Planned, SyncKeyError> {
     if set.pages.len() > MAX_PAGE_COUNT {
         return Err(SyncKeyError::Corrupt);
@@ -449,7 +471,7 @@ pub fn plan(
         .map(|prev| prev.object_id)
         .collect();
     let folders = folders_of(&set.doc);
-    let manifest = encode_manifest(&set.meta, &slots, &folders)?;
+    let manifest = encode_manifest(&set.meta, &slots, &folders, generation)?;
     let sealed_manifest = sync_keys::seal_page(vault, epoch, MANIFEST_ID, &manifest)?;
     Ok(Planned {
         manifest,
@@ -590,7 +612,8 @@ mod tests {
             ("pantry".into(), "oats\n".into()),
             ("groceries".into(), "lentils\n".into()),
         ]);
-        let first = plan(&vault, 1, &set, &[]).unwrap();
+        let first = plan(&vault, 1, &set, &[], 1).unwrap();
+        assert_eq!(manifest_generation(&first.manifest).unwrap(), 1);
         assert_eq!(first.objects.len(), 2);
         assert!(first.manifest.len() < 8 * 1024);
         let marker = b"lentils";
@@ -610,13 +633,21 @@ mod tests {
         }
         let mut edited = set.clone();
         edited.pages[0].1 = "oats\nmustard\n".into();
-        let second = plan(&vault, 1, &edited, &slots).unwrap();
+        let second = plan(&vault, 1, &edited, &slots, 1).unwrap();
         assert_eq!(second.objects.len(), 1);
         assert_eq!(second.objects[0].base, 1);
         assert_eq!(second.objects[0].id, slots[0].object_id);
 
         let rotated = VaultKey::generate().unwrap();
-        let third = plan(&rotated, 1, &edited, &second.slots).unwrap();
+        let third = plan(&rotated, 1, &edited, &second.slots, 2).unwrap();
+        assert_eq!(manifest_generation(&third.manifest).unwrap(), 2);
+        let mut without_counter = first.manifest.clone();
+        without_counter.truncate(without_counter.len() - 8);
+        assert_eq!(
+            manifest_generation(&without_counter).unwrap(),
+            0,
+            "a manifest from before the counter is generation zero"
+        );
         assert!(
             third.objects.is_empty(),
             "rotation reseals the manifest only"
@@ -681,7 +712,7 @@ mod tests {
         }
         let set = sample_set(pages);
         let started = std::time::Instant::now();
-        let first = plan(&vault, 1, &set, &[]).unwrap();
+        let first = plan(&vault, 1, &set, &[], 1).unwrap();
         let seal_ms = started.elapsed().as_millis();
         assert_eq!(first.objects.len(), 500);
         assert!(
@@ -736,10 +767,10 @@ mod tests {
         }
         let mut edited = set.clone();
         edited.pages[3].1 = "sesame\n".into();
-        let second = plan(&vault, 1, &edited, &slots).unwrap();
+        let second = plan(&vault, 1, &edited, &slots, 1).unwrap();
         assert_eq!(second.objects.len(), 1, "one changed page");
         let rotated = VaultKey::generate().unwrap();
-        let third = plan(&rotated, 1, &edited, &second.slots).unwrap();
+        let third = plan(&rotated, 1, &edited, &second.slots, 2).unwrap();
         assert_eq!(third.objects.len(), 0, "rotation uploads no page");
         let incoming: Vec<Incoming> = first
             .objects

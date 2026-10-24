@@ -66,6 +66,8 @@ pub enum SyncKeyError {
     /// A device-list check failed. The text is the sentence a person should see.
     NotApproved(&'static str),
     Sealed,
+    /// A sealed copy older than the newest one this device has opened.
+    Older,
     Corrupt,
     /// The words match this set of pages, and the latest seal was not wrapped for them.
     StaleRecovery,
@@ -127,6 +129,7 @@ impl SyncKeyError {
             SyncKeyError::NotConfirmed => "Tap the three words first.",
             SyncKeyError::NotApproved(reason) => reason,
             SyncKeyError::Sealed => "Those pages could not be opened.",
+            SyncKeyError::Older => "That copy is older than the one already on this phone.",
             SyncKeyError::Corrupt => "That copy could not be read.",
             SyncKeyError::StaleRecovery => {
                 "These recovery words are right, but they don't open the latest pages yet. Open sync on a phone or computer that still has them, then try again."
@@ -1573,6 +1576,8 @@ pub struct DeviceStore {
     pub recovery_public: Vec<u8>,
     /// True after this device has seen a signed record. An unsigned copy is then refused.
     pub signed_seen: bool,
+    /// Highest seal counter this device has opened. An older seal is refused.
+    pub seen_gen: u64,
 }
 
 impl std::fmt::Debug for DeviceStore {
@@ -1591,6 +1596,7 @@ pub fn store_device(
     kek: &[u8],
     recovery_public: &[u8],
     signed_seen: bool,
+    seen_gen: u64,
 ) -> Result<Vec<u8>, SyncKeyError> {
     if chain.len() > MAX_CHAIN_BYTES
         || !(kek.is_empty() || kek.len() == KEY_LEN)
@@ -1608,10 +1614,13 @@ pub fn store_device(
     out.extend_from_slice(account);
     out.extend_from_slice(&epoch.to_be_bytes());
     push_chunk(&mut out, chain);
-    if signed_seen {
+    if signed_seen || seen_gen > 0 {
         push_chunk(&mut out, kek);
         push_chunk(&mut out, recovery_public);
-        push_chunk(&mut out, &[1]);
+        push_chunk(&mut out, &[u8::from(signed_seen)]);
+        if seen_gen > 0 {
+            push_chunk(&mut out, &seen_gen.to_be_bytes());
+        }
     } else if !recovery_public.is_empty() {
         push_chunk(&mut out, kek);
         push_chunk(&mut out, recovery_public);
@@ -1651,20 +1660,30 @@ pub fn open_device_store(bytes: &[u8]) -> Result<DeviceStore, SyncKeyError> {
         kek: Vec::new(),
         recovery_public: Vec::new(),
         signed_seen: false,
+        seen_gen: 0,
     };
-    let (kek, recovery_public, signed_seen) = if reader.is_empty() {
-        (Vec::new(), Vec::new(), false)
+    let (kek, recovery_public, signed_seen, seen_gen) = if reader.is_empty() {
+        (Vec::new(), Vec::new(), false, 0)
     } else {
         let kek = reader.chunk()?;
         if reader.is_empty() {
-            (kek, Vec::new(), false)
+            (kek, Vec::new(), false, 0)
         } else {
             let recovery_public = reader.chunk()?;
             if reader.is_empty() {
-                (kek, recovery_public, false)
+                (kek, recovery_public, false, 0)
             } else {
                 let flag = reader.chunk()?;
-                (kek, recovery_public, flag == [1])
+                let seen_gen = if reader.is_empty() {
+                    0
+                } else {
+                    let raw = reader.chunk()?;
+                    if raw.len() != 8 {
+                        return Err(SyncKeyError::Corrupt);
+                    }
+                    u64::from_be_bytes(raw.try_into().map_err(|_| SyncKeyError::Corrupt)?)
+                };
+                (kek, recovery_public, flag == [1], seen_gen)
             }
         }
     };
@@ -1672,6 +1691,7 @@ pub fn open_device_store(bytes: &[u8]) -> Result<DeviceStore, SyncKeyError> {
         kek,
         recovery_public,
         signed_seen,
+        seen_gen,
         ..store
     };
     if store.chain.len() > MAX_CHAIN_BYTES
@@ -2705,7 +2725,8 @@ mod tests {
         let vault = VaultKey::generate().unwrap();
         let account = [0x11u8; 32];
         let chain = found_devices(&device).unwrap().to_bytes();
-        let stored = store_device(&device, &vault, &account, 1, &chain, &[], &[], false).unwrap();
+        let stored =
+            store_device(&device, &vault, &account, 1, &chain, &[], &[], false, 0).unwrap();
         assert!(stored.starts_with(DEVICE_MAGIC));
         assert!(!stored.starts_with(b"OMACUS-SYNC/1\n"));
         let opened = open_device_store(&stored).unwrap();
@@ -2720,21 +2741,30 @@ mod tests {
         assert!(opened.kek.is_empty());
         let kek = [0x5au8; KEY_LEN];
         let with_kek =
-            store_device(&device, &vault, &account, 1, &chain, &kek, &[], false).unwrap();
+            store_device(&device, &vault, &account, 1, &chain, &kek, &[], false, 0).unwrap();
         let opened_kek = open_device_store(&with_kek).unwrap();
         assert_eq!(opened_kek.kek, kek);
         assert!(opened_kek.recovery_public.is_empty());
         let public = [0x3cu8; KEY_LEN];
         let with_public =
-            store_device(&device, &vault, &account, 1, &chain, &[], &public, false).unwrap();
+            store_device(&device, &vault, &account, 1, &chain, &[], &public, false, 0).unwrap();
         let opened_public = open_device_store(&with_public).unwrap();
         assert!(opened_public.kek.is_empty());
         assert_eq!(opened_public.recovery_public, public);
-        let with_both =
-            store_device(&device, &vault, &account, 1, &chain, &kek, &public, false).unwrap();
+        let with_both = store_device(
+            &device, &vault, &account, 1, &chain, &kek, &public, false, 0,
+        )
+        .unwrap();
         let opened_both = open_device_store(&with_both).unwrap();
         assert_eq!(opened_both.kek, kek);
         assert_eq!(opened_both.recovery_public, public);
+        assert_eq!(opened_both.seen_gen, 0);
+        let with_gen =
+            store_device(&device, &vault, &account, 1, &chain, &kek, &public, true, 7).unwrap();
+        let opened_gen = open_device_store(&with_gen).unwrap();
+        assert!(opened_gen.signed_seen);
+        assert_eq!(opened_gen.seen_gen, 7);
+        assert_eq!(opened_gen.kek, kek);
         let mut torn = stored.clone();
         let last = torn.len() - 1;
         torn[last] ^= 0xff;

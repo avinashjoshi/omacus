@@ -66,6 +66,8 @@ pub struct Desk {
     prior_devices: Vec<DevicePublic>,
     /// This device has opened a signed record. An unsigned copy is then refused.
     signed_seen: bool,
+    /// Highest seal counter opened on this phone. An older seal is refused.
+    seen_gen: u64,
 }
 
 /// What the recovery words could open from one record.
@@ -170,6 +172,7 @@ impl Desk {
             recovery_public: None,
             prior_devices: Vec::new(),
             signed_seen: false,
+            seen_gen: 0,
         })
     }
 
@@ -189,6 +192,7 @@ impl Desk {
             recovery_public: None,
             prior_devices: Vec::new(),
             signed_seen: false,
+            seen_gen: 0,
         })
     }
 
@@ -212,6 +216,7 @@ impl Desk {
             recovery_public: None,
             prior_devices: Vec::new(),
             signed_seen: false,
+            seen_gen: 0,
         })
     }
 
@@ -448,6 +453,7 @@ impl Desk {
             stored_kek,
             stored_public,
             self.signed_seen,
+            self.seen_gen,
         )
     }
 
@@ -487,6 +493,7 @@ impl Desk {
             },
             prior_devices: Vec::new(),
             signed_seen: file.signed_seen,
+            seen_gen: file.seen_gen,
         })
     }
 
@@ -980,11 +987,18 @@ impl Desk {
         let set = omacus_engine::sync_keys::PageSet::from_bytes(packed)?;
         let planned = {
             let vault = self.vault.as_ref().ok_or(SyncKeyError::Sealed)?;
-            omacus_engine::sync_objects::plan(vault, self.epoch, &set, slots)?
+            omacus_engine::sync_objects::plan(
+                vault,
+                self.epoch,
+                &set,
+                slots,
+                self.seen_gen.saturating_add(1),
+            )?
         };
         self.sealed_page = planned.sealed_manifest.clone();
         self.ensure_recovery()?;
         self.signed_seen = true;
+        self.seen_gen = self.seen_gen.saturating_add(1);
         let _ = self.record_at(2)?;
         Ok(planned)
     }
@@ -1028,13 +1042,27 @@ impl Desk {
                 combine: opened.combine,
             });
         }
-        let assembled = match self.peek_manifest(record) {
+        let peeked = self.peek_manifest(record);
+        let generation = match &peeked {
+            Ok(plain) => {
+                let generation = omacus_engine::sync_objects::manifest_generation(plain)?;
+                if generation < self.seen_gen {
+                    return Err(SyncKeyError::Older);
+                }
+                Some(generation)
+            }
+            Err(_) => None,
+        };
+        let assembled = match peeked {
             Ok(plain) => Some(omacus_engine::sync_objects::assemble(
                 &plain, incoming, slots, base_doc,
             )?),
             Err(_) => None,
         };
         let opened = self.absorb_with(record, open_manifest)?;
+        if let Some(generation) = generation {
+            self.seen_gen = self.seen_gen.max(generation);
+        }
         if !opened.replace {
             return Ok(LibraryOpened {
                 packed: Vec::new(),
@@ -1644,6 +1672,7 @@ mod tests {
             &[],
             &[],
             false,
+            0,
         )
         .unwrap();
         let mut founder = Desk::import_local(&legacy).unwrap();
@@ -1850,6 +1879,7 @@ mod tests {
             &kek,
             &[],
             false,
+            0,
         )
         .unwrap();
         let mut legacy = Desk::import_local(&file).unwrap();
@@ -1948,6 +1978,7 @@ mod tests {
             &stored.kek,
             &stored.recovery_public,
             false,
+            0,
         )
         .unwrap();
         let mut old = Desk::import_local(&old_file).unwrap();
@@ -2021,6 +2052,7 @@ mod tests {
             &stored.kek,
             &stored.recovery_public,
             false,
+            0,
         )
         .unwrap();
         let mut old = Desk::import_local(&old_file).unwrap();
@@ -2054,5 +2086,73 @@ mod tests {
         assert_eq!(round.pages.len(), 2);
         assert!(round.pages.iter().any(|(_, text)| text.contains("lentils")));
         assert!(round.pages.iter().any(|(_, text)| text.contains("oats")));
+    }
+
+    #[test]
+    fn an_older_seal_is_refused_after_a_newer_one_is_saved() {
+        let (mut desk, _) = confirmed_desk();
+        let set = omacus_engine::sync_keys::PageSet {
+            doc: Vec::new(),
+            pages: vec![
+                ("groceries".into(), "lentils\n".into()),
+                ("pantry".into(), "oats\n".into()),
+            ],
+            meta: omacus_engine::sync_keys::SyncMeta::default(),
+        };
+        let legacy = desk.seal_pages(&set.to_bytes().unwrap()).unwrap();
+        let opened = desk.open_library(&legacy, &[], &[], &[]).unwrap();
+        let first = desk.seal_library(&opened.packed, &[]).unwrap();
+        let first_record = desk.library_record().unwrap();
+        let mut edited = omacus_engine::sync_keys::PageSet::from_bytes(&opened.packed).unwrap();
+        for page in &mut edited.pages {
+            if page.1.contains("oats") {
+                page.1 = "oats\nsesame\n".into();
+            }
+        }
+        let second = desk
+            .seal_library(&edited.to_bytes().unwrap(), &first.slots)
+            .unwrap();
+        let second_record = desk.library_record().unwrap();
+        let newer: Vec<_> = second
+            .objects
+            .iter()
+            .map(|object| omacus_engine::sync_objects::Incoming {
+                id: object.id,
+                revision: object.base.saturating_add(1),
+                body: object.body.clone(),
+            })
+            .collect();
+        let opened = desk
+            .open_library(&second_record, &newer, &first.slots, &[])
+            .unwrap();
+        let round = omacus_engine::sync_keys::PageSet::from_bytes(&opened.packed).unwrap();
+        assert!(round.pages.iter().any(|(_, text)| text.contains("sesame")));
+        assert!(matches!(
+            desk.open_library(&first_record, &[], &opened.slots, &[]),
+            Err(SyncKeyError::Older)
+        ));
+
+        let mut restored = Desk::import_local(&desk.export_local().unwrap()).unwrap();
+        assert!(matches!(
+            restored.open_library(&first_record, &[], &[], &[]),
+            Err(SyncKeyError::Older)
+        ));
+        let mut both = newer;
+        for object in &first.objects {
+            if both.iter().any(|item| item.id == object.id) {
+                continue;
+            }
+            both.push(omacus_engine::sync_objects::Incoming {
+                id: object.id,
+                revision: 1,
+                body: object.body.clone(),
+            });
+        }
+        let still = restored
+            .open_library(&second_record, &both, &[], &[])
+            .unwrap();
+        let kept = omacus_engine::sync_keys::PageSet::from_bytes(&still.packed).unwrap();
+        assert!(kept.pages.iter().any(|(_, text)| text.contains("sesame")));
+        assert!(kept.pages.iter().any(|(_, text)| text.contains("lentils")));
     }
 }

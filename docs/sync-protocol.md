@@ -64,11 +64,12 @@ folder_count(u16)
   id(u16-len) name(u16-len) parent_flag(u8) [parent(u16-len) if flag is 1]
 page_count(u32)
   object_id(16) page_id(u16-len) revision(u64) sha256(32) content_key(32)
+generation(u64)
 ```
 
 A string is a `u16` length and at most 200 bytes, with no control characters. Folder flag 0 means no parent. Meta is `OMACUS-META/1\n`: vault name (chunk), name revision (`u64`), device-name count (`u16`) of id(16) + rev(`u64`) + name(chunk), then membership count (`u32`) of page id (`u16` length) + rev(`u64`) + one byte (1 if the page is in the synced set).
 
-The manifest is how a device learns which objects to fetch. The server never sees this plaintext.
+The manifest is how a device learns which objects to fetch. The server never sees this plaintext. The last eight bytes are a counter. A manifest written before the counter is generation 0. Each new seal uses the next number. The counter sits inside the seal, so the server cannot change it. A phone remembers the highest number it has opened and refuses an older seal. The mailbox revision stays outside the seal and is not that counter.
 
 ### Page object
 
