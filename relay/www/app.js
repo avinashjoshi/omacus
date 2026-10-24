@@ -12,6 +12,8 @@ const state = {
   qr: "",
   asks: [3, 7, 11],
   picks: {},
+  choices: {},
+  wrong: 0,
   account: "",
   record: "",
   revision: 0,
@@ -105,9 +107,55 @@ function wordsGrid(tappable) {
 }
 
 function asks() {
-  return `<div class="asks">${state.asks
-    .map((n) => `<div class="ask"><span>Word ${n}</span><strong>${esc(state.picks[n] || "")}</strong></div>`)
+  return `<div class="checks">${state.asks
+    .map(
+      (n) => `<fieldset class="check" data-ask="${n}"><legend>Word ${n}</legend><div class="choices">${(state.choices[n] || [])
+        .map((word) => {
+          const on = state.picks[n] === word;
+          return `<button class="choice${on ? " picked" : ""}" type="button" data-act="choose" data-n="${n}" data-word="${esc(word)}" aria-pressed="${on}">${esc(word)}</button>`;
+        })
+        .join("")}</div></fieldset>`,
+    )
     .join("")}</div>`;
+}
+
+let wordlist = [];
+async function loadWordlist() {
+  const text = await (await fetch("./words.txt")).text();
+  wordlist = text.split("\n").map((line) => line.trim()).filter((line) => line && !line.startsWith("#"));
+}
+
+function randomInt(max) {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return buf[0] % max;
+}
+
+function shuffle(list) {
+  for (let i = list.length - 1; i > 0; i -= 1) {
+    const j = randomInt(i + 1);
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+}
+
+// Three random word numbers, each with its word and five decoys from the full
+// list. Decoys never come from the other words on this sheet.
+function setUpCheck() {
+  state.asks = shuffle([...Array(12).keys()].map((i) => i + 1)).slice(0, 3).sort((a, b) => a - b);
+  state.picks = {};
+  state.wrong = 0;
+  state.error = "";
+  const mine = new Set(state.words.map((word) => word.toLowerCase()));
+  state.choices = {};
+  for (const n of state.asks) {
+    const options = new Set([state.words[n - 1]]);
+    while (options.size < 6 && wordlist.length) {
+      const word = wordlist[randomInt(wordlist.length)];
+      if (!mine.has(word.toLowerCase())) options.add(word);
+    }
+    state.choices[n] = shuffle([...options]);
+  }
 }
 
 function qrBlock() {
@@ -165,15 +213,14 @@ function render() {
     const step = state.screen === "confirm" ? `<p class="kicker">Step 3 of 3</p>` : "";
     html = sheet(
       `${step}
-      <h1>Tap the three words</h1>
+      <h1>Pick the three words</h1>
       <p class="lead">${esc(leadAsks())}</p>
       ${asks()}
-      ${wordsGrid(true)}
-      ${err}
-      ${actions([
-        ["confirm", state.busy ? "Checking the words…" : "Confirm", "primary block"],
-        ["back", "Back", "block"],
-      ])}`,
+      ${state.wrong ? `<p class="err" role="alert">That's not word ${state.wrong}. Go back to check your words.</p>` : err}
+      <div class="actions">
+        <button class="btn primary block" type="button" data-act="confirm" ${state.busy || chosenPicks().length !== 3 ? "disabled" : ""}>${state.busy ? "Checking the words…" : "Confirm"}</button>
+        <button class="btn block" type="button" data-act="back" ${state.busy ? "disabled" : ""}>${state.wrong ? "Back to the words" : "Back"}</button>
+      </div>`,
       true,
     );
   } else if (state.screen === "ready" || state.screen === "opened") {
@@ -229,7 +276,7 @@ function render() {
 
 function leadAsks() {
   const [a, b, c] = state.asks;
-  return `Tap word ${a}, word ${b}, and word ${c}. No need to type.`;
+  return `From your sheet, pick word ${a}, word ${b}, and word ${c}.`;
 }
 
 async function onPhrase() {
@@ -275,7 +322,13 @@ async function makeKey() {
 async function confirmWords() {
   const picks = chosenPicks();
   if (picks.length !== 3) {
-    state.error = "Tap the three words first.";
+    state.error = "Pick the three words first.";
+    render();
+    return;
+  }
+  const miss = picks.find(([n, word]) => word !== state.words[n - 1]);
+  if (miss) {
+    state.wrong = miss[0];
     render();
     return;
   }
@@ -496,8 +549,7 @@ async function openRecovery() {
   }
   state.desk = started.id;
   state.words = started.words;
-  state.asks = started.asks;
-  state.picks = {};
+  setUpCheck();
   show("recover-confirm");
 }
 
@@ -585,10 +637,12 @@ const acts = {
   },
   "make-key": makeKey,
   "to-confirm"() {
-    state.picks = {};
+    setUpCheck();
     show("confirm");
   },
   back() {
+    state.wrong = 0;
+    state.error = "";
     show(state.screen === "recover-confirm" ? "recover" : "save");
   },
   tap(button) {
@@ -598,6 +652,13 @@ const acts = {
     } else if (Object.keys(state.picks).length < 3) {
       state.picks[n] = button.dataset.word;
     }
+    render();
+  },
+  choose(button) {
+    const n = Number(button.dataset.n);
+    state.picks[n] = button.dataset.word;
+    state.wrong = 0;
+    state.error = "";
     render();
   },
   confirm: confirmWords,
@@ -633,7 +694,7 @@ document.addEventListener("click", (event) => {
 
 stage.innerHTML = sheet("<h1>Loading the test…</h1>", false);
 
-init()
+Promise.all([init(), loadWordlist()])
   .then(() => {
     show("start");
   })
