@@ -381,19 +381,34 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
             .any(|(_, text)| text.contains("milk $3"))
     );
 
-    let mut left = joined_pages.clone();
-    left.pages
-        .iter_mut()
-        .find(|(id, _)| id == "trip")
-        .unwrap()
-        .1 = "Trip Budget\nferry = 40\ncake $5\n".to_string();
-    let mut right = again.clone();
-    right
-        .pages
-        .iter_mut()
-        .find(|(id, _)| id == "trip")
-        .unwrap()
-        .1 = "Trip Budget\nferry = 40\nbread $2\n".to_string();
+    let mut origin = omacus_doc::Library::new();
+    origin.reconcile("trip", trip, None);
+    origin.note_written("trip", trip);
+    origin.reconcile("market", market, None);
+    origin.note_written("market", market);
+    let shared = origin.save();
+    let cake = "Trip Budget\nferry = 40\ncake $5\n";
+    let bread = "Trip Budget\nferry = 40\nbread $2\n";
+    let mut left_lib = omacus_doc::Library::load(&shared).unwrap();
+    left_lib.reconcile("trip", cake, None);
+    left_lib.note_written("trip", cake);
+    let mut right_lib = omacus_doc::Library::load(&shared).unwrap();
+    right_lib.reconcile("trip", bread, None);
+    right_lib.note_written("trip", bread);
+    let left = PageSet {
+        doc: left_lib.save(),
+        pages: vec![
+            ("trip".to_string(), cake.to_string()),
+            ("market".to_string(), market.to_string()),
+        ],
+    };
+    let right = PageSet {
+        doc: right_lib.save(),
+        pages: vec![
+            ("trip".to_string(), bread.to_string()),
+            ("market".to_string(), market.to_string()),
+        ],
+    };
     let merged = left.merge(right);
     let trip_text = merged
         .pages

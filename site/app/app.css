@@ -2390,6 +2390,20 @@ body.answers-inline .md .pill {
   border-color: var(--app-accent);
 }
 
+.sync-beta {
+  display: none;
+  flex: none;
+  color: var(--app-comment);
+  font: 500 var(--type-caption) / 1.2 var(--sans);
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .sync-beta {
+    display: block;
+  }
+}
+
 .sync-label {
   margin: 0 0 var(--space-3);
   color: var(--app-comment);

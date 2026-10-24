@@ -12,5 +12,6 @@ getrandom = "0.2"
 serde_json = "1.0.154"
 
 [dev-dependencies]
+omacus-doc = { path = "../doc" }
 omacus-engine = { path = "../engine" }
 omacus-sync-web = { path = "../sync-web" }

@@ -1284,93 +1284,14 @@ impl PageSet {
         Ok(Self { doc, pages })
     }
 
-    /// Keep this document. Page text is the union: lines are added, never dropped.
+    /// One document for both sides. A deleted line stays deleted. A line the
+    /// other side added at the same time stays. A page that exists on only one
+    /// side is kept. A backup of the previous copy is the caller's job.
     pub fn merge(self, other: Self) -> Self {
-        Self {
-            doc: self.doc,
-            pages: merge_page_texts(&self.pages, &other.pages),
-        }
+        let (doc, pages) =
+            omacus_doc::merge_libraries(&self.doc, &self.pages, &other.doc, &other.pages);
+        Self { doc, pages }
     }
-}
-
-pub fn merge_page_texts(
-    local: &[(String, String)],
-    remote: &[(String, String)],
-) -> Vec<(String, String)> {
-    let mut out = local.to_vec();
-    for (id, remote_text) in remote {
-        if let Some(index) = out.iter().position(|(have, _)| have == id) {
-            let local_text = out[index].1.clone();
-            if local_text == *remote_text {
-                continue;
-            }
-            if sealed_page(&local_text) || sealed_page(remote_text) {
-                let copy = fresh_page_id(&out, id);
-                out.push((copy, remote_text.clone()));
-            } else {
-                out[index].1 = merge_lines(&local_text, remote_text);
-            }
-        } else {
-            out.push((id.clone(), remote_text.clone()));
-        }
-    }
-    out
-}
-
-fn sealed_page(text: &str) -> bool {
-    text.starts_with("OMACUS-LOCK/1\n")
-}
-
-fn fresh_page_id(pages: &[(String, String)], id: &str) -> String {
-    for n in 2..1000 {
-        let next = format!("{id}~{n}");
-        if !pages.iter().any(|(have, _)| have == &next) {
-            return next;
-        }
-    }
-    format!("{id}~extra")
-}
-
-fn merge_lines(local: &str, remote: &str) -> String {
-    if local == remote || remote.is_empty() {
-        return local.to_string();
-    }
-    if local.is_empty() {
-        return remote.to_string();
-    }
-    if local.contains(remote) {
-        return local.to_string();
-    }
-    if remote.contains(local) {
-        return remote.to_string();
-    }
-    let lines: Vec<&str> = local.split('\n').collect();
-    let have: std::collections::HashSet<&str> = lines.iter().copied().collect();
-    let mut extra = Vec::new();
-    for line in remote.split('\n') {
-        if !have.contains(line) {
-            extra.push(line);
-        }
-    }
-    if extra.iter().all(|line| line.is_empty()) {
-        return if local.len() >= remote.len() {
-            local.to_string()
-        } else {
-            remote.to_string()
-        };
-    }
-    let mut merged = local.trim_end_matches('\n').to_string();
-    for line in extra {
-        if line.is_empty() {
-            continue;
-        }
-        merged.push('\n');
-        merged.push_str(line);
-    }
-    if local.ends_with('\n') || remote.ends_with('\n') {
-        merged.push('\n');
-    }
-    merged
 }
 
 fn push_chunk(out: &mut Vec<u8>, bytes: &[u8]) {
@@ -2024,23 +1945,30 @@ mod tests {
     }
 
     #[test]
-    fn merging_pages_adds_and_never_drops_a_line() {
+    fn merging_pages_drops_a_deleted_line_and_keeps_a_new_one() {
+        let sample = "ferry = 40\nmilk $3\n";
+        let mut local_lib = omacus_doc::Library::new();
+        local_lib.reconcile("trip", sample, None);
+        local_lib.note_written("trip", sample);
+        local_lib.reconcile("trip", "milk $3\n", None);
+        local_lib.note_written("trip", "milk $3\n");
+        let mut remote_lib = omacus_doc::Library::new();
+        remote_lib.reconcile("trip", sample, None);
+        remote_lib.note_written("trip", sample);
+        remote_lib.reconcile("trip", "ferry = 40\nmilk $3\nbread $2\n", None);
+        remote_lib.note_written("trip", "ferry = 40\nmilk $3\nbread $2\n");
         let local = PageSet {
-            doc: b"local-doc".to_vec(),
-            pages: vec![
-                ("trip".to_string(), "Trip Budget\nferry = 40\n".to_string()),
-                ("note".to_string(), "cake $5\n".to_string()),
-            ],
+            doc: local_lib.save(),
+            pages: vec![("trip".to_string(), "milk $3\n".to_string())],
         };
         let remote = PageSet {
-            doc: b"remote-doc".to_vec(),
-            pages: vec![
-                ("trip".to_string(), "Trip Budget\nmilk $3\n".to_string()),
-                ("market".to_string(), "bread $2\n".to_string()),
-            ],
+            doc: remote_lib.save(),
+            pages: vec![(
+                "trip".to_string(),
+                "ferry = 40\nmilk $3\nbread $2\n".to_string(),
+            )],
         };
         let merged = local.merge(remote);
-        assert_eq!(merged.doc, b"local-doc");
         let trip = merged
             .pages
             .iter()
@@ -2048,26 +1976,20 @@ mod tests {
             .unwrap()
             .1
             .as_str();
-        assert!(trip.contains("ferry = 40"), "{trip}");
         assert!(trip.contains("milk $3"), "{trip}");
-        assert!(merged.pages.iter().any(|(id, _)| id == "note"));
-        assert!(merged.pages.iter().any(|(id, _)| id == "market"));
-        let kept = merge_page_texts(
-            &[("trip".to_string(), "ferry = 40\nmilk $3\n".to_string())],
-            &[("trip".to_string(), "ferry = 40\n".to_string())],
-        );
-        assert!(kept[0].1.contains("milk $3"));
-        let locked = merge_page_texts(
-            &[("trip".to_string(), "OMACUS-LOCK/1\nlocal\n".to_string())],
-            &[("trip".to_string(), "OMACUS-LOCK/1\nremote\n".to_string())],
-        );
-        assert_eq!(locked[0].1, "OMACUS-LOCK/1\nlocal\n");
-        assert!(locked.iter().any(|(_, text)| text.contains("remote")));
+        assert!(trip.contains("bread $2"), "{trip}");
+        assert!(!trip.contains("ferry"), "{trip}");
         let bytes = merged.to_bytes().unwrap();
-        assert_eq!(
-            PageSet::from_bytes(&bytes).unwrap().pages.len(),
-            merged.pages.len()
-        );
         assert!(bytes.starts_with(PAGES_MAGIC));
+        assert_eq!(
+            PageSet::from_bytes(&bytes)
+                .unwrap()
+                .pages
+                .iter()
+                .find(|(id, _)| id == "trip")
+                .unwrap()
+                .1,
+            trip
+        );
     }
 }

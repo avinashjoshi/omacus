@@ -4637,16 +4637,25 @@ async function applyRemoteLibrary(nextDoc, pages) {
   await backupBeforeRemote();
   applyingRemote = true;
   try {
-    let doc = docBytes && docBytes.length ? docBytes : null;
-    if (nextDoc && nextDoc.length) doc = doc && doc.length ? docUnion(doc, nextDoc) : nextDoc;
+    // `nextDoc` is already the merged document. Folding it into the copy
+    // already on this device would put a deleted line back.
+    let doc = nextDoc && nextDoc.length ? nextDoc : (docBytes && docBytes.length ? docBytes : null);
     for (const [id, text] of pages) {
       if (!id || id === "shared") continue;
       const body = typeof text === "string" ? text : "";
       if (doc && doc.length && !isLock(body)) {
+        let shown = "";
         try {
-          doc = docApply(doc, id, body);
+          shown = docSnapshot(doc, id) || "";
         } catch {
-          // The page text is still kept below.
+          shown = "";
+        }
+        if (shown !== body) {
+          try {
+            doc = docApply(doc, id, body);
+          } catch {
+            // The page text is still kept below.
+          }
         }
       }
       if (!state.texts.has(id)) {
