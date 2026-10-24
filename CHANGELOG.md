@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.19
+
+**The Home Screen app sits on the screen**
+
+On iPhone, the page reaches the bottom edge, and the top bar is a solid colour. A closed pages list no longer leaves a shadow on the page.
+
 ## 0.2.18
 
 **The Home Screen app fills the screen**
