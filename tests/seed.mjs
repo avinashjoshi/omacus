@@ -1,9 +1,11 @@
 // First launch seeds example pages once. An existing library is only marked,
 // and deleting the examples does not bring them back.
 
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadPrivateTerms, privateTermHits } from "./private-terms.mjs";
 import { PAGES, allocateHandle, freshLibrary, seedAction } from "../site/app/seed.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
@@ -65,8 +67,36 @@ check(buildWeb.includes("site/app/seed.js") && buildWeb.includes("site/app/examp
 const markers = examples.split("text: `").length - 1;
 check(markers === PAGES.length, "the desktop reader finds one text block per page");
 check(PAGES.every((page) => !page.text.includes("`")), "page text has no backtick the desktop reader would stop on");
-for (const banned of ["Soflo", "Duo Offer", "Duo Digital", "Series A", "UPFRONT", "num_companies", "$4m", "$110k"]) {
-  check(!examples.includes(banned), `examples stay neutral (${banned})`);
+{
+  const marker = "zz-private-marker";
+  const dir = mkdtempSync(join(tmpdir(), "omacus-terms-"));
+  const file = join(dir, "terms.txt");
+  const missing = join(dir, "missing.txt");
+  writeFileSync(file, `\n${marker}\n${marker.toUpperCase()}\n# comment\n\n  other-phrase  \n`);
+  const fromFile = loadPrivateTerms({ env: {}, file });
+  check(fromFile.length === 2 && fromFile[0] === marker && fromFile[1] === "other-phrase", "a local file supplies the term list");
+  check(privateTermHits(`see ${marker} here`, fromFile) === 1, "a configured term is noticed");
+  check(privateTermHits("zz-private marker", fromFile) === 0, "a near miss is allowed");
+  const fromEnv = loadPrivateTerms({ env: { OMACUS_PRIVATE_TERMS: `  ${marker}  \n` }, file: missing });
+  check(fromEnv.length === 1 && fromEnv[0] === marker, "the environment supplies the term list");
+  const both = loadPrivateTerms({ env: { OMACUS_PRIVATE_TERMS: "from-env\n" }, file });
+  check(both.length === 3 && both[0] === "from-env", "the file and the environment combine");
+  check(loadPrivateTerms({ env: { OMACUS_PRIVATE_TERMS: " \n\t" }, file: missing }).length === 0, "a blank list skips the check");
+  check(loadPrivateTerms({ env: {}, file: missing }).length === 0, "an absent list skips the check");
+  const leaked = [];
+  if (privateTermHits(`x ${marker} y`, fromEnv) > 0) leaked.push("examples include a private term");
+  check(leaked.length === 1 && leaked[0] === "examples include a private term" && !leaked[0].includes(marker), "a failure does not repeat the term");
+  rmSync(dir, { recursive: true, force: true });
+}
+const privateTerms = loadPrivateTerms();
+if (privateTerms.length > 0) {
+  check(privateTermHits(examples, privateTerms) === 0, "examples stay neutral");
+  const published = readFileSync(fileURLToPath(import.meta.url), "utf8") + readFileSync(join(root, "web-mobile.mjs"), "utf8");
+  check(privateTermHits(published, privateTerms) === 0, "the tests do not publish a private term");
+}
+{
+  const seedSource = readFileSync(fileURLToPath(import.meta.url), "utf8");
+  check(!seedSource.includes("for (const banned of " + "["), "the seed check does not inline a term list");
 }
 
 if (failures.length) {
