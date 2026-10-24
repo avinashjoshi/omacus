@@ -9,8 +9,8 @@
 //! list says who may receive a seal. The signature covers the list, not the
 //! vault key.
 //!
-//! The desktop app and the website do not call this. A private test can store
-//! the sealed bytes; it has no opener to call.
+//! The published app does not call this. The private test keeps a device file
+//! on that device and sends only a sealed record.
 
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
@@ -42,6 +42,15 @@ const HPKE_SUITE: &[u8] = b"HPKE\x00\x20\x00\x01\x00\x03";
 const KEY_LEN: usize = 32;
 const X_NONCE: usize = 24;
 const DEVICE_CAP: usize = 64;
+const MAX_DOC: usize = 1024 * 1024;
+const MAX_PAGES: usize = 4096;
+const MAX_PAGE_ID: usize = 128;
+const MAX_PAGE_TEXT: usize = 1024 * 1024;
+const MAX_CHAIN_BYTES: usize = 64 * 1024;
+/// Bytes that stay on the device. A mailbox rejects them.
+pub const DEVICE_MAGIC: &[u8] = b"OMACUS-DEVICE/1\n";
+/// A sealed snapshot of every page, inside a mailbox record.
+pub const PAGES_MAGIC: &[u8] = b"OMACUS-PAGES/1\n";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SyncKeyError {
@@ -684,7 +693,7 @@ impl DeviceChain {
                 let previous = &self.lists[place - 1];
                 let mut previous_hash = [0u8; KEY_LEN];
                 previous_hash.copy_from_slice(&Sha256::digest(previous.message()));
-                if list.prev != previous_hash || !appended_one(&previous.devices, &list.devices) {
+                if list.prev != previous_hash || !changed_by_one(&previous.devices, &list.devices) {
                     return Err(SyncKeyError::NotApproved);
                 }
                 if !previous
@@ -771,6 +780,33 @@ impl DeviceChain {
     fn latest(&self) -> Result<&SignedDevices, SyncKeyError> {
         self.lists.last().ok_or(SyncKeyError::Corrupt)
     }
+
+    /// The devices on the newest signed list.
+    pub fn devices(&self) -> Result<Vec<DevicePublic>, SyncKeyError> {
+        Ok(self.latest()?.devices.clone())
+    }
+
+    /// How this chain sits against `earlier`. Newer means this one extends it.
+    pub fn compared_with(&self, earlier: &DeviceChain) -> ChainOrder {
+        let shared = self.lists.len().min(earlier.lists.len());
+        if self.lists[..shared] != earlier.lists[..shared] {
+            return ChainOrder::Diverge;
+        }
+        match self.lists.len().cmp(&earlier.lists.len()) {
+            std::cmp::Ordering::Equal => ChainOrder::Same,
+            std::cmp::Ordering::Greater => ChainOrder::Newer,
+            std::cmp::Ordering::Less => ChainOrder::Older,
+        }
+    }
+}
+
+/// Whether one device list extends another.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChainOrder {
+    Same,
+    Newer,
+    Older,
+    Diverge,
 }
 
 fn unique_ids(devices: &[DevicePublic]) -> bool {
@@ -791,6 +827,29 @@ fn appended_one(previous: &[DevicePublic], next: &[DevicePublic]) -> bool {
         && !previous
             .iter()
             .any(|device| device.id == next[previous.len()].id)
+}
+
+/// One device left the list. The rest stay, in the same order, with the same keys.
+fn removed_one(previous: &[DevicePublic], next: &[DevicePublic]) -> bool {
+    if previous.len() < 2 || next.len() + 1 != previous.len() {
+        return false;
+    }
+    let mut skipped = false;
+    let mut index = 0;
+    for device in previous {
+        if index < next.len() && next[index] == *device {
+            index += 1;
+        } else if !skipped {
+            skipped = true;
+        } else {
+            return false;
+        }
+    }
+    skipped && index == next.len()
+}
+
+fn changed_by_one(previous: &[DevicePublic], next: &[DevicePublic]) -> bool {
+    appended_one(previous, next) || removed_one(previous, next)
 }
 
 /// The first device signs a list that contains only itself.
@@ -853,6 +912,49 @@ pub fn approve(
     approved.verify()?;
     let wrap = wrap_vault_for_device(newcomer, vault, epoch)?;
     Ok((approved, wrap))
+}
+
+/// An approved device removes one other device from the list.
+/// The removed device is no longer approved to add or remove devices.
+pub fn remove_device(
+    approver: &DeviceKeys,
+    chain: &DeviceChain,
+    target: &[u8; 16],
+) -> Result<DeviceChain, SyncKeyError> {
+    chain.verify()?;
+    let latest = chain.latest()?;
+    if approver.id == *target || latest.devices.len() < 2 {
+        return Err(SyncKeyError::NotApproved);
+    }
+    if !latest.devices.iter().any(|device| device.id == approver.id) {
+        return Err(SyncKeyError::NotApproved);
+    }
+    if !latest.devices.iter().any(|device| device.id == *target) {
+        return Err(SyncKeyError::NotApproved);
+    }
+    let devices: Vec<_> = latest
+        .devices
+        .iter()
+        .copied()
+        .filter(|device| device.id != *target)
+        .collect();
+    let mut next = SignedDevices {
+        version: latest.version + 1,
+        prev: {
+            let mut hash = [0u8; KEY_LEN];
+            hash.copy_from_slice(&Sha256::digest(latest.message()));
+            hash
+        },
+        signer: approver.id,
+        devices,
+        signature: [0u8; 64],
+    };
+    next.signature = sign_list(approver, &next)?;
+    let mut lists = chain.lists.clone();
+    lists.push(next);
+    let removed = DeviceChain { lists };
+    removed.verify()?;
+    Ok(removed)
 }
 
 fn bind(kind: &[u8], epoch: u64, key_id: &[u8; 16], recipient: Option<&[u8; 16]>) -> Vec<u8> {
@@ -1039,6 +1141,236 @@ impl ServerView {
             page,
         })
     }
+}
+
+/// What one device remembers so a reload stays linked. It is not a mailbox record.
+pub struct DeviceStore {
+    pub device: DeviceKeys,
+    pub vault: VaultKey,
+    pub account: [u8; 32],
+    pub epoch: u64,
+    pub chain: Vec<u8>,
+}
+
+impl std::fmt::Debug for DeviceStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DeviceStore(..)")
+    }
+}
+
+pub fn store_device(
+    device: &DeviceKeys,
+    vault: &VaultKey,
+    account: &[u8; 32],
+    epoch: u64,
+    chain: &[u8],
+) -> Result<Vec<u8>, SyncKeyError> {
+    if chain.len() > MAX_CHAIN_BYTES {
+        return Err(SyncKeyError::Corrupt);
+    }
+    let mut out = Vec::new();
+    out.extend_from_slice(DEVICE_MAGIC);
+    out.extend_from_slice(&device.id);
+    out.extend_from_slice(&device.sign);
+    out.extend_from_slice(&device.receive);
+    out.extend_from_slice(&vault.id);
+    out.extend_from_slice(&vault.key);
+    out.extend_from_slice(account);
+    out.extend_from_slice(&epoch.to_be_bytes());
+    push_chunk(&mut out, chain);
+    let digest = Sha256::digest(&out);
+    out.extend_from_slice(&digest);
+    Ok(out)
+}
+
+pub fn open_device_store(bytes: &[u8]) -> Result<DeviceStore, SyncKeyError> {
+    if bytes.len() < DEVICE_MAGIC.len() + 16 + KEY_LEN + KEY_LEN + 16 + KEY_LEN + 32 + 8 + 32 {
+        return Err(SyncKeyError::Corrupt);
+    }
+    let (body, digest) = bytes.split_at(bytes.len() - 32);
+    if Sha256::digest(body).as_slice() != digest {
+        return Err(SyncKeyError::Corrupt);
+    }
+    let mut reader = Reader::new(body);
+    if reader.take(DEVICE_MAGIC.len())? != DEVICE_MAGIC {
+        return Err(SyncKeyError::Corrupt);
+    }
+    let store = DeviceStore {
+        device: DeviceKeys {
+            id: reader.array()?,
+            sign: reader.array()?,
+            receive: reader.array()?,
+        },
+        vault: VaultKey {
+            id: reader.array()?,
+            key: reader.array()?,
+        },
+        account: reader.array()?,
+        epoch: reader.u64()?,
+        chain: reader.chunk()?,
+    };
+    if store.chain.len() > MAX_CHAIN_BYTES {
+        return Err(SyncKeyError::Corrupt);
+    }
+    reader.finish()?;
+    Ok(store)
+}
+
+/// Every page, plus the library document, before it is sealed.
+#[derive(Clone)]
+pub struct PageSet {
+    pub doc: Vec<u8>,
+    pub pages: Vec<(String, String)>,
+}
+
+impl PageSet {
+    pub fn to_bytes(&self) -> Result<Vec<u8>, SyncKeyError> {
+        if self.doc.len() > MAX_DOC || self.pages.len() > MAX_PAGES {
+            return Err(SyncKeyError::Corrupt);
+        }
+        let mut out = Vec::new();
+        out.extend_from_slice(PAGES_MAGIC);
+        push_chunk(&mut out, &self.doc);
+        out.extend_from_slice(
+            &(u32::try_from(self.pages.len()).map_err(|_| SyncKeyError::Corrupt)?).to_be_bytes(),
+        );
+        for (id, text) in &self.pages {
+            let id_bytes = id.as_bytes();
+            let text_bytes = text.as_bytes();
+            if id_bytes.is_empty()
+                || id_bytes.len() > MAX_PAGE_ID
+                || text_bytes.len() > MAX_PAGE_TEXT
+            {
+                return Err(SyncKeyError::Corrupt);
+            }
+            let id_len = u16::try_from(id_bytes.len()).map_err(|_| SyncKeyError::Corrupt)?;
+            out.extend_from_slice(&id_len.to_be_bytes());
+            out.extend_from_slice(id_bytes);
+            push_chunk(&mut out, text_bytes);
+        }
+        Ok(out)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, SyncKeyError> {
+        let mut reader = Reader::new(bytes);
+        if reader.take(PAGES_MAGIC.len())? != PAGES_MAGIC {
+            return Err(SyncKeyError::Corrupt);
+        }
+        let doc = reader.chunk()?;
+        if doc.len() > MAX_DOC {
+            return Err(SyncKeyError::Corrupt);
+        }
+        let count = usize::try_from(reader.u32()?).map_err(|_| SyncKeyError::Corrupt)?;
+        if count > MAX_PAGES {
+            return Err(SyncKeyError::Corrupt);
+        }
+        let mut pages = Vec::with_capacity(count);
+        for _ in 0..count {
+            let id_len = usize::from(reader.u16()?);
+            if id_len == 0 || id_len > MAX_PAGE_ID {
+                return Err(SyncKeyError::Corrupt);
+            }
+            let id = std::str::from_utf8(reader.take(id_len)?)
+                .map_err(|_| SyncKeyError::Corrupt)?
+                .to_string();
+            let text_bytes = reader.chunk()?;
+            if text_bytes.len() > MAX_PAGE_TEXT {
+                return Err(SyncKeyError::Corrupt);
+            }
+            let text = String::from_utf8(text_bytes).map_err(|_| SyncKeyError::Corrupt)?;
+            pages.push((id, text));
+        }
+        reader.finish()?;
+        Ok(Self { doc, pages })
+    }
+
+    /// Keep this document. Page text is the union: lines are added, never dropped.
+    pub fn merge(self, other: Self) -> Self {
+        Self {
+            doc: self.doc,
+            pages: merge_page_texts(&self.pages, &other.pages),
+        }
+    }
+}
+
+pub fn merge_page_texts(
+    local: &[(String, String)],
+    remote: &[(String, String)],
+) -> Vec<(String, String)> {
+    let mut out = local.to_vec();
+    for (id, remote_text) in remote {
+        if let Some(index) = out.iter().position(|(have, _)| have == id) {
+            let local_text = out[index].1.clone();
+            if local_text == *remote_text {
+                continue;
+            }
+            if sealed_page(&local_text) || sealed_page(remote_text) {
+                let copy = fresh_page_id(&out, id);
+                out.push((copy, remote_text.clone()));
+            } else {
+                out[index].1 = merge_lines(&local_text, remote_text);
+            }
+        } else {
+            out.push((id.clone(), remote_text.clone()));
+        }
+    }
+    out
+}
+
+fn sealed_page(text: &str) -> bool {
+    text.starts_with("OMACUS-LOCK/1\n")
+}
+
+fn fresh_page_id(pages: &[(String, String)], id: &str) -> String {
+    for n in 2..1000 {
+        let next = format!("{id}~{n}");
+        if !pages.iter().any(|(have, _)| have == &next) {
+            return next;
+        }
+    }
+    format!("{id}~extra")
+}
+
+fn merge_lines(local: &str, remote: &str) -> String {
+    if local == remote || remote.is_empty() {
+        return local.to_string();
+    }
+    if local.is_empty() {
+        return remote.to_string();
+    }
+    if local.contains(remote) {
+        return local.to_string();
+    }
+    if remote.contains(local) {
+        return remote.to_string();
+    }
+    let lines: Vec<&str> = local.split('\n').collect();
+    let have: std::collections::HashSet<&str> = lines.iter().copied().collect();
+    let mut extra = Vec::new();
+    for line in remote.split('\n') {
+        if !have.contains(line) {
+            extra.push(line);
+        }
+    }
+    if extra.iter().all(|line| line.is_empty()) {
+        return if local.len() >= remote.len() {
+            local.to_string()
+        } else {
+            remote.to_string()
+        };
+    }
+    let mut merged = local.trim_end_matches('\n').to_string();
+    for line in extra {
+        if line.is_empty() {
+            continue;
+        }
+        merged.push('\n');
+        merged.push_str(line);
+    }
+    if local.ends_with('\n') || remote.ends_with('\n') {
+        merged.push('\n');
+    }
+    merged
 }
 
 fn push_chunk(out: &mut Vec<u8>, bytes: &[u8]) {
@@ -1629,5 +1961,113 @@ mod tests {
         assert_ne!(root.0, [0u8; KEY_LEN]);
         root.zeroize();
         assert_eq!(root.0, [0u8; KEY_LEN]);
+    }
+
+    #[test]
+    fn a_device_file_round_trips_and_is_not_a_mailbox_record() {
+        let device = DeviceKeys::generate().unwrap();
+        let vault = VaultKey::generate().unwrap();
+        let account = [0x11u8; 32];
+        let chain = found_devices(&device).unwrap().to_bytes();
+        let stored = store_device(&device, &vault, &account, 1, &chain).unwrap();
+        assert!(stored.starts_with(DEVICE_MAGIC));
+        assert!(!stored.starts_with(b"OMACUS-SYNC/1\n"));
+        let opened = open_device_store(&stored).unwrap();
+        assert_eq!(opened.device.id, device.id);
+        assert_eq!(opened.device.sign, device.sign);
+        assert_eq!(opened.device.receive, device.receive);
+        assert_eq!(opened.vault.id, vault.id);
+        assert_eq!(opened.vault.key, vault.key);
+        assert_eq!(opened.account, account);
+        assert_eq!(opened.epoch, 1);
+        assert_eq!(opened.chain, chain);
+        let mut torn = stored.clone();
+        let last = torn.len() - 1;
+        torn[last] ^= 0xff;
+        assert!(open_device_store(&torn).is_err());
+    }
+
+    #[test]
+    fn removing_a_device_keeps_the_rest_and_a_bad_list_fails() {
+        let laptop = DeviceKeys::generate().unwrap();
+        let phone = DeviceKeys::generate().unwrap();
+        let tablet = DeviceKeys::generate().unwrap();
+        let vault = VaultKey::generate().unwrap();
+        let chain = found_devices(&laptop).unwrap();
+        let (with_phone, _) = approve(&laptop, &chain, &phone.public(), &vault, 1).unwrap();
+        let (with_both, _) = approve(&phone, &with_phone, &tablet.public(), &vault, 1).unwrap();
+        assert_eq!(with_both.compared_with(&with_phone), ChainOrder::Newer);
+        let removed = remove_device(&laptop, &with_both, phone.public().id()).unwrap();
+        removed.verify().unwrap();
+        let ids: Vec<_> = removed
+            .devices()
+            .unwrap()
+            .iter()
+            .map(|device| device.id)
+            .collect();
+        assert!(ids.contains(&laptop.id));
+        assert!(ids.contains(&tablet.id));
+        assert!(!ids.contains(&phone.id));
+        assert_eq!(removed.compared_with(&with_both), ChainOrder::Newer);
+        assert!(remove_device(&phone, &removed, tablet.public().id()).is_err());
+        assert!(remove_device(&laptop, &removed, laptop.public().id()).is_err());
+        assert!(
+            approve(
+                &phone,
+                &removed,
+                &DeviceKeys::generate().unwrap().public(),
+                &vault,
+                1
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn merging_pages_adds_and_never_drops_a_line() {
+        let local = PageSet {
+            doc: b"local-doc".to_vec(),
+            pages: vec![
+                ("trip".to_string(), "Trip Budget\nferry = 40\n".to_string()),
+                ("note".to_string(), "cake $5\n".to_string()),
+            ],
+        };
+        let remote = PageSet {
+            doc: b"remote-doc".to_vec(),
+            pages: vec![
+                ("trip".to_string(), "Trip Budget\nmilk $3\n".to_string()),
+                ("market".to_string(), "bread $2\n".to_string()),
+            ],
+        };
+        let merged = local.merge(remote);
+        assert_eq!(merged.doc, b"local-doc");
+        let trip = merged
+            .pages
+            .iter()
+            .find(|(id, _)| id == "trip")
+            .unwrap()
+            .1
+            .as_str();
+        assert!(trip.contains("ferry = 40"), "{trip}");
+        assert!(trip.contains("milk $3"), "{trip}");
+        assert!(merged.pages.iter().any(|(id, _)| id == "note"));
+        assert!(merged.pages.iter().any(|(id, _)| id == "market"));
+        let kept = merge_page_texts(
+            &[("trip".to_string(), "ferry = 40\nmilk $3\n".to_string())],
+            &[("trip".to_string(), "ferry = 40\n".to_string())],
+        );
+        assert!(kept[0].1.contains("milk $3"));
+        let locked = merge_page_texts(
+            &[("trip".to_string(), "OMACUS-LOCK/1\nlocal\n".to_string())],
+            &[("trip".to_string(), "OMACUS-LOCK/1\nremote\n".to_string())],
+        );
+        assert_eq!(locked[0].1, "OMACUS-LOCK/1\nlocal\n");
+        assert!(locked.iter().any(|(_, text)| text.contains("remote")));
+        let bytes = merged.to_bytes().unwrap();
+        assert_eq!(
+            PageSet::from_bytes(&bytes).unwrap().pages.len(),
+            merged.pages.len()
+        );
+        assert!(bytes.starts_with(PAGES_MAGIC));
     }
 }

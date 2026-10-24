@@ -1,6 +1,7 @@
 /target
 /site/app/pkg
 /relay/www/pkg
+/relay/worker/public
 /site/app/build-hash.txt
 __pycache__/
 installer/dmg-background.tiff

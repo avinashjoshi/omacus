@@ -3,6 +3,8 @@
 // A new version waits. The page saves the open edit, then asks this worker to take over.
 
 const CACHE = "omacus-app-12";
+const SYNC_TEST = self.location.hostname === "sync-test.omacus.com";
+const CACHE_NAME = SYNC_TEST ? "omacus-sync-test-1" : CACHE;
 
 const APP_FILES = [
   "./",
@@ -19,6 +21,7 @@ const APP_FILES = [
   "frame.js",
   "recover.js",
   "backup.js",
+  "sync.js",
   "migrate.js",
   "migrate-client.js",
   "migrate-protocol.js",
@@ -41,8 +44,12 @@ const SHARED = [
 
 function shellUrls() {
   const base = new URL("./", self.location);
+  const extra = SYNC_TEST
+    ? ["pkg/omacus_sync_web.js", "pkg/omacus_sync_web_bg.wasm", "words.txt"]
+    : [];
   return [
     ...APP_FILES.map((path) => new URL(path, base).href),
+    ...extra.map((path) => new URL(path, base).href),
     ...SHARED.map((path) => new URL(path, self.location.origin).href),
   ];
 }
@@ -55,7 +62,7 @@ self.addEventListener("activate", (e) => {
   e.waitUntil(
     (async () => {
       const keys = await caches.keys();
-      await Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)));
+      await Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)));
       await self.clients.claim();
     })(),
   );
@@ -87,7 +94,7 @@ async function keep(cache, url) {
 }
 
 async function precache(extra = []) {
-  const cache = await caches.open(CACHE);
+  const cache = await caches.open(CACHE_NAME);
   const urls = [...new Set([...shellUrls(), ...extra])];
   await Promise.all(urls.map((url) => keep(cache, url)));
   return cache;
@@ -113,11 +120,12 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  if (url.pathname === "/v1" || url.pathname.startsWith("/v1/")) return;
   if (req.mode === "navigate") {
     if (isAppNavigation(url.pathname)) e.respondWith(networkFirstPage());
     return;
   }
-  const cachePromise = caches.open(CACHE);
+  const cachePromise = caches.open(CACHE_NAME);
   const fetched = fetchFresh(req)
     .then(async (res) => {
       if (!honest(res, req)) return null;
@@ -147,7 +155,7 @@ function fetchFresh(url) {
 // that skips the HTTP cache still comes through here, including with no connection.
 async function networkFirstPage() {
   const key = new URL("./", self.location).href;
-  const cache = await caches.open(CACHE);
+  const cache = await caches.open(CACHE_NAME);
   if (self.navigator.onLine !== false) {
     try {
       const res = await fetchFresh(key);

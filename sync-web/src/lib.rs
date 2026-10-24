@@ -206,3 +206,152 @@ pub fn recovery_open(id: u32, record_b64: &str) -> String {
         Ok(json!({ "ok": true, "page": page }))
     })
 }
+
+#[wasm_bindgen(js_name = exportLocal)]
+pub fn export_local(id: u32) -> String {
+    call(|| {
+        let file = with_desk(id, |desk| desk.export_local())??;
+        Ok(json!({ "ok": true, "file": b64_encode(&file) }))
+    })
+}
+
+#[wasm_bindgen(js_name = importLocal)]
+pub fn import_local(file_b64: &str) -> String {
+    call(|| {
+        let bytes = b64_decode(file_b64)?;
+        let desk = Desk::import_local(&bytes)?;
+        let account = desk.account_hex().ok_or(SyncKeyError::Corrupt)?;
+        let id = store(desk);
+        Ok(json!({ "ok": true, "id": id, "account": account }))
+    })
+}
+
+#[wasm_bindgen(js_name = sealPages)]
+pub fn seal_pages(id: u32, packed_b64: &str) -> String {
+    call(|| {
+        let packed = b64_decode(packed_b64)?;
+        let record = with_desk(id, |desk| desk.seal_pages(&packed))??;
+        Ok(json!({ "ok": true, "record": b64_encode(&record) }))
+    })
+}
+
+#[wasm_bindgen(js_name = absorbRecord)]
+pub fn absorb_record(id: u32, record_b64: &str) -> String {
+    call(|| {
+        let record = b64_decode(record_b64)?;
+        let (packed, member) = with_desk(id, |desk| desk.absorb_record(&record))??;
+        Ok(json!({
+            "ok": true,
+            "packed": b64_encode(&packed),
+            "member": member,
+        }))
+    })
+}
+
+#[wasm_bindgen(js_name = openApprovalPages)]
+pub fn open_approval_pages(id: u32, chain_b64: &str, wrap_b64: &str, record_b64: &str) -> String {
+    call(|| {
+        let chain = b64_decode(chain_b64)?;
+        let wrap = b64_decode(wrap_b64)?;
+        let record = b64_decode(record_b64)?;
+        let packed = with_desk(id, |desk| desk.open_approval_pages(&chain, &wrap, &record))??;
+        Ok(json!({ "ok": true, "packed": b64_encode(&packed) }))
+    })
+}
+
+#[wasm_bindgen(js_name = recoveryOpenPages)]
+pub fn recovery_open_pages(id: u32, record_b64: &str) -> String {
+    call(|| {
+        let record = b64_decode(record_b64)?;
+        let packed = with_desk(id, |desk| desk.recovery_open_pages(&record))??;
+        Ok(json!({ "ok": true, "packed": b64_encode(&packed) }))
+    })
+}
+
+#[wasm_bindgen(js_name = deviceList)]
+pub fn device_list(id: u32) -> String {
+    call(|| {
+        let rows = with_desk(id, |desk| desk.listed_devices())??;
+        let devices: Vec<_> = rows
+            .into_iter()
+            .map(|(id, code, mine)| json!({ "id": id, "code": code, "self": mine }))
+            .collect();
+        Ok(json!({ "ok": true, "devices": devices }))
+    })
+}
+
+#[wasm_bindgen(js_name = removeDevice)]
+pub fn remove_device(id: u32, device_id_hex: &str) -> String {
+    call(|| {
+        let device_id = desk::decode_hex_id(device_id_hex)?;
+        let record = with_desk(id, |desk| desk.remove_listed(&device_id))??;
+        Ok(json!({ "ok": true, "record": b64_encode(&record) }))
+    })
+}
+
+fn page_pairs(text: &str) -> Result<Vec<(String, String)>, SyncKeyError> {
+    let value: Value = serde_json::from_str(text).map_err(|_| SyncKeyError::Corrupt)?;
+    let list = value.as_array().ok_or(SyncKeyError::Corrupt)?;
+    let mut out = Vec::with_capacity(list.len());
+    for item in list {
+        let pair = item.as_array().ok_or(SyncKeyError::Corrupt)?;
+        if pair.len() != 2 {
+            return Err(SyncKeyError::Corrupt);
+        }
+        let id = pair[0].as_str().ok_or(SyncKeyError::Corrupt)?;
+        let page = pair[1].as_str().ok_or(SyncKeyError::Corrupt)?;
+        out.push((id.to_string(), page.to_string()));
+    }
+    Ok(out)
+}
+
+#[wasm_bindgen(js_name = packPages)]
+pub fn pack_pages(doc_b64: &str, pages_json: &str) -> String {
+    call(|| {
+        let doc = if doc_b64.is_empty() {
+            Vec::new()
+        } else {
+            b64_decode(doc_b64)?
+        };
+        let pages = page_pairs(pages_json)?;
+        let packed = sync_keys_pack(&doc, &pages)?;
+        Ok(json!({ "ok": true, "packed": b64_encode(&packed) }))
+    })
+}
+
+#[wasm_bindgen(js_name = unpackPages)]
+pub fn unpack_pages(packed_b64: &str) -> String {
+    call(|| {
+        let packed = b64_decode(packed_b64)?;
+        let set = omacus_engine::sync_keys::PageSet::from_bytes(&packed)?;
+        let pages: Vec<_> = set
+            .pages
+            .iter()
+            .map(|(id, text)| json!([id, text]))
+            .collect();
+        Ok(json!({
+            "ok": true,
+            "doc": b64_encode(&set.doc),
+            "pages": pages,
+        }))
+    })
+}
+
+#[wasm_bindgen(js_name = mergePacked)]
+pub fn merge_packed(local_b64: &str, remote_b64: &str) -> String {
+    call(|| {
+        let local = omacus_engine::sync_keys::PageSet::from_bytes(&b64_decode(local_b64)?)?;
+        let remote = omacus_engine::sync_keys::PageSet::from_bytes(&b64_decode(remote_b64)?)?;
+        let merged = local.merge(remote);
+        let packed = merged.to_bytes()?;
+        Ok(json!({ "ok": true, "packed": b64_encode(&packed) }))
+    })
+}
+
+fn sync_keys_pack(doc: &[u8], pages: &[(String, String)]) -> Result<Vec<u8>, SyncKeyError> {
+    omacus_engine::sync_keys::PageSet {
+        doc: doc.to_vec(),
+        pages: pages.to_vec(),
+    }
+    .to_bytes()
+}

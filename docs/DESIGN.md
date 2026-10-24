@@ -340,12 +340,14 @@ Don't: collect an email, or describe sync as something the app already does. The
 
 ### Sync test
 
-A private test, labeled `1.0.0-beta.1`, lives in `relay/www`. It is not a page on omacus.com and it is not the app. The screens are Turn on sync, Save your recovery key, Tap the three words, Add this device, Approve a new device, and Use your recovery key.
+A private test, labeled `1.0.0-beta.1`. `relay/www` is the small test page. The same screens also live in the web app's Settings, on a Sync tab, and only when that copy is the test (`sync-test.omacus.com`, or `data-sync-test="1"` on the page). The published app does not show the tab. The screens are Turn on sync, Save your recovery key, Pick the three words, Add this device, Approve a new device, and Use your recovery key. A linked device lists the others, and Remove drops one from that list.
 
-The recovery screen is one box. Numbers, commas, capitals, and line breaks are fine. Scan reads the same words off the sheet. Confirm is three taps on numbered words, with nothing to type. Approve shows the same six-digit code on both devices, grouped as `482 916`.
+The recovery screen is one box. Numbers, commas, capitals, and line breaks are fine. Scan reads the same words off the sheet. Confirm is three numbered words, each with six choices, nothing to type, and the sheet's other words are not the decoys. Approve shows the same six-digit code on both devices, grouped as `482 916`. A status chip in the top bar says when sync is off, syncing, saved, or offline. The version line reads `omacus 1.0.0-beta.1`.
 
-Do: use the app tokens. Sentence case. Trip Budget for the sample page. One primary button on each screen. The version line reads `omacus 1.0.0-beta.1`.
-Don't: put this on the website, write the words anywhere but the device, or name the parts of a key in the words a person reads. Don't restyle these screens into the shipped app.
+The test copy keeps its own pages, separate from the published app. Offline, the pages already on the device stay there.
+
+Do: use the app tokens. Sentence case. One primary button on each screen. Trip Budget for a made-up page.
+Don't: put this on the website, show the Sync tab in the published app, write the words anywhere but the device, or name the parts of a key in the words a person reads.
 
 ### Foldable showcase
 
