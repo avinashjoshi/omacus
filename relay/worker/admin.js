@@ -3,6 +3,7 @@
 
 const enc = new TextEncoder();
 const RECORD_MAGIC = enc.encode("OMACUS-SYNC/1\n");
+const RECORD_MAGIC_V2 = enc.encode("OMACUS-SYNC/2\n");
 const WINDOW_MS = 60_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_USES = 20;
@@ -72,7 +73,9 @@ export function codeStatus(row, now = Date.now()) {
 
 export function deviceCount(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length < RECORD_MAGIC.length) return 0;
-  for (let i = 0; i < RECORD_MAGIC.length; i += 1) if (bytes[i] !== RECORD_MAGIC[i]) return 0;
+  const v1 = RECORD_MAGIC.every((byte, i) => bytes[i] === byte);
+  const v2 = RECORD_MAGIC_V2.every((byte, i) => bytes[i] === byte);
+  if (!v1 && !v2) return 0;
   let at = RECORD_MAGIC.length;
   if (at >= bytes.length) return 0;
   at += 1 + bytes[at] + 8 + 32 + 16;
@@ -186,7 +189,12 @@ async function collectStats(storage) {
     const bytes = decodeRecord(mailbox && mailbox.record);
     const count = bytes ? deviceCount(bytes) : 0;
     devices += count;
-    storageRows.push({ account, bytes: bytes ? bytes.length : 0, devices: count });
+    let objectBytes = 0;
+    const objects = await storage.list({ prefix: `o:${account}:` });
+    for (const [, value] of objects) {
+      objectBytes += value && Number.isInteger(value.bytes) ? value.bytes : 0;
+    }
+    storageRows.push({ account, bytes: (bytes ? bytes.length : 0) + objectBytes, devices: count });
   }
   storageRows.sort((a, b) => a.account.localeCompare(b.account));
   return {
@@ -219,6 +227,8 @@ async function deleteAccount(storage, account, confirm) {
   const key = "m:" + account;
   const row = await storage.get(key);
   if (!row) return [404, { message: "No sealed copy is stored for that account." }];
+  const objects = await storage.list({ prefix: `o:${account}:` });
+  for (const objectKey of objects.keys()) await storage.delete(objectKey);
   await storage.delete(key);
   await audit(storage, "delete", { account });
   return [200, { ok: true }];

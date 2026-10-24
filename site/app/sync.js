@@ -2,7 +2,7 @@
 // A device file stays in this browser. The server receives a sealed record.
 import { SYNC_URL } from "./sync-config.js";
 
-const LABEL = "omacus 1.0.0-beta.10";
+const LABEL = "omacus 1.0.0-beta.11";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 
@@ -55,6 +55,7 @@ export async function mountSync(api) {
     wrong: 0,
     account: "",
     revision: 0,
+    slots: "[]",
     code: "",
     device: "",
     requestId: "",
@@ -484,25 +485,66 @@ export async function mountSync(api) {
     await api.storeSet("device-file", file.file);
     await api.storeSet("sync-account", state.account);
     await api.storeSet("sync-revision", String(state.revision || 0));
+    await api.storeSet("sync-slots", state.slots || "[]");
   }
 
-  async function publish(record) {
-    if (!state.revision) {
-      const created = await callServer("POST", "/v1/mailboxes", {
+  async function publish(record, objects, dropIds) {
+    const extra = {};
+    if (objects && objects.length) extra.objects = objects;
+    if (dropIds && dropIds.length) extra.drop = dropIds;
+    const result = !state.revision
+      ? await callServer("POST", "/v1/mailboxes", {
         account: state.account,
         record,
         code: state.accessCode,
+        ...extra,
+      })
+      : await callServer("PUT", `/v1/mailboxes/${state.account}`, {
+        revision: state.revision,
+        record,
+        ...extra,
       });
-      state.revision = created.revision;
-    } else {
-      const put = await callServer("PUT", `/v1/mailboxes/${state.account}`, { revision: state.revision, record });
-      state.revision = put.revision;
-    }
+    state.revision = result.revision;
     await saveFile();
+    return result;
+  }
+
+  async function fetchObjects(ids) {
+    if (!ids || !ids.length) return [];
+    const data = await callServer("POST", `/v1/mailboxes/${state.account}/objects`, { ids });
+    return data.objects || [];
+  }
+
+  async function sealPacked(packed) {
+    const sealed = JSON.parse(sync.sealLibrary(state.desk, packed, state.slots || "[]"));
+    if (!sealed.ok) throw new Error(sealed.message || "Couldn't sync.");
+    return sealed;
+  }
+
+  async function commitSeal(sealed) {
+    const result = await publish(sealed.record, sealed.objects, sealed.drop);
+    const slots = JSON.parse(sealed.slots || "[]");
+    for (const row of result.objects || []) {
+      const slot = slots.find((item) => item.objectId === row.id);
+      if (slot) slot.serverRev = row.revision;
+    }
+    state.slots = JSON.stringify(slots);
+    await api.storeSet("sync-slots", state.slots);
+    return result;
   }
 
   async function pull(mailbox, depth = 0) {
-    const opened = JSON.parse(sync.absorbRecord(state.desk, mailbox.record));
+    const wanted = JSON.parse(sync.wantedObjects(state.desk, mailbox.record, state.slots || "[]"));
+    if (!wanted.ok) throw new Error(wanted.message || "Those pages could not be opened.");
+    const fetched = await fetchObjects(wanted.want || []);
+    let docB64 = "";
+    try {
+      const snap = await api.snapshot();
+      if (snap && snap.doc && snap.doc.length) docB64 = api.bytesToB64(snap.doc);
+    } catch {
+      docB64 = "";
+    }
+    const opened = JSON.parse(sync.openLibrary(state.desk, mailbox.record, JSON.stringify(fetched), state.slots || "[]", docB64));
     if (!opened.ok) {
       if (state.member && depth < 1) {
         state.revision = mailbox.revision;
@@ -560,7 +602,8 @@ export async function mountSync(api) {
       showRemoved();
       return;
     }
-    if (opened.republish && state.member && depth < 1) await push();
+    if (opened.slots) state.slots = opened.slots;
+    if ((opened.republish || opened.legacy) && opened.replace !== false && state.member && depth < 1) await push();
   }
 
   async function push() {
@@ -570,10 +613,9 @@ export async function mountSync(api) {
     }
     const snap = await api.snapshot();
     const packed = await pack(snap.doc, snap.pages);
-    const sealed = JSON.parse(sync.sealPages(state.desk, packed));
-    if (!sealed.ok) throw new Error(sealed.message || "Couldn't sync.");
+    const sealed = await sealPacked(packed);
     try {
-      await publish(sealed.record);
+      await commitSeal(sealed);
       state.dirty = false;
       calm();
     } catch (error) {
@@ -589,10 +631,9 @@ export async function mountSync(api) {
     if (!state.selfId || !remote) return;
     const doc = remote.doc ? api.b64ToBytes(remote.doc) : new Uint8Array();
     const packed = await pack(doc, remote.pages || []);
-    const sealed = JSON.parse(sync.sealPages(state.desk, packed));
-    if (!sealed.ok) return;
+    const sealed = await sealPacked(packed);
     state.dirty = false;
-    await publish(sealed.record);
+    await commitSeal(sealed);
     calm();
   }
 
@@ -830,9 +871,8 @@ export async function mountSync(api) {
     }
     try {
       const snap = await api.snapshot();
-      const sealed = JSON.parse(sync.sealPages(state.desk, await pack(snap.doc, snap.pages)));
-      if (!sealed.ok) throw new Error(sealed.message);
-      await publish(sealed.record);
+      const sealed = await sealPacked(await pack(snap.doc, snap.pages));
+      await commitSeal(sealed);
       state.member = true;
       state.removed = false;
       state.screen = "linked";
@@ -1113,13 +1153,21 @@ export async function mountSync(api) {
       state.busy = true;
       draw();
       let mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
-      let opened = JSON.parse(sync.openApprovalPages(state.desk, decision.chain, decision.wrap, mailbox.record));
-      for (let attempt = 0; !opened.ok && attempt < 3 && /saved copy/i.test(opened.message || ""); attempt += 1) {
+      let plan = JSON.parse(sync.approvalPlan(state.desk, decision.chain, decision.wrap, mailbox.record));
+      for (let attempt = 0; !plan.ok && attempt < 3 && /saved copy/i.test(plan.message || ""); attempt += 1) {
         mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
-        opened = JSON.parse(sync.openApprovalPages(state.desk, decision.chain, decision.wrap, mailbox.record));
+        plan = JSON.parse(sync.approvalPlan(state.desk, decision.chain, decision.wrap, mailbox.record));
       }
-      if (!opened.ok) throw new Error(opened.message);
-      const remote = await asSet(opened.packed);
+      if (!plan.ok) throw new Error(plan.message);
+      let packed = plan.packed;
+      if (!plan.legacy) {
+        const fetched = await fetchObjects(plan.want || []);
+        const finished = JSON.parse(sync.approvalFinish(state.desk, mailbox.record, JSON.stringify(fetched)));
+        if (!finished.ok) throw new Error(finished.message);
+        packed = finished.packed;
+        if (finished.slots) state.slots = finished.slots;
+      }
+      const remote = await asSet(packed);
       const snap = await api.snapshot();
       const merged = JSON.parse(sync.mergePacked(await pack(snap.doc, snap.pages), remote.packed));
       if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
@@ -1158,11 +1206,10 @@ export async function mountSync(api) {
     }
     try {
       const snap = await api.snapshot();
-      const sealed = JSON.parse(sync.sealPages(state.desk, await pack(snap.doc, snap.pages)));
-      if (!sealed.ok) throw new Error(sealed.message);
+      const sealed = await sealPacked(await pack(snap.doc, snap.pages));
       const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
       state.revision = mailbox.revision;
-      await publish(sealed.record);
+      await commitSeal(sealed);
       await callServer("POST", `/v1/mailboxes/${state.account}/requests/${state.pending.id}`, {
         chain: approval.chain,
         wrap: approval.wrap,
@@ -1266,8 +1313,16 @@ export async function mountSync(api) {
     state.notice = "";
     try {
       const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
-      const opened = JSON.parse(sync.recoveryOpenPages(state.desk, mailbox.record));
-      if (!opened.ok) throw new Error(opened.message);
+      const peeked = JSON.parse(sync.recoveryPeek(state.desk, mailbox.record));
+      if (!peeked.ok) throw new Error(peeked.message);
+      let opened = peeked;
+      if (!peeked.legacy && !peeked.partial) {
+        const fetched = await fetchObjects(peeked.want || []);
+        const applied = JSON.parse(sync.recoveryApply(state.desk, mailbox.record, JSON.stringify(fetched)));
+        if (!applied.ok) throw new Error(applied.message);
+        opened = { packed: applied.packed, partial: false, slots: applied.slots };
+        if (applied.slots) state.slots = applied.slots;
+      }
       const snap = await api.snapshot();
       if (opened.partial) {
         let packed = await pack(snap.doc, snap.pages);
@@ -1286,7 +1341,11 @@ export async function mountSync(api) {
         state.dirty = false;
         state.error = "";
         state.notice = PARTIAL_NOTE;
-        await publish(restored.record);
+        state.slots = "[]";
+        const sealed = await sealPacked(packed);
+        const stale = (mailbox.objects || []).map((row) => row.id);
+        sealed.drop = [...(sealed.drop || []), ...stale];
+        await commitSeal(sealed);
         state.screen = "linked";
         await refreshDevices();
         calm();
@@ -1310,6 +1369,10 @@ export async function mountSync(api) {
         state.screen = "linked";
         await saveFile();
         await refreshDevices();
+        if (peeked.legacy) {
+          state.dirty = true;
+          await push();
+        }
         calm();
       }
     } catch (error) {
@@ -1763,6 +1826,7 @@ export async function mountSync(api) {
       state.desk = imported.id;
       state.account = imported.account;
       state.revision = Number(api.storeGet("sync-revision") || 0);
+      state.slots = api.storeGet("sync-slots") || "[]";
       state.screen = "linked";
       state.member = false;
       await refreshDevices().catch(() => {});

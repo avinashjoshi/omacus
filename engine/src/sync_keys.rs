@@ -143,7 +143,7 @@ fn words() -> &'static [&'static str] {
     WORDS.as_slice()
 }
 
-fn random_bytes<const N: usize>() -> Result<[u8; N], SyncKeyError> {
+pub(crate) fn random_bytes<const N: usize>() -> Result<[u8; N], SyncKeyError> {
     let mut buf = [0u8; N];
     getrandom::getrandom(&mut buf).map_err(|_| SyncKeyError::Unavailable)?;
     Ok(buf)
@@ -1304,9 +1304,19 @@ pub struct ServerView {
 
 impl ServerView {
     pub fn stored(&self) -> Vec<u8> {
+        self.to_bytes(1)
+    }
+
+    /// `version` 1 is one sealed page blob. `version` 2 is a sealed manifest.
+    pub fn to_bytes(&self, version: u8) -> Vec<u8> {
         let chain = self.chain.to_bytes();
         let mut out = Vec::new();
-        out.extend_from_slice(b"OMACUS-SYNC/1\n");
+        let magic: &[u8] = if version == 2 {
+            b"OMACUS-SYNC/2\n"
+        } else {
+            b"OMACUS-SYNC/1\n"
+        };
+        out.extend_from_slice(magic);
         let vault = VAULT_ID.as_bytes();
         out.push(vault.len() as u8);
         out.extend_from_slice(vault);
@@ -1325,7 +1335,8 @@ impl ServerView {
 
     pub fn parse(bytes: &[u8]) -> Result<Self, SyncKeyError> {
         let mut reader = Reader::new(bytes);
-        if reader.take(14)? != b"OMACUS-SYNC/1\n" {
+        let magic = reader.take(14)?;
+        if magic != b"OMACUS-SYNC/1\n" && magic != b"OMACUS-SYNC/2\n" {
             return Err(SyncKeyError::Corrupt);
         }
         let vault_len = usize::from(reader.byte()?);
@@ -1768,6 +1779,24 @@ impl PageSet {
     }
 }
 
+pub fn meta_to_bytes(meta: &SyncMeta) -> Result<Vec<u8>, SyncKeyError> {
+    let set = PageSet {
+        doc: Vec::new(),
+        pages: Vec::new(),
+        meta: meta.clone(),
+    };
+    let mut out = Vec::new();
+    set.write_meta(&mut out)?;
+    Ok(out)
+}
+
+pub fn meta_from_bytes(bytes: &[u8]) -> Result<SyncMeta, SyncKeyError> {
+    let mut reader = Reader::new(bytes);
+    let meta = PageSet::read_meta(&mut reader)?;
+    reader.finish()?;
+    Ok(meta)
+}
+
 fn without_pages(doc: &[u8], drop_ids: &[String]) -> Vec<u8> {
     if drop_ids.is_empty() || doc.is_empty() {
         return doc.to_vec();
@@ -1845,6 +1874,33 @@ impl<'a> Reader<'a> {
             Err(SyncKeyError::Corrupt)
         }
     }
+}
+
+pub(crate) fn seal_with_key(
+    key: &[u8; KEY_LEN],
+    aad: &[u8],
+    plain: &[u8],
+) -> Result<Vec<u8>, SyncKeyError> {
+    let mut nonce = random_bytes::<X_NONCE>()?;
+    let ciphertext = xchacha(true, key, &nonce, aad, plain)?;
+    let mut out = Vec::with_capacity(X_NONCE + ciphertext.len());
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&ciphertext);
+    nonce.zeroize();
+    Ok(out)
+}
+
+pub(crate) fn open_with_key(
+    key: &[u8; KEY_LEN],
+    aad: &[u8],
+    stored: &[u8],
+) -> Result<Vec<u8>, SyncKeyError> {
+    if stored.len() < X_NONCE + 16 {
+        return Err(SyncKeyError::Corrupt);
+    }
+    let (nonce, ciphertext) = stored.split_at(X_NONCE);
+    let nonce: [u8; X_NONCE] = nonce.try_into().map_err(|_| SyncKeyError::Corrupt)?;
+    xchacha(false, key, &nonce, aad, ciphertext)
 }
 
 fn xchacha(

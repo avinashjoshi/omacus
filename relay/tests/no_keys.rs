@@ -709,7 +709,7 @@ fn the_test_pages_do_not_name_private_parts_or_the_live_app() {
     ] {
         assert!(!text.contains(word), "the test pages say {word}");
     }
-    assert!(text.contains("1.0.0-beta.10"));
+    assert!(text.contains("1.0.0-beta.11"));
     assert!(
         !std::fs::read_to_string(root.join("../site/app/index.html"))
             .unwrap()

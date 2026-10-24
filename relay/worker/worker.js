@@ -1,4 +1,4 @@
-// Private sync test relay (1.0.0-beta.10) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.11) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
 // A new set of pages needs an invite code. The code is shown once, and
 // only a hash is stored. A new phone joins with a one-time code, also
@@ -11,11 +11,13 @@ import { mint, openCode, spend } from "./access.js";
 import { adminAuthorized, handleAdmin, isolateAllow, noteError } from "./admin.js";
 import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
 
-const LABEL = "1.0.0-beta.10";
-const MAX_RECORD = 256 * 1024, MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024;
+const LABEL = "1.0.0-beta.11";
+const MAX_RECORD = 256 * 1024, MAX_MANIFEST = 1024 * 1024, MAX_OBJECT = 4 * 1024 * 1024 + 64;
+const MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024, MAX_BODY = 8 * 1024 * 1024;
 const MAX_MAILBOXES = 32, MAX_REQUESTS = 8, MAX_USES = 20;
 const enc = new TextEncoder();
 const RECORD_MAGIC = enc.encode("OMACUS-SYNC/1\n");
+const RECORD_MAGIC_V2 = enc.encode("OMACUS-SYNC/2\n");
 const CHAIN_MAGIC = enc.encode("OMACUS-DEVICES/1");
 const ERR = {
   Unknown: [404, "This test server has no pages for that yet."],
@@ -54,9 +56,58 @@ const accountId = (a) => {
 };
 const sealed = (b64) => {
   const b = fromB64(b64);
-  if (b.length > MAX_RECORD || !startsWith(b, RECORD_MAGIC)) fail("Unreadable");
-  return b64.trim();
+  const v1 = startsWith(b, RECORD_MAGIC) && b.length <= MAX_RECORD;
+  const v2 = startsWith(b, RECORD_MAGIC_V2) && b.length <= MAX_MANIFEST;
+  if (b.length > 14 && (v1 || v2)) return b64.trim();
+  fail("Unreadable");
 };
+const objectId = (id) => {
+  id = String(id || "").trim().toLowerCase();
+  return /^[0-9a-f]{32}$/.test(id) ? id : fail("Unreadable");
+};
+function objectWrites(v) {
+  if (!v || v.objects === undefined) return [];
+  if (!Array.isArray(v.objects) || v.objects.length > 2000) fail("Unreadable");
+  return v.objects.map((item) => {
+    const id = objectId(item && item.id);
+    const base = item.base;
+    if (!Number.isInteger(base) || base < 0) fail("Unreadable");
+    const raw = fromB64(item.body);
+    if (raw.length < 40 || raw.length > MAX_OBJECT) fail("Unreadable");
+    return { id, base, body: String(item.body).trim(), bytes: raw.length };
+  });
+}
+function idList(list) {
+  if (list === undefined) return [];
+  if (!Array.isArray(list) || list.length > 2000) fail("Unreadable");
+  return list.map((item) => objectId(item));
+}
+async function applyObjects(txn, account, writes, dropping) {
+  const seen = new Set();
+  const planned = [];
+  for (const write of writes) {
+    if (seen.has(write.id)) fail("Unreadable");
+    seen.add(write.id);
+    const key = `o:${account}:${write.id}`;
+    const current = await txn.get(key);
+    if (write.base === 0) {
+      if (current) fail("Revision");
+      planned.push([key, { revision: 1, body: write.body, bytes: write.bytes }]);
+    } else if (!current || current.revision !== write.base) {
+      fail("Revision");
+    } else {
+      planned.push([key, { revision: current.revision + 1, body: write.body, bytes: write.bytes }]);
+    }
+  }
+  for (const id of dropping) if (seen.has(id)) fail("Unreadable");
+  const written = [];
+  for (const [key, value] of planned) {
+    await txn.put(key, value);
+    written.push({ id: key.slice(key.lastIndexOf(":") + 1), revision: value.revision });
+  }
+  for (const id of dropping) await txn.delete(`o:${account}:${id}`);
+  return written;
+}
 const cleanName = (raw) => {
   let out = "";
   for (const ch of String(raw || "")) {
@@ -84,7 +135,7 @@ async function gate(request, env, url) {
   const peek = request.method === "POST" && url.pathname === "/v1/access";
   if (!create && !peek) return new Request(request, { headers: dropAccessHeaders(request) });
   const text = await request.text();
-  if (text.length > 1024 * 1024) return json(400, { message: ERR.Unreadable[1] });
+  if (text.length > MAX_BODY) return json(400, { message: ERR.Unreadable[1] });
   let body;
   try { body = JSON.parse(text); } catch { body = null; }
   if (!body || typeof body !== "object" || Array.isArray(body)) return json(400, { message: ERR.Unreadable[1] });
@@ -101,6 +152,10 @@ async function gate(request, env, url) {
 }
 
 export class Mailboxes extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.store = ctx.storage;
+  }
   async fetch(request) {
     const url = new URL(request.url);
     const access = {
@@ -111,7 +166,7 @@ export class Mailboxes extends DurableObject {
     let body = {};
     if (request.method !== "GET") {
       const text = await request.text();
-      if (text.length > 1024 * 1024) return json(400, { message: ERR.Unreadable[1] });
+      if (text.length > MAX_BODY) return json(400, { message: ERR.Unreadable[1] });
       try { body = JSON.parse(text); } catch { body = null; }
     }
     try {
@@ -120,23 +175,23 @@ export class Mailboxes extends DurableObject {
       return json(status, value);
     } catch (e) {
       const name = Object.hasOwn(ERR, e) ? e : "Other";
-      try { await noteError(this.ctx.storage, name); } catch { /* the reply still names the failure */ }
+      try { await noteError(this.store, name); } catch { /* the reply still names the failure */ }
       const [status, message] = ERR[e] || [500, "Try again in a moment."];
       return json(status, { message });
     }
   }
   async load(account) {
-    return (await this.ctx.storage.get("m:" + account)) || fail("Unknown");
+    return (await this.store.get("m:" + account)) || fail("Unknown");
   }
-  async save(account, m) { await this.ctx.storage.put("m:" + account, m); }
+  async save(account, m) { await this.store.put("m:" + account, m); }
   // A put and an approval can overlap on a slow phone. One transaction keeps
   // both changes; the last write must not roll the saved pages back.
   async change(account, update) {
     let out;
-    await this.ctx.storage.transaction(async (txn) => {
+    await this.store.transaction(async (txn) => {
       const m = (await txn.get("m:" + account)) || fail("Unknown");
       dropExpired(m, Date.now());
-      out = await update(m);
+      out = await update(m, txn);
       await txn.put("m:" + account, m);
     });
     return out;
@@ -147,7 +202,7 @@ export class Mailboxes extends DurableObject {
     const uses = access.uses;
     if (!/^[0-9a-f]{64}$/.test(hash) || !Number.isInteger(uses) || uses < 1 || uses > MAX_USES) fail("BadAccess");
     const key = "a:" + hash;
-    const row = await this.ctx.storage.get(key);
+    const row = await this.store.get(key);
     if (row && row.revoked) fail("BadAccess");
     if (row && Number.isInteger(row.expires) && row.expires > 0 && row.expires <= Date.now()) fail("BadAccess");
     const table = {};
@@ -157,11 +212,11 @@ export class Mailboxes extends DurableObject {
     const next = row && typeof row === "object" ? { ...row } : {};
     next.left = table[hash];
     next.usedAt = Date.now();
-    await this.ctx.storage.put(key, next);
+    await this.store.put(key, next);
   }
 
   async route(method, path, body, access, admin) {
-    if (path.startsWith("/v1/admin")) return handleAdmin(this.ctx.storage, method, path, body, admin === true);
+    if (path.startsWith("/v1/admin")) return handleAdmin(this.store, method, path, body, admin === true);
     const need = () => (body && typeof body === "object" ? body : fail("Unreadable"));
     if (method === "POST" && path === "/v1/access") {
       await this.useAccess(access, false);
@@ -172,34 +227,59 @@ export class Mailboxes extends DurableObject {
       const v = need();
       const account = accountId(typeof v.account === "string" ? v.account : fail("Unreadable"));
       const record = sealed(v.record);
+      const writes = objectWrites(v);
       if (!access.spend) fail("BadAccess");
-      const signups = await this.ctx.storage.get("admin:signups");
+      const signups = await this.store.get("admin:signups");
       if (signups && signups.paused) fail("Paused");
       await this.useAccess(access, true);
-      await this.ctx.storage.transaction(async (txn) => {
+      let written = [];
+      await this.store.transaction(async (txn) => {
         if (await txn.get("m:" + account)) fail("Conflict");
         if ((await txn.list({ prefix: "m:" })).size >= MAX_MAILBOXES) fail("Full");
         await txn.put("m:" + account, { revision: 1, record, requests: {}, created: Date.now() });
+        written = await applyObjects(txn, account, writes, []);
       });
-      return [201, { revision: 1 }];
+      return [201, { revision: 1, objects: written }];
     }
     const rest = path.startsWith("/v1/mailboxes/") ? path.slice(14).split("/") : fail("Unknown");
     const account = accountId(rest[0]);
     const [sub, id, extra] = rest.slice(1);
     if (extra !== undefined) fail("Unknown");
     if (method === "GET" && sub === undefined) {
-      return this.change(account, (m) => [200, { revision: m.revision, record: m.record }]);
+      return this.change(account, async (m, txn) => {
+        const listed = await txn.list({ prefix: `o:${account}:` });
+        const objects = [...listed].map(([key, value]) => ({
+          id: key.slice(`o:${account}:`.length),
+          revision: value.revision,
+          bytes: value.bytes,
+        }));
+        objects.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+        return [200, { revision: m.revision, record: m.record, objects }];
+      });
     }
     if (method === "PUT" && sub === undefined) {
       const v = need();
       if (!Number.isInteger(v.revision) || v.revision < 0) fail("Unreadable");
       const record = sealed(v.record);
-      return this.change(account, (m) => {
+      const writes = objectWrites(v);
+      const dropping = idList(v.drop);
+      return this.change(account, async (m, txn) => {
         if (m.revision !== v.revision) fail("Revision");
+        const written = await applyObjects(txn, account, writes, dropping);
         m.revision += 1;
         m.record = record;
-        return [200, { revision: m.revision }];
+        return [200, { revision: m.revision, objects: written }];
       });
+    }
+    if (method === "POST" && sub === "objects" && id === undefined) {
+      const ids = idList(need().ids);
+      const objects = [];
+      for (const id of ids) {
+        const cur = await this.store.get(`o:${account}:${id}`);
+        if (!cur) fail("Unknown");
+        objects.push({ id, revision: cur.revision, body: cur.body });
+      }
+      return [200, { objects }];
     }
     if (method === "POST" && sub === "invites" && id === undefined) {
       const v = need();
@@ -263,7 +343,7 @@ export class Mailboxes extends DurableObject {
     const id = freshId();
     const proof = btoa(String.fromCharCode(...given));
     let result;
-    await this.ctx.storage.transaction(async (txn) => {
+    await this.store.transaction(async (txn) => {
       const all = await txn.list({ prefix: "m:" });
       let account = "";
       let mailbox = null;

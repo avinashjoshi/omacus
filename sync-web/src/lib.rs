@@ -520,6 +520,229 @@ fn parse_meta(text: &str) -> Result<omacus_engine::sync_keys::SyncMeta, SyncKeyE
     })
 }
 
+fn decode_hex_n<const N: usize>(text: &str) -> Result<[u8; N], SyncKeyError> {
+    if text.len() != N * 2 {
+        return Err(SyncKeyError::Corrupt);
+    }
+    let mut out = [0u8; N];
+    for (slot, chunk) in out.iter_mut().zip(text.as_bytes().chunks(2)) {
+        let text = std::str::from_utf8(chunk).map_err(|_| SyncKeyError::Corrupt)?;
+        *slot = u8::from_str_radix(text, 16).map_err(|_| SyncKeyError::Corrupt)?;
+    }
+    Ok(out)
+}
+
+fn parse_slots(text: &str) -> Result<Vec<omacus_engine::sync_objects::Slot>, SyncKeyError> {
+    if text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let value: Value = serde_json::from_str(text).map_err(|_| SyncKeyError::Corrupt)?;
+    let list = value.as_array().ok_or(SyncKeyError::Corrupt)?;
+    let mut out = Vec::with_capacity(list.len());
+    for item in list {
+        let page_id = item
+            .get("pageId")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let doc = item.get("doc").and_then(Value::as_str).unwrap_or("");
+        out.push(omacus_engine::sync_objects::Slot {
+            page_id,
+            object_id: decode_hex_n(item.get("objectId").and_then(Value::as_str).unwrap_or(""))?,
+            hash: decode_hex_n(item.get("hash").and_then(Value::as_str).unwrap_or(""))?,
+            content_key: {
+                let key = b64_decode(item.get("key").and_then(Value::as_str).unwrap_or(""))?;
+                let key: [u8; 32] = key.try_into().map_err(|_| SyncKeyError::Corrupt)?;
+                key
+            },
+            vault_id: decode_hex_n(item.get("vaultId").and_then(Value::as_str).unwrap_or(""))?,
+            revision: item.get("revision").and_then(Value::as_u64).unwrap_or(0),
+            server_rev: item.get("serverRev").and_then(Value::as_u64).unwrap_or(0),
+            doc: if doc.is_empty() {
+                Vec::new()
+            } else {
+                b64_decode(doc)?
+            },
+        });
+    }
+    Ok(out)
+}
+
+fn slots_json(slots: &[omacus_engine::sync_objects::Slot]) -> String {
+    let rows: Vec<_> = slots
+        .iter()
+        .map(|slot| {
+            json!({
+                "pageId": slot.page_id,
+                "objectId": desk::hex(&slot.object_id),
+                "hash": desk::hex(&slot.hash),
+                "key": b64_encode(&slot.content_key),
+                "vaultId": desk::hex(&slot.vault_id),
+                "revision": slot.revision,
+                "serverRev": slot.server_rev,
+                "doc": b64_encode(&slot.doc),
+            })
+        })
+        .collect();
+    Value::Array(rows).to_string()
+}
+
+fn parse_incoming(text: &str) -> Result<Vec<omacus_engine::sync_objects::Incoming>, SyncKeyError> {
+    if text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let value: Value = serde_json::from_str(text).map_err(|_| SyncKeyError::Corrupt)?;
+    let list = value.as_array().ok_or(SyncKeyError::Corrupt)?;
+    let mut out = Vec::with_capacity(list.len());
+    for item in list {
+        out.push(omacus_engine::sync_objects::Incoming {
+            id: decode_hex_n(item.get("id").and_then(Value::as_str).unwrap_or(""))?,
+            revision: item.get("revision").and_then(Value::as_u64).unwrap_or(0),
+            body: b64_decode(item.get("body").and_then(Value::as_str).unwrap_or(""))?,
+        });
+    }
+    Ok(out)
+}
+
+fn objects_json(objects: &[omacus_engine::sync_objects::Outgoing]) -> Vec<Value> {
+    objects
+        .iter()
+        .map(|object| {
+            json!({
+                "id": desk::hex(&object.id),
+                "body": b64_encode(&object.body),
+                "base": object.base,
+            })
+        })
+        .collect()
+}
+
+#[wasm_bindgen(js_name = sealLibrary)]
+pub fn seal_library(id: u32, packed_b64: &str, slots_json_text: &str) -> String {
+    call(|| {
+        let packed = b64_decode(packed_b64)?;
+        let slots = parse_slots(slots_json_text)?;
+        let (planned, record) = with_desk(id, |desk| {
+            let planned = desk.seal_library(&packed, &slots)?;
+            let record = desk.library_record()?;
+            Ok::<_, SyncKeyError>((planned, record))
+        })??;
+        let drop_ids: Vec<_> = planned.drop_ids.iter().map(|id| desk::hex(id)).collect();
+        Ok(json!({
+            "ok": true,
+            "record": b64_encode(&record),
+            "objects": objects_json(&planned.objects),
+            "drop": drop_ids,
+            "slots": slots_json(&planned.slots),
+        }))
+    })
+}
+
+#[wasm_bindgen(js_name = wantedObjects)]
+pub fn wanted_objects(id: u32, record_b64: &str, slots_json_text: &str) -> String {
+    call(|| {
+        let record = b64_decode(record_b64)?;
+        let slots = parse_slots(slots_json_text)?;
+        let (legacy, ids) = with_desk(id, |desk| desk.wanted_objects(&record, &slots))??;
+        let want: Vec<_> = ids.iter().map(|id| desk::hex(id)).collect();
+        Ok(json!({ "ok": true, "legacy": legacy, "want": want }))
+    })
+}
+
+#[wasm_bindgen(js_name = openLibrary)]
+pub fn open_library(
+    id: u32,
+    record_b64: &str,
+    objects_json: &str,
+    slots_json_text: &str,
+    doc_b64: &str,
+) -> String {
+    call(|| {
+        let record = b64_decode(record_b64)?;
+        let incoming = parse_incoming(objects_json)?;
+        let slots = parse_slots(slots_json_text)?;
+        let doc = if doc_b64.is_empty() {
+            Vec::new()
+        } else {
+            b64_decode(doc_b64)?
+        };
+        let opened = with_desk(id, |desk| {
+            desk.open_library(&record, &incoming, &slots, &doc)
+        })??;
+        Ok(json!({
+            "ok": true,
+            "packed": b64_encode(&opened.packed),
+            "slots": slots_json(&opened.slots),
+            "legacy": opened.legacy,
+            "member": opened.member,
+            "replace": opened.replace,
+            "republish": opened.republish,
+            "combine": opened.combine,
+        }))
+    })
+}
+
+#[wasm_bindgen(js_name = recoveryPeek)]
+pub fn recovery_peek(id: u32, record_b64: &str) -> String {
+    call(|| {
+        let record = b64_decode(record_b64)?;
+        let peeked = with_desk(id, |desk| desk.recovery_peek(&record))??;
+        let want: Vec<_> = peeked.want.iter().map(|id| desk::hex(id)).collect();
+        Ok(json!({
+            "ok": true,
+            "packed": b64_encode(&peeked.packed),
+            "partial": peeked.partial,
+            "legacy": peeked.legacy,
+            "want": want,
+        }))
+    })
+}
+
+#[wasm_bindgen(js_name = recoveryApply)]
+pub fn recovery_apply(id: u32, record_b64: &str, objects_json: &str) -> String {
+    call(|| {
+        let record = b64_decode(record_b64)?;
+        let incoming = parse_incoming(objects_json)?;
+        let (packed, slots) = with_desk(id, |desk| desk.recovery_apply(&record, &incoming))??;
+        Ok(json!({
+            "ok": true,
+            "packed": b64_encode(&packed),
+            "slots": slots_json(&slots),
+        }))
+    })
+}
+
+#[wasm_bindgen(js_name = approvalPlan)]
+pub fn approval_plan(id: u32, chain_b64: &str, wrap_b64: &str, record_b64: &str) -> String {
+    call(|| {
+        let chain = b64_decode(chain_b64)?;
+        let wrap = b64_decode(wrap_b64)?;
+        let record = b64_decode(record_b64)?;
+        let plan = with_desk(id, |desk| desk.approval_plan(&chain, &wrap, &record))??;
+        let want: Vec<_> = plan.want.iter().map(|id| desk::hex(id)).collect();
+        Ok(json!({
+            "ok": true,
+            "packed": b64_encode(&plan.packed),
+            "want": want,
+            "legacy": plan.legacy,
+        }))
+    })
+}
+
+#[wasm_bindgen(js_name = approvalFinish)]
+pub fn approval_finish(id: u32, record_b64: &str, objects_json: &str) -> String {
+    call(|| {
+        let record = b64_decode(record_b64)?;
+        let incoming = parse_incoming(objects_json)?;
+        let (packed, slots) = with_desk(id, |desk| desk.approval_finish(&record, &incoming))??;
+        Ok(json!({
+            "ok": true,
+            "packed": b64_encode(&packed),
+            "slots": slots_json(&slots),
+        }))
+    })
+}
+
 fn meta_value(meta: &omacus_engine::sync_keys::SyncMeta) -> Value {
     json!({
         "vaultName": meta.vault_name,

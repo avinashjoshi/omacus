@@ -446,6 +446,14 @@ impl Desk {
     /// A new seal for the remaining phones is opened from this device's wrap.
     /// A phone that was removed keeps the pages it already has and is no longer a member.
     pub fn absorb_record(&mut self, record: &[u8]) -> Result<OpenedRecord, SyncKeyError> {
+        self.absorb_with(record, open_sealed)
+    }
+
+    fn absorb_with(
+        &mut self,
+        record: &[u8],
+        open_blob: OpenBlob,
+    ) -> Result<OpenedRecord, SyncKeyError> {
         let view = ServerView::parse(record)?;
         view.chain.verify()?;
         if let Some(account) = self.account
@@ -473,12 +481,12 @@ impl Desk {
         let diverged = matches!(order, Some(sync_keys::ChainOrder::Diverge));
         let opened = if let Some(vault) = &self.vault {
             if vault.id() == &view.key_id {
-                Some(Opened::Current(open_sealed(vault, view.epoch, &view.page)?))
+                Some(Opened::Current(open_blob(vault, view.epoch, &view.page)?))
             } else {
-                open_wrapped(&self.device, &view)?.map(Opened::Wrapped)
+                open_wrapped(&self.device, &view, open_blob)?.map(Opened::Wrapped)
             }
         } else {
-            open_wrapped(&self.device, &view)?.map(Opened::Wrapped)
+            open_wrapped(&self.device, &view, open_blob)?.map(Opened::Wrapped)
         };
         match opened {
             Some(Opened::Current(pages)) => {
@@ -799,6 +807,10 @@ impl Desk {
     }
 
     fn record(&self) -> Result<Vec<u8>, SyncKeyError> {
+        self.record_at(1)
+    }
+
+    fn record_at(&self, version: u8) -> Result<Vec<u8>, SyncKeyError> {
         let view = ServerView {
             epoch: self.epoch,
             account: self.account.ok_or(SyncKeyError::Corrupt)?,
@@ -808,8 +820,265 @@ impl Desk {
             key_id: *self.vault.as_ref().ok_or(SyncKeyError::Corrupt)?.id(),
             page: self.sealed_page.clone(),
         };
-        Ok(view.stored())
+        Ok(view.to_bytes(version))
     }
+
+    pub fn seal_library(
+        &mut self,
+        packed: &[u8],
+        slots: &[omacus_engine::sync_objects::Slot],
+    ) -> Result<omacus_engine::sync_objects::Planned, SyncKeyError> {
+        let set = omacus_engine::sync_keys::PageSet::from_bytes(packed)?;
+        let planned = {
+            let vault = self.vault.as_ref().ok_or(SyncKeyError::Sealed)?;
+            omacus_engine::sync_objects::plan(vault, self.epoch, &set, slots)?
+        };
+        self.sealed_page = planned.sealed_manifest.clone();
+        let _ = self.record_at(2)?;
+        Ok(planned)
+    }
+
+    pub fn library_record(&self) -> Result<Vec<u8>, SyncKeyError> {
+        self.record_at(2)
+    }
+
+    pub fn wanted_objects(
+        &self,
+        record: &[u8],
+        slots: &[omacus_engine::sync_objects::Slot],
+    ) -> Result<(bool, Vec<[u8; 16]>), SyncKeyError> {
+        if !omacus_engine::sync_objects::is_v2(record) {
+            return Ok((true, Vec::new()));
+        }
+        let plain = match self.peek_manifest(record) {
+            Ok(plain) => plain,
+            Err(_) => return Ok((false, Vec::new())),
+        };
+        let ids = omacus_engine::sync_objects::manifest_wants(&plain, slots)?;
+        Ok((false, ids))
+    }
+
+    pub fn open_library(
+        &mut self,
+        record: &[u8],
+        incoming: &[omacus_engine::sync_objects::Incoming],
+        slots: &[omacus_engine::sync_objects::Slot],
+        base_doc: &[u8],
+    ) -> Result<LibraryOpened, SyncKeyError> {
+        if !omacus_engine::sync_objects::is_v2(record) {
+            let opened = self.absorb_record(record)?;
+            return Ok(LibraryOpened {
+                packed: opened.pages,
+                slots: slots.to_vec(),
+                legacy: true,
+                member: opened.member,
+                replace: opened.replace,
+                republish: opened.republish,
+                combine: opened.combine,
+            });
+        }
+        let assembled = match self.peek_manifest(record) {
+            Ok(plain) => Some(omacus_engine::sync_objects::assemble(
+                &plain, incoming, slots, base_doc,
+            )?),
+            Err(_) => None,
+        };
+        let opened = self.absorb_with(record, open_manifest)?;
+        if !opened.replace {
+            return Ok(LibraryOpened {
+                packed: Vec::new(),
+                slots: slots.to_vec(),
+                legacy: false,
+                member: opened.member,
+                replace: opened.replace,
+                republish: opened.republish,
+                combine: opened.combine,
+            });
+        }
+        let assembled = assembled.ok_or(SyncKeyError::Sealed)?;
+        Ok(LibraryOpened {
+            packed: assembled.packed,
+            slots: assembled.slots,
+            legacy: false,
+            member: opened.member,
+            replace: opened.replace,
+            republish: opened.republish,
+            combine: opened.combine,
+        })
+    }
+
+    fn peek_manifest(&self, record: &[u8]) -> Result<Vec<u8>, SyncKeyError> {
+        let view = ServerView::parse(record)?;
+        if let Some(vault) = &self.vault
+            && vault.id() == &view.key_id
+        {
+            return open_manifest(vault, view.epoch, &view.page);
+        }
+        for wrap in &view.device_wraps {
+            if let Ok(opened) =
+                sync_keys::open_device_wrap_parts(&self.device, wrap, view.epoch, &view.key_id)
+            {
+                return open_manifest(&opened.vault, view.epoch, &view.page);
+            }
+        }
+        Err(SyncKeyError::Sealed)
+    }
+}
+
+impl Desk {
+    pub fn recovery_peek(&mut self, record: &[u8]) -> Result<RecoveryPeeked, SyncKeyError> {
+        if !omacus_engine::sync_objects::is_v2(record) {
+            let opened = self.recovery_open_pages(record)?;
+            return Ok(RecoveryPeeked {
+                packed: opened.pages,
+                partial: opened.partial,
+                legacy: true,
+                want: Vec::new(),
+            });
+        }
+        let view = ServerView::parse(record)?;
+        if self.account != Some(view.account) {
+            return Err(SyncKeyError::Sealed);
+        }
+        view.chain
+            .verify()
+            .map_err(|error| sync_keys::scope_list_error(error, true))?;
+        let root = self.root.take().ok_or(SyncKeyError::NotConfirmed)?;
+        let kek = match sync_keys::phrase_kek(&root) {
+            Ok(kek) => kek,
+            Err(error) => {
+                self.root = Some(root);
+                return Err(error);
+            }
+        };
+        let public = match sync_keys::recovery_public_key(&root) {
+            Ok(public) => public,
+            Err(error) => {
+                self.root = Some(root);
+                return Err(error);
+            }
+        };
+        let Some(vault) = phrase_vault(&root, &view) else {
+            self.remember_partial(&view, kek, public);
+            return Ok(RecoveryPeeked {
+                packed: Vec::new(),
+                partial: true,
+                legacy: false,
+                want: Vec::new(),
+            });
+        };
+        if vault.id() != &view.key_id {
+            self.remember_partial(&view, kek, public);
+            return Ok(RecoveryPeeked {
+                packed: Vec::new(),
+                partial: true,
+                legacy: false,
+                want: Vec::new(),
+            });
+        }
+        let plain = match open_manifest(&vault, view.epoch, &view.page) {
+            Ok(plain) => plain,
+            Err(_) => {
+                self.remember_partial(&view, kek, public);
+                return Ok(RecoveryPeeked {
+                    packed: Vec::new(),
+                    partial: true,
+                    legacy: false,
+                    want: Vec::new(),
+                });
+            }
+        };
+        let want = omacus_engine::sync_objects::manifest_wants(&plain, &[])?;
+        self.phrase_kek = Some(kek);
+        self.recovery_public = Some(public);
+        let chain = view.chain.clone();
+        self.keep_opened(view, vault, chain);
+        Ok(RecoveryPeeked {
+            packed: Vec::new(),
+            partial: false,
+            legacy: false,
+            want,
+        })
+    }
+
+    pub fn recovery_apply(
+        &mut self,
+        record: &[u8],
+        incoming: &[omacus_engine::sync_objects::Incoming],
+    ) -> Result<(Vec<u8>, Vec<omacus_engine::sync_objects::Slot>), SyncKeyError> {
+        let plain = self.peek_manifest(record)?;
+        let assembled = omacus_engine::sync_objects::assemble(&plain, incoming, &[], &[])?;
+        Ok((assembled.packed, assembled.slots))
+    }
+
+    pub fn approval_plan(
+        &mut self,
+        chain: &[u8],
+        wrap: &[u8],
+        record: &[u8],
+    ) -> Result<ApprovalPlan, SyncKeyError> {
+        if !omacus_engine::sync_objects::is_v2(record) {
+            let packed = self.unlock_approval(chain, wrap, record)?;
+            return Ok(ApprovalPlan {
+                packed,
+                want: Vec::new(),
+                legacy: true,
+            });
+        }
+        let chain = DeviceChain::from_bytes(chain)?;
+        chain
+            .verify()
+            .map_err(|error| sync_keys::scope_list_error(error, false))?;
+        let view = ServerView::parse(record)?;
+        view.chain
+            .verify()
+            .map_err(|error| sync_keys::scope_list_error(error, true))?;
+        let opened =
+            sync_keys::open_device_wrap_parts(&self.device, wrap, view.epoch, &view.key_id)?;
+        let plain = open_manifest(&opened.vault, view.epoch, &view.page)?;
+        let want = omacus_engine::sync_objects::manifest_wants(&plain, &[])?;
+        self.note_recovery(opened.recovery_public);
+        self.keep_opened(view, opened.vault, chain);
+        let _ = self.repair_phrase();
+        Ok(ApprovalPlan {
+            packed: Vec::new(),
+            want,
+            legacy: false,
+        })
+    }
+
+    pub fn approval_finish(
+        &mut self,
+        record: &[u8],
+        incoming: &[omacus_engine::sync_objects::Incoming],
+    ) -> Result<(Vec<u8>, Vec<omacus_engine::sync_objects::Slot>), SyncKeyError> {
+        let plain = self.peek_manifest(record)?;
+        let assembled = omacus_engine::sync_objects::assemble(&plain, incoming, &[], &[])?;
+        Ok((assembled.packed, assembled.slots))
+    }
+}
+
+pub struct RecoveryPeeked {
+    pub packed: Vec<u8>,
+    pub partial: bool,
+    pub legacy: bool,
+    pub want: Vec<[u8; 16]>,
+}
+
+pub struct ApprovalPlan {
+    pub packed: Vec<u8>,
+    pub want: Vec<[u8; 16]>,
+    pub legacy: bool,
+}
+
+pub struct LibraryOpened {
+    pub packed: Vec<u8>,
+    pub slots: Vec<omacus_engine::sync_objects::Slot>,
+    pub legacy: bool,
+    pub member: bool,
+    pub replace: bool,
+    pub republish: bool,
+    pub combine: bool,
 }
 
 struct WrappedPages {
@@ -823,15 +1092,18 @@ enum Opened {
     Wrapped(WrappedPages),
 }
 
+type OpenBlob = fn(&VaultKey, u64, &[u8]) -> Result<Vec<u8>, SyncKeyError>;
+
 fn open_wrapped(
     device: &DeviceKeys,
     view: &ServerView,
+    open_blob: OpenBlob,
 ) -> Result<Option<WrappedPages>, SyncKeyError> {
     for wrap in &view.device_wraps {
         if let Ok(opened) =
             sync_keys::open_device_wrap_parts(device, wrap, view.epoch, &view.key_id)
         {
-            let pages = open_sealed(&opened.vault, view.epoch, &view.page)?;
+            let pages = open_blob(&opened.vault, view.epoch, &view.page)?;
             return Ok(Some(WrappedPages {
                 vault: opened.vault,
                 pages,
@@ -848,6 +1120,15 @@ fn phrase_vault(root: &Root, view: &ServerView) -> Option<VaultKey> {
         return sync_keys::open_recovery_wrap(root, &view.phrase_wrap, view.epoch, &id).ok();
     }
     sync_keys::open_phrase_wrap(root, &view.phrase_wrap, view.epoch, &view.key_id).ok()
+}
+
+fn open_manifest(vault: &VaultKey, epoch: u64, stored: &[u8]) -> Result<Vec<u8>, SyncKeyError> {
+    sync_keys::open_page(
+        vault,
+        epoch,
+        omacus_engine::sync_objects::MANIFEST_ID,
+        stored,
+    )
 }
 
 fn open_sealed(vault: &VaultKey, epoch: u64, stored: &[u8]) -> Result<Vec<u8>, SyncKeyError> {
@@ -1421,5 +1702,48 @@ mod tests {
         let opened = recovered.recovery_open_pages(&repaired).unwrap();
         assert!(!opened.partial);
         assert_eq!(opened.pages, b"bread $2\n");
+    }
+
+    #[test]
+    fn an_old_sealed_copy_splits_into_one_object_per_page() {
+        let (mut desk, _) = confirmed_desk();
+        let set = omacus_engine::sync_keys::PageSet {
+            doc: Vec::new(),
+            pages: vec![
+                ("pantry".into(), "oats\n".into()),
+                ("groceries".into(), "lentils\n".into()),
+            ],
+            meta: omacus_engine::sync_keys::SyncMeta::default(),
+        };
+        let packed = set.to_bytes().unwrap();
+        let legacy = desk.seal_pages(&packed).unwrap();
+        let opened = desk.open_library(&legacy, &[], &[], &[]).unwrap();
+        assert!(opened.legacy);
+        let planned = desk.seal_library(&opened.packed, &[]).unwrap();
+        assert_eq!(planned.objects.len(), 2);
+        let record = desk.library_record().unwrap();
+        assert!(omacus_engine::sync_objects::is_v2(&record));
+        let incoming: Vec<_> = planned
+            .objects
+            .iter()
+            .map(|object| omacus_engine::sync_objects::Incoming {
+                id: object.id,
+                revision: 1,
+                body: object.body.clone(),
+            })
+            .collect();
+        let again = desk.open_library(&record, &incoming, &[], &[]).unwrap();
+        assert!(!again.legacy);
+        let round = omacus_engine::sync_keys::PageSet::from_bytes(&again.packed).unwrap();
+        assert_eq!(round.pages.len(), 2);
+        let ids: std::collections::HashSet<_> =
+            round.pages.iter().map(|(id, _)| id.clone()).collect();
+        assert_eq!(ids.len(), 2);
+        assert!(round.pages.iter().any(|(_, text)| text.contains("lentils")));
+        let kept = desk.seal_library(&again.packed, &again.slots).unwrap();
+        assert!(
+            kept.objects.is_empty(),
+            "an unchanged page is not uploaded again"
+        );
     }
 }

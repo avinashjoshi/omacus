@@ -11,7 +11,7 @@ use base64::Engine;
 use serde_json::{Value, json};
 
 use crate::LABEL;
-use crate::store::{Store, StoreError};
+use crate::store::{ObjectWrite, Store, StoreError};
 
 pub fn serve(listener: TcpListener, www: PathBuf, site: PathBuf, store: Arc<Mutex<Store>>) {
     for stream in listener.incoming() {
@@ -65,7 +65,7 @@ fn handle(
             length = value.trim().parse().unwrap_or(usize::MAX);
         }
     }
-    if length > 1024 * 1024 {
+    if length > 8 * 1024 * 1024 {
         return write_json(
             &mut stream,
             400,
@@ -133,7 +133,11 @@ fn route(
     match (method, parts.next(), parts.next()) {
         ("GET", None, None) => {
             let (revision, record) = store.get(account)?;
-            Ok((200, json!({"revision": revision, "record": b64(&record)})))
+            let objects = object_heads(store, account)?;
+            Ok((
+                200,
+                json!({"revision": revision, "record": b64(&record), "objects": objects}),
+            ))
         }
         ("PUT", None, None) => {
             let value = json_body(body)?;
@@ -142,8 +146,28 @@ fn route(
                 .and_then(Value::as_u64)
                 .ok_or(StoreError::Unreadable)?;
             let record = decode_field(&value, "record")?;
-            let revision = store.put(account, revision, record)?;
-            Ok((200, json!({"revision": revision})))
+            let writes = object_writes(&value)?;
+            let dropping = id_list(&value, "drop")?;
+            if writes.is_empty() && dropping.is_empty() {
+                let revision = store.put(account, revision, record)?;
+                return Ok((200, json!({"revision": revision, "objects": []})));
+            }
+            let (revision, written) =
+                store.put_objects(account, revision, record, writes, &dropping)?;
+            Ok((
+                200,
+                json!({"revision": revision, "objects": written_rows(&written)}),
+            ))
+        }
+        ("POST", Some("objects"), None) => {
+            let value = json_body(body)?;
+            let ids = id_list(&value, "ids")?;
+            let rows = store.read_objects(account, &ids)?;
+            let objects: Vec<_> = rows
+                .into_iter()
+                .map(|(id, revision, body)| json!({"id": id, "revision": revision, "body": b64(&body)}))
+                .collect();
+            Ok((200, json!({"objects": objects})))
         }
         ("GET", Some("requests"), None) => {
             let pending: Vec<_> = store
@@ -218,10 +242,70 @@ pub fn accept_create(store: &mut Store, body: &[u8]) -> Result<(u16, Value), Sto
         .ok_or(StoreError::Unreadable)?;
     let record = decode_field(&value, "record")?;
     let code = value.get("code").and_then(Value::as_str).unwrap_or("");
+    let writes = object_writes(&value)?;
     store.reserve(account, &record)?;
     store.take_access(code)?;
-    let revision = store.create(account, record)?;
-    Ok((201, json!({"revision": revision})))
+    if writes.is_empty() {
+        let revision = store.create(account, record)?;
+        return Ok((201, json!({"revision": revision, "objects": []})));
+    }
+    let (revision, written) = store.create_with(account, record, writes)?;
+    Ok((
+        201,
+        json!({"revision": revision, "objects": written_rows(&written)}),
+    ))
+}
+
+fn object_heads(store: &mut Store, account: &str) -> Result<Vec<Value>, StoreError> {
+    Ok(store
+        .object_index(account)?
+        .into_iter()
+        .map(|row| json!({"id": row.id, "revision": row.revision, "bytes": row.bytes}))
+        .collect())
+}
+
+fn written_rows(rows: &[(String, u64)]) -> Vec<Value> {
+    rows.iter()
+        .map(|(id, revision)| json!({"id": id, "revision": revision}))
+        .collect()
+}
+
+fn object_writes(value: &Value) -> Result<Vec<ObjectWrite>, StoreError> {
+    let Some(list) = value.get("objects") else {
+        return Ok(Vec::new());
+    };
+    let list = list.as_array().ok_or(StoreError::Unreadable)?;
+    let mut out = Vec::with_capacity(list.len());
+    for item in list {
+        let id = item
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or(StoreError::Unreadable)?;
+        let base = item
+            .get("base")
+            .and_then(Value::as_u64)
+            .ok_or(StoreError::Unreadable)?;
+        let body = decode_field(item, "body")?;
+        out.push(ObjectWrite {
+            id: id.to_string(),
+            base,
+            body,
+        });
+    }
+    Ok(out)
+}
+
+fn id_list(value: &Value, name: &str) -> Result<Vec<String>, StoreError> {
+    let Some(list) = value.get(name) else {
+        return Ok(Vec::new());
+    };
+    let list = list.as_array().ok_or(StoreError::Unreadable)?;
+    let mut out = Vec::with_capacity(list.len());
+    for item in list {
+        let id = item.as_str().ok_or(StoreError::Unreadable)?;
+        out.push(id.to_string());
+    }
+    Ok(out)
 }
 
 fn json_body(body: &[u8]) -> Result<Value, StoreError> {

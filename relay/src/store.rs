@@ -1,17 +1,25 @@
 //! In-memory mailbox. Records are kept as the bytes that arrived.
 //! Nothing here is read as a page.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use base64::Engine;
+use serde_json::{Value, json};
+
+use crate::adapter::{FileKv, Kv};
 use crate::invite::{self, INVITE_MS};
 
 const MAX_RECORD: usize = 256 * 1024;
+const MAX_MANIFEST: usize = 1024 * 1024;
+const MAX_OBJECT: usize = 4 * 1024 * 1024 + 64;
+const MAX_OBJECTS: usize = 100_000;
 const MAX_CHAIN: usize = 64 * 1024;
 const MAX_WRAP: usize = 1024;
 const MAX_MAILBOXES: usize = 32;
 const MAX_REQUESTS: usize = 8;
 const RECORD_MAGIC: &[u8] = b"OMACUS-SYNC/1\n";
+const RECORD_MAGIC_V2: &[u8] = b"OMACUS-SYNC/2\n";
 const CHAIN_MAGIC: &[u8] = b"OMACUS-DEVICES/1";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,11 +82,29 @@ enum State {
     Rejected,
 }
 
+struct StoredObject {
+    revision: u64,
+    body: Vec<u8>,
+}
+
 struct Mailbox {
     revision: u64,
     record: Vec<u8>,
     requests: BTreeMap<String, Request>,
     invite: Option<Invite>,
+    objects: BTreeMap<String, StoredObject>,
+}
+
+pub struct ObjectWrite {
+    pub id: String,
+    pub base: u64,
+    pub body: Vec<u8>,
+}
+
+pub struct ObjectHead {
+    pub id: String,
+    pub revision: u64,
+    pub bytes: usize,
 }
 
 pub struct Store {
@@ -86,6 +112,7 @@ pub struct Store {
     access_left: BTreeMap<[u8; 32], u8>,
     access_secret: Vec<u8>,
     now_ms: Option<u64>,
+    backend: Option<Box<dyn Kv>>,
 }
 
 #[derive(Clone)]
@@ -112,7 +139,28 @@ impl Store {
             access_left: BTreeMap::new(),
             access_secret: Vec::new(),
             now_ms: None,
+            backend: None,
         }
+    }
+
+    /// Load whatever the adapter already has, then keep writing through it.
+    pub fn with_backend(backend: Box<dyn Kv>) -> Self {
+        let (mailboxes, access_left) = load_backend(backend.as_ref());
+        Self {
+            mailboxes,
+            access_left,
+            access_secret: Vec::new(),
+            now_ms: None,
+            backend: Some(backend),
+        }
+    }
+
+    pub fn open_dir(dir: &std::path::Path) -> Self {
+        Self::with_backend(Box::new(FileKv::open(dir)))
+    }
+
+    pub fn into_backend(self) -> Option<Box<dyn Kv>> {
+        self.backend
     }
 
     /// The secret checks invite codes. It is not part of the stored mailbox.
@@ -152,6 +200,10 @@ impl Store {
                 out.extend_from_slice(&request.chain);
                 out.extend_from_slice(&request.wrap);
                 out.extend_from_slice(&request.proof);
+            }
+            for (id, object) in &mailbox.objects {
+                out.extend_from_slice(id.as_bytes());
+                out.extend_from_slice(&object.body);
             }
         }
         for (hash, left) in &self.access_left {
@@ -210,15 +262,69 @@ impl Store {
             return Err(StoreError::Full);
         }
         self.mailboxes.insert(
+            account.clone(),
+            Mailbox {
+                revision: 1,
+                record,
+                requests: BTreeMap::new(),
+                invite: None,
+                objects: BTreeMap::new(),
+            },
+        );
+        self.checkpoint();
+        Ok(1)
+    }
+
+    pub fn create_with(
+        &mut self,
+        account: &str,
+        record: Vec<u8>,
+        writes: Vec<ObjectWrite>,
+    ) -> Result<(u64, Vec<(String, u64)>), StoreError> {
+        let account = account_id(account)?;
+        sealed_record(&record)?;
+        if self.mailboxes.contains_key(&account) {
+            return Err(StoreError::Conflict);
+        }
+        if self.mailboxes.len() >= MAX_MAILBOXES {
+            return Err(StoreError::Full);
+        }
+        let mut objects = BTreeMap::new();
+        let mut written = Vec::new();
+        let mut seen = HashSet::new();
+        for write in writes {
+            let id = object_id(&write.id)?;
+            if write.base != 0
+                || !seen.insert(id.clone())
+                || write.body.len() < 40
+                || write.body.len() > MAX_OBJECT
+            {
+                return Err(StoreError::Unreadable);
+            }
+            objects.insert(
+                id.clone(),
+                StoredObject {
+                    revision: 1,
+                    body: write.body,
+                },
+            );
+            written.push((id, 1));
+        }
+        if objects.len() > MAX_OBJECTS {
+            return Err(StoreError::Full);
+        }
+        self.mailboxes.insert(
             account,
             Mailbox {
                 revision: 1,
                 record,
                 requests: BTreeMap::new(),
                 invite: None,
+                objects,
             },
         );
-        Ok(1)
+        self.checkpoint();
+        Ok((1, written))
     }
 
     pub fn get(&mut self, account: &str) -> Result<(u64, Vec<u8>), StoreError> {
@@ -246,7 +352,121 @@ impl Store {
         }
         mailbox.revision += 1;
         mailbox.record = record;
-        Ok(mailbox.revision)
+        let revision = mailbox.revision;
+        self.checkpoint();
+        Ok(revision)
+    }
+
+    pub fn object_index(&mut self, account: &str) -> Result<Vec<ObjectHead>, StoreError> {
+        let account = account_id(account)?;
+        let mailbox = self.mailboxes.get(&account).ok_or(StoreError::Unknown)?;
+        let mut rows: Vec<_> = mailbox
+            .objects
+            .iter()
+            .map(|(id, object)| ObjectHead {
+                id: id.clone(),
+                revision: object.revision,
+                bytes: object.body.len(),
+            })
+            .collect();
+        rows.sort_by(|left, right| left.id.cmp(&right.id));
+        Ok(rows)
+    }
+
+    pub fn read_objects(
+        &self,
+        account: &str,
+        ids: &[String],
+    ) -> Result<Vec<(String, u64, Vec<u8>)>, StoreError> {
+        let account = account_id(account)?;
+        if ids.len() > 2000 {
+            return Err(StoreError::Unreadable);
+        }
+        let mailbox = self.mailboxes.get(&account).ok_or(StoreError::Unknown)?;
+        let mut out = Vec::with_capacity(ids.len());
+        for id in ids {
+            let id = object_id(id)?;
+            let object = mailbox.objects.get(&id).ok_or(StoreError::Unknown)?;
+            out.push((id, object.revision, object.body.clone()));
+        }
+        Ok(out)
+    }
+
+    /// Compare-and-swap the manifest and the named objects together.
+    /// A stale base writes nothing.
+    pub fn put_objects(
+        &mut self,
+        account: &str,
+        revision: u64,
+        record: Vec<u8>,
+        writes: Vec<ObjectWrite>,
+        drop_ids: &[String],
+    ) -> Result<(u64, Vec<(String, u64)>), StoreError> {
+        let account = account_id(account)?;
+        sealed_record(&record)?;
+        if writes.len() > 2000 || drop_ids.len() > 2000 {
+            return Err(StoreError::Unreadable);
+        }
+        self.drop_expired(&account);
+        let mailbox = self.mailboxes.get(&account).ok_or(StoreError::Unknown)?;
+        if mailbox.revision != revision {
+            return Err(StoreError::Revision);
+        }
+        let mut seen = HashSet::new();
+        let mut planned = Vec::with_capacity(writes.len());
+        for write in &writes {
+            let id = object_id(&write.id)?;
+            if !seen.insert(id.clone()) || write.body.len() < 40 || write.body.len() > MAX_OBJECT {
+                return Err(StoreError::Unreadable);
+            }
+            match mailbox.objects.get(&id) {
+                Some(_) if write.base == 0 => return Err(StoreError::Revision),
+                Some(current) if current.revision != write.base => {
+                    return Err(StoreError::Revision);
+                }
+                Some(current) => planned.push((id, current.revision + 1, write.body.clone())),
+                None if write.base == 0 => planned.push((id, 1, write.body.clone())),
+                None => return Err(StoreError::Revision),
+            }
+        }
+        let mut dropping = Vec::new();
+        for id in drop_ids {
+            let id = object_id(id)?;
+            if seen.contains(&id) {
+                return Err(StoreError::Unreadable);
+            }
+            dropping.push(id);
+        }
+        let added = planned
+            .iter()
+            .filter(|(id, _, _)| !mailbox.objects.contains_key(id))
+            .count();
+        if mailbox.objects.len() + added > MAX_OBJECTS {
+            return Err(StoreError::Full);
+        }
+        let mailbox = self
+            .mailboxes
+            .get_mut(&account)
+            .ok_or(StoreError::Unknown)?;
+        mailbox.revision += 1;
+        mailbox.record = record;
+        let mut written = Vec::with_capacity(planned.len());
+        for (id, rev, body) in planned {
+            mailbox.objects.insert(
+                id.clone(),
+                StoredObject {
+                    revision: rev,
+                    body,
+                },
+            );
+            written.push((id, rev));
+        }
+        for id in dropping {
+            mailbox.objects.remove(&id);
+        }
+        let revision = mailbox.revision;
+        self.checkpoint();
+        Ok((revision, written))
     }
 
     /// Remember a hash for a code this account is showing. The code itself stays on the device.
@@ -440,11 +660,237 @@ fn account_id(account: &str) -> Result<String, StoreError> {
 }
 
 fn sealed_record(bytes: &[u8]) -> Result<(), StoreError> {
-    if bytes.len() <= MAX_RECORD && bytes.starts_with(RECORD_MAGIC) {
+    let v1 = bytes.starts_with(RECORD_MAGIC) && bytes.len() <= MAX_RECORD;
+    let v2 = bytes.starts_with(RECORD_MAGIC_V2) && bytes.len() <= MAX_MANIFEST;
+    if bytes.len() > 14 && (v1 || v2) {
         Ok(())
     } else {
         Err(StoreError::Unreadable)
     }
+}
+
+fn object_id(id: &str) -> Result<String, StoreError> {
+    let id = id.trim().to_ascii_lowercase();
+    if id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Ok(id)
+    } else {
+        Err(StoreError::Unreadable)
+    }
+}
+
+fn b64(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+fn from_b64(text: &str) -> Option<Vec<u8>> {
+    base64::engine::general_purpose::STANDARD
+        .decode(text.trim())
+        .ok()
+}
+
+impl Store {
+    fn checkpoint(&mut self) {
+        let Some(mut backend) = self.backend.take() else {
+            return;
+        };
+        save_backend(&mut *backend, &self.mailboxes, &self.access_left);
+        self.backend = Some(backend);
+    }
+}
+
+fn save_backend(
+    kv: &mut dyn Kv,
+    mailboxes: &BTreeMap<String, Mailbox>,
+    access: &BTreeMap<[u8; 32], u8>,
+) {
+    let mut live_boxes = HashSet::new();
+    let mut live_objects = HashSet::new();
+    for (account, mailbox) in mailboxes {
+        let key = format!("box/{account}");
+        live_boxes.insert(key.clone());
+        kv.put(&key, mailbox_bytes(mailbox));
+        for (id, object) in &mailbox.objects {
+            let obj_key = format!("obj/{account}/{id}");
+            live_objects.insert(obj_key.clone());
+            let mut bytes = object.revision.to_be_bytes().to_vec();
+            bytes.extend_from_slice(&object.body);
+            kv.put(&obj_key, bytes);
+        }
+    }
+    for key in kv.list_prefix("box/") {
+        if !live_boxes.contains(&key) {
+            kv.delete(&key);
+        }
+    }
+    for key in kv.list_prefix("obj/") {
+        if !live_objects.contains(&key) {
+            kv.delete(&key);
+        }
+    }
+    let rows: Vec<_> = access
+        .iter()
+        .map(|(hash, left)| json!({"hash": hex_bytes(hash), "left": left}))
+        .collect();
+    kv.put("access", serde_json::to_vec(&rows).unwrap_or_default());
+}
+
+fn load_backend(kv: &dyn Kv) -> (BTreeMap<String, Mailbox>, BTreeMap<[u8; 32], u8>) {
+    let mut mailboxes = BTreeMap::new();
+    for key in kv.list_prefix("box/") {
+        let Some(account) = key.strip_prefix("box/") else {
+            continue;
+        };
+        if account.contains('/') {
+            continue;
+        }
+        let Some(bytes) = kv.get(&key) else {
+            continue;
+        };
+        if let Some(mailbox) = mailbox_from(&bytes) {
+            mailboxes.insert(account.to_string(), mailbox);
+        }
+    }
+    for key in kv.list_prefix("obj/") {
+        let Some(rest) = key.strip_prefix("obj/") else {
+            continue;
+        };
+        let Some((account, id)) = rest.split_once('/') else {
+            continue;
+        };
+        if id.contains('/') || object_id(id).is_err() {
+            continue;
+        }
+        let Some(mailbox) = mailboxes.get_mut(account) else {
+            continue;
+        };
+        let Some(bytes) = kv.get(&key) else {
+            continue;
+        };
+        if bytes.len() < 8 {
+            continue;
+        }
+        let revision = u64::from_be_bytes(bytes[..8].try_into().unwrap_or([0; 8]));
+        mailbox.objects.insert(
+            id.to_string(),
+            StoredObject {
+                revision,
+                body: bytes[8..].to_vec(),
+            },
+        );
+    }
+    let mut access = BTreeMap::new();
+    if let Some(bytes) = kv.get("access")
+        && let Ok(rows) = serde_json::from_slice::<Vec<Value>>(&bytes)
+    {
+        for row in rows {
+            let Some(hash) = row.get("hash").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(left) = row.get("left").and_then(Value::as_u64) else {
+                continue;
+            };
+            if let Ok(hash) = hex_array(hash) {
+                access.insert(hash, left as u8);
+            }
+        }
+    }
+    (mailboxes, access)
+}
+
+fn mailbox_bytes(mailbox: &Mailbox) -> Vec<u8> {
+    let requests: Vec<_> = mailbox
+        .requests
+        .iter()
+        .map(|(id, request)| {
+            json!({
+                "id": id,
+                "device": b64(&request.device),
+                "name": request.name,
+                "state": match request.state {
+                    State::Pending => "pending",
+                    State::Approved => "approved",
+                    State::Rejected => "rejected",
+                },
+                "chain": b64(&request.chain),
+                "wrap": b64(&request.wrap),
+                "proof": b64(&request.proof),
+                "created": request.created,
+            })
+        })
+        .collect();
+    let invite = mailbox.invite.as_ref().map(|invite| {
+        json!({
+            "hash": hex_bytes(&invite.hash),
+            "expires": invite.expires,
+            "used": invite.used,
+        })
+    });
+    serde_json::to_vec(&json!({
+        "revision": mailbox.revision,
+        "record": b64(&mailbox.record),
+        "requests": requests,
+        "invite": invite,
+    }))
+    .unwrap_or_default()
+}
+
+fn mailbox_from(bytes: &[u8]) -> Option<Mailbox> {
+    let value: Value = serde_json::from_slice(bytes).ok()?;
+    let revision = value.get("revision")?.as_u64()?;
+    let record = from_b64(value.get("record")?.as_str()?)?;
+    let mut requests = BTreeMap::new();
+    for row in value.get("requests")?.as_array()? {
+        let id = row.get("id")?.as_str()?.to_string();
+        let state = match row.get("state").and_then(Value::as_str)? {
+            "pending" => State::Pending,
+            "approved" => State::Approved,
+            "rejected" => State::Rejected,
+            _ => return None,
+        };
+        requests.insert(
+            id,
+            Request {
+                device: from_b64(row.get("device")?.as_str()?)?,
+                name: row.get("name")?.as_str()?.to_string(),
+                state,
+                chain: from_b64(row.get("chain")?.as_str()?)?,
+                wrap: from_b64(row.get("wrap")?.as_str()?)?,
+                proof: from_b64(row.get("proof")?.as_str()?)?,
+                created: row.get("created")?.as_u64()?,
+            },
+        );
+    }
+    let invite = match value.get("invite") {
+        None | Some(Value::Null) => None,
+        Some(row) => Some(Invite {
+            hash: hex_array(row.get("hash")?.as_str()?).ok()?,
+            expires: row.get("expires")?.as_u64()?,
+            used: row.get("used")?.as_bool()?,
+        }),
+    };
+    Some(Mailbox {
+        revision,
+        record,
+        requests,
+        invite,
+        objects: BTreeMap::new(),
+    })
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn hex_array(text: &str) -> Result<[u8; 32], ()> {
+    if text.len() != 64 {
+        return Err(());
+    }
+    let mut out = [0u8; 32];
+    for (slot, chunk) in out.iter_mut().zip(text.as_bytes().chunks(2)) {
+        let text = std::str::from_utf8(chunk).map_err(|_| ())?;
+        *slot = u8::from_str_radix(text, 16).map_err(|_| ())?;
+    }
+    Ok(out)
 }
 
 pub fn clean_name(raw: &str) -> String {
@@ -708,5 +1154,114 @@ mod tests {
         assert!(gone(&store, &unread));
         assert!(gone(&store, &device));
         assert!(gone(&store, b"Hall table"));
+    }
+
+    fn sample_object(id: &str, body: Vec<u8>) -> ObjectWrite {
+        ObjectWrite {
+            id: id.to_string(),
+            base: 0,
+            body,
+        }
+    }
+
+    fn round_trip(mut store: Store) -> Store {
+        let account = "ab".repeat(32);
+        let record = b"OMACUS-SYNC/2\nmanifest".to_vec();
+        let id = "0123456789abcdef0123456789abcdef";
+        let body = vec![9u8; 64];
+        let (revision, written) = store
+            .create_with(
+                &account,
+                record.clone(),
+                vec![sample_object(id, body.clone())],
+            )
+            .unwrap();
+        assert_eq!(revision, 1);
+        assert_eq!(written, vec![(id.to_string(), 1)]);
+        let stale = store.put_objects(
+            &account,
+            1,
+            record.clone(),
+            vec![ObjectWrite {
+                id: id.into(),
+                base: 0,
+                body: vec![3u8; 64],
+            }],
+            &[],
+        );
+        assert_eq!(stale.unwrap_err(), StoreError::Revision);
+        assert_eq!(
+            store.read_objects(&account, &[id.into()]).unwrap()[0].2,
+            body
+        );
+        let (revision, written) = store
+            .put_objects(
+                &account,
+                1,
+                b"OMACUS-SYNC/2\nnext".to_vec(),
+                vec![ObjectWrite {
+                    id: id.into(),
+                    base: 1,
+                    body: vec![4u8; 80],
+                }],
+                &[],
+            )
+            .unwrap();
+        assert_eq!(revision, 2);
+        assert_eq!(written[0].1, 2);
+        let kept = store.stored_bytes();
+        assert!(
+            !kept
+                .windows(b"page-lentils".len())
+                .any(|w| w == b"page-lentils")
+        );
+        assert!(!kept.windows(b"lentils".len()).any(|w| w == b"lentils"));
+        store
+    }
+
+    #[test]
+    fn objects_survive_a_new_memory_adapter_and_a_new_directory() {
+        let store = round_trip(Store::with_backend(Box::new(
+            crate::adapter::MemoryKv::new(),
+        )));
+        let backend = store.into_backend().unwrap();
+        let account = "ab".repeat(32);
+        let id = "0123456789abcdef0123456789abcdef";
+        let again = Store::with_backend(backend);
+        let bodies = again.read_objects(&account, &[id.into()]).unwrap();
+        assert_eq!(bodies[0].1, 2);
+        assert_eq!(bodies[0].2, vec![4u8; 80]);
+        let heads = {
+            let mut again = again;
+            again.object_index(&account).unwrap()
+        };
+        assert_eq!(heads[0].bytes, 80);
+
+        let dir = std::env::temp_dir().join(format!("omacus-kv-{id}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        {
+            let _ = round_trip(Store::open_dir(&dir));
+        }
+        let names: Vec<_> = std::fs::read_dir(dir.join("obj").join(&account))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(names, vec![id.to_string()]);
+        assert!(
+            !names
+                .iter()
+                .any(|name| name.contains("lentils") || name.contains("page"))
+        );
+        let raw = std::fs::read(dir.join("obj").join(&account).join(id)).unwrap();
+        assert!(
+            !raw.windows(b"lentils".len())
+                .any(|window| window == b"lentils")
+        );
+        let reopened = Store::open_dir(&dir);
+        assert_eq!(
+            reopened.read_objects(&account, &[id.into()]).unwrap()[0].2,
+            vec![4u8; 80]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
