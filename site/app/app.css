@@ -15,12 +15,13 @@ html:has(body.app-page) {
 
 .app-page {
   --bar: 56px;
-  /* Probe elements write --probed-* after launch. Until then, env() is the
-     inset. Padding uses these. They are not added to the shell's height. */
-  --safe-top: var(--probed-top, env(safe-area-inset-top, 0px));
-  --safe-bottom: var(--probed-bottom, env(safe-area-inset-bottom, 0px));
-  --safe-left: var(--probed-left, env(safe-area-inset-left, 0px));
-  --safe-right: var(--probed-right, env(safe-area-inset-right, 0px));
+  /* Insets pad content. They do not shrink the shell. A probe can read 0 on
+     a cold start and must not wipe a real env() value. --sat/--sab/--sal/--sar
+     are how a test supplies the insets Chrome reports as 0. */
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--sat, var(--probed-top, 0px)));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--sab, var(--probed-bottom, 0px)));
+  --safe-left: max(env(safe-area-inset-left, 0px), var(--sal, var(--probed-left, 0px)));
+  --safe-right: max(env(safe-area-inset-right, 0px), var(--sar, var(--probed-right, 0px)));
   --side-w: 240px;
   --line-h: 1.7;
   --font-size: 15px;
@@ -37,28 +38,33 @@ html:has(body.app-page) {
   color: var(--app-fg);
 }
 
-/* Home Screen cold start. A percentage height drops viewport-fit=cover, so the
-   page never reaches the bottom edge. The dynamic viewport unit is wrong until
-   the phone is rotated. 100vh is the height that is right from the first paint.
-   There is no egui canvas in this shell; the page is this element. */
+/* Home Screen cold start. A percentage height drops viewport-fit=cover.
+   100dvh is wrong until the phone rotates. 100vh on the document is the
+   height that is right from the first paint. The shell itself stays
+   top: 0 and bottom: 0: a fixed 100vh with bottom: auto stops short of
+   the screen and leaves a lighter band under the page. */
 @media (display-mode: standalone) {
-  html:has(body.app-page),
-  body.app-page {
+  html:has(body.app-page) {
     height: 100vh;
+    background: var(--app-bg);
   }
 
   body.app-page {
-    bottom: auto;
+    height: auto;
+    min-height: 100vh;
+    bottom: 0;
   }
 }
 
-html.standalone:has(body.app-page),
-html.standalone body.app-page {
+html.standalone:has(body.app-page) {
   height: 100vh;
+  background: var(--app-bg);
 }
 
 html.standalone body.app-page {
-  bottom: auto;
+  height: auto;
+  min-height: 100vh;
+  bottom: 0;
 }
 
 .app-page .btn {
@@ -321,17 +327,20 @@ html.standalone body.app-page {
   grid-template-rows: minmax(0, 1fr);
   flex: 1;
   min-height: 0;
-  /* The bar is fixed over the top of the shell. This keeps the page below it. */
-  margin-top: calc(var(--bar) + var(--safe-top));
+  /* The bar is fixed over this. The grid still starts at the top edge, so
+     the sidebar and the page paint behind the status bar and the home
+     indicator. Content is padded; the boxes are not. */
+  margin-top: 0;
 }
 
 .side {
   position: relative;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  /* The panel reaches the physical bottom edge; this keeps its footer above
-     the home indicator instead of sliced by it. */
+  /* Background and the divider run to the screen edge. The inset only
+     moves the words and the buttons, including out of the landscape notch. */
   padding-bottom: var(--safe-bottom);
   padding-left: var(--safe-left);
   border-right: 1px solid var(--line);
@@ -343,6 +352,7 @@ html.standalone body.app-page {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  padding-top: calc(var(--bar) + var(--safe-top));
 }
 
 .side-head {
@@ -378,10 +388,12 @@ html.standalone body.app-page {
   gap: 4px;
   width: 100%;
   /* The sidebar button sits level with where the open sidebar has it, the logo
-     at the bottom. */
+     at the bottom. The top padding clears the bar. The side's own padding
+     clears the notch and the home indicator. */
   flex: 1;
-  padding: 10px 0 14px;
+  padding: calc(10px + var(--bar) + var(--safe-top)) 0 14px;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 /* Sidebar buttons: drawn icons, quiet until hovered, like the rows.
@@ -424,7 +436,9 @@ html.standalone body.app-page {
 }
 
 .workspace.collapsed {
-  --side-w: 52px;
+  /* 52px of buttons, plus the notch. A 52px column with that padding
+     slides the buttons under the page, where taps miss them. */
+  --side-w: calc(52px + var(--safe-left));
 }
 
 .workspace.collapsed .side-body,
@@ -649,10 +663,15 @@ body.dragging-side .sheet-list {
 
 .sheet {
   position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  /* The page colour runs to the screen edges. The padding keeps banners
+     and the first line below the bar. */
+  padding-top: calc(var(--bar) + var(--safe-top));
+  background: var(--app-bg);
 }
 
 /* First visit: it can be installed (and how, on iPhone). */
@@ -763,6 +782,7 @@ body.dragging-side .sheet-list {
   position: relative;
   flex: 1;
   min-height: 0;
+  background: var(--app-bg);
   font: var(--font-size) / var(--line-h) var(--mono);
 }
 
@@ -2164,8 +2184,7 @@ body.answers-inline .md .pill {
   padding: 7px 12px;
   border: 1px solid var(--line-2);
   border-radius: 999px;
-  background: rgba(13, 13, 13, 0.85);
-  backdrop-filter: blur(8px);
+  background: var(--app-side);
   color: var(--text-2);
   font: 500 13px var(--sans);
   text-decoration: none;
@@ -2220,7 +2239,7 @@ body.answers-inline .md .pill {
 
   .side {
     position: fixed;
-    top: calc(var(--bar) + var(--safe-top));
+    top: 0;
     right: auto;
     bottom: 0;
     left: 0;

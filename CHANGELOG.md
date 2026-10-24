@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.20
+
+**The page runs to the edges of the screen**
+
+On iPhone, the sidebar and the page reach the top and the bottom of the screen. The version line and the last line stay above the home indicator. The top bar is a solid colour over the clock. In landscape, the collapsed sidebar buttons take a tap.
+
 ## 0.2.19
 
 **The Home Screen app sits on the screen**
