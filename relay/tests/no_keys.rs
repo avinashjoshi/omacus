@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use base64::Engine;
-use omacus_engine::sync_keys::RecoveryKey;
+use omacus_engine::sync_keys::{PageSet, RecoveryKey};
 use omacus_relay::store::Store;
 use omacus_sync_web::desk::{self, Desk, SAMPLE_PAGE};
 
@@ -247,6 +247,256 @@ fn the_relay_holds_no_key_and_no_page() {
     for word in words {
         assert!(!holds(&kept, word.as_bytes()));
     }
+}
+
+#[test]
+fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
+    let Started { port, store } = start();
+    let mut wire = Vec::new();
+
+    let mut founder = Desk::start_new().unwrap();
+    let words = founder.words().unwrap();
+    let picks = [(3, words[2]), (7, words[6]), (11, words[10])];
+    founder.confirm_saved(&picks).unwrap();
+    let account = founder.account_hex().unwrap();
+    let sign = *founder.device().signing_secret();
+    let vault = *founder.vault().unwrap().secret();
+    let trip = "Trip Budget\nferry = 40\n";
+    let market = "Market note\nmilk $3\n";
+    let packed = PageSet {
+        doc: b"LOCAL-DOC-MARKER".to_vec(),
+        pages: vec![
+            ("trip".to_string(), trip.to_string()),
+            ("market".to_string(), market.to_string()),
+        ],
+    }
+    .to_bytes()
+    .unwrap();
+    let record = founder.seal_pages(&packed).unwrap();
+    let file = founder.export_local().unwrap();
+    let (status, _) = exchange(
+        port,
+        "POST",
+        "/v1/mailboxes",
+        serde_json::json!({"account": account, "record": b64(&record)})
+            .to_string()
+            .as_bytes(),
+        &mut wire,
+    );
+    assert_eq!(status, 201);
+
+    let mut reloaded = Desk::import_local(&file).unwrap();
+    assert_eq!(reloaded.account_hex().as_deref(), Some(account.as_str()));
+    let (opened, member) = reloaded.absorb_record(&record).unwrap();
+    assert!(member);
+    let again = PageSet::from_bytes(&opened).unwrap();
+    assert!(
+        again
+            .pages
+            .iter()
+            .any(|(id, text)| id == "trip" && text == trip)
+    );
+    assert!(
+        again
+            .pages
+            .iter()
+            .any(|(id, text)| id == "market" && text == market)
+    );
+
+    let mut joiner = Desk::start_join().unwrap();
+    let device = joiner.public_device();
+    let (status, body) = exchange(
+        port,
+        "POST",
+        &format!("/v1/mailboxes/{account}/requests"),
+        serde_json::json!({"device": b64(&device), "name": "Other device"})
+            .to_string()
+            .as_bytes(),
+        &mut wire,
+    );
+    assert_eq!(status, 201);
+    let id = json_body(&body)["id"].as_str().unwrap().to_string();
+    let approval = founder.approve_new(&device).unwrap();
+    let updated = founder.seal_pages(&packed).unwrap();
+    let (status, _) = exchange(
+        port,
+        "PUT",
+        &format!("/v1/mailboxes/{account}"),
+        serde_json::json!({"revision": 1, "record": b64(&updated)})
+            .to_string()
+            .as_bytes(),
+        &mut wire,
+    );
+    assert_eq!(status, 200);
+    let (status, _) = exchange(
+        port,
+        "POST",
+        &format!("/v1/mailboxes/{account}/requests/{id}"),
+        serde_json::json!({"chain": b64(&approval.chain), "wrap": b64(&approval.wrap)})
+            .to_string()
+            .as_bytes(),
+        &mut wire,
+    );
+    assert_eq!(status, 200);
+    let (status, body) = exchange(
+        port,
+        "GET",
+        &format!("/v1/mailboxes/{account}"),
+        b"",
+        &mut wire,
+    );
+    assert_eq!(status, 200);
+    let stored_record = base64::engine::general_purpose::STANDARD
+        .decode(json_body(&body)["record"].as_str().unwrap())
+        .unwrap();
+    let (status, body) = exchange(
+        port,
+        "GET",
+        &format!("/v1/mailboxes/{account}/requests/{id}"),
+        b"",
+        &mut wire,
+    );
+    assert_eq!(status, 200);
+    let decision = json_body(&body);
+    let chain_bytes = base64::engine::general_purpose::STANDARD
+        .decode(decision["chain"].as_str().unwrap())
+        .unwrap();
+    let wrap_bytes = base64::engine::general_purpose::STANDARD
+        .decode(decision["wrap"].as_str().unwrap())
+        .unwrap();
+    let joined = joiner
+        .open_approval_pages(&chain_bytes, &wrap_bytes, &stored_record)
+        .unwrap();
+    let joined_pages = PageSet::from_bytes(&joined).unwrap();
+    assert!(
+        joined_pages
+            .pages
+            .iter()
+            .any(|(_, text)| text.contains("ferry = 40"))
+    );
+    assert!(
+        joined_pages
+            .pages
+            .iter()
+            .any(|(_, text)| text.contains("milk $3"))
+    );
+
+    let mut left = joined_pages.clone();
+    left.pages
+        .iter_mut()
+        .find(|(id, _)| id == "trip")
+        .unwrap()
+        .1 = "Trip Budget\nferry = 40\ncake $5\n".to_string();
+    let mut right = again.clone();
+    right
+        .pages
+        .iter_mut()
+        .find(|(id, _)| id == "trip")
+        .unwrap()
+        .1 = "Trip Budget\nferry = 40\nbread $2\n".to_string();
+    let merged = left.merge(right);
+    let trip_text = merged
+        .pages
+        .iter()
+        .find(|(id, _)| id == "trip")
+        .unwrap()
+        .1
+        .as_str();
+    assert!(trip_text.contains("ferry = 40"), "{trip_text}");
+    assert!(trip_text.contains("cake $5"), "{trip_text}");
+    assert!(trip_text.contains("bread $2"), "{trip_text}");
+    assert!(merged.pages.iter().any(|(id, _)| id == "market"));
+    let merged_record = founder.seal_pages(&merged.to_bytes().unwrap()).unwrap();
+    let (status, _) = exchange(
+        port,
+        "PUT",
+        &format!("/v1/mailboxes/{account}"),
+        serde_json::json!({"revision": 2, "record": b64(&merged_record)})
+            .to_string()
+            .as_bytes(),
+        &mut wire,
+    );
+    assert_eq!(status, 200);
+
+    let pasted = words.join(" ");
+    let mut recovered = Desk::start_recovery(&pasted).unwrap();
+    assert_eq!(recovered.recovery_account(&picks).unwrap(), account);
+    let (status, body) = exchange(
+        port,
+        "GET",
+        &format!("/v1/mailboxes/{account}"),
+        b"",
+        &mut wire,
+    );
+    assert_eq!(status, 200);
+    let latest = base64::engine::general_purpose::STANDARD
+        .decode(json_body(&body)["record"].as_str().unwrap())
+        .unwrap();
+    let recovered_pages =
+        PageSet::from_bytes(&recovered.recovery_open_pages(&latest).unwrap()).unwrap();
+    let recovered_trip = recovered_pages
+        .pages
+        .iter()
+        .find(|(id, _)| id == "trip")
+        .unwrap()
+        .1
+        .as_str();
+    assert!(recovered_trip.contains("cake $5"));
+    assert!(recovered_trip.contains("bread $2"));
+    assert!(
+        recovered_trip.contains("milk $3")
+            || recovered_pages
+                .pages
+                .iter()
+                .any(|(_, text)| text.contains("milk $3"))
+    );
+
+    let join_id = *joiner.device().public().id();
+    founder.remove_listed(&join_id).unwrap();
+    let listed = founder.listed_devices().unwrap();
+    assert!(listed.iter().any(|(_, _, mine)| *mine));
+    assert!(!listed.iter().any(|(id, _, _)| id == &hex_id(&join_id)));
+
+    let (status, _) = exchange(
+        port,
+        "POST",
+        "/v1/mailboxes",
+        serde_json::json!({"account": "ef".repeat(32), "record": b64(&file)})
+            .to_string()
+            .as_bytes(),
+        &mut wire,
+    );
+    assert_eq!(status, 400);
+
+    let kept = store.lock().unwrap().stored_bytes();
+    for secret in [
+        trip.as_bytes(),
+        market.as_bytes(),
+        b"LOCAL-DOC-MARKER".as_slice(),
+        b"cake $5".as_slice(),
+        b"bread $2".as_slice(),
+        sign.as_slice(),
+        vault.as_slice(),
+        file.as_slice(),
+        pasted.as_bytes(),
+    ] {
+        assert!(!holds(&kept, secret), "stored copy holds a page or a key");
+        assert!(!holds(&wire, secret), "the wire holds a page or a key");
+    }
+    for word in words {
+        assert!(!holds(&kept, word.as_bytes()));
+        assert!(!holds(&wire, word.as_bytes()));
+    }
+}
+
+fn hex_id(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::new();
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0xf) as usize] as char);
+    }
+    out
 }
 
 #[test]

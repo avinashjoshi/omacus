@@ -21,8 +21,9 @@ import {
 } from "./tree.js";
 import {
   ready as storeReady, get as storeGet, set as storeSet, remove as storeRemove, adopt as storeAdopt,
-  drained as storeDrained, keys as storeKeys, persistGranted, selfTab,
+  drained as storeDrained, keys as storeKeys, persistGranted, selfTab, PREFIX, CHANNEL,
 } from "./store.js";
+import { mountSync } from "./sync.js";
 import { allocateHandle, freshLibrary, seedAction } from "./seed.js";
 import { backupEntries, mergeBackup, parseBackup, unzipNamed, zipBytes } from "./backup.js";
 
@@ -35,7 +36,6 @@ if (bootLoading) bootLoading.hidden = false;
 
 const WASM = new URL("pkg/omacus_web_bg.wasm", import.meta.url).href;
 const WORKER = new URL("./worker.js", import.meta.url).href;
-const PREFIX = "omacus:";
 const RATES_URL = "https://open.er-api.com/v6/latest/USD";
 const RATES_MAX_AGE = 12 * 60 * 60 * 1000;
 const KEYWORDS = new Set(["prev", "sum", "total", "avg", "average", "mean", "min", "max", "today", "now",
@@ -763,15 +763,18 @@ function updateThemeNote() {
 }
 
 function showSettingsTab(name) {
-  const tab = name === "about" ? "about" : "settings";
+  const panels = [...document.querySelectorAll("[data-settings-panel]")];
+  const known = new Set(panels.map((panel) => panel.dataset.settingsPanel));
+  const tab = known.has(name) ? name : "settings";
   for (const button of document.querySelectorAll("[data-settings-tab]")) {
     button.setAttribute("aria-selected", String(button.dataset.settingsTab === tab));
   }
-  for (const panel of document.querySelectorAll("[data-settings-panel]")) {
+  for (const panel of panels) {
     panel.hidden = panel.dataset.settingsPanel !== tab;
   }
   const title = document.getElementById("settings-title");
-  if (title) title.textContent = tab === "about" ? "About" : "Settings";
+  const titles = { about: "About", sync: "Sync" };
+  if (title) title.textContent = titles[tab] || "Settings";
 }
 
 function showBuildHash() {
@@ -904,10 +907,17 @@ function installLibrary(lib) {
   saveIndex();
 }
 
+let syncTouched = () => {};
+let applyingRemote = false;
+function noteSyncEdit() {
+  if (!applyingRemote) syncTouched();
+}
+
 function saveSheet(id) {
   if (id === "shared" || !id) return Promise.resolve(false);
   const saved = store.set("page:" + id, state.texts.get(id) ?? "");
   const noted = noteDocPage(id);
+  noteSyncEdit();
   return Promise.all([saved, noted]).then(([ok]) => ok);
 }
 
@@ -1449,7 +1459,7 @@ addEventListener("storage", (e) => {
   onStoreWrite(e.key.slice(PREFIX.length), e.newValue);
 });
 try {
-  const pagesChannel = new BroadcastChannel("omacus");
+  const pagesChannel = new BroadcastChannel(CHANNEL);
   pagesChannel.onmessage = (e) => {
     if (!e.data || typeof e.data.key !== "string" || e.data.tab === selfTab) return;
     onStoreWrite(e.data.key, e.data.value);
@@ -4571,6 +4581,98 @@ async function goOffline() {
 // ---------------------------------------------------------------------------------
 // Start.
 
+function syncSnapshotPages() {
+  const pages = [];
+  for (const [id, text] of state.texts) {
+    if (!id || id === "shared") continue;
+    pages.push([id, text ?? ""]);
+  }
+  return pages;
+}
+
+async function takeSyncSnapshot() {
+  if (pendingSave) {
+    clearTimeout(pendingSave);
+    pendingSave = null;
+    applyingRemote = true;
+    try {
+      await saveSheet(state.active);
+    } finally {
+      applyingRemote = false;
+    }
+  }
+  return {
+    pages: syncSnapshotPages(),
+    doc: docBytes && docBytes.length ? new Uint8Array(docBytes) : new Uint8Array(),
+  };
+}
+
+async function backupBeforeRemote() {
+  const version = document.querySelector('meta[name="omacus-version"]')?.content || "";
+  let index = {};
+  try {
+    index = JSON.parse(store.get("index") || "{}");
+  } catch {
+    index = {};
+  }
+  const zip = zipBytes(backupEntries({
+    version,
+    library: index,
+    settings,
+    trash: loadTrash(),
+    pages: libraryPages(),
+  }));
+  const backup = bytesToB64(zip);
+  await store.set("sync-remote-backup", backup);
+  if (store.get("sync-remote-backup") !== backup) throw new Error("The backup could not be saved.");
+}
+
+async function applyRemoteLibrary(nextDoc, pages) {
+  await backupBeforeRemote();
+  applyingRemote = true;
+  try {
+    let doc = docBytes && docBytes.length ? docBytes : null;
+    if (nextDoc && nextDoc.length) doc = doc && doc.length ? docUnion(doc, nextDoc) : nextDoc;
+    for (const [id, text] of pages) {
+      if (!id || id === "shared") continue;
+      const body = typeof text === "string" ? text : "";
+      if (doc && doc.length && !isLock(body)) {
+        try {
+          doc = docApply(doc, id, body);
+        } catch {
+          // The page text is still kept below.
+        }
+      }
+      if (!state.texts.has(id)) {
+        state.texts.set(id, body);
+        if (!pageIds(state.tree).includes(id)) state.tree.push({ type: "page", id });
+        const taken = new Set([...state.handles.values()].map((handle) => handle.toLowerCase()));
+        if (!state.handles.has(id)) state.handles.set(id, allocateHandle(heading(body), taken));
+      } else if ((state.texts.get(id) ?? "") !== body) {
+        state.texts.set(id, body);
+        if (plains.has(id) && !isLock(body)) plains.set(id, body);
+      }
+    }
+    if (doc && doc.length) {
+      docBytes = doc;
+      const encoded = bytesToB64(doc);
+      docSaved = encoded;
+      await store.set("library-doc", encoded);
+    }
+    for (const [id, text] of state.texts) {
+      if (id && id !== "shared") await store.set("page:" + id, text ?? "");
+    }
+    syncOrder();
+    if (state.active !== "shared" && !state.order.includes(state.active)) state.active = state.order[0] ?? state.active;
+    saveIndex();
+    renderSidebar();
+    if (state.active && state.active !== "shared") showSheet();
+    showDocConflicts();
+  } finally {
+    applyingRemote = false;
+  }
+}
+
 async function start() {
   await storeReady();
   settings = loadSettings();
@@ -4607,6 +4709,23 @@ async function start() {
   if (state.active !== "shared") showSheet();
   loadRates();
   if (!EMBED) goOffline();
+  if (!EMBED) {
+    const syncTest = location.hostname === "sync-test.omacus.com" || document.documentElement.dataset.syncTest === "1";
+    await mountSync({
+      syncTest,
+      openSettings: (tab) => openSettings(tab),
+      snapshot: takeSyncSnapshot,
+      apply: applyRemoteLibrary,
+      bytesToB64,
+      b64ToBytes,
+      docUnion,
+      storeGet: (key) => store.get(key),
+      storeSet: (key, value) => store.set(key, value),
+      onEdit: (fn) => {
+        syncTouched = fn;
+      },
+    });
+  }
   if (matchMedia("(min-width: 761px)").matches) view.focus();
 }
 

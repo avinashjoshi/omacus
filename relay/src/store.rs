@@ -61,10 +61,12 @@ struct Mailbox {
     revision: u64,
     record: Vec<u8>,
     requests: BTreeMap<String, Request>,
+    created: u64,
 }
 
 pub struct Store {
     mailboxes: BTreeMap<String, Mailbox>,
+    next_created: u64,
 }
 
 #[derive(Clone)]
@@ -87,6 +89,7 @@ impl Store {
     pub fn new() -> Self {
         Self {
             mailboxes: BTreeMap::new(),
+            next_created: 0,
         }
     }
 
@@ -108,9 +111,14 @@ impl Store {
     }
 
     pub fn list(&self) -> Vec<(String, u64)> {
-        self.mailboxes
+        let mut rows: Vec<_> = self
+            .mailboxes
             .iter()
-            .map(|(account, mailbox)| (account.clone(), mailbox.revision))
+            .map(|(account, mailbox)| (account.clone(), mailbox.revision, mailbox.created))
+            .collect();
+        rows.sort_by(|left, right| right.2.cmp(&left.2).then(right.0.cmp(&left.0)));
+        rows.into_iter()
+            .map(|(account, revision, _)| (account, revision))
             .collect()
     }
 
@@ -123,12 +131,15 @@ impl Store {
         if self.mailboxes.len() >= MAX_MAILBOXES {
             return Err(StoreError::Full);
         }
+        self.next_created += 1;
+        let created = self.next_created;
         self.mailboxes.insert(
             account,
             Mailbox {
                 revision: 1,
                 record,
                 requests: BTreeMap::new(),
+                created,
             },
         );
         Ok(1)
@@ -363,5 +374,17 @@ mod tests {
         store.reject(&account, &id).unwrap();
         assert_eq!(store.request(&account, &id).unwrap().state, "rejected");
         assert!(store.pending(&account).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_newest_mailbox_is_listed_first() {
+        let mut store = Store::new();
+        let older = "ab".repeat(32);
+        let newer = "cd".repeat(32);
+        store.create(&older, record()).unwrap();
+        store.create(&newer, record()).unwrap();
+        let listed = store.list();
+        assert_eq!(listed[0].0, newer);
+        assert_eq!(listed[1].0, older);
     }
 }

@@ -12,6 +12,8 @@ use qrcode::QrCode;
 
 const EPOCH: u64 = 1;
 const PAGE_ID: &[u8] = b"trip";
+/// The sealed field that holds every page, not the sample page.
+pub const PAGES_ID: &[u8] = b"pages";
 /// The sample page. Made up, same shape as the editor behind the test screens.
 pub const SAMPLE_PAGE: &str = "Trip Budget\nferry = 40\nmilk $3";
 /// Word numbers the confirm screen asks for. 1-based, as the sheet numbers them.
@@ -204,14 +206,18 @@ impl Desk {
         wrap: &[u8],
         record: &[u8],
     ) -> Result<String, SyncKeyError> {
-        let chain = DeviceChain::from_bytes(chain)?;
-        chain.verify()?;
-        let view = ServerView::parse(record)?;
-        view.chain.verify()?;
-        let vault = sync_keys::open_device_wrap(&self.device, wrap, view.epoch, &view.key_id)?;
-        let page = sync_keys::open_page(&vault, view.epoch, PAGE_ID, &view.page)?;
-        self.keep_opened(view, vault, chain);
+        let page = self.unlock_approval(chain, wrap, record)?;
         String::from_utf8(page).map_err(|_| SyncKeyError::Corrupt)
+    }
+
+    /// Same as [`Desk::open_approval`], returning the sealed pages as bytes.
+    pub fn open_approval_pages(
+        &mut self,
+        chain: &[u8],
+        wrap: &[u8],
+        record: &[u8],
+    ) -> Result<Vec<u8>, SyncKeyError> {
+        self.unlock_approval(chain, wrap, record)
     }
 
     /// Confirm the three words and remember the account they open.
@@ -232,6 +238,152 @@ impl Desk {
     }
 
     pub fn recovery_open(&mut self, record: &[u8]) -> Result<String, SyncKeyError> {
+        let page = self.unlock_phrase(record)?;
+        String::from_utf8(page).map_err(|_| SyncKeyError::Corrupt)
+    }
+
+    /// Same as [`Desk::recovery_open`], returning the sealed pages as bytes.
+    pub fn recovery_open_pages(&mut self, record: &[u8]) -> Result<Vec<u8>, SyncKeyError> {
+        self.unlock_phrase(record)
+    }
+
+    pub fn export_local(&self) -> Result<Vec<u8>, SyncKeyError> {
+        let vault = self.vault.as_ref().ok_or(SyncKeyError::Sealed)?;
+        let account = self.account.ok_or(SyncKeyError::Corrupt)?;
+        let chain = self
+            .chain
+            .as_ref()
+            .map(DeviceChain::to_bytes)
+            .unwrap_or_default();
+        sync_keys::store_device(&self.device, vault, &account, self.epoch, &chain)
+    }
+
+    pub fn import_local(bytes: &[u8]) -> Result<Self, SyncKeyError> {
+        let file = sync_keys::open_device_store(bytes)?;
+        let chain = if file.chain.is_empty() {
+            None
+        } else {
+            let chain = DeviceChain::from_bytes(&file.chain)?;
+            chain.verify()?;
+            Some(chain)
+        };
+        Ok(Self {
+            device: file.device,
+            vault: Some(file.vault),
+            chain,
+            account: Some(file.account),
+            epoch: file.epoch,
+            phrase_wrap: Vec::new(),
+            wraps: Vec::new(),
+            sealed_page: Vec::new(),
+            recovery: None,
+            root: None,
+        })
+    }
+
+    pub fn seal_pages(&mut self, packed: &[u8]) -> Result<Vec<u8>, SyncKeyError> {
+        let vault = self.vault.as_ref().ok_or(SyncKeyError::Sealed)?;
+        self.sealed_page = sync_keys::seal_page(vault, self.epoch, PAGES_ID, packed)?;
+        self.record()
+    }
+
+    pub fn read_pages(&self) -> Result<Vec<u8>, SyncKeyError> {
+        let vault = self.vault.as_ref().ok_or(SyncKeyError::Sealed)?;
+        open_sealed(vault, self.epoch, &self.sealed_page)
+    }
+
+    /// Open a newer record. A chain that drops a removal we already have is not adopted.
+    /// The opened pages come back either way, so a merge can keep every page.
+    pub fn absorb_record(&mut self, record: &[u8]) -> Result<(Vec<u8>, bool), SyncKeyError> {
+        let view = ServerView::parse(record)?;
+        view.chain.verify()?;
+        if let Some(account) = self.account
+            && account != view.account
+        {
+            return Err(SyncKeyError::Sealed);
+        }
+        let opened = if let Some(vault) = &self.vault {
+            if vault.id() != &view.key_id {
+                return Err(SyncKeyError::Sealed);
+            }
+            open_sealed(vault, view.epoch, &view.page)?
+        } else {
+            let mut found = None;
+            for wrap in &view.device_wraps {
+                if let Ok(vault) =
+                    sync_keys::open_device_wrap(&self.device, wrap, view.epoch, &view.key_id)
+                {
+                    let pages = open_sealed(&vault, view.epoch, &view.page)?;
+                    found = Some((vault, pages));
+                    break;
+                }
+            }
+            let (vault, pages) = found.ok_or(SyncKeyError::Sealed)?;
+            self.vault = Some(vault);
+            pages
+        };
+        let take_chain = match &self.chain {
+            None => true,
+            Some(local) => {
+                matches!(
+                    view.chain.compared_with(local),
+                    sync_keys::ChainOrder::Newer | sync_keys::ChainOrder::Same
+                )
+            }
+        };
+        if take_chain {
+            self.chain = Some(view.chain);
+            self.phrase_wrap = view.phrase_wrap;
+            self.wraps = view.device_wraps;
+            self.sealed_page = view.page;
+            self.epoch = view.epoch;
+        }
+        self.account = Some(view.account);
+        Ok((opened, self.member()))
+    }
+
+    pub fn member(&self) -> bool {
+        let mine = *self.device.public().id();
+        self.chain
+            .as_ref()
+            .and_then(|chain| chain.devices().ok())
+            .is_some_and(|devices| devices.iter().any(|device| *device.id() == mine))
+    }
+
+    pub fn listed_devices(&self) -> Result<Vec<(String, String, bool)>, SyncKeyError> {
+        let chain = self.chain.as_ref().ok_or(SyncKeyError::NotApproved)?;
+        let mine = *self.device.public().id();
+        let mut rows = Vec::new();
+        for device in chain.devices()? {
+            let code = sync_keys::pairing_code(&device);
+            rows.push((hex(device.id()), code, *device.id() == mine));
+        }
+        Ok(rows)
+    }
+
+    pub fn remove_listed(&mut self, id: &[u8; 16]) -> Result<Vec<u8>, SyncKeyError> {
+        let chain = self.chain.clone().ok_or(SyncKeyError::NotApproved)?;
+        self.chain = Some(sync_keys::remove_device(&self.device, &chain, id)?);
+        self.record()
+    }
+
+    fn unlock_approval(
+        &mut self,
+        chain: &[u8],
+        wrap: &[u8],
+        record: &[u8],
+    ) -> Result<Vec<u8>, SyncKeyError> {
+        let chain = DeviceChain::from_bytes(chain)?;
+        chain.verify()?;
+        let view = ServerView::parse(record)?;
+        view.chain.verify()?;
+        let vault = sync_keys::open_device_wrap(&self.device, wrap, view.epoch, &view.key_id)?;
+        let pages = open_sealed(&vault, view.epoch, &view.page)?;
+        self.keep_opened(view, vault, chain);
+        Ok(pages)
+    }
+
+    fn unlock_phrase(&mut self, record: &[u8]) -> Result<Vec<u8>, SyncKeyError> {
         let view = ServerView::parse(record)?;
         if self.account != Some(view.account) {
             return Err(SyncKeyError::Sealed);
@@ -240,10 +392,10 @@ impl Desk {
         view.chain.verify()?;
         let vault =
             sync_keys::open_phrase_wrap(&root, &view.phrase_wrap, view.epoch, &view.key_id)?;
-        let page = sync_keys::open_page(&vault, view.epoch, PAGE_ID, &view.page)?;
+        let pages = open_sealed(&vault, view.epoch, &view.page)?;
         let chain = view.chain.clone();
         self.keep_opened(view, vault, chain);
-        String::from_utf8(page).map_err(|_| SyncKeyError::Corrupt)
+        Ok(pages)
     }
 
     pub fn device(&self) -> &DeviceKeys {
@@ -280,6 +432,26 @@ impl Desk {
         };
         Ok(view.stored())
     }
+}
+
+fn open_sealed(vault: &VaultKey, epoch: u64, stored: &[u8]) -> Result<Vec<u8>, SyncKeyError> {
+    match sync_keys::open_page(vault, epoch, PAGES_ID, stored) {
+        Ok(pages) => Ok(pages),
+        Err(_) => sync_keys::open_page(vault, epoch, PAGE_ID, stored),
+    }
+}
+
+pub fn decode_hex_id(text: &str) -> Result<[u8; 16], SyncKeyError> {
+    let text = text.trim();
+    if text.len() != 32 {
+        return Err(SyncKeyError::Corrupt);
+    }
+    let mut out = [0u8; 16];
+    for (index, byte) in out.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16)
+            .map_err(|_| SyncKeyError::Corrupt)?;
+    }
+    Ok(out)
 }
 
 pub fn code_for_device(bytes: &[u8]) -> Result<String, SyncKeyError> {
