@@ -1,4 +1,4 @@
-// Private sync test relay (1.0.0-beta.8) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.9) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
 // A new set of pages needs an invite code. The code is not stored — only
 // a hash of it. A new phone joins with a one-time code, also stored only
@@ -9,7 +9,7 @@ import { DurableObject } from "cloudflare:workers";
 import { openCode, spend } from "./access.js";
 import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
 
-const LABEL = "1.0.0-beta.8";
+const LABEL = "1.0.0-beta.9";
 const MAX_RECORD = 256 * 1024, MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024;
 const MAX_MAILBOXES = 32, MAX_REQUESTS = 8, MAX_USES = 20;
 const enc = new TextEncoder();

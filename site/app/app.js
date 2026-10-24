@@ -932,6 +932,8 @@ function setSyncPlaces(places) {
   renderSidebar();
 }
 
+if (document.documentElement.dataset.syncTest === "1") globalThis.omacusShowPlaces = setSyncPlaces;
+
 function filterSyncedTree(nodes, local) {
   const out = [];
   for (const node of nodes || []) {
