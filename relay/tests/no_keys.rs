@@ -406,9 +406,9 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
 
     let mut reloaded = Desk::import_local(&file).unwrap();
     assert_eq!(reloaded.account_hex().as_deref(), Some(account.as_str()));
-    let (opened, member) = reloaded.absorb_record(&record).unwrap();
-    assert!(member);
-    let again = PageSet::from_bytes(&opened).unwrap();
+    let opened = reloaded.absorb_record(&record).unwrap();
+    assert!(opened.member);
+    let again = PageSet::from_bytes(&opened.pages).unwrap();
     assert!(
         again
             .pages

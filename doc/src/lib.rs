@@ -359,8 +359,8 @@ impl Library {
     }
 
     /// Same document: merge history, and surface same-line conflicts.
-    /// A different document: keep every page, and mint a new id when one collides.
-    /// Unrelated pages are never merged character by character.
+    /// A different document: the same page id stays one page.
+    /// Two pages that only share a title stay two pages, because their ids differ.
     pub fn union(mut self, mut other: Self) -> Self {
         self.doc.commit();
         other.doc.commit();
@@ -663,8 +663,8 @@ impl Library {
                 if mine == text {
                     continue;
                 }
-                let fresh = self.fresh_page_id(&id);
-                self.reconcile(&fresh, &text, None);
+                let combined = union_lines(&mine, &text);
+                self.reconcile(&id, &combined, None);
             } else {
                 self.reconcile(&id, &text, None);
             }
@@ -674,17 +674,6 @@ impl Library {
                 self.insert_folder(&folder.id, &folder.name);
                 let _ = self.set_parent(&folder.id, folder.parent.as_deref());
             }
-        }
-    }
-
-    fn fresh_page_id(&self, id: &str) -> String {
-        let mut n = 2u32;
-        loop {
-            let candidate = format!("{id}-{n}");
-            if self.find_page(&candidate).is_none() {
-                return candidate;
-            }
-            n += 1;
         }
     }
 
@@ -938,10 +927,10 @@ impl Library {
 
     /// Bring another device's pages into this one.
     ///
-    /// The same document merges its history, so a deletion on one side and a
-    /// new line on the other both remain. Two documents that started from the
-    /// same saved page use that copy as the common point. A locked page is
-    /// kept whole. A page with no shared start is kept beside this one.
+    /// The same page id stays one page. A deletion on one side and a new line
+    /// on the other both remain when the two copies share a start. A locked
+    /// page stays on that same id. Two pages that only share a title stay two
+    /// pages, because their ids differ.
     fn fold_other(&mut self, mut other: Library) {
         let mut ids = self.page_ids();
         for id in other.page_ids() {
@@ -960,9 +949,7 @@ impl Library {
                 (Some(_), None) | (None, None) => {}
                 (Some(ours), Some(theirs)) if ours == theirs => {}
                 (Some(ours), Some(theirs)) if is_sealed(&ours) || is_sealed(&theirs) => {
-                    let fresh = self.fresh_page_id(&id);
-                    self.reconcile(&fresh, &theirs, None);
-                    self.note_written(&fresh, &theirs);
+                    self.reconcile(&id, &ours, Some(&theirs));
                 }
                 (Some(ours), Some(theirs)) => {
                     let origin_ours = self.page_origin(&id);
@@ -975,9 +962,8 @@ impl Library {
                         }
                         self.reconcile(&id, &ours, Some(&theirs));
                     } else {
-                        let fresh = self.fresh_page_id(&id);
-                        self.reconcile(&fresh, &theirs, None);
-                        self.note_written(&fresh, &theirs);
+                        let combined = union_lines(&ours, &theirs);
+                        self.reconcile(&id, &combined, None);
                     }
                 }
             }
@@ -1121,6 +1107,21 @@ fn split_lines(text: &str) -> Vec<String> {
     } else {
         text.split('\n').map(str::to_string).collect()
     }
+}
+
+/// Lines from either copy, in order, without a second page.
+fn union_lines(ours: &str, theirs: &str) -> String {
+    let mut lines = Vec::new();
+    for line in ours.lines().chain(theirs.lines()) {
+        if !lines.contains(&line) {
+            lines.push(line);
+        }
+    }
+    let mut text = lines.join("\n");
+    if ours.ends_with('\n') || theirs.ends_with('\n') {
+        text.push('\n');
+    }
+    text
 }
 
 fn merge_pieces(base: &[SourceLine], ours: &[String], theirs: &[String]) -> Vec<Piece> {
@@ -1611,14 +1612,85 @@ mod tests {
             .iter()
             .map(|id| union.snapshot(id).unwrap())
             .collect();
-        assert_eq!(texts.len(), 2, "{texts:?}");
-        assert!(texts.iter().any(|t| t == "ferry = 40"), "{texts:?}");
-        assert!(texts.iter().any(|t| t == "ferry = 60"), "{texts:?}");
-        assert!(
-            texts.iter().all(|t| !(t.contains('4') && t.contains('6'))),
-            "{texts:?}"
-        );
+        assert_eq!(union.page_ids(), vec!["trip".to_string()], "{texts:?}");
+        let text = texts.into_iter().next().unwrap();
+        assert!(text.contains("ferry = 40"), "{text}");
+        assert!(text.contains("ferry = 60"), "{text}");
+        assert!(!text.contains("460"), "{text}");
         assert_eq!(union.vault(), "personal");
+    }
+
+    #[test]
+    fn the_same_page_is_not_copied_when_a_device_rejoins() {
+        let start = "Trip Budget\nferry = 40\n";
+        let mut a = Library::new();
+        a.reconcile("trip", start, None);
+        a.note_written("trip", start);
+        a.reconcile("trip", "Trip Budget\nferry = 40\nmilk $3\n", None);
+        let mut b = Library::new();
+        b.reconcile("trip", start, None);
+        b.note_written("trip", start);
+        b.reconcile("trip", "Trip Budget\nferry = 40\nbread $2\n", None);
+        let (_doc, pages) = merge_libraries(
+            &a.save(),
+            &[("trip".into(), "Trip Budget\nferry = 40\nmilk $3\n".into())],
+            &b.save(),
+            &[("trip".into(), "Trip Budget\nferry = 40\nbread $2\n".into())],
+        );
+        let trips: Vec<_> = pages
+            .iter()
+            .filter(|(id, _)| id == "trip" || id.starts_with("trip-"))
+            .collect();
+        assert_eq!(trips.len(), 1, "{pages:?}");
+        let text = &trips[0].1;
+        assert!(text.contains("milk $3"), "{text}");
+        assert!(text.contains("bread $2"), "{text}");
+        assert_eq!(text.matches("ferry = 40").count(), 1, "{text}");
+    }
+
+    #[test]
+    fn a_page_is_not_copied_when_the_first_saved_text_differs() {
+        let mut a = Library::new();
+        a.reconcile("trip", "ferry = 40\n", None);
+        a.note_written("trip", "ferry = 40\n");
+        let mut b = Library::new();
+        b.reconcile("trip", "ferry = 40\nbread $2\n", None);
+        b.note_written("trip", "ferry = 40\nbread $2\n");
+        let (_doc, pages) = merge_libraries(
+            &a.save(),
+            &[("trip".into(), "ferry = 40\n".into())],
+            &b.save(),
+            &[("trip".into(), "ferry = 40\nbread $2\n".into())],
+        );
+        assert_eq!(pages.len(), 1, "{pages:?}");
+        assert_eq!(pages[0].0, "trip");
+        assert!(pages[0].1.contains("ferry = 40"), "{pages:?}");
+        assert!(pages[0].1.contains("bread $2"), "{pages:?}");
+    }
+
+    #[test]
+    fn two_pages_with_the_same_title_both_stay() {
+        let trip = "# Trip Budget\nferry = 40\n";
+        let groceries = "# Trip Budget\nmilk $3\n";
+        let mut a = Library::new();
+        a.reconcile("ex1", trip, None);
+        a.note_written("ex1", trip);
+        let mut b = Library::new();
+        b.reconcile("ex2", groceries, None);
+        b.note_written("ex2", groceries);
+        let (_doc, pages) = merge_libraries(
+            &a.save(),
+            &[("ex1".into(), trip.into())],
+            &b.save(),
+            &[("ex2".into(), groceries.into())],
+        );
+        assert_eq!(pages.len(), 2, "{pages:?}");
+        assert!(pages.iter().any(|(id, text)| id == "ex1" && text == trip));
+        assert!(
+            pages
+                .iter()
+                .any(|(id, text)| id == "ex2" && text == groceries)
+        );
     }
 
     #[test]

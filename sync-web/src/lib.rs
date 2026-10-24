@@ -312,11 +312,13 @@ pub fn seal_pages(id: u32, packed_b64: &str) -> String {
 pub fn absorb_record(id: u32, record_b64: &str) -> String {
     call(|| {
         let record = b64_decode(record_b64)?;
-        let (packed, member) = with_desk(id, |desk| desk.absorb_record(&record))??;
+        let opened = with_desk(id, |desk| desk.absorb_record(&record))??;
         Ok(json!({
             "ok": true,
-            "packed": b64_encode(&packed),
-            "member": member,
+            "packed": b64_encode(&opened.pages),
+            "member": opened.member,
+            "replace": opened.replace,
+            "republish": opened.republish,
         }))
     })
 }

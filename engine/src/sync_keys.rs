@@ -57,9 +57,58 @@ pub enum SyncKeyError {
     Unavailable,
     NotAKey,
     NotConfirmed,
-    NotApproved,
+    /// A device-list check failed. The text is the sentence a person should see.
+    NotApproved(&'static str),
     Sealed,
     Corrupt,
+}
+
+/// The list's version numbers are not 1, 2, 3… in order.
+pub const LIST_VERSION: &str = "The list version doesn't line up.";
+/// The signature or the link to the previous list doesn't check out.
+pub const LIST_CHECK: &str = "The list didn't check out.";
+/// The phone or computer that signed this step isn't on the previous list.
+pub const LIST_SIGNER: &str = "The phone or computer that changed the list isn't on it.";
+/// The step didn't add or remove exactly one phone or computer.
+pub const LIST_STEP: &str = "The list has to change by one phone or computer.";
+pub const NO_LIST: &str = "This device doesn't have the list yet.";
+pub const NOT_ON_LIST: &str = "This device is no longer on the list.";
+pub const ALREADY_ON_LIST: &str = "That device is already on the list.";
+
+const APPROVAL_VERSION: &str = "The approval's list version doesn't line up.";
+const APPROVAL_CHECK: &str = "The approval's list didn't check out.";
+const APPROVAL_SIGNER: &str =
+    "The approval was changed by a phone or computer that isn't on the list.";
+const APPROVAL_STEP: &str = "The approval's list has to change by one phone or computer.";
+const SAVED_VERSION: &str = "The saved copy's list version doesn't line up.";
+const SAVED_CHECK: &str = "The saved copy's list didn't check out.";
+const SAVED_SIGNER: &str =
+    "The saved copy was changed by a phone or computer that isn't on the list.";
+const SAVED_STEP: &str = "The saved copy's list has to change by one phone or computer.";
+
+/// Say whether a list check failed on the approval or on the saved copy.
+pub fn scope_list_error(error: SyncKeyError, saved: bool) -> SyncKeyError {
+    let SyncKeyError::NotApproved(reason) = error else {
+        return error;
+    };
+    let mapped = if saved {
+        match reason {
+            LIST_VERSION => SAVED_VERSION,
+            LIST_CHECK => SAVED_CHECK,
+            LIST_SIGNER => SAVED_SIGNER,
+            LIST_STEP => SAVED_STEP,
+            _ => reason,
+        }
+    } else {
+        match reason {
+            LIST_VERSION => APPROVAL_VERSION,
+            LIST_CHECK => APPROVAL_CHECK,
+            LIST_SIGNER => APPROVAL_SIGNER,
+            LIST_STEP => APPROVAL_STEP,
+            _ => reason,
+        }
+    };
+    SyncKeyError::NotApproved(mapped)
 }
 
 impl SyncKeyError {
@@ -68,7 +117,7 @@ impl SyncKeyError {
             SyncKeyError::Unavailable => "Try again in a moment.",
             SyncKeyError::NotAKey => "Those words are not a recovery key.",
             SyncKeyError::NotConfirmed => "Tap the three words first.",
-            SyncKeyError::NotApproved => "That device was not approved.",
+            SyncKeyError::NotApproved(reason) => reason,
             SyncKeyError::Sealed => "Those pages could not be opened.",
             SyncKeyError::Corrupt => "That copy could not be read.",
         }
@@ -673,48 +722,51 @@ impl DeviceChain {
             return Err(SyncKeyError::Corrupt);
         }
         for (place, list) in self.lists.iter().enumerate() {
-            if list.version != place as u64 + 1
-                || list.devices.is_empty()
-                || list.devices.len() > DEVICE_CAP
-            {
-                return Err(SyncKeyError::NotApproved);
+            if list.version != place as u64 + 1 {
+                return Err(SyncKeyError::NotApproved(LIST_VERSION));
             }
-            if !unique_ids(&list.devices) {
-                return Err(SyncKeyError::NotApproved);
+            if list.devices.is_empty()
+                || list.devices.len() > DEVICE_CAP
+                || !unique_ids(&list.devices)
+            {
+                return Err(SyncKeyError::NotApproved(LIST_STEP));
             }
             if place == 0 {
                 if list.prev != [0u8; KEY_LEN]
                     || list.devices.len() != 1
                     || list.signer != list.devices[0].id
                 {
-                    return Err(SyncKeyError::NotApproved);
+                    return Err(SyncKeyError::NotApproved(LIST_CHECK));
                 }
             } else {
                 let previous = &self.lists[place - 1];
                 let mut previous_hash = [0u8; KEY_LEN];
                 previous_hash.copy_from_slice(&Sha256::digest(previous.message()));
-                if list.prev != previous_hash || !changed_by_one(&previous.devices, &list.devices) {
-                    return Err(SyncKeyError::NotApproved);
+                if list.prev != previous_hash {
+                    return Err(SyncKeyError::NotApproved(LIST_CHECK));
+                }
+                if !changed_by_one(&previous.devices, &list.devices) {
+                    return Err(SyncKeyError::NotApproved(LIST_STEP));
                 }
                 if !previous
                     .devices
                     .iter()
                     .any(|device| device.id == list.signer)
                 {
-                    return Err(SyncKeyError::NotApproved);
+                    return Err(SyncKeyError::NotApproved(LIST_SIGNER));
                 }
             }
             let signer = list
                 .devices
                 .iter()
                 .find(|device| device.id == list.signer)
-                .ok_or(SyncKeyError::NotApproved)?;
-            let key =
-                VerifyingKey::from_bytes(&signer.sign).map_err(|_| SyncKeyError::NotApproved)?;
+                .ok_or(SyncKeyError::NotApproved(LIST_SIGNER))?;
+            let key = VerifyingKey::from_bytes(&signer.sign)
+                .map_err(|_| SyncKeyError::NotApproved(LIST_CHECK))?;
             let signature =
                 Signature::from_slice(&list.signature).map_err(|_| SyncKeyError::Corrupt)?;
             key.verify(&list.message(), &signature)
-                .map_err(|_| SyncKeyError::NotApproved)?;
+                .map_err(|_| SyncKeyError::NotApproved(LIST_CHECK))?;
         }
         Ok(())
     }
@@ -870,7 +922,7 @@ pub fn found_devices(device: &DeviceKeys) -> Result<DeviceChain, SyncKeyError> {
 
 fn sign_list(device: &DeviceKeys, list: &SignedDevices) -> Result<[u8; 64], SyncKeyError> {
     if device.id != list.signer {
-        return Err(SyncKeyError::NotApproved);
+        return Err(SyncKeyError::NotApproved(NOT_ON_LIST));
     }
     Ok(device.signing_key().sign(&list.message()).to_bytes())
 }
@@ -887,10 +939,10 @@ pub fn approve(
     chain.verify()?;
     let latest = chain.latest()?;
     if !latest.devices.iter().any(|device| device.id == approver.id) {
-        return Err(SyncKeyError::NotApproved);
+        return Err(SyncKeyError::NotApproved(NOT_ON_LIST));
     }
     if latest.devices.iter().any(|device| device.id == newcomer.id) {
-        return Err(SyncKeyError::NotApproved);
+        return Err(SyncKeyError::NotApproved(ALREADY_ON_LIST));
     }
     let mut devices = latest.devices.clone();
     devices.push(*newcomer);
@@ -924,13 +976,13 @@ pub fn remove_device(
     chain.verify()?;
     let latest = chain.latest()?;
     if approver.id == *target || latest.devices.len() < 2 {
-        return Err(SyncKeyError::NotApproved);
+        return Err(SyncKeyError::NotApproved(NOT_ON_LIST));
     }
     if !latest.devices.iter().any(|device| device.id == approver.id) {
-        return Err(SyncKeyError::NotApproved);
+        return Err(SyncKeyError::NotApproved(NOT_ON_LIST));
     }
     if !latest.devices.iter().any(|device| device.id == *target) {
-        return Err(SyncKeyError::NotApproved);
+        return Err(SyncKeyError::NotApproved(NOT_ON_LIST));
     }
     let devices: Vec<_> = latest
         .devices
@@ -971,22 +1023,36 @@ fn bind(kind: &[u8], epoch: u64, key_id: &[u8; 16], recipient: Option<&[u8; 16]>
     out
 }
 
-pub fn wrap_vault_for_phrase(
-    root: &Root,
+pub fn phrase_kek(root: &Root) -> Result<[u8; KEY_LEN], SyncKeyError> {
+    let mut kek = [0u8; KEY_LEN];
+    root.expand(b"omacus/v1/vault-wrap/0", &mut kek)?;
+    Ok(kek)
+}
+
+pub fn wrap_vault_with_kek(
+    kek: &[u8; KEY_LEN],
     vault: &VaultKey,
     epoch: u64,
 ) -> Result<Vec<u8>, SyncKeyError> {
-    let mut kek = [0u8; KEY_LEN];
-    root.expand(b"omacus/v1/vault-wrap/0", &mut kek)?;
     let mut nonce = random_bytes::<X_NONCE>()?;
     let aad = bind(b"phrase-key", epoch, &vault.id, None);
-    let ciphertext = xchacha(true, &kek, &nonce, &aad, &vault.key)?;
-    kek.zeroize();
+    let ciphertext = xchacha(true, kek, &nonce, &aad, &vault.key)?;
     let mut out = Vec::with_capacity(X_NONCE + ciphertext.len());
     out.extend_from_slice(&nonce);
     out.extend_from_slice(&ciphertext);
     nonce.zeroize();
     Ok(out)
+}
+
+pub fn wrap_vault_for_phrase(
+    root: &Root,
+    vault: &VaultKey,
+    epoch: u64,
+) -> Result<Vec<u8>, SyncKeyError> {
+    let mut kek = phrase_kek(root)?;
+    let out = wrap_vault_with_kek(&kek, vault, epoch);
+    kek.zeroize();
+    out
 }
 
 pub fn open_phrase_wrap(
@@ -1150,6 +1216,8 @@ pub struct DeviceStore {
     pub account: [u8; 32],
     pub epoch: u64,
     pub chain: Vec<u8>,
+    /// Empty on a file saved before this field. Never written to a mailbox.
+    pub kek: Vec<u8>,
 }
 
 impl std::fmt::Debug for DeviceStore {
@@ -1164,8 +1232,9 @@ pub fn store_device(
     account: &[u8; 32],
     epoch: u64,
     chain: &[u8],
+    kek: &[u8],
 ) -> Result<Vec<u8>, SyncKeyError> {
-    if chain.len() > MAX_CHAIN_BYTES {
+    if chain.len() > MAX_CHAIN_BYTES || !(kek.is_empty() || kek.len() == KEY_LEN) {
         return Err(SyncKeyError::Corrupt);
     }
     let mut out = Vec::new();
@@ -1178,6 +1247,9 @@ pub fn store_device(
     out.extend_from_slice(account);
     out.extend_from_slice(&epoch.to_be_bytes());
     push_chunk(&mut out, chain);
+    if !kek.is_empty() {
+        push_chunk(&mut out, kek);
+    }
     let digest = Sha256::digest(&out);
     out.extend_from_slice(&digest);
     Ok(out)
@@ -1208,8 +1280,14 @@ pub fn open_device_store(bytes: &[u8]) -> Result<DeviceStore, SyncKeyError> {
         account: reader.array()?,
         epoch: reader.u64()?,
         chain: reader.chunk()?,
+        kek: if reader.is_empty() {
+            Vec::new()
+        } else {
+            reader.chunk()?
+        },
     };
-    if store.chain.len() > MAX_CHAIN_BYTES {
+    if store.chain.len() > MAX_CHAIN_BYTES || !(store.kek.is_empty() || store.kek.len() == KEY_LEN)
+    {
         return Err(SyncKeyError::Corrupt);
     }
     reader.finish()?;
@@ -1337,6 +1415,10 @@ impl<'a> Reader<'a> {
 
     fn u64(&mut self) -> Result<u64, SyncKeyError> {
         Ok(u64::from_be_bytes(self.array()?))
+    }
+
+    fn is_empty(&self) -> bool {
+        self.rest.is_empty()
     }
 
     fn chunk(&mut self) -> Result<Vec<u8>, SyncKeyError> {
@@ -1832,7 +1914,7 @@ mod tests {
 
         let mut forged = with_phone.clone();
         forged.lists[1].signature[0] ^= 0xff;
-        assert_eq!(forged.verify().unwrap_err(), SyncKeyError::NotApproved);
+        assert_eq!(forged.verify().unwrap_err().message(), LIST_CHECK);
         let mut raw = with_phone.to_bytes();
         let parsed = DeviceChain::from_bytes(&raw).unwrap();
         parsed.verify().unwrap();
@@ -1885,12 +1967,40 @@ mod tests {
     }
 
     #[test]
+    fn a_list_check_names_the_part_that_failed() {
+        let laptop = DeviceKeys::generate().unwrap();
+        let chain = found_devices(&laptop).unwrap();
+        let phone = DeviceKeys::generate().unwrap();
+        let vault = VaultKey::generate().unwrap();
+        let (with_phone, _) = approve(&laptop, &chain, &phone.public(), &vault, 1).unwrap();
+        let mut bumped = with_phone.clone();
+        bumped.lists[1].version = 9;
+        assert_eq!(bumped.verify().unwrap_err().message(), LIST_VERSION);
+        let mut jumped = with_phone.clone();
+        jumped.lists[1].devices.push(laptop.public());
+        assert_eq!(jumped.verify().unwrap_err().message(), LIST_STEP);
+        assert_eq!(
+            scope_list_error(SyncKeyError::NotApproved(LIST_CHECK), false).message(),
+            "The approval's list didn't check out."
+        );
+        assert_eq!(
+            scope_list_error(SyncKeyError::NotApproved(LIST_CHECK), true).message(),
+            "The saved copy's list didn't check out."
+        );
+        let already = approve(&laptop, &with_phone, &phone.public(), &vault, 1);
+        let Err(error) = already else {
+            panic!("a phone already on the list was approved");
+        };
+        assert_eq!(error.message(), ALREADY_ON_LIST);
+    }
+
+    #[test]
     fn a_device_file_round_trips_and_is_not_a_mailbox_record() {
         let device = DeviceKeys::generate().unwrap();
         let vault = VaultKey::generate().unwrap();
         let account = [0x11u8; 32];
         let chain = found_devices(&device).unwrap().to_bytes();
-        let stored = store_device(&device, &vault, &account, 1, &chain).unwrap();
+        let stored = store_device(&device, &vault, &account, 1, &chain, &[]).unwrap();
         assert!(stored.starts_with(DEVICE_MAGIC));
         assert!(!stored.starts_with(b"OMACUS-SYNC/1\n"));
         let opened = open_device_store(&stored).unwrap();
@@ -1902,6 +2012,10 @@ mod tests {
         assert_eq!(opened.account, account);
         assert_eq!(opened.epoch, 1);
         assert_eq!(opened.chain, chain);
+        assert!(opened.kek.is_empty());
+        let kek = [0x5au8; KEY_LEN];
+        let with_kek = store_device(&device, &vault, &account, 1, &chain, &kek).unwrap();
+        assert_eq!(open_device_store(&with_kek).unwrap().kek, kek);
         let mut torn = stored.clone();
         let last = torn.len() - 1;
         torn[last] ^= 0xff;
