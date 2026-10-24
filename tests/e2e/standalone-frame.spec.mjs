@@ -1,8 +1,9 @@
-// Home Screen: html and body are 100vh. A percentage height drops
-// viewport-fit=cover, and the dynamic viewport unit is wrong until the phone
-// rotates. A taller screen.height must not move the shell; that measurement
-// is not the page height. Safari stays on the visual viewport, because 100vh
-// there includes the toolbar. Playwright cannot draw the iOS status bar.
+// Home Screen: the document is 100vh and the shell is pinned to the top and
+// bottom of the viewport. A percentage height drops viewport-fit=cover, and
+// the dynamic viewport unit is wrong until the phone rotates. A taller
+// screen.height must not move the shell. black-translucent lets the page
+// paint under the status bar; the bar itself is solid. Playwright cannot
+// draw the iOS status bar.
 
 import { test, expect } from "@playwright/test";
 import { mkdirSync } from "node:fs";
@@ -100,7 +101,7 @@ async function frame(page) {
 }
 
 function expectFlush(box) {
-  expect(box.status).toBe("");
+  expect(box.status).toContain("black-translucent");
   expect(box.blur).toBe("none");
   expect(box.btnBlur).toBe("none");
   expect(box.barBg).toBe(box.pageBg);
