@@ -306,7 +306,7 @@ const other = "cd".repeat(32);
   const home = await worker.fetch(new Request("https://sync.omacus.com/"), closed.env);
   assert(home.status === 404, "production served the app");
   const health = await worker.fetch(new Request("https://sync-test.omacus.com/v1/health"), closed.env);
-  assert((await health.json()).label === "1.0.0-beta.12", "label");
+  assert((await health.json()).label === "1.0.0-beta.13", "label");
 }
 
 {
@@ -383,6 +383,7 @@ const other = "cd".repeat(32);
 }
 
 {
+  const headers = await readFile(new URL("../../site/app/_headers", import.meta.url), "utf8");
   const config = await readFile(new URL("../../site/app/sync-config.js", import.meta.url), "utf8");
   const sync = await readFile(new URL("../../site/app/sync.js", import.meta.url), "utf8");
   const web = await readFile(new URL("../../.github/scripts/build-web.sh", import.meta.url), "utf8");
@@ -396,6 +397,9 @@ const other = "cd".repeat(32);
   assert(sync.includes("SYNC_URL"), "sync.js ignores the setting");
   assert(web.includes("https://sync.omacus.com"), "production build has no sync host");
   assert(testBuild.includes("https://sync-test.omacus.com"), "test build has no sync host");
+  assert(headers.includes("connect-src") && headers.includes("https://sync.omacus.com") && headers.includes("https://sync-test.omacus.com"), "csp omits the sync host");
+  assert(testBuild.includes("site/app/_headers") && testBuild.includes("Content-Security-Policy") && testBuild.includes("Cache-Control: no-store"), "test build drops the content security policy");
+  assert(!testBuild.includes("printf"), "test build replaces the headers file");
   assert(wrangler.includes('"name": "omacus-sync-test"') && wrangler.includes("sync-test.omacus.com"), "test worker");
   assert(wrangler.includes('"name": "omacus-sync"') && wrangler.includes("sync.omacus.com"), "production worker");
   assert(wrangler.includes('"SERVE_APP": "0"') && wrangler.includes('"SERVE_APP": "1"'), "serve flag");
