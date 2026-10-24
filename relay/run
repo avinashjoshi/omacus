@@ -1,0 +1,8 @@
+#!/bin/sh
+# One command for the private sync test: build the page, then serve it.
+set -eu
+cd "$(dirname "$0")/.."
+cargo build -p omacus-sync-web --release --target wasm32-unknown-unknown
+wasm-bindgen --target web --no-typescript --out-dir relay/www/pkg \
+  target/wasm32-unknown-unknown/release/omacus_sync_web.wasm
+exec cargo run -p omacus-relay --quiet -- "$@"

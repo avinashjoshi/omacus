@@ -336,6 +336,15 @@ Don't: hardcode a count or a date in the page, point the page at `--app-*`, or p
 Do: use the marketing tokens. One accent. Say that this version does not sync. Paragraphs on the sync page and in this band use `--prose-gap`. Don't give them a margin of their own.
 Don't: collect an email, or describe sync as something the app already does. The launch video may show it as a feature; the website does not.
 
+### Sync test
+
+A private test, labeled `1.0.0-beta.1`, lives in `relay/www`. It is not a page on omacus.com and it is not the app. The screens are Turn on sync, Save your recovery key, Tap the three words, Add this device, Approve a new device, and Use your recovery key.
+
+The recovery screen is one box. Numbers, commas, capitals, and line breaks are fine. Scan reads the same words off the sheet. Confirm is three taps on numbered words, with nothing to type. Approve shows the same six-digit code on both devices, grouped as `482 916`.
+
+Do: use the app tokens. Sentence case. Trip Budget for the sample page. One primary button on each screen. The version line reads `omacus 1.0.0-beta.1`.
+Don't: put this on the website, write the words anywhere but the device, or name the parts of a key in the words a person reads. Don't restyle these screens into the shipped app.
+
 ### Foldable showcase
 
 Under "Nothing to install" the homepage shows one small unfolded phone, about 440px wide and centered, with a one-line caption. It is not its own headline. Unfolded, the device lies flat, landscape, about 4:3. The rim is polished stainless (`--metal-hi` through `--metal-edge` in `tokens.css`), with a thin black bezel, large corner radii, two small buttons on the right edge, and a soft shadow. A status strip sits above the app on both halves: the punch-hole camera and the time live in that strip on the right, clear of the app's own bar. The halves meet at a barely-there crease: one pixel of highlight and one pixel of shadow, each at 8% opacity. The black bezel stops at the outer edges, so the crease is not a bar through the note. The soft shadow belongs to the whole phone; each half does not cast one, or it would fall across the page. Inside, the page list is the slim sidebar and Trip Budget fills the rest, so the note continues across the crease. The picture is the dark app, rendered near 720px wide, with the page list about 30% of that width, so the type stays proportional and the page names fit. A line does not wrap. The marketing page itself stays near-black.
