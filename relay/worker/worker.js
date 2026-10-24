@@ -1,6 +1,7 @@
 // Private sync test relay (1.0.0-beta.1) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes and
-// device approvals that arrive. It holds no keys and cannot open a page.
+// device approvals that arrive. The newest mailbox is listed first, so a
+// joining device asks the most recent one. It holds no keys and cannot open a page.
 import { DurableObject } from "cloudflare:workers";
 
 const LABEL = "1.0.0-beta.1";
@@ -76,7 +77,9 @@ export class Mailboxes extends DurableObject {
     const need = () => (body && typeof body === "object" ? body : fail("Unreadable"));
     if (method === "GET" && path === "/v1/mailboxes") {
       const all = await this.ctx.storage.list({ prefix: "m:" });
-      return [200, { mailboxes: [...all].map(([k, m]) => ({ account: k.slice(2), revision: m.revision })) }];
+      return [200, { mailboxes: [...all]
+        .sort(([, a], [, b]) => (b.created || 0) - (a.created || 0))
+        .map(([k, m]) => ({ account: k.slice(2), revision: m.revision })) }];
     }
     if (method === "POST" && path === "/v1/mailboxes") {
       const v = need();
@@ -84,7 +87,7 @@ export class Mailboxes extends DurableObject {
       const record = sealed(v.record);
       if (await this.ctx.storage.get("m:" + account)) fail("Conflict");
       if ((await this.ctx.storage.list({ prefix: "m:" })).size >= MAX_MAILBOXES) fail("Full");
-      await this.save(account, { revision: 1, record, requests: {} });
+      await this.save(account, { revision: 1, record, requests: {}, created: Date.now() });
       return [201, { revision: 1 }];
     }
     const rest = path.startsWith("/v1/mailboxes/") ? path.slice(14).split("/") : fail("Unknown");
