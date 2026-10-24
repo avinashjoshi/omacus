@@ -2,6 +2,7 @@
 // A device file stays in this browser. The server receives a sealed record.
 
 const LABEL = "omacus 1.0.0-beta.1";
+const INVITE_MS = 5 * 60 * 1000;
 
 export async function mountSync(api) {
   if (!api?.syncTest) return;
@@ -61,6 +62,8 @@ export async function mountSync(api) {
     devices: [],
     name: matchMedia("(pointer: coarse)").matches ? "This phone" : "This browser",
     video: false,
+    invite: null,
+    joinCode: "",
   };
   let wordlist = [];
   let timer = null;
@@ -116,10 +119,11 @@ export async function mountSync(api) {
     return state.asks.filter((n) => state.picks[n]).map((n) => [n, state.picks[n]]);
   }
 
-  async function callServer(method, path, body) {
+  async function callServer(method, path, body, origin) {
+    const url = origin && origin !== location.origin ? `${origin.replace(/\/$/, "")}${path}` : path;
     let response;
     try {
-      response = await fetch(path, {
+      response = await fetch(url, {
         method,
         headers: body ? { "Content-Type": "application/json" } : undefined,
         body: body ? JSON.stringify(body) : undefined,
@@ -229,7 +233,7 @@ export async function mountSync(api) {
 
   async function tick() {
     if (ticking || !state.desk || !state.account) return;
-    if (["off", "explain", "save", "confirm", "recover", "recover-confirm", "join"].includes(state.screen)) return;
+    if (["off", "explain", "save", "confirm", "recover", "recover-confirm", "join", "join-start", "join-type", "join-scan"].includes(state.screen)) return;
     ticking = true;
     try {
       if (navigator.onLine === false) setChip("Offline", "off");
@@ -239,7 +243,7 @@ export async function mountSync(api) {
       if (state.dirty && state.member) await push();
       else if (state.member) setChip("Saved", "on");
       else setChip("Removed", "off");
-      if (state.screen === "linked") {
+      if (state.screen === "linked" || state.screen === "invite") {
         const found = await findRequest();
         if (found) {
           state.screen = "approve";
@@ -259,15 +263,20 @@ export async function mountSync(api) {
   }
 
   async function findRequest() {
-    const data = await callServer("GET", `/v1/mailboxes/${state.account}/requests`);
-    const request = (data.requests || [])[0];
-    if (!request) {
+    if (!state.invite || Date.now() >= state.invite.expires) {
       state.pending = null;
       return false;
     }
-    const coded = JSON.parse(sync.codeFor(request.device));
-    state.pending = { id: request.id, name: request.name, device: request.device, code: coded.code || "" };
-    return true;
+    const data = await callServer("GET", `/v1/mailboxes/${state.account}/requests`);
+    for (const request of data.requests || []) {
+      const check = JSON.parse(sync.checkProof(state.invite.code, request.device, request.proof || ""));
+      if (!check.ok) continue;
+      const coded = JSON.parse(sync.codeFor(request.device));
+      state.pending = { id: request.id, name: request.name, device: request.device, code: coded.code || "" };
+      return true;
+    }
+    state.pending = null;
+    return false;
   }
 
   function stopScan() {
@@ -447,56 +456,177 @@ export async function mountSync(api) {
     draw();
   }
 
-  async function addDevice() {
+  function addDevice() {
+    stopScan();
+    state.error = "";
+    state.joinCode = "";
+    state.screen = "join-start";
+    draw();
+  }
+
+  async function startInvite() {
     state.busy = true;
     state.error = "";
-    state.screen = "join";
     draw();
-    let list;
+    const raw = crypto.getRandomValues(new Uint8Array(5));
+    const secret = btoa(String.fromCharCode(...raw));
+    const made = JSON.parse(sync.makeInvite(state.account, location.origin, secret));
+    if (!made.ok) {
+      state.busy = false;
+      state.error = made.message;
+      draw();
+      return;
+    }
     try {
-      list = await callServer("GET", "/v1/mailboxes");
+      await callServer("POST", `/v1/mailboxes/${state.account}/invites`, { hash: made.hash });
     } catch (error) {
       state.busy = false;
       state.error = error.message;
-      state.screen = "off";
       draw();
       return;
     }
-    const mailbox = (list.mailboxes || [])[0];
-    if (!mailbox) {
-      state.busy = false;
-      state.error = "Turn on sync on your other device first.";
-      state.screen = "off";
-      draw();
-      return;
-    }
+    state.invite = { code: made.code, qr: made.qr, expires: Date.now() + INVITE_MS };
+    state.screen = "invite";
+    state.busy = false;
+    draw();
+  }
+
+  async function submitJoin(code, origin) {
+    stopScan();
+    state.joinCode = code || "";
+    state.screen = "join-type";
+    state.busy = true;
+    state.error = "";
+    draw();
     const started = JSON.parse(sync.startJoin());
     if (!started.ok) {
       state.busy = false;
-      state.error = started.message;
-      state.screen = "off";
+      state.error = started.message || "That code didn't work. Check it on the other device.";
       draw();
       return;
     }
-    state.desk = started.id;
-    state.code = started.code;
-    state.device = started.device;
-    state.account = mailbox.account;
+    const proof = JSON.parse(sync.joinProof(started.device, code || ""));
+    if (!proof.ok) {
+      state.busy = false;
+      state.error = proof.message || "That code didn't work. Check it on the other device.";
+      draw();
+      return;
+    }
     try {
-      const created = await callServer("POST", `/v1/mailboxes/${state.account}/requests`, {
+      const created = await callServer("POST", "/v1/join", {
+        code,
         device: started.device,
         name: state.name || "This browser",
-      });
+        proof: proof.proof,
+      }, origin);
+      state.desk = started.id;
+      state.code = started.code;
+      state.device = started.device;
+      state.account = created.account;
       state.requestId = created.id;
     } catch (error) {
       state.busy = false;
-      state.error = error.message;
+      state.error = error.message || "That code didn't work. Check it on the other device.";
       draw();
       return;
     }
+    state.screen = "join";
     state.busy = false;
     draw();
     waitForApproval();
+  }
+
+  function parseJoin(raw) {
+    const lines = String(raw || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (lines[0] !== "omacus-join" || lines.length < 4) return null;
+    const origin = lines[1];
+    const account = lines[2];
+    const code = lines[3];
+    if (!/^[0-9a-f]{64}$/i.test(account) || !allowedOrigin(origin)) return null;
+    return { origin, account, code };
+  }
+
+  function allowedOrigin(origin) {
+    try {
+      const url = new URL(origin);
+      if (url.origin === location.origin) return true;
+      if (url.protocol === "https:" && (url.hostname === "omacus.com" || url.hostname.endsWith(".omacus.com"))) return true;
+      if (url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost")) return true;
+    } catch {
+      return false;
+    }
+    return false;
+  }
+
+  async function scanJoin() {
+    state.error = "";
+    if (!navigator.mediaDevices?.getUserMedia) {
+      state.screen = "join-type";
+      state.error = "This browser can't use the camera. Type the code.";
+      draw();
+      return;
+    }
+    let reader;
+    try {
+      reader = (await import("./jsqr.js")).default;
+    } catch {
+      state.screen = "join-type";
+      state.error = "This browser can't read that code. Type it.";
+      draw();
+      return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    } catch {
+      stopScan();
+      state.screen = "join-type";
+      state.error = "The camera didn't open. Type the code.";
+      draw();
+      return;
+    }
+    state.screen = "join-scan";
+    state.video = true;
+    draw();
+    const video = panel.querySelector("video");
+    if (!video) {
+      stopScan();
+      return;
+    }
+    video.srcObject = stream;
+    video.playsInline = true;
+    try {
+      await video.play();
+    } catch {
+      // A tap on the picture starts it on some phones.
+    }
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const step = () => {
+      if (state.screen !== "join-scan" || !video) return;
+      if (video.readyState >= 2 && ctx) {
+        canvas.width = video.videoWidth || 0;
+        canvas.height = video.videoHeight || 0;
+        if (canvas.width && canvas.height) {
+          ctx.drawImage(video, 0, 0);
+          const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const found = reader(image.data, image.width, image.height);
+          if (found?.data) {
+            const parsed = parseJoin(found.data);
+            stopScan();
+            if (!parsed) {
+              state.screen = "join-start";
+              state.error = "That code didn't work. Check it on the other device.";
+              draw();
+              return;
+            }
+            submitJoin(parsed.code, parsed.origin);
+            return;
+          }
+        }
+      }
+      loop = requestAnimationFrame(step);
+    };
+    step();
   }
 
   async function waitForApproval() {
@@ -559,6 +689,7 @@ export async function mountSync(api) {
         wrap: approval.wrap,
       });
       state.pending = null;
+      state.invite = null;
       state.screen = "linked";
       await refreshDevices();
       setChip("Saved", "on");
@@ -581,6 +712,7 @@ export async function mountSync(api) {
       // The request can expire. This device still has the pages.
     }
     state.pending = null;
+    state.invite = null;
     state.screen = "linked";
     draw();
   }
@@ -638,6 +770,10 @@ export async function mountSync(api) {
     else if (state.screen === "explain") drawExplain();
     else if (state.screen === "save") drawSave();
     else if (state.screen === "confirm" || state.screen === "recover-confirm") drawConfirm();
+    else if (state.screen === "invite") drawInvite();
+    else if (state.screen === "join-start") drawJoinStart();
+    else if (state.screen === "join-type") drawJoinType();
+    else if (state.screen === "join-scan") drawJoinScan();
     else if (state.screen === "join") drawJoin();
     else if (state.screen === "approve") drawApprove();
     else if (state.screen === "recover") drawRecover();
@@ -748,6 +884,65 @@ export async function mountSync(api) {
     ]));
   }
 
+  function drawInvite() {
+    const qr = el("div", { class: "sync-qr sync-join" });
+    const picture = qrNode(state.invite?.qr, "Join code");
+    if (picture) qr.append(picture);
+    panel.append(
+      el("h2", {}, ["Add a device"]),
+      el("p", { class: "setting-help" }, ["On the new device, scan this code or type it. It works for about 5 minutes, and only once."]),
+      qr,
+      el("div", { class: "sync-invite-code" }, [state.invite?.code || ""]),
+      addActions([["Back", "", () => { state.screen = "linked"; state.error = ""; draw(); }]]),
+    );
+  }
+
+  function drawJoinStart() {
+    panel.append(
+      el("h2", {}, ["Add this device"]),
+      el("p", { class: "setting-help" }, ["On a device that already has your pages, open Sync and tap Add a device."]),
+      addActions([
+        ["Scan code", "primary", () => scanJoin()],
+        ["Type code", "", () => { state.screen = "join-type"; state.error = ""; draw(); }],
+        ["Back", "", () => { stopScan(); state.screen = "off"; state.error = ""; draw(); }],
+      ]),
+    );
+  }
+
+  function drawJoinType() {
+    const field = el("input", {
+      class: "sync-name",
+      "aria-label": "Device code",
+      autocapitalize: "characters",
+      autocomplete: "off",
+      spellcheck: "false",
+      "data-join-code": "",
+    });
+    field.value = state.joinCode || "";
+    field.addEventListener("input", () => {
+      state.joinCode = field.value;
+    });
+    panel.append(
+      el("h2", {}, ["Type the code"]),
+      el("p", { class: "setting-help" }, ["Type the code shown on your other device. It looks like K7QM-4R2P."]),
+      field,
+      addActions([
+        [state.busy ? "Checking…" : "Continue", "primary", () => submitJoin(state.joinCode), state.busy],
+        ["Back", "", () => { state.screen = "join-start"; state.error = ""; draw(); }, state.busy],
+      ]),
+    );
+    field.focus();
+  }
+
+  function drawJoinScan() {
+    panel.append(
+      el("h2", {}, ["Scan code"]),
+      el("p", { class: "setting-help" }, ["Point the camera at the code on your other device."]),
+      el("video", { class: "sync-video", autoplay: "", playsinline: "", muted: "" }),
+      addActions([["Type code instead", "", () => { stopScan(); state.screen = "join-type"; draw(); }]]),
+    );
+  }
+
   function drawJoin() {
     panel.append(
       el("h2", {}, ["Add this device"]),
@@ -818,7 +1013,10 @@ export async function mountSync(api) {
       }
       panel.append(row);
     }
-    panel.append(addActions([["Back", "", () => api.openSettings("settings")]]));
+    panel.append(addActions([
+      [state.busy ? "Working…" : "Add a device", "primary", () => startInvite(), state.busy || !state.member],
+      ["Back", "", () => api.openSettings("settings"), state.busy],
+    ]));
   }
 
   function addActions(rows) {
@@ -914,7 +1112,7 @@ function button(text, attrs) {
   return el("button", attrs, [text]);
 }
 
-function qrNode(svg) {
+function qrNode(svg, label) {
   if (!svg || svg.includes("<script") || !svg.startsWith("<svg")) return null;
   const view = /viewBox="0 0 (\d+) (\d+)"/.exec(svg);
   const path = / d="([^"]*)"/.exec(svg);
@@ -923,7 +1121,7 @@ function qrNode(svg) {
   const node = document.createElementNS(ns, "svg");
   node.setAttribute("viewBox", `0 0 ${view[1]} ${view[2]}`);
   node.setAttribute("role", "img");
-  node.setAttribute("aria-label", "Recovery sheet");
+  node.setAttribute("aria-label", label || "Recovery sheet");
   const d = document.createElementNS(ns, "path");
   d.setAttribute("fill", "currentColor");
   d.setAttribute("d", path[1]);

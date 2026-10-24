@@ -29,6 +29,7 @@ const state = {
   busy: false,
   note: "",
   poll: 0,
+  invite: null,
 };
 
 function esc(value) {
@@ -225,7 +226,44 @@ function render() {
     );
   } else if (state.screen === "ready" || state.screen === "opened") {
     const note = state.note ? `<p class="ok banner">${esc(state.note)}</p>` : "";
-    html = `<div data-screen="${state.screen}">${editor(state.page)}${note}</div>`;
+    const add = state.screen === "ready"
+      ? `<div class="actions"><button class="btn block" type="button" data-act="invite">Add a device</button></div>`
+      : "";
+    html = `<div data-screen="${state.screen}">${editor(state.page)}${note}${add}</div>`;
+  } else if (state.screen === "invite") {
+    const svg = state.qr.startsWith("<svg") && !state.qr.includes("<script") ? state.qr : "";
+    html = sheet(
+      `<h1>Add a device</h1>
+      <p class="lead">On the new device, scan this code or type it. It works for about 5 minutes, and only once.</p>
+      <div class="qr">${svg}</div>
+      <div class="invite-code">${esc(state.invite ? state.invite.code : "")}</div>
+      ${err}
+      ${actions([["ready", "Back", "block"]])}`,
+      true,
+    );
+  } else if (state.screen === "join-start") {
+    html = sheet(
+      `<h1>Add this device</h1>
+      <p class="lead">On a device that already has your pages, open Sync and tap Add a device.</p>
+      ${err}
+      ${actions([
+        ["join-type", "Type code", "primary block"],
+        ["start", "Back", "block"],
+      ])}`,
+      true,
+    );
+  } else if (state.screen === "join-type") {
+    html = sheet(
+      `<h1>Type the code</h1>
+      <p class="lead">Type the code shown on your other device. It looks like K7QM-4R2P.</p>
+      <input class="field" id="join-code" autocomplete="off" spellcheck="false" autocapitalize="characters" aria-label="Device code">
+      ${err}
+      ${actions([
+        ["join-go", state.busy ? "Checking…" : "Continue", "primary block"],
+        ["add", "Back", "block"],
+      ])}`,
+      true,
+    );
   } else if (state.screen === "join") {
     html = sheet(
       `<h1>Add this device</h1>
@@ -402,55 +440,94 @@ function pollApproval() {
 
 async function lookForDevice() {
   if (!state.account || state.screen === "approve") return;
+  if (!state.invite || Date.now() >= state.invite.expires) return;
   try {
     const data = await api("GET", `/v1/mailboxes/${state.account}/requests`);
-    const request = (data.requests || [])[0];
-    if (!request) return;
-    const coded = JSON.parse(sync.codeFor(request.device));
-    state.pending = { id: request.id, name: request.name, device: request.device, code: coded.code };
-    show("approve");
+    for (const request of data.requests || []) {
+      const check = JSON.parse(sync.checkProof(state.invite.code, request.device, request.proof || ""));
+      if (!check.ok) continue;
+      const coded = JSON.parse(sync.codeFor(request.device));
+      state.pending = { id: request.id, name: request.name, device: request.device, code: coded.code };
+      show("approve");
+      return;
+    }
   } catch (error) {
     state.error = error.message;
   }
 }
 
-async function addDevice() {
+function beginJoin() {
   state.server = serverBase();
+  state.error = "";
+  show("join-start");
+}
+
+async function startInvite() {
   state.busy = true;
+  state.error = "";
   render();
-  let list;
+  const raw = crypto.getRandomValues(new Uint8Array(5));
+  const secret = btoa(String.fromCharCode(...raw));
+  const made = JSON.parse(sync.makeInvite(state.account, location.origin, secret));
+  if (!made.ok) {
+    state.busy = false;
+    state.error = made.message;
+    render();
+    return;
+  }
   try {
-    list = await api("GET", "/v1/mailboxes");
+    await api("POST", `/v1/mailboxes/${state.account}/invites`, { hash: made.hash });
   } catch (error) {
     state.busy = false;
     state.error = error.message;
-    show("start");
-    state.error = error.message;
     render();
     return;
   }
-  const mailbox = (list.mailboxes || [])[0];
-  if (!mailbox) {
-    state.busy = false;
-    state.error = "Turn on sync on your other device first.";
-    show("start");
-    state.error = "Turn on sync on your other device first.";
-    render();
-    return;
-  }
+  state.invite = { code: made.code, qr: made.qr, expires: Date.now() + 5 * 60 * 1000 };
+  state.qr = made.qr;
+  state.busy = false;
+  show("invite");
+}
+
+async function sendJoin() {
+  const code = document.getElementById("join-code")?.value || "";
+  state.busy = true;
+  state.error = "";
+  render();
   const started = JSON.parse(sync.startJoin());
-  state.desk = started.id;
-  state.code = started.code;
-  state.device = started.device;
-  state.account = mailbox.account;
+  if (!started.ok) {
+    state.busy = false;
+    state.error = started.message || "That code didn't work. Check it on the other device.";
+    show("join-type");
+    state.error = state.error;
+    render();
+    return;
+  }
+  const proof = JSON.parse(sync.joinProof(started.device, code));
+  if (!proof.ok) {
+    state.busy = false;
+    state.error = proof.message || "That code didn't work. Check it on the other device.";
+    show("join-type");
+    state.error = state.error;
+    render();
+    return;
+  }
   try {
-    const created = await api("POST", `/v1/mailboxes/${state.account}/requests`, {
+    const created = await api("POST", "/v1/join", {
+      code,
       device: started.device,
       name: "This phone",
+      proof: proof.proof,
     });
+    state.desk = started.id;
+    state.code = started.code;
+    state.device = started.device;
+    state.account = created.account;
     state.requestId = created.id;
   } catch (error) {
     state.busy = false;
+    state.error = error.message;
+    show("join-type");
     state.error = error.message;
     render();
     return;
@@ -668,7 +745,16 @@ const acts = {
   print() {
     window.print();
   },
-  add: addDevice,
+  add: beginJoin,
+  invite: startInvite,
+  "join-type"() {
+    state.error = "";
+    show("join-type");
+  },
+  "join-go": sendJoin,
+  ready() {
+    show("ready");
+  },
   approve,
   decline,
   recover() {

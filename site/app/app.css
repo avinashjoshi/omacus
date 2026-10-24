@@ -2192,13 +2192,16 @@ body.answers-inline .md .pill {
     left: 0;
     z-index: 40;
     width: min(300px, 84vw);
-    transform: translateX(-102%);
+    /* Past the edge, with the border hidden, so a closed list leaves no hairline. */
+    transform: translate3d(calc(-100% - 12px), 0, 0);
+    border-right-color: transparent;
     transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
     box-shadow: none;
   }
 
   .app-page.drawer .side {
     transform: none;
+    border-right-color: var(--line);
     box-shadow: 20px 0 60px -20px var(--black);
   }
 
@@ -2461,6 +2464,11 @@ html.standalone .app-page {
   height: 112px;
 }
 
+.sync-qr.sync-join svg {
+  width: 220px;
+  height: 220px;
+}
+
 .sync-qr span {
   color: var(--app-comment);
   font: 400 var(--type-caption) / 1.3 var(--sans);
@@ -2503,7 +2511,8 @@ html.standalone .app-page {
   background: var(--app-sel);
 }
 
-.sync-code {
+.sync-code,
+.sync-invite-code {
   margin: var(--space-3) 0;
   color: var(--app-fg);
   font: 600 var(--type-display) / 1.2 var(--mono);

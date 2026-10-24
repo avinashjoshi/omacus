@@ -2830,10 +2830,12 @@ version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
  "getrandom 0.2.17",
+ "hmac",
  "omacus-doc",
  "omacus-engine",
  "omacus-sync-web",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -2841,9 +2843,11 @@ name = "omacus-sync-web"
 version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
+ "hmac",
  "omacus-engine",
  "qrcode",
  "serde_json",
+ "sha2",
  "wasm-bindgen",
 ]
 

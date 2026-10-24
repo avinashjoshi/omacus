@@ -113,13 +113,8 @@ fn route(
     if method == "GET" && path == "/v1/health" {
         return Ok((200, json!({"label": LABEL})));
     }
-    if method == "GET" && path == "/v1/mailboxes" {
-        let mailboxes: Vec<_> = store
-            .list()
-            .into_iter()
-            .map(|(account, revision)| json!({"account": account, "revision": revision}))
-            .collect();
-        return Ok((200, json!({"mailboxes": mailboxes})));
+    if method == "POST" && path == "/v1/join" {
+        return accept_join(store, body);
     }
     if method == "POST" && path == "/v1/mailboxes" {
         return accept_create(store, body);
@@ -153,17 +148,20 @@ fn route(
                         "id": request.id,
                         "device": b64(&request.device),
                         "name": request.name,
+                        "proof": b64(&request.proof),
                     })
                 })
                 .collect();
             Ok((200, json!({"requests": pending})))
         }
-        ("POST", Some("requests"), None) => {
+        ("POST", Some("invites"), None) => {
             let value = json_body(body)?;
-            let device = decode_field(&value, "device")?;
-            let name = value.get("name").and_then(Value::as_str).unwrap_or("");
-            let id = store.ask(account, device, name)?;
-            Ok((201, json!({"id": id})))
+            let hash = value
+                .get("hash")
+                .and_then(Value::as_str)
+                .ok_or(StoreError::Unreadable)?;
+            store.open_invite(account, hash)?;
+            Ok((200, json!({"ok": true})))
         }
         ("GET", Some("requests"), Some(id)) => {
             let request = store.request(account, id)?;
@@ -191,6 +189,19 @@ fn route(
         }
         _ => Err(StoreError::Unknown),
     }
+}
+
+fn accept_join(store: &mut Store, body: &[u8]) -> Result<(u16, Value), StoreError> {
+    let value = json_body(body)?;
+    let code = value.get("code").and_then(Value::as_str).unwrap_or("");
+    if crate::invite::decode_code(code).is_none() {
+        return Err(StoreError::BadInvite);
+    }
+    let device = decode_field(&value, "device")?;
+    let name = value.get("name").and_then(Value::as_str).unwrap_or("");
+    let proof = decode_field(&value, "proof")?;
+    let (account, id) = store.join(code, device, name, &proof)?;
+    Ok((201, json!({"id": id, "account": account})))
 }
 
 pub fn accept_create(store: &mut Store, body: &[u8]) -> Result<(u16, Value), StoreError> {

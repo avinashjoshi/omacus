@@ -141,7 +141,7 @@ impl Desk {
         for (index, word) in words.iter().enumerate() {
             payload.push_str(&format!("{}. {word}\n", index + 1));
         }
-        qr_svg(&payload)
+        qr_svg(&payload, "Recovery sheet")
     }
 
     pub fn confirm_saved(&mut self, picks: &[(u8, &str)]) -> Result<Vec<u8>, SyncKeyError> {
@@ -499,7 +499,7 @@ pub fn hex(bytes: &[u8]) -> String {
     out
 }
 
-fn qr_svg(payload: &str) -> Result<String, SyncKeyError> {
+pub(crate) fn qr_svg(payload: &str, label: &str) -> Result<String, SyncKeyError> {
     let code = QrCode::new(payload.as_bytes()).map_err(|_| SyncKeyError::Unavailable)?;
     let modules = code.width();
     let quiet = 2;
@@ -526,7 +526,7 @@ fn qr_svg(payload: &str) -> Result<String, SyncKeyError> {
         }
     }
     Ok(format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {size} {size}\" role=\"img\" aria-label=\"Recovery sheet\"><path fill=\"currentColor\" d=\"{path}\"/></svg>"
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {size} {size}\" role=\"img\" aria-label=\"{label}\"><path fill=\"currentColor\" d=\"{path}\"/></svg>"
     ))
 }
 

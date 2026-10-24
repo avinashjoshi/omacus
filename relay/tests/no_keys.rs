@@ -14,6 +14,24 @@ fn holds(hay: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty() && hay.windows(needle.len()).any(|window| window == needle)
 }
 
+/// A word sitting in the middle of a sealed blob is not the word itself.
+fn holds_word(hay: &[u8], needle: &[u8]) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    let token = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=');
+    hay.windows(needle.len())
+        .enumerate()
+        .any(|(index, window)| {
+            if window != needle {
+                return false;
+            }
+            let before = index.checked_sub(1).and_then(|at| hay.get(at)).copied();
+            let after = hay.get(index + needle.len()).copied();
+            !matches!((before, after), (Some(left), Some(right)) if token(left) && token(right))
+        })
+}
+
 fn b64(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
@@ -70,6 +88,101 @@ fn json_body(bytes: &[u8]) -> serde_json::Value {
     serde_json::from_slice(bytes).unwrap()
 }
 
+struct Joined {
+    id: String,
+    code: String,
+}
+
+/// Opens a one-time code on `account`, rejects a join with no code and a join
+/// with the wrong code, then joins once. The code is not kept afterwards.
+fn post_join(port: u16, account: &str, device: &[u8], name: &str, wire: &mut Vec<u8>) -> Joined {
+    let secret = [0x11u8, 0x22, 0x33, 0x44, 0x55];
+    let code = omacus_relay::invite::encode_code(&secret);
+    let hash = omacus_relay::invite::hash_hex(&secret);
+    let mac = omacus_relay::invite::proof(&secret, device);
+    let (status, _) = exchange(
+        port,
+        "POST",
+        &format!("/v1/mailboxes/{account}/invites"),
+        serde_json::json!({ "hash": hash }).to_string().as_bytes(),
+        wire,
+    );
+    assert_eq!(status, 200);
+    let (status, body) = exchange(
+        port,
+        "POST",
+        "/v1/join",
+        serde_json::json!({ "device": b64(device), "name": name, "proof": b64(&mac) })
+            .to_string()
+            .as_bytes(),
+        wire,
+    );
+    assert_eq!(status, 400, "a join with no code is dropped");
+    assert_eq!(
+        json_body(&body)["message"],
+        "That code didn't work. Check it on the other device."
+    );
+    let (status, body) = exchange(
+        port,
+        "POST",
+        "/v1/join",
+        serde_json::json!({ "code": "0000-0001", "device": b64(device), "name": name, "proof": b64(&mac) })
+            .to_string()
+            .as_bytes(),
+        wire,
+    );
+    assert_eq!(status, 400);
+    assert_eq!(
+        json_body(&body)["message"],
+        "That code didn't work. Check it on the other device."
+    );
+    let (status, _) = exchange(
+        port,
+        "POST",
+        &format!("/v1/mailboxes/{account}/requests"),
+        serde_json::json!({ "device": b64(device), "name": name })
+            .to_string()
+            .as_bytes(),
+        wire,
+    );
+    assert_eq!(status, 404);
+    let (status, body) = exchange(
+        port,
+        "GET",
+        &format!("/v1/mailboxes/{account}/requests"),
+        b"",
+        wire,
+    );
+    assert_eq!(status, 200);
+    assert!(json_body(&body)["requests"].as_array().unwrap().is_empty());
+    let (status, _) = exchange(port, "GET", "/v1/mailboxes", b"", wire);
+    assert_eq!(status, 404);
+    let (status, body) = exchange(
+        port,
+        "POST",
+        "/v1/join",
+        serde_json::json!({ "code": code, "device": b64(device), "name": name, "proof": b64(&mac) })
+            .to_string()
+            .as_bytes(),
+        wire,
+    );
+    assert_eq!(status, 201, "{}", String::from_utf8_lossy(&body));
+    let joined = json_body(&body);
+    assert_eq!(joined["account"], account);
+    let id = joined["id"].as_str().unwrap().to_string();
+    let (status, _) = exchange(
+        port,
+        "POST",
+        "/v1/join",
+        serde_json::json!({ "code": code, "device": b64(device), "name": name, "proof": b64(&mac) })
+            .to_string()
+            .as_bytes(),
+        wire,
+    );
+    assert_eq!(status, 400, "a code works once");
+    Joined { id, code }
+}
+
 #[test]
 fn the_relay_holds_no_key_and_no_page() {
     let Started { port, store } = start();
@@ -106,17 +219,8 @@ fn the_relay_holds_no_key_and_no_page() {
     let device = joiner.public_device();
     let code = joiner.pairing_code();
     assert_eq!(code, desk::code_for_device(&device).unwrap());
-    let (status, body) = exchange(
-        port,
-        "POST",
-        &format!("/v1/mailboxes/{account}/requests"),
-        serde_json::json!({"device": b64(&device), "name": "This phone"})
-            .to_string()
-            .as_bytes(),
-        &mut wire,
-    );
-    assert_eq!(status, 201, "{}", String::from_utf8_lossy(&body));
-    let id = json_body(&body)["id"].as_str().unwrap().to_string();
+    let joined = post_join(port, &account, &device, "This phone", &mut wire);
+    let id = joined.id;
 
     let (status, body) = exchange(
         port,
@@ -213,6 +317,10 @@ fn the_relay_holds_no_key_and_no_page() {
     assert_eq!(again, SAMPLE_PAGE);
 
     let kept = store.lock().unwrap().stored_bytes();
+    assert!(
+        !holds(&kept, joined.code.as_bytes()),
+        "the stored mailbox kept the join code"
+    );
     let mut secrets = vec![
         SAMPLE_PAGE.as_bytes().to_vec(),
         root_bytes.to_vec(),
@@ -229,7 +337,12 @@ fn the_relay_holds_no_key_and_no_page() {
     }
     for secret in &secrets {
         assert!(!holds(&kept, secret), "stored copy holds a secret");
-        assert!(!holds(&wire, secret), "the wire holds a secret");
+        let on_wire = if secret.iter().all(|byte| byte.is_ascii_alphabetic()) {
+            holds_word(&wire, secret)
+        } else {
+            holds(&wire, secret)
+        };
+        assert!(!on_wire, "the wire holds a secret");
     }
 
     let attack = b64(words.join(" ").as_bytes());
@@ -305,17 +418,12 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
 
     let mut joiner = Desk::start_join().unwrap();
     let device = joiner.public_device();
-    let (status, body) = exchange(
-        port,
-        "POST",
-        &format!("/v1/mailboxes/{account}/requests"),
-        serde_json::json!({"device": b64(&device), "name": "Other device"})
-            .to_string()
-            .as_bytes(),
-        &mut wire,
-    );
-    assert_eq!(status, 201);
-    let id = json_body(&body)["id"].as_str().unwrap().to_string();
+    let joined = post_join(port, &account, &device, "Other device", &mut wire);
+    let id = joined.id;
+    assert!(!holds(
+        &store.lock().unwrap().stored_bytes(),
+        joined.code.as_bytes()
+    ));
     let approval = founder.approve_new(&device).unwrap();
     let updated = founder.seal_pages(&packed).unwrap();
     let (status, _) = exchange(
@@ -529,7 +637,13 @@ fn the_server_crate_has_no_opener() {
             .unwrap()
             .contains("omacus-engine")
     );
-    for source in ["src/lib.rs", "src/store.rs", "src/http.rs", "src/main.rs"] {
+    for source in [
+        "src/lib.rs",
+        "src/store.rs",
+        "src/http.rs",
+        "src/invite.rs",
+        "src/main.rs",
+    ] {
         let text = std::fs::read_to_string(root.join(source)).unwrap();
         for word in [
             "open_page",
