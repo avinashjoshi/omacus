@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
 
 pub mod desk;
+mod invite;
 use desk::{Desk, b64_decode, b64_encode};
 
 thread_local! {
@@ -111,6 +112,78 @@ pub fn confirm_saved(id: u32, picks_json: &str) -> String {
             "record": b64_encode(&record),
         }))
     })
+}
+
+#[wasm_bindgen(js_name = makeInvite)]
+pub fn make_invite(account: &str, origin: &str, secret_b64: &str) -> String {
+    let account = account.trim().to_ascii_lowercase();
+    let origin = origin.trim();
+    if account.len() != 64
+        || !account.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || origin.is_empty()
+        || origin.contains(['\n', '\r'])
+        || account.contains(['\n', '\r'])
+    {
+        return json!({
+            "ok": false,
+            "message": "That code didn't work. Check it on the other device.",
+        })
+        .to_string();
+    }
+    let Ok(secret_bytes) = b64_decode(secret_b64) else {
+        return json!({ "ok": false, "message": "Try again in a moment." }).to_string();
+    };
+    if secret_bytes.len() != 5 {
+        return json!({ "ok": false, "message": "Try again in a moment." }).to_string();
+    }
+    let mut secret = [0u8; 5];
+    secret.copy_from_slice(&secret_bytes);
+    let code = invite::encode_code(&secret);
+    let payload = format!("omacus-join\n{origin}\n{account}\n{code}\n");
+    let Ok(qr) = desk::qr_svg(&payload, "Join code") else {
+        return json!({ "ok": false, "message": "Try again in a moment." }).to_string();
+    };
+    json!({
+        "ok": true,
+        "code": code,
+        "qr": qr,
+        "hash": invite::hash_hex(&secret),
+    })
+    .to_string()
+}
+
+#[wasm_bindgen(js_name = joinProof)]
+pub fn join_proof(device_b64: &str, code: &str) -> String {
+    let Ok(device) = b64_decode(device_b64) else {
+        return json!({
+            "ok": false,
+            "message": "That code didn't work. Check it on the other device.",
+        })
+        .to_string();
+    };
+    let Some(secret) = invite::decode_code(code) else {
+        return json!({
+            "ok": false,
+            "message": "That code didn't work. Check it on the other device.",
+        })
+        .to_string();
+    };
+    let mac = invite::proof(&secret, &device);
+    json!({ "ok": true, "proof": b64_encode(&mac) }).to_string()
+}
+
+#[wasm_bindgen(js_name = checkProof)]
+pub fn check_proof(code: &str, device_b64: &str, proof_b64: &str) -> String {
+    let Ok(device) = b64_decode(device_b64) else {
+        return json!({ "ok": false }).to_string();
+    };
+    let Ok(given) = b64_decode(proof_b64) else {
+        return json!({ "ok": false }).to_string();
+    };
+    let Some(secret) = invite::decode_code(code) else {
+        return json!({ "ok": false }).to_string();
+    };
+    json!({ "ok": invite::proof_matches(&secret, &device, &given) }).to_string()
 }
 
 #[wasm_bindgen(js_name = startJoin)]

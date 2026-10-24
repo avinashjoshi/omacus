@@ -1,8 +1,10 @@
 // Private sync test relay (1.0.0-beta.1) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes and
-// device approvals that arrive. The newest mailbox is listed first, so a
-// joining device asks the most recent one. It holds no keys and cannot open a page.
+// device approvals that arrive. A new device joins with a one-time code.
+// The code is not stored — only a hash of it. This worker holds no keys
+// and cannot open a page.
 import { DurableObject } from "cloudflare:workers";
+import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
 
 const LABEL = "1.0.0-beta.1";
 const MAX_RECORD = 256 * 1024, MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024;
@@ -16,6 +18,7 @@ const ERR = {
   Revision: [409, "That copy is out of date. Try again."],
   Full: [429, "This test server is full."],
   Unreadable: [400, "That copy could not be read."],
+  BadInvite: [400, "That code didn't work. Check it on the other device."],
 };
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -75,12 +78,7 @@ export class Mailboxes extends DurableObject {
 
   async route(method, path, body) {
     const need = () => (body && typeof body === "object" ? body : fail("Unreadable"));
-    if (method === "GET" && path === "/v1/mailboxes") {
-      const all = await this.ctx.storage.list({ prefix: "m:" });
-      return [200, { mailboxes: [...all]
-        .sort(([, a], [, b]) => (b.created || 0) - (a.created || 0))
-        .map(([k, m]) => ({ account: k.slice(2), revision: m.revision })) }];
-    }
+    if (method === "POST" && path === "/v1/join") return this.join(need());
     if (method === "POST" && path === "/v1/mailboxes") {
       const v = need();
       const account = accountId(typeof v.account === "string" ? v.account : fail("Unreadable"));
@@ -108,21 +106,20 @@ export class Mailboxes extends DurableObject {
       await this.save(account, m);
       return [200, { revision: m.revision }];
     }
+    if (method === "POST" && sub === "invites" && id === undefined) {
+      const v = need();
+      const hash = String(v.hash || "").trim().toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(hash)) fail("Unreadable");
+      const m = await this.load(account);
+      m.invite = { hash, expires: Date.now() + INVITE_MS, used: false };
+      await this.save(account, m);
+      return [200, { ok: true }];
+    }
     if (sub !== "requests") fail("Unknown");
     if (method === "GET" && id === undefined) {
       const m = await this.load(account);
       return [200, { requests: Object.entries(m.requests).filter(([, r]) => r.state === "pending")
-        .map(([rid, r]) => ({ id: rid, device: r.device, name: r.name })) }];
-    }
-    if (method === "POST" && id === undefined) {
-      const v = need();
-      if (fromB64(v.device).length !== 80) fail("Unreadable");
-      const m = await this.load(account);
-      if (Object.values(m.requests).filter((r) => r.state === "pending").length >= MAX_REQUESTS) fail("Full");
-      const rid = freshId();
-      m.requests[rid] = { device: v.device.trim(), name: cleanName(typeof v.name === "string" ? v.name : ""), state: "pending", chain: "", wrap: "" };
-      await this.save(account, m);
-      return [201, { id: rid }];
+        .map(([rid, r]) => ({ id: rid, device: r.device, name: r.name, proof: r.proof || "" })) }];
     }
     const m = await this.load(account);
     const r = Object.hasOwn(m.requests, id) ? m.requests[id] : fail("Unknown");
@@ -142,6 +139,44 @@ export class Mailboxes extends DurableObject {
       return [200, { ok: true }];
     }
     fail("Unknown");
+  }
+
+  async join(v) {
+    const secret = decodeCode(v.code);
+    if (!secret) fail("BadInvite");
+    const device = fromB64(v.device);
+    if (device.length !== 80) fail("Unreadable");
+    const given = fromB64(v.proof);
+    if (given.length !== 32) fail("Unreadable");
+    const hash = await hashHex(secret);
+    const now = Date.now();
+    const all = await this.ctx.storage.list({ prefix: "m:" });
+    let account = "";
+    let mailbox = null;
+    for (const [key, stored] of all) {
+      const invite = stored.invite;
+      if (!invite || invite.used || !(invite.expires > now) || invite.hash !== hash) continue;
+      account = key.slice(2);
+      mailbox = stored;
+      break;
+    }
+    if (!mailbox) fail("BadInvite");
+    if (!sameBytes(await hmacBytes(secret, device), given)) fail("BadInvite");
+    const pending = Object.values(mailbox.requests).filter((request) => request.state === "pending").length;
+    if (pending >= MAX_REQUESTS) fail("Full");
+    mailbox.invite.used = true;
+    const id = freshId();
+    const proof = btoa(String.fromCharCode(...given));
+    mailbox.requests[id] = {
+      device: btoa(String.fromCharCode(...device)),
+      name: cleanName(typeof v.name === "string" ? v.name : ""),
+      state: "pending",
+      chain: "",
+      wrap: "",
+      proof,
+    };
+    await this.save(account, mailbox);
+    return [201, { id, account }];
   }
 }
 

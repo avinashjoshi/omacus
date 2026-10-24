@@ -2,6 +2,9 @@
 //! Nothing here is read as a page.
 
 use std::collections::BTreeMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::invite::{self, INVITE_MS};
 
 const MAX_RECORD: usize = 256 * 1024;
 const MAX_CHAIN: usize = 64 * 1024;
@@ -18,6 +21,7 @@ pub enum StoreError {
     Revision,
     Full,
     Unreadable,
+    BadInvite,
 }
 
 impl StoreError {
@@ -26,7 +30,7 @@ impl StoreError {
             StoreError::Unknown => 404,
             StoreError::Conflict | StoreError::Revision => 409,
             StoreError::Full => 429,
-            StoreError::Unreadable => 400,
+            StoreError::Unreadable | StoreError::BadInvite => 400,
         }
     }
 
@@ -37,6 +41,7 @@ impl StoreError {
             StoreError::Revision => "That copy is out of date. Try again.",
             StoreError::Full => "This test server is full.",
             StoreError::Unreadable => "That copy could not be read.",
+            StoreError::BadInvite => "That code didn't work. Check it on the other device.",
         }
     }
 }
@@ -48,6 +53,13 @@ struct Request {
     state: State,
     chain: Vec<u8>,
     wrap: Vec<u8>,
+    proof: Vec<u8>,
+}
+
+struct Invite {
+    hash: [u8; 32],
+    expires: u64,
+    used: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -61,12 +73,12 @@ struct Mailbox {
     revision: u64,
     record: Vec<u8>,
     requests: BTreeMap<String, Request>,
-    created: u64,
+    invite: Option<Invite>,
 }
 
 pub struct Store {
     mailboxes: BTreeMap<String, Mailbox>,
-    next_created: u64,
+    now_ms: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -74,6 +86,7 @@ pub struct Pending {
     pub id: String,
     pub device: Vec<u8>,
     pub name: String,
+    pub proof: Vec<u8>,
 }
 
 #[derive(Clone)]
@@ -89,8 +102,22 @@ impl Store {
     pub fn new() -> Self {
         Self {
             mailboxes: BTreeMap::new(),
-            next_created: 0,
+            now_ms: None,
         }
+    }
+
+    /// Tests pin the clock so a code's lifetime does not depend on the wall time.
+    pub fn set_now(&mut self, ms: u64) {
+        self.now_ms = Some(ms);
+    }
+
+    fn now(&self) -> u64 {
+        self.now_ms.unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_millis() as u64)
+                .unwrap_or(0)
+        })
     }
 
     /// Every byte this server is keeping. A test scans it for keys and pages.
@@ -99,27 +126,19 @@ impl Store {
         for (account, mailbox) in &self.mailboxes {
             out.extend_from_slice(account.as_bytes());
             out.extend_from_slice(&mailbox.record);
+            if let Some(invite) = &mailbox.invite {
+                out.extend_from_slice(&invite.hash);
+            }
             for (id, request) in &mailbox.requests {
                 out.extend_from_slice(id.as_bytes());
                 out.extend_from_slice(&request.device);
                 out.extend_from_slice(request.name.as_bytes());
                 out.extend_from_slice(&request.chain);
                 out.extend_from_slice(&request.wrap);
+                out.extend_from_slice(&request.proof);
             }
         }
         out
-    }
-
-    pub fn list(&self) -> Vec<(String, u64)> {
-        let mut rows: Vec<_> = self
-            .mailboxes
-            .iter()
-            .map(|(account, mailbox)| (account.clone(), mailbox.revision, mailbox.created))
-            .collect();
-        rows.sort_by(|left, right| right.2.cmp(&left.2).then(right.0.cmp(&left.0)));
-        rows.into_iter()
-            .map(|(account, revision, _)| (account, revision))
-            .collect()
     }
 
     pub fn create(&mut self, account: &str, record: Vec<u8>) -> Result<u64, StoreError> {
@@ -131,15 +150,13 @@ impl Store {
         if self.mailboxes.len() >= MAX_MAILBOXES {
             return Err(StoreError::Full);
         }
-        self.next_created += 1;
-        let created = self.next_created;
         self.mailboxes.insert(
             account,
             Mailbox {
                 revision: 1,
                 record,
                 requests: BTreeMap::new(),
-                created,
+                invite: None,
             },
         );
         Ok(1)
@@ -171,16 +188,51 @@ impl Store {
         Ok(mailbox.revision)
     }
 
-    pub fn ask(
+    /// Remember a hash for a code this account is showing. The code itself stays on the device.
+    pub fn open_invite(&mut self, account: &str, hash_hex: &str) -> Result<(), StoreError> {
+        let account = account_id(account)?;
+        let hash = invite::parse_hash(hash_hex).ok_or(StoreError::Unreadable)?;
+        let expires = self.now().saturating_add(INVITE_MS);
+        let mailbox = self
+            .mailboxes
+            .get_mut(&account)
+            .ok_or(StoreError::Unknown)?;
+        mailbox.invite = Some(Invite {
+            hash,
+            expires,
+            used: false,
+        });
+        Ok(())
+    }
+
+    /// Add a device only when the code matches one live invite and the check value matches.
+    pub fn join(
         &mut self,
-        account: &str,
+        code: &str,
         device: Vec<u8>,
         name: &str,
-    ) -> Result<String, StoreError> {
-        if device.len() != 80 {
+        given: &[u8],
+    ) -> Result<(String, String), StoreError> {
+        if device.len() != 80 || given.len() != 32 {
             return Err(StoreError::Unreadable);
         }
-        let account = account_id(account)?;
+        let secret = invite::decode_code(code).ok_or(StoreError::BadInvite)?;
+        let hash = invite::hash_secret(&secret);
+        let now = self.now();
+        let account = self
+            .mailboxes
+            .iter()
+            .find_map(|(account, mailbox)| {
+                let invite = mailbox.invite.as_ref()?;
+                if invite.used || invite.expires <= now || invite.hash != hash {
+                    return None;
+                }
+                Some(account.clone())
+            })
+            .ok_or(StoreError::BadInvite)?;
+        if !invite::proof_matches(&secret, &device, given) {
+            return Err(StoreError::BadInvite);
+        }
         let mailbox = self
             .mailboxes
             .get_mut(&account)
@@ -193,6 +245,9 @@ impl Store {
         if pending >= MAX_REQUESTS {
             return Err(StoreError::Full);
         }
+        if let Some(invite) = mailbox.invite.as_mut() {
+            invite.used = true;
+        }
         let id = fresh_id()?;
         mailbox.requests.insert(
             id.clone(),
@@ -202,9 +257,10 @@ impl Store {
                 state: State::Pending,
                 chain: Vec::new(),
                 wrap: Vec::new(),
+                proof: given.to_vec(),
             },
         );
-        Ok(id)
+        Ok((account, id))
     }
 
     pub fn pending(&self, account: &str) -> Result<Vec<Pending>, StoreError> {
@@ -218,6 +274,7 @@ impl Store {
                 id: id.clone(),
                 device: request.device.clone(),
                 name: request.name.clone(),
+                proof: request.proof.clone(),
             })
             .collect())
     }
@@ -332,6 +389,7 @@ fn fresh_id() -> Result<String, StoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::invite::{self, INVITE_MS};
 
     fn account() -> String {
         "ab".repeat(32)
@@ -370,21 +428,70 @@ mod tests {
             StoreError::Revision
         );
         assert_eq!(store.put(&account, 1, record()).unwrap(), 2);
-        let id = store.ask(&account, vec![7u8; 80], "This phone").unwrap();
+        let secret = [1u8, 2, 3, 4, 5];
+        let code = invite::encode_code(&secret);
+        store
+            .open_invite(&account, &invite::hash_hex(&secret))
+            .unwrap();
+        let device = vec![7u8; 80];
+        let mac = invite::proof(&secret, &device);
+        let (_, id) = store.join(&code, device, "This phone", &mac).unwrap();
         store.reject(&account, &id).unwrap();
         assert_eq!(store.request(&account, &id).unwrap().state, "rejected");
         assert!(store.pending(&account).unwrap().is_empty());
     }
 
     #[test]
-    fn the_newest_mailbox_is_listed_first() {
+    fn a_join_without_a_live_code_is_dropped_and_the_code_is_not_kept() {
         let mut store = Store::new();
-        let older = "ab".repeat(32);
-        let newer = "cd".repeat(32);
-        store.create(&older, record()).unwrap();
-        store.create(&newer, record()).unwrap();
-        let listed = store.list();
-        assert_eq!(listed[0].0, newer);
-        assert_eq!(listed[1].0, older);
+        let account = account();
+        store.create(&account, record()).unwrap();
+        let device = vec![7u8; 80];
+        let secret = [9u8, 8, 7, 6, 5];
+        let code = invite::encode_code(&secret);
+        let mac = invite::proof(&secret, &device);
+        assert_eq!(
+            store
+                .join(&code, device.clone(), "Phone", &mac)
+                .unwrap_err(),
+            StoreError::BadInvite
+        );
+        assert!(store.pending(&account).unwrap().is_empty());
+
+        store.set_now(1_000);
+        store
+            .open_invite(&account, &invite::hash_hex(&secret))
+            .unwrap();
+        assert_eq!(
+            store
+                .join("0000-0001", device.clone(), "Phone", &mac)
+                .unwrap_err(),
+            StoreError::BadInvite
+        );
+        assert!(store.pending(&account).unwrap().is_empty());
+        let kept = store.stored_bytes();
+        assert!(!kept.windows(secret.len()).any(|window| window == secret));
+        assert!(
+            !kept
+                .windows(code.len())
+                .any(|window| window == code.as_bytes())
+        );
+
+        store.set_now(1_000 + INVITE_MS);
+        assert_eq!(
+            store
+                .join(&code, device.clone(), "Phone", &mac)
+                .unwrap_err(),
+            StoreError::BadInvite
+        );
+
+        store.set_now(1_000);
+        let (found, id) = store.join(&code, device.clone(), "Phone", &mac).unwrap();
+        assert_eq!(found, account);
+        assert_eq!(store.pending(&account).unwrap()[0].id, id);
+        assert_eq!(
+            store.join(&code, device, "Phone", &mac).unwrap_err(),
+            StoreError::BadInvite
+        );
     }
 }

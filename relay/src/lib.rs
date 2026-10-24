@@ -4,6 +4,7 @@
 //! sealed copy made for an approved device. This crate has no way to open a page.
 
 pub mod http;
+pub mod invite;
 pub mod store;
 
 pub const LABEL: &str = "1.0.0-beta.1";

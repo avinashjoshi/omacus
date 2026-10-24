@@ -122,13 +122,49 @@ await pageA.getByRole("button", { name: "Confirm" }).click();
 await pageA.getByRole("heading", { name: "Sync" }).waitFor({ timeout: 60000 });
 await pageA.getByText("Sync is on").waitFor({ timeout: 20000 });
 
+await pageA.getByRole("button", { name: "Add a device" }).click();
+await pageA.locator(".sync-invite-code").waitFor({ timeout: 20000 });
+const invite = (await pageA.locator(".sync-invite-code").innerText()).trim();
+if (!/^[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(invite)) throw new Error(`invite ${invite}`);
+
 await openSync(pageB);
 await pageB.getByRole("button", { name: "Add this device" }).click();
+await pageB.getByRole("button", { name: "Type code" }).click();
+await pageB.locator("[data-join-code]").waitFor({ timeout: 10000 });
+await pageA.setViewportSize({ width: 390, height: 844 });
+await pageB.setViewportSize({ width: 390, height: 844 });
+await pageA.evaluate(() => { document.documentElement.dataset.appTheme = "dark"; });
+await pageB.evaluate(() => { document.documentElement.dataset.appTheme = "light"; });
+await shot(pageA, "invite-phone-dark");
+await shot(pageB, "type-code-phone-light");
+
+await pageB.locator("[data-join-code]").fill("0000-0001");
+await pageB.getByRole("button", { name: "Continue" }).click();
+await pageB.getByText("That code didn't work").waitFor({ timeout: 20000 });
+const bare = await pageB.evaluate(async () => {
+  const res = await fetch("/v1/join", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Nope" }),
+  });
+  return res.status;
+});
+if (bare !== 400) throw new Error(`missing code was accepted (${bare})`);
+await pageA.waitForTimeout(1500);
+if (await pageA.getByRole("heading", { name: "Approve a new device?" }).count()) {
+  throw new Error("a bad code opened the approve prompt");
+}
+
+await pageB.locator("[data-join-code]").fill(invite);
+await pageB.getByRole("button", { name: "Continue" }).click();
 await pageB.locator(".sync-code").waitFor({ timeout: 20000 });
 const codeB = (await pageB.locator(".sync-code").innerText()).trim();
 await pageA.getByRole("heading", { name: "Approve a new device?" }).waitFor({ timeout: 20000 });
 const codeA = (await pageA.locator(".sync-code").innerText()).trim();
 if (codeA !== codeB || !/^\d{3} \d{3}$/.test(codeA)) throw new Error(`codes ${codeA} / ${codeB}`);
+await shot(pageA, "approve-phone-dark");
+await pageA.setViewportSize({ width: 1280, height: 800 });
+await pageB.setViewportSize({ width: 1280, height: 800 });
 await pageA.getByRole("button", { name: "Approve" }).click();
 await pageB.getByText("Sync is on").waitFor({ timeout: 60000 });
 await closeSettings(pageB);
@@ -260,8 +296,18 @@ const version = (await pageA.locator(".side-version").innerText()).trim();
 if (version !== "omacus 1.0.0-beta.1") throw new Error(`version line ${version}`);
 const beta = await pageA.locator(".sync-beta").innerText();
 if (!beta.includes("1.0.0-beta.1")) throw new Error(`phone label ${beta}`);
-const shadow = await pageA.locator(".side").evaluate((node) => getComputedStyle(node).boxShadow);
-if (shadow !== "none") throw new Error(`closed drawer shadow ${shadow}`);
+await pageA.waitForFunction(() => document.querySelector(".side")?.getBoundingClientRect().right <= 0, null, { timeout: 2000 });
+const edge = await pageA.locator(".side").evaluate((node) => {
+  const style = getComputedStyle(node);
+  return {
+    shadow: style.boxShadow,
+    right: node.getBoundingClientRect().right,
+    border: style.borderRightColor,
+  };
+});
+if (edge.shadow !== "none") throw new Error(`closed drawer shadow ${edge.shadow}`);
+if (edge.right > 0) throw new Error(`closed drawer edge ${edge.right}`);
+if (edge.border !== "rgba(0, 0, 0, 0)") throw new Error(`closed drawer border ${edge.border}`);
 await setTheme(pageA, "dark");
 await shot(pageA, "settings-phone-dark");
 await closeSettings(pageA);
