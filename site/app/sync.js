@@ -1,7 +1,7 @@
 // Sync for the private test. The published app does not mount this.
 // A device file stays in this browser. The server receives a sealed record.
 
-const LABEL = "omacus 1.0.0-beta.2";
+const LABEL = "omacus 1.0.0-beta.3";
 const INVITE_MS = 5 * 60 * 1000;
 
 export async function mountSync(api) {
@@ -67,6 +67,7 @@ export async function mountSync(api) {
     accessCode: "",
     localPages: false,
     removing: null,
+    removed: false,
   };
   let wordlist = [];
   let timer = null;
@@ -246,11 +247,16 @@ export async function mountSync(api) {
       }
       throw new Error(opened.message || "Those pages could not be opened.");
     }
-    state.member = opened.member !== false;
+    const dropped = opened.member === false;
+    state.member = !dropped;
     state.revision = mailbox.revision;
     if (opened.replace === false) {
       await saveFile();
       await refreshDevices();
+      if (dropped || state.removed) {
+        showRemoved();
+        return;
+      }
       if (opened.republish && state.member && depth < 1) await push();
       return;
     }
@@ -263,6 +269,10 @@ export async function mountSync(api) {
     state.dirty = merged.packed !== remote.packed || opened.republish === true;
     await saveFile();
     await refreshDevices();
+    if (dropped || state.removed) {
+      showRemoved();
+      return;
+    }
     if (opened.republish && state.member && depth < 1) await push();
   }
 
@@ -290,12 +300,31 @@ export async function mountSync(api) {
   async function refreshDevices() {
     const list = JSON.parse(sync.deviceList(state.desk));
     state.devices = list.ok ? list.devices : [];
-    if (list.ok) state.member = state.devices.some((device) => device.self);
+    if (!list.ok) return;
+    const onList = state.devices.some((device) => device.self);
+    if (onList) {
+      state.member = true;
+      state.removed = false;
+    } else if (state.account && state.devices.length > 0) {
+      state.member = false;
+      state.removed = true;
+    } else if (!state.removed) {
+      state.member = false;
+    }
+  }
+
+  function showRemoved() {
+    state.member = false;
+    state.removed = true;
+    const stay = ["off", "access", "save", "confirm", "recover", "recover-confirm", "join", "join-start", "join-type", "join-scan", "ready", "approve", "remove-ask", "off-ask", "off-done", "removed"];
+    if (!stay.includes(state.screen)) state.screen = "removed";
+    setChip("Sync off", "off");
+    if (state.screen === "removed") draw();
   }
 
   async function tick() {
     if (ticking || !state.desk || !state.account) return;
-    if (["off", "access", "save", "confirm", "recover", "recover-confirm", "join", "join-start", "join-type", "join-scan", "ready", "joined", "approved", "approve", "remove-ask", "off-ask", "off-done"].includes(state.screen)) return;
+    if (["off", "access", "save", "confirm", "recover", "recover-confirm", "join", "join-start", "join-type", "join-scan", "ready", "approved", "approve", "remove-ask", "off-ask", "off-done", "removed"].includes(state.screen)) return;
     ticking = true;
     try {
       if (navigator.onLine === false) setChip("Offline", "off");
@@ -801,6 +830,7 @@ export async function mountSync(api) {
       await installMerged(merged);
       state.revision = mailbox.revision;
       state.member = true;
+      state.removed = false;
       state.screen = "joined";
       await saveFile();
       await refreshDevices();
@@ -945,6 +975,7 @@ export async function mountSync(api) {
     else if (state.screen === "join-scan") drawJoinScan();
     else if (state.screen === "join") drawJoin();
     else if (state.screen === "joined") drawJoined();
+    else if (state.screen === "removed") drawRemoved();
     else if (state.screen === "approve") drawApprove();
     else if (state.screen === "remove-ask") drawRemoveAsk();
     else if (state.screen === "approved") drawApproved();
@@ -1117,7 +1148,7 @@ export async function mountSync(api) {
       [state.busy ? "Joining…" : "Join", "primary", () => submitJoin(state.joinCode), state.busy],
       ["Scan the code instead", "", () => scanJoin(), state.busy],
       ["Use my recovery key instead", "", () => openRecover(), state.busy],
-      ["Back", "", () => { stopScan(); state.screen = "off"; state.error = ""; draw(); }, state.busy],
+      ["Back", "", () => { stopScan(); state.screen = state.removed ? "removed" : "off"; state.error = ""; draw(); }, state.busy],
     ]));
     panel.append(...bits);
     field.focus();
@@ -1152,6 +1183,22 @@ export async function mountSync(api) {
     }
     bits.push(addActions([["Done", "primary", () => { state.screen = "linked"; state.error = ""; draw(); }]]));
     panel.append(...bits);
+  }
+
+  function drawRemoved() {
+    panel.append(
+      el("h2", {}, [`${hereCap()} was removed from sync`]),
+      el("p", { class: "setting-help", "data-sync-removed": "" }, ["Your pages are still here."]),
+      addActions([
+        ["Join again", "primary", () => joinAgain()],
+        ["Back", "", () => api.openSettings("settings")],
+      ]),
+    );
+  }
+
+  async function joinAgain() {
+    state.error = "";
+    await addDevice();
   }
 
   function drawApprove() {
@@ -1235,6 +1282,10 @@ export async function mountSync(api) {
   }
 
   function drawLinked() {
+    if (state.removed) {
+      drawRemoved();
+      return;
+    }
     if (!state.member) {
       panel.append(
         el("h2", {}, [`Sync is off on ${here()}`]),
@@ -1252,7 +1303,8 @@ export async function mountSync(api) {
       el("h2", {}, ["Sync is on"]),
       el("p", { class: "setting-help", "data-sync-linked": "" }, ["Your pages stay on your phones and computers."]),
     );
-    if (!state.devices.length) home.append(el("p", { class: "setting-help" }, [hereCap()]));
+    const list = el("div", { class: "sync-devices" });
+    if (!state.devices.length) list.append(el("p", { class: "setting-help" }, [hereCap()]));
     for (const device of state.devices) {
       const row = el("div", { class: "sync-device" });
       row.append(el("div", {}, [
@@ -1264,8 +1316,9 @@ export async function mountSync(api) {
         remove.addEventListener("click", () => askRemove(device));
         row.append(remove);
       }
-      home.append(row);
+      list.append(row);
     }
+    home.append(list);
     if (others) {
       home.append(el("p", { class: "setting-help" }, ["Remove stops that phone or computer from getting new changes. Pages already there stay there."]));
     }
@@ -1339,7 +1392,14 @@ export async function mountSync(api) {
       state.screen = "linked";
       state.member = false;
       await refreshDevices().catch(() => {});
-      setChip("Saved", "on");
+      if (state.removed) {
+        state.screen = "removed";
+        setChip("Sync off", "off");
+      } else if (state.member) {
+        setChip("Saved", "on");
+      } else {
+        setChip("Sync off", "off");
+      }
     }
   }
   draw();
@@ -1349,6 +1409,27 @@ export async function mountSync(api) {
   window.addEventListener("offline", () => {
     if (state.account) setChip("Offline", "off");
   });
+  const settingsRoot = document.querySelector("[data-settings]");
+  let syncShown = false;
+  function syncOpen() {
+    return !panel.hidden && !!settingsRoot && !settingsRoot.hidden;
+  }
+  function leaveJoined() {
+    if (state.screen !== "joined") return;
+    state.screen = "linked";
+    state.error = "";
+    tick();
+  }
+  function onSyncVisibility() {
+    const open = syncOpen();
+    if (syncShown && !open) leaveJoined();
+    if (!syncShown && open) draw();
+    syncShown = open;
+  }
+  syncShown = syncOpen();
+  const watch = new MutationObserver(onSyncVisibility);
+  if (settingsRoot) watch.observe(settingsRoot, { attributes: true, attributeFilter: ["hidden"] });
+  watch.observe(panel, { attributes: true, attributeFilter: ["hidden"] });
   document.addEventListener("click", (event) => {
     if (event.target.closest?.("[data-settings-tab='sync']")) draw();
   });

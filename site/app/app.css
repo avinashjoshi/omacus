@@ -2408,11 +2408,9 @@ html.standalone .app-page {
 }
 
 .sync-actions {
-  position: sticky;
-  bottom: 0;
-  z-index: 1;
   display: flex;
   flex-direction: column;
+  flex: none;
   gap: var(--space-2);
   margin-top: var(--space-3);
   padding-top: var(--space-2);
@@ -2592,6 +2590,40 @@ html.standalone .app-page {
 @media (max-width: 760px) {
   .sync-choices {
     grid-template-columns: 1fr 1fr;
+  }
+
+  /* The device list scrolls. Add, Turn sync off, and Back stay under it. */
+  .settings-card:has(.sync-panel:not([hidden]) .sync-devices) {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .settings-card:has(.sync-panel:not([hidden]) .sync-devices) > header,
+  .settings-card:has(.sync-panel:not([hidden]) .sync-devices) > .settings-tabs {
+    flex: none;
+  }
+
+  .settings-card:has(.sync-panel:not([hidden]) .sync-devices) > .sync-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .sync-panel [data-sync-set] {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .sync-devices {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
   }
 }
 
