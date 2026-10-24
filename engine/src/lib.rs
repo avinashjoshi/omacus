@@ -20,6 +20,7 @@ pub mod markdown;
 mod rates;
 pub mod rename;
 pub mod share;
+pub mod sync_keys;
 pub mod time;
 pub mod xref;
 
