@@ -110,6 +110,24 @@ impl Library {
         self.doc.get_heads()
     }
 
+    /// The page the first time it was saved. Later edits do not move this.
+    pub fn page_origin(&mut self, page_id: &str) -> Option<String> {
+        self.doc.commit();
+        let hashes: Vec<ChangeHash> = self
+            .doc
+            .get_changes(&[])
+            .into_iter()
+            .map(|change| change.hash())
+            .collect();
+        for hash in hashes {
+            let head = [hash];
+            if self.written_at(page_id, &head).is_some() {
+                return self.page_text_at(page_id, &head);
+            }
+        }
+        self.snapshot(page_id)
+    }
+
     /// The page as it was at `heads`. Missing pages return `None`.
     pub fn page_text_at(&mut self, page_id: &str, heads: &[ChangeHash]) -> Option<String> {
         self.doc.commit();
@@ -905,6 +923,67 @@ impl Library {
         }
     }
 
+    fn written_at(&self, page_id: &str, heads: &[ChangeHash]) -> Option<String> {
+        let pages = self.child(&ROOT, "pages")?;
+        let n = self.doc.length_at(&pages, heads);
+        for i in 0..n {
+            let (_, page) = self.doc.get_at(&pages, i, heads).ok().flatten()?;
+            if self.str_at_heads(&page, "id", heads).as_deref() != Some(page_id) {
+                continue;
+            }
+            return self.str_at_heads(&page, "written", heads);
+        }
+        None
+    }
+
+    /// Bring another device's pages into this one.
+    ///
+    /// The same document merges its history, so a deletion on one side and a
+    /// new line on the other both remain. Two documents that started from the
+    /// same saved page use that copy as the common point. A locked page is
+    /// kept whole. A page with no shared start is kept beside this one.
+    fn fold_other(&mut self, mut other: Library) {
+        let mut ids = self.page_ids();
+        for id in other.page_ids() {
+            if !ids.iter().any(|have| have == &id) {
+                ids.push(id);
+            }
+        }
+        for id in ids {
+            let ours = self.snapshot(&id);
+            let theirs = other.snapshot(&id);
+            match (ours, theirs) {
+                (None, Some(text)) => {
+                    self.reconcile(&id, &text, None);
+                    self.note_written(&id, &text);
+                }
+                (Some(_), None) | (None, None) => {}
+                (Some(ours), Some(theirs)) if ours == theirs => {}
+                (Some(ours), Some(theirs)) if is_sealed(&ours) || is_sealed(&theirs) => {
+                    let fresh = self.fresh_page_id(&id);
+                    self.reconcile(&fresh, &theirs, None);
+                    self.note_written(&fresh, &theirs);
+                }
+                (Some(ours), Some(theirs)) => {
+                    let origin_ours = self.page_origin(&id);
+                    let origin_theirs = other.page_origin(&id);
+                    if let (Some(start_ours), Some(start_theirs)) = (origin_ours, origin_theirs)
+                        && start_ours == start_theirs
+                    {
+                        if self.snapshot(&id).as_deref() != Some(start_ours.as_str()) {
+                            self.reconcile(&id, &start_ours, None);
+                        }
+                        self.reconcile(&id, &ours, Some(&theirs));
+                    } else {
+                        let fresh = self.fresh_page_id(&id);
+                        self.reconcile(&fresh, &theirs, None);
+                        self.note_written(&fresh, &theirs);
+                    }
+                }
+            }
+        }
+    }
+
     fn str_at_heads(
         &self,
         obj: &automerge::ObjId,
@@ -948,6 +1027,67 @@ impl Default for Library {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Merge two devices' page sets.
+///
+/// `pages` are the copies each device is showing. They are folded into that
+/// device's document first. The result is one document and the text it shows.
+/// A page that only one device has is kept. A deleted line is not put back.
+pub fn merge_libraries(
+    local_doc: &[u8],
+    local_pages: &[(String, String)],
+    remote_doc: &[u8],
+    remote_pages: &[(String, String)],
+) -> (Vec<u8>, Vec<(String, String)>) {
+    let mut local = prepare_library(local_doc, local_pages);
+    let mut remote = prepare_library(remote_doc, remote_pages);
+    if remote.doc_id() < local.doc_id() {
+        std::mem::swap(&mut local, &mut remote);
+    }
+    let merged = if local.doc_id() == remote.doc_id() {
+        local.union(remote)
+    } else {
+        local.fold_other(remote);
+        local
+    };
+    finish_library(merged, local_pages, remote_pages)
+}
+
+fn prepare_library(doc: &[u8], pages: &[(String, String)]) -> Library {
+    let mut lib = Library::load(doc).unwrap_or_else(|_| Library::new());
+    for (id, text) in pages {
+        if id.is_empty() {
+            continue;
+        }
+        if lib.snapshot(id).as_deref() != Some(text.as_str()) {
+            lib.reconcile(id, text, None);
+            lib.note_written(id, text);
+        }
+    }
+    lib
+}
+
+fn finish_library(
+    mut lib: Library,
+    local_pages: &[(String, String)],
+    remote_pages: &[(String, String)],
+) -> (Vec<u8>, Vec<(String, String)>) {
+    for (id, text) in local_pages.iter().chain(remote_pages.iter()) {
+        if id.is_empty() {
+            continue;
+        }
+        if lib.snapshot(id).is_none() {
+            lib.reconcile(id, text, None);
+            lib.note_written(id, text);
+        }
+    }
+    let pages = lib
+        .page_ids()
+        .into_iter()
+        .filter_map(|id| lib.snapshot(&id).map(|text| (id, text)))
+        .collect();
+    (lib.save(), pages)
 }
 
 struct LineRef {
@@ -1108,9 +1248,9 @@ fn merge_hunk(base: &[SourceLine], ours: &[String], theirs: &[String]) -> Vec<Pi
         return adopt(base, ours);
     }
     if base.is_empty() {
-        let mut out = adopt(base, ours);
-        out.extend(adopt(base, theirs));
-        return out;
+        // Both sides added these lines. The same line on both sides is one
+        // line: a copy that already arrived must not be inserted again.
+        return merge_inserts(ours, theirs);
     }
     if base.len() == 1 && ours.len() == 1 && theirs.len() == 1 {
         return vec![Piece::Conflict {
@@ -1145,6 +1285,47 @@ fn merge_hunk(base: &[SourceLine], ours: &[String], theirs: &[String]) -> Vec<Pi
             (None, Some(t)) => out.push(Piece::Keep { id: None, text: t }),
             (None, None) => {}
         }
+    }
+    out
+}
+
+/// Lines both sides added, in order. A line that shows up on each side once
+/// stays once. A line only one side added stays too.
+fn merge_inserts(ours: &[String], theirs: &[String]) -> Vec<Piece> {
+    let keep = |text: &String| Piece::Keep {
+        id: None,
+        text: text.clone(),
+    };
+    if ours.is_empty() {
+        return theirs.iter().map(keep).collect();
+    }
+    if theirs.is_empty() {
+        return ours.iter().map(keep).collect();
+    }
+    let matches = lcs(ours, theirs);
+    let mut out = Vec::new();
+    let mut oi = 0;
+    let mut ti = 0;
+    for (om, tm) in matches {
+        while oi < om {
+            out.push(keep(&ours[oi]));
+            oi += 1;
+        }
+        while ti < tm {
+            out.push(keep(&theirs[ti]));
+            ti += 1;
+        }
+        out.push(keep(&ours[om]));
+        oi = om + 1;
+        ti = tm + 1;
+    }
+    while oi < ours.len() {
+        out.push(keep(&ours[oi]));
+        oi += 1;
+    }
+    while ti < theirs.len() {
+        out.push(keep(&theirs[ti]));
+        ti += 1;
     }
     out
 }
@@ -1468,6 +1649,160 @@ mod tests {
         let snap = union.snapshot("trip").unwrap();
         assert!(snap == "ferry = 50" || snap == "ferry = 60", "{snap}");
         assert!(!snap.contains("460"), "{snap}");
+    }
+
+    fn device(text: &str) -> (Vec<u8>, Vec<(String, String)>) {
+        let mut lib = Library::new();
+        lib.reconcile("trip", text, None);
+        lib.note_written("trip", text);
+        let pages = vec![("trip".to_string(), text.to_string())];
+        (lib.save(), pages)
+    }
+
+    fn edit(
+        doc: &[u8],
+        pages: &[(String, String)],
+        text: &str,
+    ) -> (Vec<u8>, Vec<(String, String)>) {
+        let mut lib = Library::load(doc).unwrap();
+        lib.reconcile("trip", text, None);
+        lib.note_written("trip", text);
+        let mut pages = pages.to_vec();
+        pages[0].1 = text.to_string();
+        (lib.save(), pages)
+    }
+
+    fn merged_trip(
+        left: &(Vec<u8>, Vec<(String, String)>),
+        right: &(Vec<u8>, Vec<(String, String)>),
+    ) -> String {
+        let (_doc, pages) = merge_libraries(&left.0, &left.1, &right.0, &right.1);
+        pages.into_iter().find(|(id, _)| id == "trip").unwrap().1
+    }
+
+    #[test]
+    fn a_replaced_page_does_not_bring_the_old_lines_back() {
+        let sample = "# Trip Budget\nflights = $640\nhotel = 4 nights\n";
+        let replaced = "# Trip Budget\nferry = 40\n";
+        let a = device(sample);
+        let b = device(sample);
+        let a = edit(&a.0, &a.1, replaced);
+        let text = merged_trip(&a, &b);
+        assert!(text.contains("ferry = 40"), "{text}");
+        assert!(!text.contains("flights"), "{text}");
+        assert!(!text.contains("hotel"), "{text}");
+        let other_way = merged_trip(&b, &a);
+        assert_eq!(other_way, text);
+    }
+
+    #[test]
+    fn a_delete_and_a_new_line_both_stay() {
+        let sample = "ferry = 40\nmilk $3\n";
+        let a = device(sample);
+        let b = device(sample);
+        let a = edit(&a.0, &a.1, "milk $3\n");
+        let b = edit(&b.0, &b.1, "ferry = 40\nmilk $3\nbread $2\n");
+        let text = merged_trip(&a, &b);
+        assert!(text.contains("milk $3"), "{text}");
+        assert!(text.contains("bread $2"), "{text}");
+        assert!(!text.contains("ferry"), "{text}");
+        let other_way = merged_trip(&b, &a);
+        assert!(other_way.contains("milk $3"), "{other_way}");
+        assert!(other_way.contains("bread $2"), "{other_way}");
+        assert!(!other_way.contains("ferry"), "{other_way}");
+    }
+
+    #[test]
+    fn the_same_document_drops_a_deleted_line_and_keeps_a_new_one() {
+        let mut origin = Library::new();
+        let sample = "ferry = 40\nmilk $3\n";
+        origin.reconcile("trip", sample, None);
+        origin.note_written("trip", sample);
+        let bytes = origin.save();
+        let pages = vec![("trip".to_string(), sample.to_string())];
+        let a = edit(&bytes, &pages, "milk $3\n");
+        let b = edit(&bytes, &pages, "ferry = 40\nmilk $3\nbread $2\n");
+        assert_eq!(
+            Library::load(&a.0).unwrap().doc_id(),
+            Library::load(&b.0).unwrap().doc_id()
+        );
+        let text = merged_trip(&a, &b);
+        assert!(text.contains("milk $3"), "{text}");
+        assert!(text.contains("bread $2"), "{text}");
+        assert!(!text.contains("ferry"), "{text}");
+    }
+
+    #[test]
+    fn concurrent_appends_on_one_document_each_appear_once() {
+        let mut origin = Library::new();
+        let sample = "# Trip Budget\nferry = 40\n";
+        origin.reconcile("trip", sample, None);
+        origin.note_written("trip", sample);
+        let bytes = origin.save();
+        let pages = vec![("trip".to_string(), sample.to_string())];
+        let a = edit(&bytes, &pages, "# Trip Budget\nferry = 40\ncake $5\n");
+        let b = edit(&bytes, &pages, "# Trip Budget\nferry = 40\nbread $2\n");
+        let text = merged_trip(&a, &b);
+        assert_eq!(text.matches("cake $5").count(), 1, "{text}");
+        assert_eq!(text.matches("bread $2").count(), 1, "{text}");
+        assert_eq!(text.matches("ferry = 40").count(), 1, "{text}");
+        let other = merged_trip(&b, &a);
+        assert_eq!(other.matches("cake $5").count(), 1, "{other}");
+        assert_eq!(other.matches("bread $2").count(), 1, "{other}");
+    }
+
+    #[test]
+    fn an_append_after_a_blank_line_is_not_duplicated() {
+        let sample = "# Trip Budget\n// Four nights, three currencies.\nflights = $640\nhotel = 4 nights * €120 in USD\nfood = ¥8,000 in USD\ntotal = sum\n";
+        let mut origin = Library::new();
+        origin.reconcile("trip", sample, None);
+        origin.note_written("trip", sample);
+        origin.reconcile("trip", "# Trip Budget\nferry = 40\n", None);
+        origin.note_written("trip", "# Trip Budget\nferry = 40\n");
+        let bytes = origin.save();
+        let base = "# Trip Budget\nferry = 40\n";
+        let pages = vec![("trip".to_string(), base.to_string())];
+        // Control+End on a page that already ends with a newline, then a new line.
+        let a = edit(&bytes, &pages, "# Trip Budget\nferry = 40\n\ncake $5\n");
+        let b = edit(&bytes, &pages, "# Trip Budget\nferry = 40\n\nbread $2\n");
+        let text = merged_trip(&a, &b);
+        assert_eq!(text.matches("cake $5").count(), 1, "{text:?}");
+        assert_eq!(text.matches("bread $2").count(), 1, "{text:?}");
+        assert!(!text.contains("flights"), "{text:?}");
+
+        // The other device then merges that result with its own copy.
+        let (doc, pages) = merge_libraries(&b.0, &b.1, &a.0, &a.1);
+        let again = merge_libraries(&a.0, &a.1, &doc, &pages);
+        let text = again.1.into_iter().find(|(id, _)| id == "trip").unwrap().1;
+        assert_eq!(text.matches("cake $5").count(), 1, "{text:?}");
+        assert_eq!(text.matches("bread $2").count(), 1, "{text:?}");
+    }
+
+    #[test]
+    fn merging_again_does_not_duplicate_a_line_already_brought_across() {
+        let sample = "# Trip Budget\n// Four nights, three currencies.\nflights = $640\nhotel = 4 nights * €120 in USD\nfood = ¥8,000 in USD\ntotal = sum\n";
+        let ferry = "# Trip Budget\nferry = 40\n";
+        let a = device(sample);
+        let b = device(sample);
+        let a = edit(&a.0, &a.1, ferry);
+        let b = edit(&b.0, &b.1, ferry);
+        let a = edit(&a.0, &a.1, "# Trip Budget\nferry = 40\n\ncake $5\n");
+        let b = edit(&b.0, &b.1, "# Trip Budget\nferry = 40\n\nbread $2\n");
+        let (doc, pages) = merge_libraries(&b.0, &b.1, &a.0, &a.1);
+        let once = pages.iter().find(|(id, _)| id == "trip").unwrap().1.clone();
+        assert_eq!(once.matches("cake $5").count(), 1, "{once:?}");
+        assert_eq!(once.matches("bread $2").count(), 1, "{once:?}");
+        assert!(!once.contains("flights"), "{once:?}");
+        let (_doc, again_pages) = merge_libraries(&a.0, &a.1, &doc, &pages);
+        let again = again_pages
+            .into_iter()
+            .find(|(id, _)| id == "trip")
+            .unwrap()
+            .1;
+        assert_eq!(again.matches("cake $5").count(), 1, "{again:?}");
+        assert_eq!(again.matches("bread $2").count(), 1, "{again:?}");
+        assert!(again.contains("ferry = 40"), "{again:?}");
+        assert!(!again.contains("flights"), "{again:?}");
     }
 
     #[test]

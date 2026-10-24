@@ -21,6 +21,7 @@ hkdf = "0.13.0"
 miniz_oxide = "0.8"
 regex = { version = "1.13.1", default-features = false, features = ["std", "perf", "unicode-perl", "unicode-case"] }
 sha2 = "0.11.1"
+omacus-doc = { path = "../doc" }
 # `static_secrets` so a device receive key can be built from our own random
 # bytes. The crate's `getrandom` feature calls a newer getrandom than this
 # crate uses, so keys are filled with getrandom 0.2 and loaded with `From`.

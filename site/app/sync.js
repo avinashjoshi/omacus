@@ -26,9 +26,15 @@ export async function mountSync(api) {
 
   const chip = button("Sync off", { type: "button", class: "sync-chip", "data-sync-status": "", "data-state": "off" });
   chip.addEventListener("click", () => api.openSettings("sync"));
+  const beta = el("span", { class: "sync-beta" }, [LABEL]);
   const bar = document.querySelector(".bar");
   const barActions = document.querySelector(".bar-actions");
-  if (bar && barActions) bar.insertBefore(chip, barActions);
+  if (bar && barActions) {
+    bar.insertBefore(beta, barActions);
+    bar.insertBefore(chip, barActions);
+  }
+  const version = document.querySelector("[data-app-version]");
+  if (version) version.textContent = LABEL;
 
   const state = {
     screen: "off",
@@ -132,6 +138,13 @@ export async function mountSync(api) {
     return data;
   }
 
+  async function installMerged(merged) {
+    const unpacked = JSON.parse(sync.unpackPages(merged.packed));
+    if (!unpacked.ok) throw new Error(unpacked.message || "Those pages could not be opened.");
+    const doc = unpacked.doc ? api.b64ToBytes(unpacked.doc) : new Uint8Array();
+    await api.apply(doc, unpacked.pages || []);
+  }
+
   async function pack(doc, pages) {
     const docB64 = doc && doc.length ? api.bytesToB64(doc) : "";
     const result = JSON.parse(sync.packPages(docB64, JSON.stringify(pages)));
@@ -181,9 +194,7 @@ export async function mountSync(api) {
     const localPacked = await pack(snap.doc, snap.pages);
     const merged = JSON.parse(sync.mergePacked(localPacked, remote.packed));
     if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
-    const pages = JSON.parse(sync.unpackPages(merged.packed));
-    const remoteDoc = remote.doc ? api.b64ToBytes(remote.doc) : new Uint8Array();
-    await api.apply(remoteDoc, pages.pages || []);
+    await installMerged(merged);
     state.revision = mailbox.revision;
     state.dirty = merged.packed !== remote.packed;
     await saveFile();
@@ -221,11 +232,8 @@ export async function mountSync(api) {
     if (["off", "explain", "save", "confirm", "recover", "recover-confirm", "join"].includes(state.screen)) return;
     ticking = true;
     try {
-      if (navigator.onLine === false) {
-        setChip("Offline", "off");
-        return;
-      }
-      setChip("Syncing", "on");
+      if (navigator.onLine === false) setChip("Offline", "off");
+      else setChip("Syncing", "on");
       const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
       if (mailbox.revision !== state.revision) await pull(mailbox);
       if (state.dirty && state.member) await push();
@@ -239,7 +247,7 @@ export async function mountSync(api) {
         }
       }
     } catch (error) {
-      setChip(error.offline ? "Offline" : "Couldn't sync", "off");
+      setChip(error.offline || navigator.onLine === false ? "Offline" : "Couldn't sync", "off");
     } finally {
       ticking = false;
     }
@@ -399,8 +407,8 @@ export async function mountSync(api) {
         const remote = await asSet(opened.packed);
         const snap = await api.snapshot();
         const merged = JSON.parse(sync.mergePacked(await pack(snap.doc, snap.pages), remote.packed));
-        const pages = JSON.parse(sync.unpackPages(merged.packed));
-        await api.apply(remote.doc ? api.b64ToBytes(remote.doc) : new Uint8Array(), pages.pages || []);
+        if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
+        await installMerged(merged);
         state.revision = mailbox.revision;
         state.member = true;
         state.screen = "linked";
@@ -512,8 +520,8 @@ export async function mountSync(api) {
       const remote = await asSet(opened.packed);
       const snap = await api.snapshot();
       const merged = JSON.parse(sync.mergePacked(await pack(snap.doc, snap.pages), remote.packed));
-      const pages = JSON.parse(sync.unpackPages(merged.packed));
-      await api.apply(remote.doc ? api.b64ToBytes(remote.doc) : new Uint8Array(), pages.pages || []);
+      if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
+      await installMerged(merged);
       state.revision = mailbox.revision;
       state.member = true;
       state.screen = "linked";
@@ -881,6 +889,10 @@ export async function mountSync(api) {
   draw();
   if (state.account) tick();
   setInterval(() => tick(), 4000);
+  window.addEventListener("online", () => tick());
+  window.addEventListener("offline", () => {
+    if (state.account) setChip("Offline", "off");
+  });
   document.addEventListener("click", (event) => {
     if (event.target.closest?.("[data-settings-tab='sync']")) draw();
   });

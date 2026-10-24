@@ -2194,11 +2194,12 @@ body.answers-inline .md .pill {
     width: min(300px, 84vw);
     transform: translateX(-102%);
     transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
-    box-shadow: 20px 0 60px -20px var(--black);
+    box-shadow: none;
   }
 
   .app-page.drawer .side {
     transform: none;
+    box-shadow: 20px 0 60px -20px var(--black);
   }
 
   .cm-editor .cm-scroller {
@@ -2370,6 +2371,20 @@ html.standalone .app-page {
 .sync-chip[data-state="on"] {
   color: var(--app-fg);
   border-color: var(--app-accent);
+}
+
+.sync-beta {
+  display: none;
+  flex: none;
+  color: var(--app-comment);
+  font: 500 var(--type-caption) / 1.2 var(--sans);
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .sync-beta {
+    display: block;
+  }
 }
 
 .sync-label {
