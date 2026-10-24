@@ -1,6 +1,6 @@
 # Private sync test
 
-This is a private test, labeled 1.0.0-beta.4. This repository does not deploy it.
+This is a private test, labeled 1.0.0-beta.5. This repository does not deploy it.
 
 The server keeps sealed copies of pages. It cannot open them. The words stay on the device.
 

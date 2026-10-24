@@ -1,7 +1,8 @@
 // Sync for the private test. The published app does not mount this.
 // A device file stays in this browser. The server receives a sealed record.
 
-const LABEL = "omacus 1.0.0-beta.4";
+const LABEL = "omacus 1.0.0-beta.5";
+const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 
 export async function mountSync(api) {
@@ -68,6 +69,7 @@ export async function mountSync(api) {
     localPages: false,
     removing: null,
     removed: false,
+    notice: "",
   };
   let wordlist = [];
   let timer = null;
@@ -264,8 +266,9 @@ export async function mountSync(api) {
     const remote = await asSet(opened.packed);
     // A phone that has not typed anything since the last open takes that copy
     // as it is. Merging a fresh library back in would put a deleted line on
-    // every other phone.
-    const hadEdits = state.dirty === true;
+    // every other phone. A fresh list from recovery is the exception: the
+    // pages already here are combined in, and nothing is deleted.
+    const hadEdits = state.dirty === true || opened.combine === true;
     let packed = remote.packed;
     if (hadEdits) {
       const snap = await api.snapshot();
@@ -940,29 +943,55 @@ export async function mountSync(api) {
       return;
     }
     state.account = accepted.account;
+    state.notice = "";
     try {
       const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
       const opened = JSON.parse(sync.recoveryOpenPages(state.desk, mailbox.record));
       if (!opened.ok) throw new Error(opened.message);
-      const remote = await asSet(opened.packed);
       const snap = await api.snapshot();
-      const merged = JSON.parse(sync.mergePacked(await pack(snap.doc, snap.pages), remote.packed));
-      if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
-      const unpacked = JSON.parse(sync.unpackPages(merged.packed));
-      if (!unpacked.ok) throw new Error(unpacked.message || "Those pages could not be opened.");
-      // Combined lines stay on the copy the words just opened. A fresh library
-      // must not be published over that copy.
-      const doc = remote.doc ? api.b64ToBytes(remote.doc) : new Uint8Array();
-      const packed = await pack(doc, unpacked.pages || []);
-      await installMerged({ packed });
-      state.revision = mailbox.revision;
-      state.member = true;
-      state.removed = false;
-      state.dirty = false;
-      state.screen = "linked";
-      await saveFile();
-      await refreshDevices();
-      setChip("Saved", "on");
+      if (opened.partial) {
+        let packed = await pack(snap.doc, snap.pages);
+        if (opened.packed) {
+          const remote = await asSet(opened.packed);
+          const merged = JSON.parse(sync.mergePacked(packed, remote.packed));
+          if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
+          packed = merged.packed;
+        }
+        const restored = JSON.parse(sync.reestablishPages(state.desk, packed));
+        if (!restored.ok) throw new Error(restored.message || "Those pages could not be opened.");
+        await installMerged({ packed });
+        state.revision = mailbox.revision;
+        state.member = true;
+        state.removed = false;
+        state.dirty = false;
+        state.error = "";
+        state.notice = PARTIAL_NOTE;
+        await publish(restored.record);
+        state.screen = "linked";
+        await refreshDevices();
+        setChip("Saved", "on");
+      } else {
+        const remote = await asSet(opened.packed);
+        const merged = JSON.parse(sync.mergePacked(await pack(snap.doc, snap.pages), remote.packed));
+        if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
+        const unpacked = JSON.parse(sync.unpackPages(merged.packed));
+        if (!unpacked.ok) throw new Error(unpacked.message || "Those pages could not be opened.");
+        // Combined lines stay on the copy the words just opened. A fresh library
+        // must not be published over that copy.
+        const doc = remote.doc ? api.b64ToBytes(remote.doc) : new Uint8Array();
+        const packed = await pack(doc, unpacked.pages || []);
+        await installMerged({ packed });
+        state.revision = mailbox.revision;
+        state.member = true;
+        state.removed = false;
+        state.dirty = false;
+        state.error = "";
+        state.notice = "";
+        state.screen = "linked";
+        await saveFile();
+        await refreshDevices();
+        setChip("Saved", "on");
+      }
     } catch (error) {
       state.error = plainError(error.message);
       state.screen = "recover";
@@ -974,7 +1003,9 @@ export async function mountSync(api) {
   function draw() {
     panel.replaceChildren();
     panel.append(el("p", { class: "sync-label" }, [LABEL]));
-    if (state.error) panel.append(el("p", { class: "sync-err", role: "alert" }, [plainError(state.error)]));
+    if (state.error && state.screen !== "recover") {
+      panel.append(el("p", { class: "sync-err", role: "alert" }, [plainError(state.error)]));
+    }
     if (state.screen === "off") drawOff();
     else if (state.screen === "access") drawAccess();
     else if (state.screen === "save") drawSave();
@@ -1219,10 +1250,11 @@ export async function mountSync(api) {
     phrase.addEventListener("input", onPhrase);
     const file = el("input", { type: "file", accept: "image/*", hidden: "", "data-sync-file": "" });
     file.addEventListener("change", () => scanFile(file.files?.[0]));
-    const bits = [
-      el("h2", {}, ["Use your recovery words"]),
-      el("p", { class: "setting-help" }, ["Type or paste the 12 recovery words. Numbers and capitals are fine."]),
-    ];
+    const bits = [el("h2", {}, ["Use your recovery words"])];
+    if (state.error) {
+      bits.push(el("p", { class: "sync-note", role: "alert", "data-sync-note": "" }, [plainError(state.error)]));
+    }
+    bits.push(el("p", { class: "setting-help" }, ["Type or paste the 12 recovery words. Numbers and capitals are fine."]));
     const merged = mergeLine();
     if (merged) bits.push(el("p", { class: "setting-help" }, [merged]));
     bits.push(phrase, el("p", { class: "sync-msg", "data-sync-phrase": "", "data-ok": state.phraseOk ? "1" : "0" }, [state.phraseMsg]));
@@ -1265,10 +1297,11 @@ export async function mountSync(api) {
     }
     const home = el("div", { "data-sync-set": "" });
     const others = state.devices.some((device) => !device.self);
-    home.append(
-      el("h2", {}, ["Sync is on"]),
-      el("p", { class: "setting-help", "data-sync-linked": "" }, ["Your pages stay on your phones and computers."]),
-    );
+    home.append(el("h2", {}, ["Sync is on"]));
+    if (state.notice) {
+      home.append(el("p", { class: "sync-note", role: "status", "data-sync-note": "" }, [state.notice]));
+    }
+    home.append(el("p", { class: "setting-help", "data-sync-linked": "" }, ["Your pages stay on your phones and computers."]));
     const list = el("div", { class: "sync-devices" });
     if (!state.devices.length) list.append(el("p", { class: "setting-help" }, [hereCap()]));
     for (const device of state.devices) {
