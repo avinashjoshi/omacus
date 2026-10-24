@@ -121,6 +121,9 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo clippy -p omacus-engine -p omacus-web --target wasm32-unknown-unknown --locked -- -D warnings
       - name: Web app mobile layout
+        env:
+          # One phrase per line. An absent secret is empty, and the check is skipped.
+          OMACUS_PRIVATE_TERMS: ${{ secrets.OMACUS_PRIVATE_TERMS }}
         run: |
           node tests/folders.mjs
           node tests/lock.mjs

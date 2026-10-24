@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.21
+
+**Behind-the-scenes improvements**
+
+Nothing you see in the app changed.
+
+<!-- internal -->
+
 ## 0.2.20
 
 **The page runs to the edges of the screen**
