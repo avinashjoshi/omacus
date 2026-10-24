@@ -42,7 +42,7 @@ check(
   /@media \(pointer: coarse\), \(max-width: 760px\)[\s\S]*?\.cm-content[\s\S]*?font-size: max\(16px, 1em\)/.test(css),
   "the focused contenteditable stays at least 16px",
 );
-check(css.includes("--safe-bottom: env(safe-area-inset-bottom, 0px);"), "bottom safe area is read from the device");
+check(css.includes("--safe-bottom: var(--probed-bottom, env(safe-area-inset-bottom, 0px));"), "bottom safe area is read from the device");
 check(/\.side \{[^}]*padding-bottom: var\(--safe-bottom\)/.test(css), "the sidebar clears the home indicator");
 check(/position: fixed;\s*inset: 0;/.test(css), "the shell fills the visual viewport, not 100dvh");
 check(!/\.app-page \{[^}]*height:\s*100dvh/.test(css), "the shell is not sized with 100dvh");
@@ -92,7 +92,7 @@ check(html.includes("data-build-hash"), "settings shows the build hash");
 check(js.includes("Add to Home Screen"), "iPhone gets an Add to Home Screen prompt");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-10"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('const CACHE = "omacus-app-11"'), "the app cache name moved past the cache-first shell");
 check(html.includes("data-pick"), "a same-line conflict can ask which line to keep");
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
@@ -157,13 +157,30 @@ check(/\.app-page\.drawer \.empty-hint \{\s*visibility: hidden/.test(css), "the 
 check(/name === "new"[\s\S]{0,240}setDrawer\(false\)/.test(js), "a new page closes the phone drawer");
 check(html.includes('<meta name="theme-color" content="#1a1b26" media="(prefers-color-scheme: dark)">'), "dark theme-color matches the page");
 check(html.includes('<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">'), "light theme-color matches the page");
-check(!html.includes("black-translucent") && !js.includes("black-translucent"), "the status bar is not a translucent scrim");
-check(html.includes('src="frame.js"'), "the installed app measures the screen before the page is drawn");
-check(js.includes('meta[name="apple-mobile-web-app-status-bar-style"]') && js.includes("status.remove()"), "an old translucent status bar is dropped");
+check(!html.includes("black-translucent") && !js.includes("black-translucent"), "the page does not ask for a translucent status bar");
+check(html.includes('src="frame.js"'), "the frame script runs before the page is drawn");
+check(html.includes('rel="manifest"'), "the Home Screen app keeps its manifest");
+check(html.includes("viewport-fit=cover"), "the page draws into the safe areas");
+check(js.includes('meta[name="apple-mobile-web-app-status-bar-style"]') && js.includes("status.remove()"), "an old translucent status bar tag is dropped");
 check(js.includes('getPropertyValue("--app-bg")'), "a chosen theme sets theme-color from the page background");
 const frame = readFileSync(join(site, "app/frame.js"), "utf8");
-check(frame.includes("screen.height") && frame.includes("innerHeight") && frame.includes("gap < 120"), "the missing strip is the screen minus the viewport, and a desktop window is left alone");
-check(css.includes("--standalone-gap") && css.includes("display-mode: standalone"), "the installed app fills the strip under the page");
+check(frame.includes("safe-area-inset-top") && frame.includes("offsetHeight") && !frame.includes("innerHeight"), "safe areas are measured with probe elements, not the window");
+check(frame.includes("setTimeout(update, 100)") && frame.includes("setTimeout(update, 500)") && frame.includes("setTimeout(update, 1000)"), "cold start measures the safe areas again");
+check(frame.includes("orientationchange") && frame.includes("visualViewport") && frame.includes("resize"), "rotation and the visual viewport measure the safe areas again");
+check(frame.includes("viewport-fit=auto") && frame.includes("viewport-fit=cover"), "a standalone launch forces the safe areas to be computed");
+check(/html:has\(body\.app-page\) \{[^}]*background: var\(--app-bg\)/.test(css), "the document background is the page background");
+check(!/html:has\(body\.app-page\) \{[^}]*height:\s*100%/.test(css), "a percentage height is not used on the document");
+check(/\.app-page \{[^}]*background: var\(--app-bg\)/.test(css), "the page background matches the document");
+check(/\.app-page \{[^}]*position: fixed;\s*inset: 0;/.test(css), "Safari keeps the shell on the visual viewport");
+check(/display-mode: standalone\)[\s\S]*?height:\s*100vh/.test(css), "the Home Screen shell is 100vh from the first paint");
+check(!/height:\s*100dvh/.test(css), "the dynamic viewport unit is not used");
+check(!css.includes("--standalone-gap"), "the shell is not grown from a measured window");
+check(/--safe-top:\s*var\(--probed-top, env\(safe-area-inset-top/.test(css), "the bar can use a measured top inset");
+check(/\.bar \{[^}]*position: fixed/.test(css) && /\.bar \{[^}]*opacity: 1/.test(css) && /\.bar \{[^}]*padding:\s*var\(--safe-top\)/.test(css), "the bar is solid and clears the status bar");
+check(/\.bar \{[^}]*backdrop-filter: none/.test(css) && /\.bar \.icon-btn \{[^}]*backdrop-filter: none/.test(css), "the bar and its buttons are not frosted");
+check(/@media \(max-width: 760px\)[\s\S]*?\.side \{[^}]*box-shadow: none/.test(css), "a closed phone drawer casts no shadow");
+check(/\.app-page\.drawer \.side \{[^}]*box-shadow: 20px 0 60px -20px var\(--black\)/.test(css), "an open phone drawer still casts a shadow");
+check(/\.drawer-scrim \{[^}]*z-index: 35/.test(css) && /\.bar \{[^}]*z-index: 50/.test(css), "the drawer scrim stacks under the bar");
 check(css.includes("clip-path: inset(50%)"), "the screen reader line stays off the page");
 check(!html.includes("Saved in this browser"), "the sidebar footer does not repeat where pages are saved");
 check(!html.includes("side-note"), "the sidebar has no privacy paragraph");
@@ -363,6 +380,65 @@ await page("Runtime.enable");
 await openMobile();
 await waitFor(`getComputedStyle(document.body).getPropertyValue("--bar").trim() === "56px" && matchMedia("(max-width: 760px)").matches`);
 
+const filled = await evalJson(`(() => {
+  const paint = (node) => {
+    const probe = document.createElement("div");
+    probe.style.background = getComputedStyle(node).backgroundColor;
+    document.body.appendChild(probe);
+    const color = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return color;
+  };
+  const probe = document.createElement("div");
+  probe.style.background = "var(--app-bg)";
+  document.body.appendChild(probe);
+  const appBg = getComputedStyle(probe).backgroundColor;
+  probe.remove();
+  const bar = document.querySelector(".bar");
+  const btn = document.querySelector(".bar .icon-btn");
+  const side = document.querySelector(".side");
+  const scrim = document.querySelector("[data-scrim]");
+  const shell = document.body.getBoundingClientRect();
+  const barCs = getComputedStyle(bar);
+  const scrimCs = getComputedStyle(scrim);
+  const read = () => ({
+    htmlBg: paint(document.documentElement),
+    bodyBg: paint(document.body),
+    appBg,
+    barBlur: barCs.backdropFilter,
+    btnBlur: getComputedStyle(btn).backdropFilter,
+    btnBg: getComputedStyle(btn).backgroundColor,
+    closedShadow: getComputedStyle(side).boxShadow,
+    scrimZ: Number(scrimCs.zIndex),
+    barZ: Number(barCs.zIndex),
+    scrimTop: parseFloat(scrimCs.top),
+    barBottom: bar.getBoundingClientRect().bottom,
+    shellTop: shell.top,
+    shellBottom: shell.bottom,
+    innerHeight: window.innerHeight,
+    manifest: !!document.querySelector('link[rel="manifest"]'),
+  });
+  const dark = read();
+  document.documentElement.dataset.appTheme = "light";
+  const lightProbe = document.createElement("div");
+  lightProbe.style.background = "var(--app-bg)";
+  document.body.appendChild(lightProbe);
+  const lightApp = getComputedStyle(lightProbe).backgroundColor;
+  lightProbe.remove();
+  const light = { htmlBg: paint(document.documentElement), bodyBg: paint(document.body), appBg: lightApp };
+  document.documentElement.removeAttribute("data-app-theme");
+  return { dark, light };
+})()`);
+check(filled.dark.htmlBg === filled.dark.appBg && filled.dark.bodyBg === filled.dark.appBg, `dark document ${filled.dark.htmlBg}/${filled.dark.bodyBg} != page ${filled.dark.appBg}`);
+check(filled.light.htmlBg === filled.light.appBg && filled.light.bodyBg === filled.light.appBg, `light document ${filled.light.htmlBg}/${filled.light.bodyBg} != page ${filled.light.appBg}`);
+check(filled.dark.barBlur === "none" && filled.dark.btnBlur === "none", `bar blur ${filled.dark.barBlur}, button blur ${filled.dark.btnBlur}`);
+check(filled.dark.btnBg === filled.dark.appBg, `bar button background ${filled.dark.btnBg}`);
+check(filled.dark.closedShadow === "none", `closed drawer shadow is ${filled.dark.closedShadow}`);
+check(filled.dark.scrimZ < filled.dark.barZ, "the scrim stacks under the bar");
+check(filled.dark.scrimTop >= filled.dark.barBottom - 1, `scrim top ${filled.dark.scrimTop} covers the bar (${filled.dark.barBottom})`);
+check(Math.abs(filled.dark.shellTop) <= 1 && Math.abs(filled.dark.shellBottom - filled.dark.innerHeight) <= 1, `shell ${filled.dark.shellTop}..${filled.dark.shellBottom} != viewport 0..${filled.dark.innerHeight}`);
+check(filled.dark.manifest === true, "this browser still gets the manifest");
+
 const mobile = await evalJson(`(() => {
   document.body.style.setProperty("--safe-top", "47px");
   document.body.style.setProperty("--safe-bottom", "34px");
@@ -373,25 +449,28 @@ const mobile = await evalJson(`(() => {
   const editor = document.querySelector("[data-editor]");
   const sr = side.getBoundingClientRect();
   const fr = foot.getBoundingClientRect();
-  const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--standalone-gap")) || 0;
-  const edge = window.innerHeight + gap;
+  const edge = window.innerHeight;
   return {
     font: parseFloat(getComputedStyle(editor).fontSize),
     sideBottom: sr.bottom,
     sideTop: sr.top,
     innerHeight: window.innerHeight,
     edge,
-    gap,
     paddingBottom: parseFloat(getComputedStyle(side).paddingBottom),
     footBottom: fr.bottom,
     scrim: getComputedStyle(scrim).display,
+    scrimTop: scrim.getBoundingClientRect().top,
+    barBottom: document.querySelector(".bar").getBoundingClientRect().bottom,
     position: getComputedStyle(side).position,
+    openShadow: getComputedStyle(side).boxShadow,
     viewport: document.querySelector('meta[name=viewport]').content,
   };
 })()`);
 
 check(mobile.font >= 16, `phone editor font is ${mobile.font}px, want >= 16`);
-check(Math.abs(mobile.sideBottom - mobile.edge) <= 1, `drawer bottom ${mobile.sideBottom} != screen edge ${mobile.edge} (gap ${mobile.gap})`);
+check(Math.abs(mobile.sideBottom - mobile.edge) <= 1, `drawer bottom ${mobile.sideBottom} != viewport ${mobile.edge}`);
+check(mobile.openShadow !== "none", `open drawer shadow is ${mobile.openShadow}`);
+check(mobile.scrimTop >= mobile.barBottom - 1, `open scrim top ${mobile.scrimTop} covers the bar (${mobile.barBottom})`);
 check(mobile.paddingBottom === 34, `drawer padding-bottom is ${mobile.paddingBottom}, want 34`);
 check(mobile.footBottom <= mobile.edge - 34 + 1, `footer is cut by the home indicator (${mobile.footBottom} > ${mobile.edge - 34})`);
 check(mobile.scrim === "block", `scrim display is ${mobile.scrim} while the drawer is open`);
@@ -1009,10 +1088,11 @@ if (pkg) {
     const about = document.querySelector('[data-settings-tab="about"]')?.getAttribute("aria-selected");
     const panel = document.querySelector('[data-settings-panel="about"]');
     const settingsPanel = document.querySelector('[data-settings-panel="settings"]')?.hidden;
-    return { about, open: panel && !panel.hidden, text: panel?.innerText || "", settingsPanel };
+    const links = [...(panel?.querySelectorAll("a") || [])].map((a) => a.href).join(" ");
+    return { about, open: panel && !panel.hidden, text: panel?.innerText || "", settingsPanel, links };
   })()`);
   check(aboutTab.about === "true" && aboutTab.open === true && aboutTab.settingsPanel === true, `About tab did not open (${JSON.stringify(aboutTab)})`);
-  check(aboutTab.text.includes("omacus.com"), "About does not link to the site");
+  check(aboutTab.links.includes("https://omacus.com/"), "About does not link to the site");
   if (shots) await plainShot(join(shots, "about-tab.png"));
   await evalJson(`document.querySelector('[data-settings-tab="settings"]').click()`);
   if (shots) await plainShot(join(shots, "settings-tab.png"));
