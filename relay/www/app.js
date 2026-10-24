@@ -30,7 +30,15 @@ const state = {
   note: "",
   poll: 0,
   invite: null,
+  joinCode: "",
+  accessCode: "",
 };
+
+function quiet(message) {
+  const text = String(message || "");
+  if (/no pages/i.test(text)) return "That code didn't work. Check it on the other phone or computer.";
+  return text.replaceAll("other device", "other phone or computer").replaceAll("That device", "That phone or computer");
+}
 
 function esc(value) {
   return String(value).replace(/[&<>"']/g, (ch) => ({
@@ -55,7 +63,7 @@ async function api(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.message || "Try again in a moment.");
+  if (!response.ok) throw new Error(quiet(data.message || "Try again in a moment."));
   return data;
 }
 
@@ -161,7 +169,7 @@ function setUpCheck() {
 
 function qrBlock() {
   const svg = state.qr.startsWith("<svg") && !state.qr.includes("<script") ? state.qr : "";
-  return `<div class="qr">${svg}<span>On the printed sheet</span></div>`;
+  return `<div class="qr">${svg}<span>The same words</span></div>`;
 }
 
 function render() {
@@ -171,134 +179,130 @@ function render() {
   if (state.screen === "start") {
     html = sheet(
       `<p class="kicker">Private test</p>
-      <h1>Sync test</h1>
-      <p class="lead">A private copy, labeled 1.0.0-beta.1. Pages stay sealed. This server cannot open them.</p>
+      <h1>Turn on sync</h1>
+      <p class="lead">Your pages can open on your other phones and computers, and they stay there.</p>
+      <p class="lead">Start fresh if this is the first time. Join if your pages are already on another phone or computer.</p>
       <label class="lead" for="server">Test server</label>
       <input class="field" id="server" value="${esc(state.server)}" autocomplete="off" spellcheck="false">
       ${actions([
-        ["turn-on", "Turn on sync", "primary block"],
-        ["add", "Add this device", "block"],
-        ["recover", "Use your recovery key", "block"],
+        ["fresh", "Start fresh", "primary block"],
+        ["add", "Join my existing pages", "block"],
       ])}
       ${err}`,
       false,
     );
-  } else if (state.screen === "turn-on") {
+  } else if (state.screen === "access") {
     html = sheet(
-      `<p class="kicker">Step 1 of 3</p>
-      <h1>Turn on sync</h1>
-      <p class="lead">Your pages can open on your other devices. They stay private. We never see them.</p>
-      <p class="lead">Next you will get 12 words. Save them. They are the way back in if you lose every device.</p>
+      `<h1>Have an invite code?</h1>
+      <p class="lead">Type the code you were given. This starts a new set of pages here. It is not the code on your other phone.</p>
+      <input class="field" id="access-code" autocomplete="off" spellcheck="false" autocapitalize="characters" aria-label="Invite code" value="${esc(state.accessCode || "")}">
+      ${err}
       ${actions([
-        ["make-key", "Turn on sync", "primary block"],
-        ["start", "Not now", "block"],
-      ])}
-      ${err}`,
-      true,
+        ["use-access", state.busy ? "Working…" : "Start fresh", "primary block"],
+        ["start", "Back", "block"],
+      ])}`,
+      false,
     );
   } else if (state.screen === "save") {
     html = sheet(
-      `<p class="kicker">Step 2 of 3</p>
-      <h1>Save your recovery key</h1>
-      <p class="lead">These 12 words are shown once. Write them down, or print the sheet. The code is the same words.</p>
+      `<h1>Write down these 12 words</h1>
+      <p class="lead">They are the only way back in if you lose every phone and computer. Write them on paper. You will not see them again.</p>
       <div class="key">${wordsGrid(false)}${qrBlock()}</div>
-      <p class="warn">If you lose these words and every device, nobody can open the pages. Not us either.</p>
       ${actions([
-        ["print", "Print", "grow"],
+        ["to-confirm", "I wrote them down", "primary block"],
         ["copy", "Copy", "grow"],
-        ["to-confirm", "I saved them", "primary block"],
-      ])}`,
-      true,
-    );
-  } else if (state.screen === "confirm" || state.screen === "recover-confirm") {
-    const step = state.screen === "confirm" ? `<p class="kicker">Step 3 of 3</p>` : "";
-    html = sheet(
-      `${step}
-      <h1>Pick the three words</h1>
-      <p class="lead">${esc(leadAsks())}</p>
-      ${asks()}
-      ${state.wrong ? `<p class="err" role="alert">That's not word ${state.wrong}. Go back to check your words.</p>` : err}
-      <div class="actions">
-        <button class="btn primary block" type="button" data-act="confirm" ${state.busy || chosenPicks().length !== 3 ? "disabled" : ""}>${state.busy ? "Checking the words…" : "Confirm"}</button>
-        <button class="btn block" type="button" data-act="back" ${state.busy ? "disabled" : ""}>${state.wrong ? "Back to the words" : "Back"}</button>
-      </div>`,
-      true,
-    );
-  } else if (state.screen === "ready" || state.screen === "opened") {
-    const note = state.note ? `<p class="ok banner">${esc(state.note)}</p>` : "";
-    const add = state.screen === "ready"
-      ? `<div class="actions"><button class="btn block" type="button" data-act="invite">Add a device</button></div>`
-      : "";
-    html = `<div data-screen="${state.screen}">${editor(state.page)}${note}${add}</div>`;
-  } else if (state.screen === "invite") {
-    const svg = state.qr.startsWith("<svg") && !state.qr.includes("<script") ? state.qr : "";
-    html = sheet(
-      `<h1>Add a device</h1>
-      <p class="lead">On the new device, scan this code or type it. It works for about 5 minutes, and only once.</p>
-      <div class="qr">${svg}</div>
-      <div class="invite-code">${esc(state.invite ? state.invite.code : "")}</div>
-      ${err}
-      ${actions([["ready", "Back", "block"]])}`,
-      true,
-    );
-  } else if (state.screen === "join-start") {
-    html = sheet(
-      `<h1>Add this device</h1>
-      <p class="lead">On a device that already has your pages, open Sync and tap Add a device.</p>
-      ${err}
-      ${actions([
-        ["join-type", "Type code", "primary block"],
+        ["print", "Print", "grow"],
         ["start", "Back", "block"],
       ])}`,
       true,
     );
-  } else if (state.screen === "join-type") {
+  } else if (state.screen === "confirm" || state.screen === "recover-confirm") {
     html = sheet(
-      `<h1>Type the code</h1>
-      <p class="lead">Type the code shown on your other device. It looks like K7QM-4R2P.</p>
-      <input class="field" id="join-code" autocomplete="off" spellcheck="false" autocapitalize="characters" aria-label="Device code">
+      `<h1>Do these match your paper?</h1>
+      <p class="lead">${esc(leadAsks())}</p>
+      ${asks()}
+      ${state.wrong ? `<p class="err" role="alert">That's not word ${state.wrong}. Look at your paper and try again.</p>` : err}
+      <div class="actions">
+        <button class="btn primary block" type="button" data-act="confirm" ${state.busy || chosenPicks().length !== 3 ? "disabled" : ""}>${state.busy ? "Checking the words…" : "These match"}</button>
+        <button class="btn block" type="button" data-act="back" ${state.busy ? "disabled" : ""}>${state.screen === "recover-confirm" ? "Back" : "Back to the words"}</button>
+      </div>`,
+      true,
+    );
+  } else if (state.screen === "ready") {
+    html = sheet(
+      `<h1>Sync is on</h1>
+      <p class="lead">Your pages stay on your phones and computers. Add a phone or computer when you want them there too.</p>
       ${err}
       ${actions([
-        ["join-go", state.busy ? "Checking…" : "Continue", "primary block"],
-        ["add", "Back", "block"],
+        ["invite", "Add a phone or computer", "primary block"],
+        ["opened", "Done", "block"],
+      ])}`,
+      true,
+    );
+  } else if (state.screen === "opened") {
+    const note = state.note ? `<p class="ok banner">${esc(state.note)}</p>` : "";
+    html = `<div data-screen="opened">${editor(state.page)}${note}</div>`;
+  } else if (state.screen === "invite") {
+    const svg = state.qr.startsWith("<svg") && !state.qr.includes("<script") ? state.qr : "";
+    html = sheet(
+      `<h1>Add a phone or computer</h1>
+      <p class="lead">On the other phone or computer, open Sync and tap Join my existing pages. Type this code. It works for about 5 minutes, and only once.</p>
+      <div class="invite-code">${esc(state.invite ? state.invite.code : "")}</div>
+      <p class="lead">Or scan this picture.</p>
+      <div class="qr">${svg}</div>
+      ${err}
+      ${actions([["ready", "Back", "block"]])}`,
+      true,
+    );
+  } else if (state.screen === "join-type") {
+    html = sheet(
+      `<h1>Join my existing pages</h1>
+      <p class="lead">On a phone or computer that already has your pages, open Sync and tap Add a phone or computer. Type the code you see there.</p>
+      <p class="lead">Pages already on this computer will be combined with those. Nothing is deleted.</p>
+      <input class="field" id="join-code" autocomplete="off" spellcheck="false" autocapitalize="characters" aria-label="Code" value="${esc(state.joinCode || "")}">
+      ${err}
+      ${actions([
+        ["join-go", state.busy ? "Joining…" : "Join", "primary block"],
+        ["recover", "Use my recovery key instead", "block"],
+        ["start", "Back", "block"],
       ])}`,
       true,
     );
   } else if (state.screen === "join") {
     html = sheet(
-      `<h1>Add this device</h1>
-      <p class="lead">On a device that already has your pages, open Omacus. The same code is there. Tap Approve.</p>
+      `<h1>Does this code match?</h1>
+      <p class="lead">On your other phone or computer, you should see the same six numbers. Tap Yes, approve it there only if they match.</p>
       <div class="code">${esc(state.code)}</div>
-      <p class="waiting">${esc(state.busy ? "Opening your pages…" : "Waiting for that device")}</p>
+      <p class="waiting">${esc(state.busy ? "Opening your pages…" : "Waiting for that phone or computer")}</p>
       ${err}
       ${actions([["start", "Cancel", "block"]])}`,
       true,
     );
   } else if (state.screen === "approve") {
-    const name = state.pending ? state.pending.name : "New device";
     html = sheet(
-      `<h1>Approve a new device?</h1>
-      <p class="lead">${esc(name)} wants to open your pages. Tap Approve only if that device is yours and the code matches.</p>
+      `<h1>Is this your phone or computer?</h1>
+      <p class="lead">It wants to open your pages. The same six numbers should be on that screen. Tap Yes, approve it only if they match.</p>
       <div class="code">${esc(state.pending ? state.pending.code : "")}</div>
-      <p class="hint">Your pages stay private. Only your devices can open them.</p>
       ${err}
       ${actions([
-        ["approve", state.busy ? "Approving…" : "Approve", "primary block"],
-        ["decline", "Not now", "block"],
+        ["approve", state.busy ? "Approving…" : "Yes, approve it", "primary block"],
+        ["decline", "No", "block"],
       ])}`,
       true,
     );
   } else if (state.screen === "recover") {
     html = sheet(
       `<h1>Use your recovery key</h1>
-      <p class="lead">Paste or type the whole phrase. Numbers, commas, and capitals are fine.</p>
+      <p class="lead">Type or paste the 12 words you wrote down. Numbers and capitals are fine.</p>
+      <p class="lead">Pages already on this computer will be combined with those. Nothing is deleted.</p>
       <textarea class="phrase" id="phrase" spellcheck="false">${esc(state.phrase)}</textarea>
       <p class="${state.phraseOk ? "ok" : "hint"}" id="phrase-msg">${esc(state.phraseMsg)}</p>
       ${state.video ? `<video class="video" id="scan" autoplay playsinline></video>` : ""}
       ${err}
       ${actions([
-        ["scan", "Scan recovery sheet", "block"],
         ["open-pages", state.busy ? "Checking the words…" : "Open my pages", "primary block"],
+        ["scan", "Scan the paper instead", "block"],
+        ["add", "Back", "block"],
       ])}`,
       true,
     );
@@ -310,11 +314,18 @@ function render() {
     phrase.focus();
     phrase.setSelectionRange(phrase.value.length, phrase.value.length);
   }
+  const joinCode = document.getElementById("join-code");
+  if (joinCode) {
+    joinCode.addEventListener("input", () => {
+      state.joinCode = joinCode.value;
+    });
+    joinCode.focus();
+  }
 }
 
 function leadAsks() {
   const [a, b, c] = state.asks;
-  return `From your sheet, pick word ${a}, word ${b}, and word ${c}.`;
+  return `Pick word ${a}, word ${b}, and word ${c}.`;
 }
 
 async function onPhrase() {
@@ -390,9 +401,10 @@ async function confirmWords() {
       const created = await api("POST", "/v1/mailboxes", {
         account: state.account,
         record: state.record,
+        code: state.accessCode,
       });
       state.revision = created.revision;
-      state.note = "This device is on. A new device will ask before it can open these pages.";
+      state.note = "";
       state.busy = false;
       show("ready");
       pollApproval();
@@ -423,7 +435,7 @@ async function confirmWords() {
       return;
     }
     state.page = opened.page;
-    state.note = "Opened with your recovery key.";
+    state.note = "Your pages are here.";
     show("opened");
   } catch (error) {
     state.busy = false;
@@ -459,7 +471,7 @@ async function lookForDevice() {
 function beginJoin() {
   state.server = serverBase();
   state.error = "";
-  show("join-start");
+  show("join-type");
 }
 
 async function startInvite() {
@@ -490,7 +502,8 @@ async function startInvite() {
 }
 
 async function sendJoin() {
-  const code = document.getElementById("join-code")?.value || "";
+  const code = document.getElementById("join-code")?.value || state.joinCode || "";
+  state.joinCode = code;
   state.busy = true;
   state.error = "";
   render();
@@ -562,7 +575,7 @@ async function waitForApproval() {
       return;
     }
     state.page = opened.page;
-    state.note = "This device can open your pages.";
+    state.note = "Your pages are here.";
     show("opened");
   } catch (error) {
     state.error = error.message;
@@ -592,7 +605,7 @@ async function approve() {
     });
     state.pending = null;
     state.busy = false;
-    state.note = "That device can open your pages.";
+    state.note = "That phone or computer can open your pages.";
     show("ready");
     pollApproval();
   } catch (error) {
@@ -708,11 +721,34 @@ const acts = {
   start() {
     show("start");
   },
-  "turn-on"() {
+  fresh() {
     state.server = serverBase();
-    show("turn-on");
+    state.error = "";
+    show("access");
   },
-  "make-key": makeKey,
+  async "use-access"() {
+    state.server = serverBase();
+    state.accessCode = document.getElementById("access-code")?.value.trim() || "";
+    const code = state.accessCode;
+    if (!code) {
+      state.error = "Type the invite code you were given.";
+      render();
+      return;
+    }
+    state.busy = true;
+    state.error = "";
+    render();
+    try {
+      await api("POST", "/v1/access", { code });
+      state.busy = false;
+      await makeKey();
+    } catch (error) {
+      state.busy = false;
+      state.error = error.message;
+      state.screen = "access";
+      render();
+    }
+  },
   "to-confirm"() {
     setUpCheck();
     show("confirm");

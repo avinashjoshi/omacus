@@ -1,14 +1,16 @@
-// Private sync test relay (1.0.0-beta.1) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.2) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes and
-// device approvals that arrive. A new device joins with a one-time code.
-// The code is not stored — only a hash of it. This worker holds no keys
+// device approvals that arrive. A new set of pages needs an invite code.
+// The code is not stored — only a hash of it. A new phone joins with a
+// one-time code, also stored only as a hash. This worker holds no keys
 // and cannot open a page.
 import { DurableObject } from "cloudflare:workers";
+import { openCode, spend } from "./access.js";
 import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
 
-const LABEL = "1.0.0-beta.1";
+const LABEL = "1.0.0-beta.2";
 const MAX_RECORD = 256 * 1024, MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024;
-const MAX_MAILBOXES = 32, MAX_REQUESTS = 8;
+const MAX_MAILBOXES = 32, MAX_REQUESTS = 8, MAX_USES = 20;
 const enc = new TextEncoder();
 const RECORD_MAGIC = enc.encode("OMACUS-SYNC/1\n");
 const CHAIN_MAGIC = enc.encode("OMACUS-DEVICES/1");
@@ -19,6 +21,7 @@ const ERR = {
   Full: [429, "This test server is full."],
   Unreadable: [400, "That copy could not be read."],
   BadInvite: [400, "That code didn't work. Check it on the other device."],
+  BadAccess: [400, "That invite code didn't work. Check it and try again."],
 };
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -54,9 +57,45 @@ const cleanName = (raw) => {
 };
 const freshId = () => [...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
+function dropAccessHeaders(request) {
+  const headers = new Headers(request.headers);
+  headers.delete("x-omacus-access-hash");
+  headers.delete("x-omacus-access-uses");
+  headers.delete("x-omacus-access-spend");
+  return headers;
+}
+
+// The secret stays in the Worker. The mailbox only receives a hash, and only
+// after the code checks out. A client cannot set those headers itself.
+async function gate(request, env, url) {
+  const create = request.method === "POST" && url.pathname === "/v1/mailboxes";
+  const peek = request.method === "POST" && url.pathname === "/v1/access";
+  if (!create && !peek) return new Request(request, { headers: dropAccessHeaders(request) });
+  const text = await request.text();
+  if (text.length > 1024 * 1024) return json(400, { message: ERR.Unreadable[1] });
+  let body;
+  try { body = JSON.parse(text); } catch { body = null; }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return json(400, { message: ERR.Unreadable[1] });
+  const opened = await openCode(String(env.ACCESS_SECRET || ""), String(body.code || ""));
+  if (!opened) return json(400, { message: ERR.BadAccess[1] });
+  const headers = dropAccessHeaders(request);
+  headers.set("x-omacus-access-hash", opened.hash);
+  headers.set("x-omacus-access-uses", String(opened.uses));
+  headers.set("x-omacus-access-spend", create ? "1" : "0");
+  headers.delete("content-length");
+  const forward = create ? { ...body } : {};
+  if (create) delete forward.code;
+  return new Request(request.url, { method: "POST", headers, body: JSON.stringify(forward) });
+}
+
 export class Mailboxes extends DurableObject {
   async fetch(request) {
     const url = new URL(request.url);
+    const access = {
+      hash: (request.headers.get("x-omacus-access-hash") || "").toLowerCase(),
+      uses: Number(request.headers.get("x-omacus-access-uses") || "0"),
+      spend: request.headers.get("x-omacus-access-spend") === "1",
+    };
     let body = {};
     if (request.method !== "GET") {
       const text = await request.text();
@@ -64,7 +103,7 @@ export class Mailboxes extends DurableObject {
       try { body = JSON.parse(text); } catch { body = null; }
     }
     try {
-      const [status, value] = await this.route(request.method, url.pathname, body);
+      const [status, value] = await this.route(request.method, url.pathname, body, access);
       return json(status, value);
     } catch (e) {
       const [status, message] = ERR[e] || [500, "Try again in a moment."];
@@ -76,8 +115,24 @@ export class Mailboxes extends DurableObject {
   }
   async save(account, m) { await this.ctx.storage.put("m:" + account, m); }
 
-  async route(method, path, body) {
+  async useAccess(access, take) {
+    const hash = access.hash;
+    const uses = access.uses;
+    if (!/^[0-9a-f]{64}$/.test(hash) || !Number.isInteger(uses) || uses < 1 || uses > MAX_USES) fail("BadAccess");
+    const key = "a:" + hash;
+    const row = await this.ctx.storage.get(key);
+    const table = {};
+    if (row && Number.isInteger(row.left)) table[hash] = row.left;
+    if (!spend(table, hash, uses, take)) fail("BadAccess");
+    if (take) await this.ctx.storage.put(key, { left: table[hash] });
+  }
+
+  async route(method, path, body, access) {
     const need = () => (body && typeof body === "object" ? body : fail("Unreadable"));
+    if (method === "POST" && path === "/v1/access") {
+      await this.useAccess(access, false);
+      return [200, { ok: true }];
+    }
     if (method === "POST" && path === "/v1/join") return this.join(need());
     if (method === "POST" && path === "/v1/mailboxes") {
       const v = need();
@@ -85,6 +140,8 @@ export class Mailboxes extends DurableObject {
       const record = sealed(v.record);
       if (await this.ctx.storage.get("m:" + account)) fail("Conflict");
       if ((await this.ctx.storage.list({ prefix: "m:" })).size >= MAX_MAILBOXES) fail("Full");
+      if (!access.spend) fail("BadAccess");
+      await this.useAccess(access, true);
       await this.save(account, { revision: 1, record, requests: {}, created: Date.now() });
       return [201, { revision: 1 }];
     }
@@ -186,7 +243,9 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     if (url.pathname === "/v1/health" && request.method === "GET") return json(200, { label: LABEL });
     if (url.pathname.startsWith("/v1/")) {
-      return env.MAILBOXES.get(env.MAILBOXES.idFromName("test")).fetch(request);
+      const forwarded = await gate(request, env, url);
+      if (forwarded instanceof Response) return forwarded;
+      return env.MAILBOXES.get(env.MAILBOXES.idFromName("test")).fetch(forwarded);
     }
     return env.ASSETS.fetch(request);
   },

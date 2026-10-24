@@ -4736,6 +4736,7 @@ async function start() {
       docUnion,
       storeGet: (key) => store.get(key),
       storeSet: (key, value) => store.set(key, value),
+      storeRemove: (key) => store.remove(key),
       onEdit: (fn) => {
         syncTouched = fn;
       },

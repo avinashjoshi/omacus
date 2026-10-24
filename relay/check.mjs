@@ -1,6 +1,7 @@
 // Drives the private sync test in a browser. Not part of the app's e2e suite.
 import { chromium } from "@playwright/test";
 import fs from "node:fs";
+import { mint } from "./worker/access.js";
 
 const base = process.env.SYNC_TEST_URL || "http://127.0.0.1:8787";
 const out = "/opt/cursor/artifacts/screenshots";
@@ -30,43 +31,45 @@ guard(pageA);
 guard(pageB);
 guard(pageC);
 
+const access = await mint(process.env.ACCESS_SECRET || "omacus-access-test-secret", 1);
+if (!access) throw new Error("could not mint an invite code");
 await pageA.goto(base);
-await pageA.getByRole("button", { name: "Turn on sync" }).click();
-await pageA.locator("[data-screen=turn-on]").waitFor();
-await pageA.getByRole("button", { name: "Turn on sync" }).click();
+await pageA.getByRole("button", { name: "Start fresh" }).click();
+await pageA.locator("#access-code").fill("nope");
+await pageA.getByRole("button", { name: "Start fresh" }).click();
+await pageA.getByText("That invite code didn't work").waitFor({ timeout: 10000 });
+await pageA.locator("#access-code").fill(access);
+await pageA.getByRole("button", { name: "Start fresh" }).click();
 await pageA.locator("[data-screen=save]").waitFor();
 const words = [];
 for (let n = 1; n <= 12; n += 1) {
   words.push(await pageA.locator(`.word[data-n="${n}"]`).getAttribute("data-word"));
 }
 if (words.some((word) => !word)) throw new Error("missing words");
-await pageA.getByRole("button", { name: "I saved them" }).click();
+await pageA.getByRole("button", { name: "I wrote them down" }).click();
 await pageA.locator("[data-screen=confirm]").waitFor();
-await pageA.locator('.word[data-n="1"]').click();
-await pageA.locator('.word[data-n="3"]').click();
-await pageA.locator('.word[data-n="7"]').click();
-await pageA.getByRole("button", { name: "Confirm" }).click();
-await pageA.getByText("Tap the three words first.").waitFor();
-await pageA.locator('.word[data-n="1"]').click();
-await pageA.locator('.word[data-n="11"]').click();
-await pageA.getByRole("button", { name: "Confirm" }).click();
+const legendsA = await pageA.locator("fieldset legend").allTextContents();
+for (const legend of legendsA) {
+  const n = Number(legend.replace(/\D/g, ""));
+  await pageA.locator(`.choice[data-n="${n}"][data-word="${words[n - 1]}"]`).click();
+}
+await pageA.getByRole("button", { name: "These match" }).click();
 await pageA.locator("[data-screen=ready]").waitFor({ timeout: 30000 });
 await pageA.getByText("ferry = 40").waitFor();
-await pageA.getByRole("button", { name: "Add a device" }).click();
+await pageA.getByRole("button", { name: "Add a phone or computer" }).click();
 await pageA.locator("[data-screen=invite]").waitFor();
 const invite = (await pageA.locator(".invite-code").textContent()).trim();
 if (!/^[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(invite)) throw new Error(`invite ${invite}`);
 
 await pageB.goto(base);
-await pageB.getByRole("button", { name: "Add this device" }).click();
-await pageB.getByRole("button", { name: "Type code" }).click();
+await pageB.getByRole("button", { name: "Join my existing pages" }).click();
 await pageB.locator("#join-code").fill("0000-0001");
-await pageB.getByRole("button", { name: "Continue" }).click();
+await pageB.getByRole("button", { name: "Join", exact: true }).click();
 await pageB.getByText("That code didn't work").waitFor({ timeout: 10000 });
 await pageA.waitForTimeout(1200);
 if (await pageA.locator("[data-screen=approve]").count()) throw new Error("a bad code opened approve");
 await pageB.locator("#join-code").fill(invite);
-await pageB.getByRole("button", { name: "Continue" }).click();
+await pageB.getByRole("button", { name: "Join", exact: true }).click();
 await pageB.locator("[data-screen=join]").waitFor();
 const code = (await pageB.locator(".code").textContent()).trim();
 if (!/^\d{3} \d{3}$/.test(code)) throw new Error(`bad code ${code}`);
@@ -97,13 +100,14 @@ async function shot(page, name) {
 
 await shot(pageA, "approve");
 
-await pageA.getByRole("button", { name: "Approve" }).click();
+await pageA.getByRole("button", { name: "Yes, approve it" }).click();
 await pageB.locator("[data-screen=opened]").waitFor({ timeout: 20000 });
 await pageB.getByText("milk $3").waitFor();
 await pageA.locator("[data-screen=ready]").waitFor();
 
 await pageC.goto(base);
-await pageC.getByRole("button", { name: "Use your recovery key" }).click();
+await pageC.getByRole("button", { name: "Join my existing pages" }).click();
+await pageC.getByRole("button", { name: "Use my recovery key instead" }).click();
 await pageC.locator("[data-screen=recover]").waitFor();
 await pageC.getByRole("button", { name: "Open my pages" }).click();
 await pageC.locator("#phrase-msg", { hasText: "That's 0 words." }).waitFor();
@@ -124,12 +128,14 @@ await pageC.getByText("Looks right. 12 words.").waitFor();
 await shot(pageC, "recover");
 await pageC.getByRole("button", { name: "Open my pages" }).click();
 await pageC.locator("[data-screen=recover-confirm]").waitFor();
-for (const n of [3, 7, 11]) {
-  await pageC.locator(`.word[data-n="${n}"]`).click();
+const legendsC = await pageC.locator("fieldset legend").allTextContents();
+for (const legend of legendsC) {
+  const n = Number(legend.replace(/\D/g, ""));
+  await pageC.locator(`.choice[data-n="${n}"][data-word="${words[n - 1]}"]`).click();
 }
-await pageC.getByRole("button", { name: "Confirm" }).click();
+await pageC.getByRole("button", { name: "These match" }).click();
 await pageC.locator("[data-screen=opened]").waitFor({ timeout: 30000 });
-await pageC.getByText("Opened with your recovery key.").waitFor();
+await pageC.getByText("Your pages are here.").waitFor();
 await pageC.getByText("ferry = 40").waitFor();
 
 for (const page of [pageA, pageB, pageC]) {

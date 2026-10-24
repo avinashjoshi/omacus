@@ -207,7 +207,7 @@ async function writeThrough(key, value) {
 
 export function remove(key) {
   memory.delete(key);
-  if (useIdb && db) idbDelete(db, key);
+  const dropped = useIdb && db ? idbDelete(db, key) : Promise.resolve(false);
   try {
     localStorage.removeItem(PREFIX + key);
   } catch {
@@ -218,6 +218,7 @@ export function remove(key) {
   } catch {
     // See writeThrough.
   }
+  return dropped;
 }
 
 export function drained() {
@@ -344,12 +345,17 @@ function confirmPut(database, key, value) {
 }
 
 function idbDelete(database, key) {
-  try {
-    const tx = database.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).delete(key);
-  } catch {
-    // The key is already gone from memory.
-  }
+  return new Promise((resolve) => {
+    try {
+      const tx = database.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).delete(key);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
+    } catch {
+      resolve(false);
+    }
+  });
 }
 
 function idbAll(database) {

@@ -27,5 +27,9 @@ fn main() {
     println!("Omacus sync test {LABEL}");
     println!("Open http://127.0.0.1:{port}");
     println!("This server stores sealed pages. It cannot open them.");
-    http::serve(listener, www, site, Arc::new(Mutex::new(Store::new())));
+    let mut store = Store::new();
+    if let Ok(secret) = std::env::var("ACCESS_SECRET") {
+        store.set_access_secret(secret.as_bytes());
+    }
+    http::serve(listener, www, site, Arc::new(Mutex::new(store)));
 }

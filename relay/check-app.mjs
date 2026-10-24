@@ -1,6 +1,7 @@
 // Two browsers, one sealed mailbox. Pages move both ways and survive a reload.
 import fs from "node:fs";
 import { chromium } from "playwright";
+import { mint } from "./worker/access.js";
 
 const base = process.argv[2] || "http://127.0.0.1:8800";
 const out = "/opt/cursor/artifacts/sync-test";
@@ -10,7 +11,12 @@ const leaks = [];
 const browser = await chromium.launch({
   channel: "chrome",
   headless: true,
-  args: ["--no-sandbox", "--disable-dev-shm-usage"],
+  args: [
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--use-fake-ui-for-media-stream",
+    "--use-fake-device-for-media-stream",
+  ],
 });
 
 function watch(page, words) {
@@ -83,6 +89,18 @@ async function shot(page, name) {
   await page.screenshot({ path: `${out}/${name}.png` });
 }
 
+async function both(page, name) {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.evaluate(() => { document.documentElement.dataset.appTheme = "light"; });
+  await page.waitForTimeout(80);
+  await shot(page, `${name}-laptop`);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => { document.documentElement.dataset.appTheme = "dark"; });
+  await page.waitForTimeout(80);
+  await shot(page, `${name}-phone`);
+  await page.setViewportSize({ width: 1280, height: 800 });
+}
+
 async function dump(page, name) {
   try {
     await page.screenshot({ path: `${out}/fail-${name}.png` });
@@ -93,13 +111,19 @@ async function dump(page, name) {
   }
 }
 
-const contextA = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: "dark" });
-const contextB = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: "light" });
+const contextA = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: "light", permissions: ["camera"] });
+const contextB = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: "light", permissions: ["camera"] });
 const pageA = await openApp(contextA);
 const pageB = await openApp(contextB);
 const foundWords = [];
+const creates = [];
 watch(pageA, foundWords);
 watch(pageB, foundWords);
+pageA.on("request", (req) => {
+  if (req.method() === "POST" && req.url().endsWith("/v1/mailboxes")) creates.push(req.postData() || "");
+});
+const inviteCode = await mint(process.env.ACCESS_SECRET || "omacus-access-test-secret", 1);
+if (!inviteCode) throw new Error("could not mint an invite code");
 
 let pageC;
 try {
@@ -110,37 +134,68 @@ await writePage(pageA, "# Groceries\nmilk $3\n");
 await openNamed(pageA, "Trip Budget");
 
 await openSync(pageA);
-await pageA.getByRole("button", { name: "Turn on sync" }).click();
-await pageA.getByRole("button", { name: "Turn on sync", exact: true }).click();
+await pageA.getByRole("heading", { name: "Turn on sync" }).waitFor();
+await both(pageA, "01-choice");
+await pageA.getByRole("button", { name: "Start fresh" }).click();
+await pageA.getByRole("heading", { name: "Have an invite code?" }).waitFor();
+await both(pageA, "02-access");
+await pageA.locator("[data-access-code]").fill("nope");
+await pageA.getByRole("button", { name: "Start fresh" }).click();
+await pageA.getByText("That invite code didn't work").waitFor({ timeout: 20000 });
+await both(pageA, "03-access-error");
+if (await pageA.locator(".sync-word").count()) throw new Error("a wrong invite code showed the words");
+await pageA.locator("[data-access-code]").fill(inviteCode);
+await pageA.getByRole("button", { name: "Start fresh" }).click();
 await pageA.waitForSelector(".sync-word", { timeout: 30000 });
 const words = await wordsOnSheet(pageA);
 if (words.length !== 12) throw new Error(`expected 12 words, saw ${words.length}`);
 foundWords.push(...words);
-await pageA.getByRole("button", { name: "I saved them" }).click();
+await both(pageA, "04-words");
+await pageA.getByRole("button", { name: "I wrote them down" }).click();
+await pageA.getByRole("heading", { name: "Do these match your paper?" }).waitFor();
+await both(pageA, "05-confirm");
 await pickWords(pageA, words);
-await pageA.getByRole("button", { name: "Confirm" }).click();
-await pageA.getByRole("heading", { name: "Sync" }).waitFor({ timeout: 60000 });
-await pageA.getByText("Sync is on").waitFor({ timeout: 20000 });
+await pageA.getByRole("button", { name: "These match" }).click();
+await pageA.getByText("Your pages stay on your phones and computers. Add a phone or computer when you want them there too.").waitFor({ timeout: 60000 });
+await both(pageA, "06-ready");
+if (!creates.length) throw new Error("start fresh did not create pages");
+const reused = await pageA.evaluate(async (body) => {
+  const next = JSON.parse(body);
+  next.account = "cd".repeat(32);
+  const res = await fetch("/v1/mailboxes", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(next),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { status: res.status, message: data.message || "" };
+}, creates[0]);
+if (reused.status !== 400 || !/invite code/i.test(reused.message)) {
+  throw new Error(`a reused invite code was accepted (${reused.status} ${reused.message})`);
+}
+await pageA.getByRole("button", { name: "Done" }).click();
+await pageA.locator("[data-sync-set]").waitFor();
+await both(pageA, "07-home");
 
-await pageA.getByRole("button", { name: "Add a device" }).click();
+await pageA.getByRole("button", { name: "Add a phone or computer" }).click();
 await pageA.locator(".sync-invite-code").waitFor({ timeout: 20000 });
 const invite = (await pageA.locator(".sync-invite-code").innerText()).trim();
 if (!/^[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(invite)) throw new Error(`invite ${invite}`);
+await both(pageA, "08-invite");
 
 await openSync(pageB);
-await pageB.getByRole("button", { name: "Add this device" }).click();
-await pageB.getByRole("button", { name: "Type code" }).click();
+await pageB.getByRole("button", { name: "Join my existing pages" }).click();
 await pageB.locator("[data-join-code]").waitFor({ timeout: 10000 });
-await pageA.setViewportSize({ width: 390, height: 844 });
-await pageB.setViewportSize({ width: 390, height: 844 });
-await pageA.evaluate(() => { document.documentElement.dataset.appTheme = "dark"; });
-await pageB.evaluate(() => { document.documentElement.dataset.appTheme = "light"; });
-await shot(pageA, "invite-phone-dark");
-await shot(pageB, "type-code-phone-light");
+if (await pageB.locator("[data-access-code]").count()) throw new Error("joining asked for an invite code");
+const joinText = await pageB.locator("[data-settings-panel='sync']").innerText();
+if (/no pages/i.test(joinText)) throw new Error("the join screen said there were no pages");
+if (!joinText.includes("Nothing is deleted.")) throw new Error("the join screen did not say pages are combined");
+await both(pageB, "09-join");
 
 await pageB.locator("[data-join-code]").fill("0000-0001");
-await pageB.getByRole("button", { name: "Continue" }).click();
+await pageB.getByRole("button", { name: "Join", exact: true }).click();
 await pageB.getByText("That code didn't work").waitFor({ timeout: 20000 });
+await both(pageB, "10-join-error");
 const bare = await pageB.evaluate(async () => {
   const res = await fetch("/v1/join", {
     method: "POST",
@@ -151,22 +206,30 @@ const bare = await pageB.evaluate(async () => {
 });
 if (bare !== 400) throw new Error(`missing code was accepted (${bare})`);
 await pageA.waitForTimeout(1500);
-if (await pageA.getByRole("heading", { name: "Approve a new device?" }).count()) {
+if (await pageA.getByRole("heading", { name: "Is this your phone or computer?" }).count()) {
   throw new Error("a bad code opened the approve prompt");
 }
 
+await pageB.getByRole("button", { name: "Scan the code instead" }).click();
+await pageB.getByRole("heading", { name: "Scan the code" }).waitFor({ timeout: 10000 });
+await both(pageB, "11-scan");
+await pageB.getByRole("button", { name: "Type the code instead" }).click();
 await pageB.locator("[data-join-code]").fill(invite);
-await pageB.getByRole("button", { name: "Continue" }).click();
+await pageB.getByRole("button", { name: "Join", exact: true }).click();
 await pageB.locator(".sync-code").waitFor({ timeout: 20000 });
 const codeB = (await pageB.locator(".sync-code").innerText()).trim();
-await pageA.getByRole("heading", { name: "Approve a new device?" }).waitFor({ timeout: 20000 });
+await both(pageB, "12-match");
+await pageA.getByRole("heading", { name: "Is this your phone or computer?" }).waitFor({ timeout: 20000 });
 const codeA = (await pageA.locator(".sync-code").innerText()).trim();
 if (codeA !== codeB || !/^\d{3} \d{3}$/.test(codeA)) throw new Error(`codes ${codeA} / ${codeB}`);
-await shot(pageA, "approve-phone-dark");
-await pageA.setViewportSize({ width: 1280, height: 800 });
-await pageB.setViewportSize({ width: 1280, height: 800 });
-await pageA.getByRole("button", { name: "Approve" }).click();
-await pageB.getByText("Sync is on").waitFor({ timeout: 60000 });
+await both(pageA, "13-approve");
+await pageA.getByRole("button", { name: "Yes, approve it" }).click();
+await pageA.getByRole("heading", { name: "That phone or computer can open your pages" }).waitFor({ timeout: 60000 });
+await both(pageA, "14-approved");
+await pageA.getByRole("button", { name: "Done" }).click();
+await pageB.getByRole("heading", { name: "Your pages are here" }).waitFor({ timeout: 60000 });
+await both(pageB, "15-joined");
+await pageB.getByRole("button", { name: "Done" }).click();
 await closeSettings(pageB);
 await openNamed(pageB, "Trip Budget");
 await pageB.locator(".cm-content").getByText("ferry = 40").waitFor({ timeout: 20000 });
@@ -219,17 +282,23 @@ for (const line of ["ferry = 40", "cake $5", "bread $2"]) {
   if (!afterReload.includes(line)) throw new Error(`reload lost ${line}`);
 }
 
-const contextC = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: "dark" });
+const contextC = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: "light" });
 pageC = await openApp(contextC);
 watch(pageC, foundWords);
 await openSync(pageC);
-await pageC.getByRole("button", { name: "Use your recovery key" }).click();
+await pageC.getByRole("button", { name: "Join my existing pages" }).click();
+await pageC.getByRole("button", { name: "Use my recovery key instead" }).click();
+await pageC.locator("textarea").waitFor();
+if (await pageC.locator("[data-access-code]").count()) throw new Error("recovery asked for an invite code");
+await both(pageC, "16-recover");
 await pageC.locator("textarea").fill(words.map((word, i) => `${i + 1}. ${word}`).join("\n"));
 await pageC.getByRole("button", { name: "Open my pages" }).click();
-await pageC.getByRole("heading", { name: "Pick the three words" }).waitFor({ timeout: 60000 });
+await pageC.getByRole("heading", { name: "Do these match your paper?" }).waitFor({ timeout: 60000 });
+await both(pageC, "17-recover-confirm");
 await pickWords(pageC, words);
-await pageC.getByRole("button", { name: "Confirm" }).click();
-await pageC.getByText("Sync is on").waitFor({ timeout: 60000 });
+await pageC.getByRole("button", { name: "These match" }).click();
+await pageC.getByRole("heading", { name: "Your pages are here" }).waitFor({ timeout: 60000 });
+await pageC.getByRole("button", { name: "Done" }).click();
 await closeSettings(pageC);
 await openNamed(pageC, "Trip Budget");
 const recovered = await pageC.locator(".cm-content").innerText();
@@ -293,9 +362,9 @@ await shot(pageB, "page-b-desktop-light");
 await pageA.setViewportSize({ width: 390, height: 844 });
 await pageB.setViewportSize({ width: 390, height: 844 });
 const version = (await pageA.locator(".side-version").innerText()).trim();
-if (version !== "omacus 1.0.0-beta.1") throw new Error(`version line ${version}`);
+if (version !== "omacus 1.0.0-beta.2") throw new Error(`version line ${version}`);
 const beta = await pageA.locator(".sync-beta").innerText();
-if (!beta.includes("1.0.0-beta.1")) throw new Error(`phone label ${beta}`);
+if (!beta.includes("1.0.0-beta.2")) throw new Error(`phone label ${beta}`);
 await pageA.waitForFunction(() => document.querySelector(".side")?.getBoundingClientRect().right <= 0, null, { timeout: 2000 });
 const edge = await pageA.locator(".side").evaluate((node) => {
   const style = getComputedStyle(node);
@@ -316,6 +385,30 @@ await setTheme(pageB, "light");
 await shot(pageB, "settings-phone-light");
 await closeSettings(pageB);
 await shot(pageB, "page-b-phone-light");
+
+await pageA.setViewportSize({ width: 1280, height: 800 });
+await openSync(pageA);
+await pageA.getByRole("button", { name: "Turn sync off" }).click();
+await pageA.getByRole("heading", { name: "Turn sync off on this computer?" }).waitFor();
+await both(pageA, "18-turn-off");
+await pageA.getByRole("button", { name: "Turn sync off", exact: true }).click();
+await pageA.getByRole("heading", { name: "Sync is off" }).waitFor();
+await both(pageA, "19-sync-off");
+await pageA.getByRole("button", { name: "Done" }).click();
+await closeSettings(pageA);
+await pageA.waitForFunction(() => document.querySelector(".sync-chip")?.textContent === "Sync off");
+await pageA.reload({ waitUntil: "domcontentloaded" });
+await pageA.waitForSelector(".sync-chip", { timeout: 60000 });
+await pageA.waitForFunction(() => document.querySelector(".sync-chip")?.textContent === "Sync off");
+await openNamed(pageA, "Trip Budget");
+const kept = await pageA.locator(".cm-content").innerText();
+if (!kept.includes("museum = 12")) throw new Error("turning sync off removed the page");
+await pageA.setViewportSize({ width: 1280, height: 800 });
+await pageA.evaluate(() => { document.documentElement.dataset.appTheme = "light"; });
+await shot(pageA, "20-chip-off-laptop");
+await pageA.setViewportSize({ width: 390, height: 844 });
+await pageA.evaluate(() => { document.documentElement.dataset.appTheme = "dark"; });
+await shot(pageA, "20-chip-off-phone");
 
 if (leaks.length) throw new Error(`a request carried a page or a word: ${leaks.join(", ")}`);
 await browser.close();
