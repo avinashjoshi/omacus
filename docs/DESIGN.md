@@ -214,18 +214,20 @@ The stored values do not change meaning. "Hide the answers column" on means the 
 
 ### App bar
 
-The bar is a solid surface in the page background (`--app-bg`), the same colour as `theme-color` and the safe areas, with a strong border under it (`--app-line-strong`). It is fixed to the top edge. It pads by the top safe area, so the notch and the clock sit on that surface with no seam. The status bar is that same solid colour in light and dark. It is not translucent and it is not blurred. The page name, the pages button, and the ⋯ button use the interface face and the text color. Buttons in the bar use the same fill as the bar. The slash before the name stays secondary.
+The bar is a solid surface in the page background (`--app-bg`), the same colour as `theme-color` and the safe areas, with a strong border under it (`--app-line-strong`). It is fixed to the top edge and sits above the page and the drawer scrim. It pads by the top safe area, so the notch and the clock sit on that surface with no seam. The Home Screen status bar is `black-translucent`, which lets the page draw behind it; the bar paints an opaque colour over that whole strip. It is not blurred. The page name, the pages button, and the ⋯ button use the interface face and the text color. Buttons in the bar use the same fill as the bar. The slash before the name stays secondary.
 
-On an iPhone where Omacus is on the Home Screen, `html` and `body` are `100vh`, with `viewport-fit=cover`. A percentage height drops that edge-to-edge layout, and the dynamic viewport unit is wrong until the phone is rotated. The safe areas are measured again on launch, after a short wait, and when the window, the rotation, or the visual viewport changes. `html` and `body` use the page background. The home indicator stays padding inside the sidebar, not a band under it. There is no separate canvas; the page is the shell.
+On an iPhone where Omacus is on the Home Screen, the document is `100vh` and the shell is pinned to the top and bottom of the viewport, with `viewport-fit=cover`. A percentage height drops that edge-to-edge layout, and the dynamic viewport unit is wrong until the phone is rotated. A shell whose height is `100vh` and whose bottom is left unset stops short and leaves a band. The sidebar, its divider, the page, and the drawer scrim run to the screen edges. Safe areas pad the words, the buttons, and the version. They do not inset the boxes. The safe areas are measured again on launch, after a short wait, and when the window, the rotation, or the visual viewport changes. `html` and `body` use the page background. There is no separate canvas; the page is the shell.
+
+A collapsed sidebar is a rail. Its column is the rail plus the left safe area, so the buttons sit clear of the notch and stay above the page.
 
 Do: keep the bar opaque. No blur and no translucent fill. Keep the light and dark `theme-color` tags in step with `--app-bg`.
-Don't: set the page name in the monospace face, paint the bar in `--app-side`, drop the border, or ask the status bar to be translucent. Don't size the Home Screen shell with `100%` or `100dvh`, and don't take its height from the window at launch. The border is what separates the bar from the page.
+Don't: set the page name in the monospace face, paint the bar in `--app-side`, drop the border, or drop `black-translucent` (that insets the web view and leaves a band). Don't size the Home Screen shell with `100%` or `100dvh`, and don't take its height from the window at launch. The border is what separates the bar from the page.
 
 ### Sidebar footer
 
 A labeled Settings row, About, and the version (`omacus vX.Y.Z`, a link to the updates page). The same footer is used on a phone and in a wide window. It sits above the home indicator. Where pages are kept is said in About, not under the version.
 
-On a phone the pages list is a drawer. A scrim covers the rest of the page, below the bar, and the empty-page hint does not show through it. A closed drawer casts no shadow on the page. The shadow is there only while the drawer is open.
+On a phone the pages list is a drawer. Its background runs to the top and bottom of the screen. A scrim covers the rest of the page, below the bar, and reaches the bottom edge. It does not cover the bar. The empty-page hint does not show through it. A closed drawer casts no shadow on the page. The shadow is there only while the drawer is open.
 
 Do: say Settings in words, next to the gear.
 Don't: a gear with no label, a version that is not the release in `Cargo.toml`, or a privacy paragraph in the footer.

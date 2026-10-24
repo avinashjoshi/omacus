@@ -42,7 +42,7 @@ check(
   /@media \(pointer: coarse\), \(max-width: 760px\)[\s\S]*?\.cm-content[\s\S]*?font-size: max\(16px, 1em\)/.test(css),
   "the focused contenteditable stays at least 16px",
 );
-check(css.includes("--safe-bottom: var(--probed-bottom, env(safe-area-inset-bottom, 0px));"), "bottom safe area is read from the device");
+check(css.includes("--safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--sab, var(--probed-bottom, 0px)));"), "bottom safe area is read from the device");
 check(/\.side \{[^}]*padding-bottom: var\(--safe-bottom\)/.test(css), "the sidebar clears the home indicator");
 check(/position: fixed;\s*inset: 0;/.test(css), "the shell fills the visual viewport, not 100dvh");
 check(!/\.app-page \{[^}]*height:\s*100dvh/.test(css), "the shell is not sized with 100dvh");
@@ -92,7 +92,7 @@ check(html.includes("data-build-hash"), "settings shows the build hash");
 check(js.includes("Add to Home Screen"), "iPhone gets an Add to Home Screen prompt");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-11"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('const CACHE = "omacus-app-12"'), "the app cache name moved past the cache-first shell");
 check(html.includes("data-pick"), "a same-line conflict can ask which line to keep");
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
@@ -157,11 +157,12 @@ check(/\.app-page\.drawer \.empty-hint \{\s*visibility: hidden/.test(css), "the 
 check(/name === "new"[\s\S]{0,240}setDrawer\(false\)/.test(js), "a new page closes the phone drawer");
 check(html.includes('<meta name="theme-color" content="#1a1b26" media="(prefers-color-scheme: dark)">'), "dark theme-color matches the page");
 check(html.includes('<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">'), "light theme-color matches the page");
-check(!html.includes("black-translucent") && !js.includes("black-translucent"), "the page does not ask for a translucent status bar");
+check(html.includes('apple-mobile-web-app-status-bar-style" content="black-translucent"'), "the Home Screen page draws under the status bar");
+check(js.includes('content", "black-translucent"') && !js.includes("status.remove()"), "the status bar tag stays, so the web view is not inset");
 check(html.includes('src="frame.js"'), "the frame script runs before the page is drawn");
 check(html.includes('rel="manifest"'), "the Home Screen app keeps its manifest");
 check(html.includes("viewport-fit=cover"), "the page draws into the safe areas");
-check(js.includes('meta[name="apple-mobile-web-app-status-bar-style"]') && js.includes("status.remove()"), "an old translucent status bar tag is dropped");
+check(js.includes('meta[name="apple-mobile-web-app-status-bar-style"]'), "a missing status bar tag is put back");
 check(js.includes('getPropertyValue("--app-bg")'), "a chosen theme sets theme-color from the page background");
 const frame = readFileSync(join(site, "app/frame.js"), "utf8");
 check(frame.includes("safe-area-inset-top") && frame.includes("offsetHeight") && !frame.includes("innerHeight"), "safe areas are measured with probe elements, not the window");
@@ -175,7 +176,14 @@ check(/\.app-page \{[^}]*position: fixed;\s*inset: 0;/.test(css), "Safari keeps 
 check(/display-mode: standalone\)[\s\S]*?height:\s*100vh/.test(css), "the Home Screen shell is 100vh from the first paint");
 check(!/height:\s*100dvh/.test(css), "the dynamic viewport unit is not used");
 check(!css.includes("--standalone-gap"), "the shell is not grown from a measured window");
-check(/--safe-top:\s*var\(--probed-top, env\(safe-area-inset-top/.test(css), "the bar can use a measured top inset");
+check(/--safe-top:\s*max\(env\(safe-area-inset-top, 0px\), var\(--sat, var\(--probed-top, 0px\)\)\)/.test(css), "the bar can use a measured top inset");
+check(/--safe-bottom:\s*max\(env\(safe-area-inset-bottom, 0px\), var\(--sab, var\(--probed-bottom, 0px\)\)\)/.test(css), "the bottom inset can be supplied in a test");
+check(/\.workspace\.collapsed \{[^}]*--side-w:\s*calc\(52px \+ var\(--safe-left\)\)/.test(css), "the collapsed rail keeps its buttons clear of the notch");
+{
+  const filters = [...css.matchAll(/backdrop-filter:\s*([^;]+)/g)].map((match) => match[1].trim());
+  check(filters.length > 0 && filters.every((value) => value === "none"), `backdrop-filter values: ${filters.join(", ")}`);
+}
+check(/@media \(max-width: 760px\)[\s\S]*?\.side \{[^}]*top:\s*0;/.test(css), "the phone drawer background starts at the top edge");
 check(/\.bar \{[^}]*position: fixed/.test(css) && /\.bar \{[^}]*opacity: 1/.test(css) && /\.bar \{[^}]*padding:\s*var\(--safe-top\)/.test(css), "the bar is solid and clears the status bar");
 check(/\.bar \{[^}]*backdrop-filter: none/.test(css) && /\.bar \.icon-btn \{[^}]*backdrop-filter: none/.test(css), "the bar and its buttons are not frosted");
 check(/@media \(max-width: 760px\)[\s\S]*?\.side \{[^}]*box-shadow: none/.test(css), "a closed phone drawer casts no shadow");
@@ -447,35 +455,70 @@ const mobile = await evalJson(`(() => {
   const foot = document.querySelector(".side-foot");
   const scrim = document.querySelector("[data-scrim]");
   const editor = document.querySelector("[data-editor]");
+  const sheet = document.querySelector(".sheet");
+  const bar = document.querySelector(".bar");
+  const btn = document.querySelector(".sheets-toggle");
   const sr = side.getBoundingClientRect();
   const fr = foot.getBoundingClientRect();
+  const er = editor.getBoundingClientRect();
+  const sheetR = sheet.getBoundingClientRect();
+  const scrimR = scrim.getBoundingClientRect();
+  const br = btn.getBoundingClientRect();
   const edge = window.innerHeight;
+  const hit = document.elementFromPoint(br.left + br.width / 2, br.top + br.height / 2);
+  const blurred = [...document.body.querySelectorAll("*")].filter((el) => {
+    const value = getComputedStyle(el).backdropFilter;
+    return value && value !== "none";
+  }).map((el) => el.className);
+  const htmlBg = getComputedStyle(document.documentElement).backgroundColor;
+  const bodyBg = getComputedStyle(document.body).backgroundColor;
+  const appBg = getComputedStyle(document.body).getPropertyValue("--app-bg").trim();
+  const probe = document.createElement("div");
+  probe.style.background = "var(--app-bg)";
+  document.body.appendChild(probe);
+  const painted = getComputedStyle(probe).backgroundColor;
+  probe.remove();
   return {
     font: parseFloat(getComputedStyle(editor).fontSize),
     sideBottom: sr.bottom,
     sideTop: sr.top,
+    editorBottom: er.bottom,
+    sheetBottom: sheetR.bottom,
     innerHeight: window.innerHeight,
     edge,
     paddingBottom: parseFloat(getComputedStyle(side).paddingBottom),
     footBottom: fr.bottom,
     scrim: getComputedStyle(scrim).display,
-    scrimTop: scrim.getBoundingClientRect().top,
-    barBottom: document.querySelector(".bar").getBoundingClientRect().bottom,
+    scrimTop: scrimR.top,
+    scrimBottom: scrimR.bottom,
+    barBottom: bar.getBoundingClientRect().bottom,
+    headerHit: hit === btn || btn.contains(hit),
+    headerHitName: hit?.className || hit?.tagName || "",
     position: getComputedStyle(side).position,
     openShadow: getComputedStyle(side).boxShadow,
     viewport: document.querySelector('meta[name=viewport]').content,
+    blurred,
+    htmlBg,
+    bodyBg,
+    painted,
   };
 })()`);
 
 check(mobile.font >= 16, `phone editor font is ${mobile.font}px, want >= 16`);
 check(Math.abs(mobile.sideBottom - mobile.edge) <= 1, `drawer bottom ${mobile.sideBottom} != viewport ${mobile.edge}`);
+check(Math.abs(mobile.editorBottom - mobile.edge) <= 1, `editor bottom ${mobile.editorBottom} != viewport ${mobile.edge}`);
+check(Math.abs(mobile.sheetBottom - mobile.edge) <= 1, `page bottom ${mobile.sheetBottom} != viewport ${mobile.edge}`);
+check(Math.abs(mobile.scrimBottom - mobile.edge) <= 1, `scrim bottom ${mobile.scrimBottom} != viewport ${mobile.edge}`);
+check(Math.abs(mobile.sideTop) <= 1, `drawer top ${mobile.sideTop} is not the screen edge`);
 check(mobile.openShadow !== "none", `open drawer shadow is ${mobile.openShadow}`);
 check(mobile.scrimTop >= mobile.barBottom - 1, `open scrim top ${mobile.scrimTop} covers the bar (${mobile.barBottom})`);
+check(mobile.headerHit === true, `open drawer header hit ${mobile.headerHitName}`);
 check(mobile.paddingBottom === 34, `drawer padding-bottom is ${mobile.paddingBottom}, want 34`);
 check(mobile.footBottom <= mobile.edge - 34 + 1, `footer is cut by the home indicator (${mobile.footBottom} > ${mobile.edge - 34})`);
 check(mobile.scrim === "block", `scrim display is ${mobile.scrim} while the drawer is open`);
 check(mobile.position === "fixed", `phone drawer position is ${mobile.position}`);
-check(mobile.sideTop >= 47, "drawer starts below the status bar");
+check(mobile.blurred.length === 0, `backdrop-filter is set on ${mobile.blurred.join(", ")}`);
+check(mobile.htmlBg === mobile.painted && mobile.bodyBg === mobile.painted, `document ${mobile.htmlBg}/${mobile.bodyBg} != page ${mobile.painted}`);
 
 const shots = process.env.OMACUS_SHOTS;
 if (shots) {
@@ -543,6 +586,73 @@ const collapsed = await evalJson(`(() => {
 check(/^52px/.test(collapsed.cols), `collapsed columns are ${collapsed.cols}`);
 check(collapsed.rail === "flex", `collapsed rail display is ${collapsed.rail}`);
 check(collapsed.body === "none", `collapsed sheet list display is ${collapsed.body}`);
+
+// iPhone landscape is a wide window with a notch on the left. The rail has to
+// stay hit-testable once that inset is real. Chrome reports the inset as 0,
+// so the test sets --sal / --sab.
+await page("Emulation.setDeviceMetricsOverride", {
+  width: 844,
+  height: 390,
+  deviceScaleFactor: 1,
+  mobile: true,
+});
+await waitFor(`innerWidth >= 800 && innerHeight <= 420 && matchMedia("(min-width: 761px)").matches`);
+const railHits = await evalJson(`(() => {
+  document.body.style.setProperty("--sal", "59px");
+  document.body.style.setProperty("--sar", "59px");
+  document.body.style.setProperty("--sab", "21px");
+  const workspace = document.querySelector(".workspace");
+  workspace.classList.add("collapsed");
+  const buttons = [...document.querySelectorAll(".rail .side-btn")];
+  const hits = buttons.map((button) => {
+    const r = button.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    return {
+      label: button.getAttribute("aria-label"),
+      x, y,
+      left: r.left,
+      top: r.top,
+      hit: !!(hit && (hit === button || button.contains(hit))),
+      hitName: hit?.getAttribute?.("aria-label") || hit?.className || hit?.tagName || "",
+    };
+  });
+  const side = document.querySelector(".side").getBoundingClientRect();
+  const editor = document.querySelector("[data-editor]").getBoundingClientRect();
+  const blurred = [...document.body.querySelectorAll("*")].filter((el) => {
+    const value = getComputedStyle(el).backdropFilter;
+    return value && value !== "none";
+  }).map((el) => el.className);
+  workspace.classList.remove("collapsed");
+  document.body.style.removeProperty("--sal");
+  document.body.style.removeProperty("--sar");
+  document.body.style.removeProperty("--sab");
+  return {
+    hits,
+    sideLeft: side.left,
+    sideBottom: side.bottom,
+    editorBottom: editor.bottom,
+    innerHeight: window.innerHeight,
+    blurred,
+  };
+})()`);
+check(railHits.blurred.length === 0, `backdrop-filter is set on ${railHits.blurred.join(", ")}`);
+check(Math.abs(railHits.sideLeft) <= 1, `landscape sidebar starts at ${railHits.sideLeft}`);
+check(Math.abs(railHits.sideBottom - railHits.innerHeight) <= 1, `landscape sidebar bottom ${railHits.sideBottom} != ${railHits.innerHeight}`);
+check(Math.abs(railHits.editorBottom - railHits.innerHeight) <= 1, `landscape editor bottom ${railHits.editorBottom} != ${railHits.innerHeight}`);
+check(railHits.hits.length === 4, `landscape rail has ${railHits.hits.length} buttons`);
+for (const hit of railHits.hits) {
+  check(hit.hit, `landscape ${hit.label} at ${hit.x},${hit.y} hit ${hit.hitName}`);
+  check(hit.left >= 59 - 1, `landscape ${hit.label} starts at ${hit.left}, inside the notch`);
+}
+await page("Emulation.setDeviceMetricsOverride", {
+  width: 1280,
+  height: 800,
+  deviceScaleFactor: 1,
+  mobile: false,
+});
+await waitFor(`innerWidth >= 1200 && matchMedia("(min-width: 761px)").matches`);
 
 if (shots) await shot(join(shots, "desktop.png"));
 
