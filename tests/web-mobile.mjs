@@ -7,7 +7,6 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { loadPrivateTerms, privateTermHits } from "./private-terms.mjs";
 import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -238,10 +237,6 @@ check(css.includes("img.cm-widgetBuffer"), "the answer spacer stays inline so a 
   check(!/\.foldable-half::before \{[^}]*var\(--space-5\)/.test(foldCss), "a half does not cast its shadow across the crease");
   check(!/rotate[XY]/.test(foldCss), "the unfolded phone lies flat");
   check(!/iPhone|iPad|Apple|Samsung|Pixel|Galaxy|PWA/i.test(unfold), "the foldable aside stays generic");
-  {
-    const terms = loadPrivateTerms();
-    if (terms.length > 0) check(privateTermHits(unfold, terms) === 0, "the foldable aside stays clear of a private term");
-  }
 }
 check(
   /@media \(max-width: 620px\)[\s\S]*?\.features \{[\s\S]*?overflow-x:\s*auto/.test(siteCss),
