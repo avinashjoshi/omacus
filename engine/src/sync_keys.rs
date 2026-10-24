@@ -61,6 +61,8 @@ pub enum SyncKeyError {
     NotApproved(&'static str),
     Sealed,
     Corrupt,
+    /// The words match this set of pages, and the latest seal was not wrapped for them.
+    StaleRecovery,
 }
 
 /// The list's version numbers are not 1, 2, 3… in order.
@@ -115,11 +117,14 @@ impl SyncKeyError {
     pub fn message(self) -> &'static str {
         match self {
             SyncKeyError::Unavailable => "Try again in a moment.",
-            SyncKeyError::NotAKey => "Those words are not a recovery key.",
+            SyncKeyError::NotAKey => "Those words are not recovery words.",
             SyncKeyError::NotConfirmed => "Tap the three words first.",
             SyncKeyError::NotApproved(reason) => reason,
             SyncKeyError::Sealed => "Those pages could not be opened.",
             SyncKeyError::Corrupt => "That copy could not be read.",
+            SyncKeyError::StaleRecovery => {
+                "These recovery words are right, but they don't open the latest pages yet. Open sync on a phone or computer that still has them, then try again."
+            }
         }
     }
 }
@@ -246,6 +251,13 @@ impl RecoveryKey {
                 return Err(SyncKeyError::NotConfirmed);
             }
         }
+        Ok(Confirmed {
+            entropy: self.entropy()?,
+        })
+    }
+
+    /// The 12 words were typed in full. That is the check.
+    pub fn accept(&self) -> Result<Confirmed, SyncKeyError> {
         Ok(Confirmed {
             entropy: self.entropy()?,
         })
@@ -838,6 +850,13 @@ impl DeviceChain {
         Ok(self.latest()?.devices.clone())
     }
 
+    /// True when `id` is on any signed list in this chain, including an older one.
+    pub fn contained(&self, id: &[u8; 16]) -> bool {
+        self.lists
+            .iter()
+            .any(|list| list.devices.iter().any(|device| device.id == *id))
+    }
+
     /// How this chain sits against `earlier`. Newer means this one extends it.
     pub fn compared_with(&self, earlier: &DeviceChain) -> ChainOrder {
         let shared = self.lists.len().min(earlier.lists.len());
@@ -935,6 +954,7 @@ pub fn approve(
     newcomer: &DevicePublic,
     vault: &VaultKey,
     epoch: u64,
+    recovery_public: Option<&[u8; KEY_LEN]>,
 ) -> Result<(DeviceChain, Vec<u8>), SyncKeyError> {
     chain.verify()?;
     let latest = chain.latest()?;
@@ -962,7 +982,7 @@ pub fn approve(
     lists.push(next);
     let approved = DeviceChain { lists };
     approved.verify()?;
-    let wrap = wrap_vault_for_device(newcomer, vault, epoch)?;
+    let wrap = wrap_vault_for_device(newcomer, vault, epoch, recovery_public)?;
     Ok((approved, wrap))
 }
 
@@ -1061,17 +1081,104 @@ pub fn open_phrase_wrap(
     epoch: u64,
     key_id: &[u8; 16],
 ) -> Result<VaultKey, SyncKeyError> {
+    let mut kek = phrase_kek(root)?;
+    let opened = open_phrase_wrap_with_kek(&kek, stored, epoch, key_id);
+    kek.zeroize();
+    opened
+}
+
+pub fn open_phrase_wrap_with_kek(
+    kek: &[u8; KEY_LEN],
+    stored: &[u8],
+    epoch: u64,
+    key_id: &[u8; 16],
+) -> Result<VaultKey, SyncKeyError> {
     if stored.len() < X_NONCE + 16 {
         return Err(SyncKeyError::Corrupt);
     }
-    let mut kek = [0u8; KEY_LEN];
-    root.expand(b"omacus/v1/vault-wrap/0", &mut kek)?;
     let (nonce, ciphertext) = stored.split_at(X_NONCE);
     let nonce: [u8; X_NONCE] = nonce.try_into().map_err(|_| SyncKeyError::Corrupt)?;
     let aad = bind(b"phrase-key", epoch, key_id, None);
-    let plain = xchacha(false, &kek, &nonce, &aad, ciphertext)?;
-    kek.zeroize();
+    let plain = xchacha(false, kek, &nonce, &aad, ciphertext)?;
     let key: [u8; KEY_LEN] = plain.try_into().map_err(|_| SyncKeyError::Sealed)?;
+    Ok(VaultKey { id: *key_id, key })
+}
+
+/// The part of the words that can seal a new key. It is not a decryption key.
+pub fn recovery_secret(root: &Root) -> Result<[u8; KEY_LEN], SyncKeyError> {
+    let mut secret = [0u8; KEY_LEN];
+    root.expand(b"omacus/v1/recovery-receive/0", &mut secret)?;
+    Ok(secret)
+}
+
+pub fn recovery_public_key(root: &Root) -> Result<[u8; KEY_LEN], SyncKeyError> {
+    let mut secret = recovery_secret(root)?;
+    let public = x25519_public(&secret);
+    secret.zeroize();
+    Ok(public)
+}
+
+pub fn wrap_vault_for_recovery(
+    public: &[u8; KEY_LEN],
+    vault: &VaultKey,
+    epoch: u64,
+) -> Result<Vec<u8>, SyncKeyError> {
+    let aad = bind(b"recovery-key", epoch, &vault.id, None);
+    let (enc, ciphertext) = hpke_seal(public, &aad, &aad, &vault.key, None)?;
+    let mut out = Vec::with_capacity(2 + 16 + KEY_LEN + ciphertext.len());
+    out.extend_from_slice(b"R2");
+    out.extend_from_slice(&vault.id);
+    out.extend_from_slice(&enc);
+    out.extend_from_slice(&ciphertext);
+    Ok(out)
+}
+
+/// The key id inside a recovery wrap, when this is one. A device can see it
+/// without the words.
+pub fn recovery_wrap_key_id(stored: &[u8]) -> Option<[u8; 16]> {
+    if stored.len() < 2 + 16 || &stored[..2] != b"R2" {
+        return None;
+    }
+    let mut id = [0u8; 16];
+    id.copy_from_slice(&stored[2..18]);
+    Some(id)
+}
+
+pub fn open_recovery_wrap(
+    root: &Root,
+    stored: &[u8],
+    epoch: u64,
+    key_id: &[u8; 16],
+) -> Result<VaultKey, SyncKeyError> {
+    if recovery_wrap_key_id(stored).is_none() {
+        return Err(SyncKeyError::Corrupt);
+    }
+    if stored.len() < 2 + 16 + KEY_LEN + 16 {
+        return Err(SyncKeyError::StaleRecovery);
+    }
+    let mut embedded = [0u8; 16];
+    embedded.copy_from_slice(&stored[2..18]);
+    if embedded != *key_id {
+        return Err(SyncKeyError::StaleRecovery);
+    }
+    let enc: [u8; KEY_LEN] = stored[18..18 + KEY_LEN]
+        .try_into()
+        .map_err(|_| SyncKeyError::StaleRecovery)?;
+    let ciphertext = &stored[18 + KEY_LEN..];
+    let mut secret = recovery_secret(root)?;
+    let aad = bind(b"recovery-key", epoch, key_id, None);
+    let plain = match hpke_open(&secret, &enc, &aad, &aad, ciphertext) {
+        Ok(plain) => plain,
+        Err(_) => {
+            secret.zeroize();
+            return Err(SyncKeyError::StaleRecovery);
+        }
+    };
+    secret.zeroize();
+    let key: [u8; KEY_LEN] = match plain.try_into() {
+        Ok(key) => key,
+        Err(_) => return Err(SyncKeyError::StaleRecovery),
+    };
     Ok(VaultKey { id: *key_id, key })
 }
 
@@ -1079,15 +1186,26 @@ pub fn wrap_vault_for_device(
     recipient: &DevicePublic,
     vault: &VaultKey,
     epoch: u64,
+    recovery_public: Option<&[u8; KEY_LEN]>,
 ) -> Result<Vec<u8>, SyncKeyError> {
+    let mut plain = vault.key.to_vec();
+    if let Some(public) = recovery_public {
+        plain.extend_from_slice(public);
+    }
     let aad = bind(b"vault-key", epoch, &vault.id, Some(&recipient.id));
     let info = aad.clone();
-    let (enc, ciphertext) = hpke_seal(&recipient.receive, &info, &aad, &vault.key, None)?;
+    let (enc, ciphertext) = hpke_seal(&recipient.receive, &info, &aad, &plain, None)?;
+    plain.zeroize();
     let mut out = Vec::with_capacity(16 + KEY_LEN + ciphertext.len());
     out.extend_from_slice(&recipient.id);
     out.extend_from_slice(&enc);
     out.extend_from_slice(&ciphertext);
     Ok(out)
+}
+
+pub struct OpenedDeviceWrap {
+    pub vault: VaultKey,
+    pub recovery_public: Option<[u8; KEY_LEN]>,
 }
 
 pub fn open_device_wrap(
@@ -1096,6 +1214,15 @@ pub fn open_device_wrap(
     epoch: u64,
     key_id: &[u8; 16],
 ) -> Result<VaultKey, SyncKeyError> {
+    Ok(open_device_wrap_parts(device, stored, epoch, key_id)?.vault)
+}
+
+pub fn open_device_wrap_parts(
+    device: &DeviceKeys,
+    stored: &[u8],
+    epoch: u64,
+    key_id: &[u8; 16],
+) -> Result<OpenedDeviceWrap, SyncKeyError> {
     if stored.len() < 16 + KEY_LEN + 16 {
         return Err(SyncKeyError::Corrupt);
     }
@@ -1107,8 +1234,25 @@ pub fn open_device_wrap(
     let enc: [u8; KEY_LEN] = enc.try_into().map_err(|_| SyncKeyError::Corrupt)?;
     let aad = bind(b"vault-key", epoch, key_id, Some(&device.id));
     let plain = hpke_open(&device.receive, &enc, &aad, &aad, ciphertext)?;
-    let key: [u8; KEY_LEN] = plain.try_into().map_err(|_| SyncKeyError::Sealed)?;
-    Ok(VaultKey { id: *key_id, key })
+    if plain.len() == KEY_LEN {
+        let mut key = [0u8; KEY_LEN];
+        key.copy_from_slice(&plain);
+        return Ok(OpenedDeviceWrap {
+            vault: VaultKey { id: *key_id, key },
+            recovery_public: None,
+        });
+    }
+    if plain.len() == KEY_LEN * 2 {
+        let mut key = [0u8; KEY_LEN];
+        let mut public = [0u8; KEY_LEN];
+        key.copy_from_slice(&plain[..KEY_LEN]);
+        public.copy_from_slice(&plain[KEY_LEN..]);
+        return Ok(OpenedDeviceWrap {
+            vault: VaultKey { id: *key_id, key },
+            recovery_public: Some(public),
+        });
+    }
+    Err(SyncKeyError::Sealed)
 }
 
 pub fn seal_page(
@@ -1218,6 +1362,8 @@ pub struct DeviceStore {
     pub chain: Vec<u8>,
     /// Empty on a file saved before this field. Never written to a mailbox.
     pub kek: Vec<u8>,
+    /// Empty on a file saved before this field. Not a decryption key.
+    pub recovery_public: Vec<u8>,
 }
 
 impl std::fmt::Debug for DeviceStore {
@@ -1233,8 +1379,12 @@ pub fn store_device(
     epoch: u64,
     chain: &[u8],
     kek: &[u8],
+    recovery_public: &[u8],
 ) -> Result<Vec<u8>, SyncKeyError> {
-    if chain.len() > MAX_CHAIN_BYTES || !(kek.is_empty() || kek.len() == KEY_LEN) {
+    if chain.len() > MAX_CHAIN_BYTES
+        || !(kek.is_empty() || kek.len() == KEY_LEN)
+        || !(recovery_public.is_empty() || recovery_public.len() == KEY_LEN)
+    {
         return Err(SyncKeyError::Corrupt);
     }
     let mut out = Vec::new();
@@ -1247,7 +1397,10 @@ pub fn store_device(
     out.extend_from_slice(account);
     out.extend_from_slice(&epoch.to_be_bytes());
     push_chunk(&mut out, chain);
-    if !kek.is_empty() {
+    if !recovery_public.is_empty() {
+        push_chunk(&mut out, kek);
+        push_chunk(&mut out, recovery_public);
+    } else if !kek.is_empty() {
         push_chunk(&mut out, kek);
     }
     let digest = Sha256::digest(&out);
@@ -1280,13 +1433,27 @@ pub fn open_device_store(bytes: &[u8]) -> Result<DeviceStore, SyncKeyError> {
         account: reader.array()?,
         epoch: reader.u64()?,
         chain: reader.chunk()?,
-        kek: if reader.is_empty() {
-            Vec::new()
-        } else {
-            reader.chunk()?
-        },
+        kek: Vec::new(),
+        recovery_public: Vec::new(),
     };
-    if store.chain.len() > MAX_CHAIN_BYTES || !(store.kek.is_empty() || store.kek.len() == KEY_LEN)
+    let (kek, recovery_public) = if reader.is_empty() {
+        (Vec::new(), Vec::new())
+    } else {
+        let kek = reader.chunk()?;
+        if reader.is_empty() {
+            (kek, Vec::new())
+        } else {
+            (kek, reader.chunk()?)
+        }
+    };
+    let store = DeviceStore {
+        kek,
+        recovery_public,
+        ..store
+    };
+    if store.chain.len() > MAX_CHAIN_BYTES
+        || !(store.kek.is_empty() || store.kek.len() == KEY_LEN)
+        || !(store.recovery_public.is_empty() || store.recovery_public.len() == KEY_LEN)
     {
         return Err(SyncKeyError::Corrupt);
     }
@@ -1870,19 +2037,20 @@ mod tests {
         let vault = VaultKey::generate().unwrap();
         let epoch = 1;
         let phrase = wrap_vault_for_phrase(&root, &vault, epoch).unwrap();
-        let laptop_wrap = wrap_vault_for_device(&laptop.public(), &vault, epoch).unwrap();
+        let laptop_wrap = wrap_vault_for_device(&laptop.public(), &vault, epoch, None).unwrap();
         let page = b"Trip Budget\nferry = 40\nmilk $3";
         let sealed = seal_page(&vault, epoch, b"trip", page).unwrap();
 
         let phone = DeviceKeys::generate().unwrap();
         let (with_phone, phone_wrap) =
-            approve(&laptop, &chain, &phone.public(), &vault, epoch).unwrap();
-        let (again, again_wrap) = approve(&laptop, &chain, &phone.public(), &vault, epoch).unwrap();
+            approve(&laptop, &chain, &phone.public(), &vault, epoch, None).unwrap();
+        let (again, again_wrap) =
+            approve(&laptop, &chain, &phone.public(), &vault, epoch, None).unwrap();
         assert_eq!(with_phone.lists[1].signature, again.lists[1].signature);
         assert_ne!(phone_wrap, again_wrap);
         let other_vault = VaultKey::generate().unwrap();
         let (same_list, other_wrap) =
-            approve(&laptop, &chain, &phone.public(), &other_vault, epoch).unwrap();
+            approve(&laptop, &chain, &phone.public(), &other_vault, epoch, None).unwrap();
         assert_eq!(with_phone.lists[1].signature, same_list.lists[1].signature);
         assert_ne!(phone_wrap, other_wrap);
         assert!(!holds(&with_phone.lists[1].message(), &vault.key));
@@ -1911,6 +2079,30 @@ mod tests {
             vault.key
         );
         assert!(open_phrase_wrap(&other, &phrase, epoch, vault.id()).is_err());
+        let public = recovery_public_key(&root).unwrap();
+        let recovery_wrap = wrap_vault_for_recovery(&public, &vault, epoch).unwrap();
+        assert_eq!(recovery_wrap_key_id(&recovery_wrap), Some(*vault.id()));
+        assert_eq!(
+            open_recovery_wrap(&root, &recovery_wrap, epoch, vault.id())
+                .unwrap()
+                .key,
+            vault.key
+        );
+        assert_eq!(
+            open_recovery_wrap(&other, &recovery_wrap, epoch, vault.id()).unwrap_err(),
+            SyncKeyError::StaleRecovery
+        );
+        let mut secret = recovery_secret(&root).unwrap();
+        assert!(!holds(&recovery_wrap, &secret));
+        assert!(!holds(&recovery_wrap, &public));
+        assert!(!holds(&recovery_wrap, &root.0));
+        let wrapped = wrap_vault_for_device(&phone.public(), &vault, epoch, Some(&public)).unwrap();
+        let parts = open_device_wrap_parts(&phone, &wrapped, epoch, vault.id()).unwrap();
+        assert_eq!(parts.vault.key, vault.key);
+        assert_eq!(parts.recovery_public, Some(public));
+        assert!(!holds(&wrapped, &public));
+        assert!(!holds(&wrapped, &secret));
+        secret.zeroize();
 
         let mut forged = with_phone.clone();
         forged.lists[1].signature[0] ^= 0xff;
@@ -1972,7 +2164,7 @@ mod tests {
         let chain = found_devices(&laptop).unwrap();
         let phone = DeviceKeys::generate().unwrap();
         let vault = VaultKey::generate().unwrap();
-        let (with_phone, _) = approve(&laptop, &chain, &phone.public(), &vault, 1).unwrap();
+        let (with_phone, _) = approve(&laptop, &chain, &phone.public(), &vault, 1, None).unwrap();
         let mut bumped = with_phone.clone();
         bumped.lists[1].version = 9;
         assert_eq!(bumped.verify().unwrap_err().message(), LIST_VERSION);
@@ -1987,7 +2179,7 @@ mod tests {
             scope_list_error(SyncKeyError::NotApproved(LIST_CHECK), true).message(),
             "The saved copy's list didn't check out."
         );
-        let already = approve(&laptop, &with_phone, &phone.public(), &vault, 1);
+        let already = approve(&laptop, &with_phone, &phone.public(), &vault, 1, None);
         let Err(error) = already else {
             panic!("a phone already on the list was approved");
         };
@@ -2000,7 +2192,7 @@ mod tests {
         let vault = VaultKey::generate().unwrap();
         let account = [0x11u8; 32];
         let chain = found_devices(&device).unwrap().to_bytes();
-        let stored = store_device(&device, &vault, &account, 1, &chain, &[]).unwrap();
+        let stored = store_device(&device, &vault, &account, 1, &chain, &[], &[]).unwrap();
         assert!(stored.starts_with(DEVICE_MAGIC));
         assert!(!stored.starts_with(b"OMACUS-SYNC/1\n"));
         let opened = open_device_store(&stored).unwrap();
@@ -2014,8 +2206,19 @@ mod tests {
         assert_eq!(opened.chain, chain);
         assert!(opened.kek.is_empty());
         let kek = [0x5au8; KEY_LEN];
-        let with_kek = store_device(&device, &vault, &account, 1, &chain, &kek).unwrap();
-        assert_eq!(open_device_store(&with_kek).unwrap().kek, kek);
+        let with_kek = store_device(&device, &vault, &account, 1, &chain, &kek, &[]).unwrap();
+        let opened_kek = open_device_store(&with_kek).unwrap();
+        assert_eq!(opened_kek.kek, kek);
+        assert!(opened_kek.recovery_public.is_empty());
+        let public = [0x3cu8; KEY_LEN];
+        let with_public = store_device(&device, &vault, &account, 1, &chain, &[], &public).unwrap();
+        let opened_public = open_device_store(&with_public).unwrap();
+        assert!(opened_public.kek.is_empty());
+        assert_eq!(opened_public.recovery_public, public);
+        let with_both = store_device(&device, &vault, &account, 1, &chain, &kek, &public).unwrap();
+        let opened_both = open_device_store(&with_both).unwrap();
+        assert_eq!(opened_both.kek, kek);
+        assert_eq!(opened_both.recovery_public, public);
         let mut torn = stored.clone();
         let last = torn.len() - 1;
         torn[last] ^= 0xff;
@@ -2029,8 +2232,9 @@ mod tests {
         let tablet = DeviceKeys::generate().unwrap();
         let vault = VaultKey::generate().unwrap();
         let chain = found_devices(&laptop).unwrap();
-        let (with_phone, _) = approve(&laptop, &chain, &phone.public(), &vault, 1).unwrap();
-        let (with_both, _) = approve(&phone, &with_phone, &tablet.public(), &vault, 1).unwrap();
+        let (with_phone, _) = approve(&laptop, &chain, &phone.public(), &vault, 1, None).unwrap();
+        let (with_both, _) =
+            approve(&phone, &with_phone, &tablet.public(), &vault, 1, None).unwrap();
         assert_eq!(with_both.compared_with(&with_phone), ChainOrder::Newer);
         let removed = remove_device(&laptop, &with_both, phone.public().id()).unwrap();
         removed.verify().unwrap();
@@ -2052,7 +2256,8 @@ mod tests {
                 &removed,
                 &DeviceKeys::generate().unwrap().public(),
                 &vault,
-                1
+                1,
+                None
             )
             .is_err()
         );

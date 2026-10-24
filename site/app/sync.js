@@ -1,7 +1,7 @@
 // Sync for the private test. The published app does not mount this.
 // A device file stays in this browser. The server receives a sealed record.
 
-const LABEL = "omacus 1.0.0-beta.3";
+const LABEL = "omacus 1.0.0-beta.4";
 const INVITE_MS = 5 * 60 * 1000;
 
 export async function mountSync(api) {
@@ -247,8 +247,9 @@ export async function mountSync(api) {
       }
       throw new Error(opened.message || "Those pages could not be opened.");
     }
-    const dropped = opened.member === false;
-    state.member = !dropped;
+    const dropped = opened.member === false && opened.replace === false;
+    if (opened.member === true) state.member = true;
+    else if (dropped) state.member = false;
     state.revision = mailbox.revision;
     if (opened.replace === false) {
       await saveFile();
@@ -261,12 +262,20 @@ export async function mountSync(api) {
       return;
     }
     const remote = await asSet(opened.packed);
-    const snap = await api.snapshot();
-    const localPacked = await pack(snap.doc, snap.pages);
-    const merged = JSON.parse(sync.mergePacked(localPacked, remote.packed));
-    if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
-    await installMerged(merged);
-    state.dirty = merged.packed !== remote.packed || opened.republish === true;
+    // A phone that has not typed anything since the last open takes that copy
+    // as it is. Merging a fresh library back in would put a deleted line on
+    // every other phone.
+    const hadEdits = state.dirty === true;
+    let packed = remote.packed;
+    if (hadEdits) {
+      const snap = await api.snapshot();
+      const localPacked = await pack(snap.doc, snap.pages);
+      const merged = JSON.parse(sync.mergePacked(localPacked, remote.packed));
+      if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
+      packed = merged.packed;
+    }
+    await installMerged({ packed });
+    state.dirty = (hadEdits && packed !== remote.packed) || opened.republish === true;
     await saveFile();
     await refreshDevices();
     if (dropped || state.removed) {
@@ -305,10 +314,10 @@ export async function mountSync(api) {
     if (onList) {
       state.member = true;
       state.removed = false;
-    } else if (state.account && state.devices.length > 0) {
+    } else if (list.former) {
       state.member = false;
       state.removed = true;
-    } else if (!state.removed) {
+    } else if (!state.removed && !state.member) {
       state.member = false;
     }
   }
@@ -316,7 +325,7 @@ export async function mountSync(api) {
   function showRemoved() {
     state.member = false;
     state.removed = true;
-    const stay = ["off", "access", "save", "confirm", "recover", "recover-confirm", "join", "join-start", "join-type", "join-scan", "ready", "approve", "remove-ask", "off-ask", "off-done", "removed"];
+    const stay = ["off", "access", "save", "confirm", "recover", "join", "join-start", "join-type", "join-scan", "approve", "remove-ask", "off-ask", "removed"];
     if (!stay.includes(state.screen)) state.screen = "removed";
     setChip("Sync off", "off");
     if (state.screen === "removed") draw();
@@ -324,7 +333,7 @@ export async function mountSync(api) {
 
   async function tick() {
     if (ticking || !state.desk || !state.account) return;
-    if (["off", "access", "save", "confirm", "recover", "recover-confirm", "join", "join-start", "join-type", "join-scan", "ready", "approved", "approve", "remove-ask", "off-ask", "off-done", "removed"].includes(state.screen)) return;
+    if (["off", "access", "save", "confirm", "recover", "join", "join-start", "join-type", "join-scan", "approve", "remove-ask", "off-ask", "removed"].includes(state.screen)) return;
     ticking = true;
     try {
       if (navigator.onLine === false) setChip("Offline", "off");
@@ -422,7 +431,7 @@ export async function mountSync(api) {
     const codes = await new BarcodeDetector({ formats: ["qr_code"] }).detect(bitmap);
     bitmap.close?.();
     if (!codes[0]?.rawValue) {
-      state.error = "That picture has no recovery key.";
+      state.error = "That picture has no recovery words.";
       draw();
       return;
     }
@@ -431,7 +440,7 @@ export async function mountSync(api) {
 
   function fillPhrase(raw) {
     if (!String(raw).startsWith("omacus-recovery")) {
-      state.error = "That picture is not a recovery key.";
+      state.error = "That picture is not recovery words.";
       draw();
       return;
     }
@@ -473,7 +482,7 @@ export async function mountSync(api) {
     draw();
   }
 
-  async function confirmWords(recovering) {
+  async function confirmWords() {
     const chosen = picks();
     if (chosen.length !== 3) {
       state.error = "Pick the three words first.";
@@ -491,38 +500,6 @@ export async function mountSync(api) {
     state.error = "";
     draw();
     await frame();
-    if (recovering) {
-      const account = JSON.parse(sync.recoveryAccount(state.desk, JSON.stringify(chosen)));
-      if (!account.ok) {
-        state.busy = false;
-        state.error = "Those are not the three words.";
-        draw();
-        return;
-      }
-      state.account = account.account;
-      try {
-        const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
-        const opened = JSON.parse(sync.recoveryOpenPages(state.desk, mailbox.record));
-        if (!opened.ok) throw new Error(opened.message);
-        const remote = await asSet(opened.packed);
-        const snap = await api.snapshot();
-        const merged = JSON.parse(sync.mergePacked(await pack(snap.doc, snap.pages), remote.packed));
-        if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
-        await installMerged(merged);
-        state.revision = mailbox.revision;
-        state.member = true;
-        state.screen = "joined";
-        await saveFile();
-        await refreshDevices();
-        setChip("Saved", "on");
-      } catch (error) {
-        state.error = plainError(error.message);
-        state.screen = "recover";
-      }
-      state.busy = false;
-      draw();
-      return;
-    }
     if (!state.account) {
       const saved = JSON.parse(sync.confirmSaved(state.desk, JSON.stringify(chosen)));
       if (!saved.ok) {
@@ -539,7 +516,8 @@ export async function mountSync(api) {
       if (!sealed.ok) throw new Error(sealed.message);
       await publish(sealed.record);
       state.member = true;
-      state.screen = "ready";
+      state.removed = false;
+      state.screen = "linked";
       await refreshDevices();
       setChip("Saved", "on");
     } catch (error) {
@@ -630,7 +608,7 @@ export async function mountSync(api) {
     state.qr = "";
     state.requestId = "";
     state.dirty = false;
-    state.screen = "off-done";
+    state.screen = "off";
     state.busy = false;
     setChip("Sync off", "off");
     draw();
@@ -831,7 +809,7 @@ export async function mountSync(api) {
       state.revision = mailbox.revision;
       state.member = true;
       state.removed = false;
-      state.screen = "joined";
+      state.screen = "linked";
       await saveFile();
       await refreshDevices();
       setChip("Saved", "on");
@@ -869,7 +847,7 @@ export async function mountSync(api) {
       state.pending = null;
       state.invite = null;
       state.error = "";
-      state.screen = "approved";
+      state.screen = "linked";
       await refreshDevices();
       setChip("Saved", "on");
     } catch (error) {
@@ -947,17 +925,49 @@ export async function mountSync(api) {
     draw();
     await frame();
     const started = JSON.parse(sync.startRecovery(state.phrase));
-    state.busy = false;
     if (!started.ok) {
+      state.busy = false;
       state.error = started.message;
       draw();
       return;
     }
     state.desk = started.id;
-    state.words = started.words;
-    await loadWords().catch(() => {});
-    setUpCheck();
-    state.screen = "recover-confirm";
+    const accepted = JSON.parse(sync.acceptRecovery(state.desk));
+    if (!accepted.ok) {
+      state.error = plainError(accepted.message);
+      state.busy = false;
+      draw();
+      return;
+    }
+    state.account = accepted.account;
+    try {
+      const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
+      const opened = JSON.parse(sync.recoveryOpenPages(state.desk, mailbox.record));
+      if (!opened.ok) throw new Error(opened.message);
+      const remote = await asSet(opened.packed);
+      const snap = await api.snapshot();
+      const merged = JSON.parse(sync.mergePacked(await pack(snap.doc, snap.pages), remote.packed));
+      if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
+      const unpacked = JSON.parse(sync.unpackPages(merged.packed));
+      if (!unpacked.ok) throw new Error(unpacked.message || "Those pages could not be opened.");
+      // Combined lines stay on the copy the words just opened. A fresh library
+      // must not be published over that copy.
+      const doc = remote.doc ? api.b64ToBytes(remote.doc) : new Uint8Array();
+      const packed = await pack(doc, unpacked.pages || []);
+      await installMerged({ packed });
+      state.revision = mailbox.revision;
+      state.member = true;
+      state.removed = false;
+      state.dirty = false;
+      state.screen = "linked";
+      await saveFile();
+      await refreshDevices();
+      setChip("Saved", "on");
+    } catch (error) {
+      state.error = plainError(error.message);
+      state.screen = "recover";
+    }
+    state.busy = false;
     draw();
   }
 
@@ -968,20 +978,16 @@ export async function mountSync(api) {
     if (state.screen === "off") drawOff();
     else if (state.screen === "access") drawAccess();
     else if (state.screen === "save") drawSave();
-    else if (state.screen === "confirm" || state.screen === "recover-confirm") drawConfirm();
-    else if (state.screen === "ready") drawReady();
+    else if (state.screen === "confirm") drawConfirm();
     else if (state.screen === "invite") drawInvite();
     else if (state.screen === "join-start" || state.screen === "join-type") drawJoinType();
     else if (state.screen === "join-scan") drawJoinScan();
     else if (state.screen === "join") drawJoin();
-    else if (state.screen === "joined") drawJoined();
     else if (state.screen === "removed") drawRemoved();
     else if (state.screen === "approve") drawApprove();
     else if (state.screen === "remove-ask") drawRemoveAsk();
-    else if (state.screen === "approved") drawApproved();
     else if (state.screen === "recover") drawRecover();
     else if (state.screen === "off-ask") drawOffAsk();
-    else if (state.screen === "off-done") drawOffDone();
     else drawLinked();
   }
 
@@ -1033,31 +1039,30 @@ export async function mountSync(api) {
       ]));
     });
     const qr = el("div", { class: "sync-qr" });
-    const picture = qrNode(state.qr, "Recovery key");
+    const picture = qrNode(state.qr, "Recovery words");
     if (picture) qr.append(picture);
     qr.append(el("span", {}, ["The same words"]));
     const row = el("div", { class: "sync-key" }, [words, qr]);
     panel.append(
-      el("h2", {}, ["Write down these 12 words"]),
-      el("p", { class: "setting-help" }, ["They are the only way back in if you lose every phone and computer. Write them on paper. You will not see them again."]),
+      el("h2", {}, ["Save your recovery words"]),
+      el("p", { class: "setting-help" }, ["Print them or copy them. They are the only way back in if you lose every phone and computer. You will not see them again."]),
       row,
       addActions([
-        ["I wrote them down", "primary", async () => {
+        ["Print", "primary", () => printWords()],
+        ["Copy", "", () => copyWords()],
+        ["I saved them", "", async () => {
           await loadWords().catch(() => {});
           setUpCheck();
           state.screen = "confirm";
           state.error = "";
           draw();
         }],
-        ["Copy", "", () => copyWords()],
-        ["Print", "", () => printWords()],
         ["Back", "", () => leaveFresh()],
       ]),
     );
   }
 
   function drawConfirm() {
-    const recovering = state.screen === "recover-confirm";
     const [a, b, c] = state.asks;
     panel.append(
       el("h2", {}, ["Do these match your paper?"]),
@@ -1090,25 +1095,14 @@ export async function mountSync(api) {
       panel.append(field);
     }
     panel.append(actionsNode([
-      [state.busy ? "Checking the words…" : "These match", "primary", () => confirmWords(recovering), state.busy || picks().length !== 3],
-      [recovering ? "Back" : "Back to the words", "", () => {
-        state.screen = recovering ? "recover" : "save";
+      [state.busy ? "Checking the words…" : "These match", "primary", () => confirmWords(), state.busy || picks().length !== 3],
+      ["Back to the words", "", () => {
+        state.screen = "save";
         state.wrong = 0;
         state.error = "";
         draw();
       }, state.busy],
     ]));
-  }
-
-  function drawReady() {
-    panel.append(
-      el("h2", {}, ["Sync is on"]),
-      el("p", { class: "setting-help", "data-sync-linked": "" }, ["Your pages stay on your phones and computers. Add a phone or computer when you want them there too."]),
-      addActions([
-        ["Add a phone or computer", "primary", () => startInvite(), state.busy],
-        ["Done", "", () => { state.screen = "linked"; state.error = ""; draw(); }, state.busy],
-      ]),
-    );
   }
 
   function drawInvite() {
@@ -1147,7 +1141,7 @@ export async function mountSync(api) {
     bits.push(field, addActions([
       [state.busy ? "Joining…" : "Join", "primary", () => submitJoin(state.joinCode), state.busy],
       ["Scan the code instead", "", () => scanJoin(), state.busy],
-      ["Use my recovery key instead", "", () => openRecover(), state.busy],
+      ["Use my recovery words instead", "", () => openRecover(), state.busy],
       ["Back", "", () => { stopScan(); state.screen = state.removed ? "removed" : "off"; state.error = ""; draw(); }, state.busy],
     ]));
     panel.append(...bits);
@@ -1165,24 +1159,12 @@ export async function mountSync(api) {
 
   function drawJoin() {
     panel.append(
-      el("h2", {}, ["Does this code match?"]),
-      el("p", { class: "setting-help" }, ["On your other phone or computer, you should see the same six numbers. Tap Yes, approve it there only if they match."]),
+      el("h2", {}, ["Approve on your other device"]),
+      el("p", { class: "setting-help" }, ["The same six numbers should be on that phone or computer. Tap Yes there only if they match."]),
       el("div", { class: "sync-code" }, [state.code || ""]),
       el("p", { class: "setting-help" }, [state.busy ? "Opening your pages…" : "Waiting for that phone or computer"]),
       addActions([["Cancel", "", () => { state.screen = "off"; state.requestId = ""; state.error = ""; draw(); }, state.busy]]),
     );
-  }
-
-  function drawJoined() {
-    const bits = [
-      el("h2", {}, ["Your pages are here"]),
-      el("p", { class: "setting-help", "data-sync-linked": "" }, ["They stay on your phones and computers."]),
-    ];
-    if (state.localPages) {
-      bits.push(el("p", { class: "setting-help" }, ["Pages already here were combined. Nothing was deleted."]));
-    }
-    bits.push(addActions([["Done", "primary", () => { state.screen = "linked"; state.error = ""; draw(); }]]));
-    panel.append(...bits);
   }
 
   function drawRemoved() {
@@ -1227,27 +1209,19 @@ export async function mountSync(api) {
     );
   }
 
-  function drawApproved() {
-    panel.append(
-      el("h2", {}, ["That phone or computer can open your pages"]),
-      el("p", { class: "setting-help", "data-sync-linked": "" }, ["Your pages stay on your phones and computers."]),
-      addActions([["Done", "primary", () => { state.screen = "linked"; state.error = ""; draw(); }]]),
-    );
-  }
-
   function drawRecover() {
     const phrase = el("textarea", {
       class: "sync-phrase",
       spellcheck: "false",
-      "aria-label": "Recovery key",
+      "aria-label": "Recovery words",
     });
     phrase.value = state.phrase;
     phrase.addEventListener("input", onPhrase);
     const file = el("input", { type: "file", accept: "image/*", hidden: "", "data-sync-file": "" });
     file.addEventListener("change", () => scanFile(file.files?.[0]));
     const bits = [
-      el("h2", {}, ["Use your recovery key"]),
-      el("p", { class: "setting-help" }, ["Type or paste the 12 words you wrote down. Numbers and capitals are fine."]),
+      el("h2", {}, ["Use your recovery words"]),
+      el("p", { class: "setting-help" }, ["Type or paste the 12 recovery words. Numbers and capitals are fine."]),
     ];
     const merged = mergeLine();
     if (merged) bits.push(el("p", { class: "setting-help" }, [merged]));
@@ -1265,19 +1239,11 @@ export async function mountSync(api) {
   function drawOffAsk() {
     panel.append(
       el("h2", {}, [`Turn sync off on ${here()}?`]),
-      el("p", { class: "setting-help" }, [`Your pages stay here. ${hereCap()} will stop sharing them. The 12 words still open them.`]),
+      el("p", { class: "setting-help" }, [`Your pages stay here. ${hereCap()} will stop sharing them. The recovery words still open them.`]),
       addActions([
         [state.busy ? "Working…" : "Turn sync off", "primary", () => turnOff(), state.busy],
         ["Not now", "", () => { state.screen = "linked"; state.error = ""; draw(); }, state.busy],
       ]),
-    );
-  }
-
-  function drawOffDone() {
-    panel.append(
-      el("h2", {}, ["Sync is off"]),
-      el("p", { class: "setting-help" }, [`Your pages are still on ${here()}.`]),
-      addActions([["Done", "primary", () => { state.screen = "off"; state.error = ""; draw(); }]]),
     );
   }
 
@@ -1289,9 +1255,9 @@ export async function mountSync(api) {
     if (!state.member) {
       panel.append(
         el("h2", {}, [`Sync is off on ${here()}`]),
-        el("p", { class: "setting-help", "data-sync-linked": "" }, ["Your pages are still here. The 12 words can open them again."]),
+        el("p", { class: "setting-help", "data-sync-linked": "" }, ["Your pages are still here. The recovery words can open them again."]),
         addActions([
-          ["Use my recovery key", "primary", () => openRecover()],
+          ["Use my recovery words", "primary", () => openRecover()],
           ["Back", "", () => api.openSettings("settings")],
         ]),
       );
@@ -1359,9 +1325,9 @@ export async function mountSync(api) {
     const popup = window.open("", "_blank");
     if (!popup) return;
     const doc = popup.document;
-    doc.title = "Recovery key";
+    doc.title = "Recovery words";
     const heading = doc.createElement("h1");
-    heading.textContent = "Recovery key";
+    heading.textContent = "Recovery words";
     const list = doc.createElement("ol");
     for (const word of state.words) {
       const item = doc.createElement("li");
@@ -1464,7 +1430,7 @@ function qrNode(svg, label) {
   const node = document.createElementNS(ns, "svg");
   node.setAttribute("viewBox", `0 0 ${view[1]} ${view[2]}`);
   node.setAttribute("role", "img");
-  node.setAttribute("aria-label", label || "Recovery key");
+  node.setAttribute("aria-label", label || "Recovery words");
   const d = document.createElementNS(ns, "path");
   d.setAttribute("fill", "currentColor");
   d.setAttribute("d", path[1]);
