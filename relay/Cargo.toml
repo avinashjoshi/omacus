@@ -1,0 +1,16 @@
+[package]
+name = "omacus-relay"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Private sync test relay. It stores sealed pages and cannot open them."
+
+[dependencies]
+base64 = "0.22"
+getrandom = "0.2"
+serde_json = "1.0.154"
+
+[dev-dependencies]
+omacus-engine = { path = "../engine" }
+omacus-sync-web = { path = "../sync-web" }

@@ -9,7 +9,8 @@
 //! list says who may receive a seal. The signature covers the list, not the
 //! vault key.
 //!
-//! This is not wired to pages, to the app, or to a network.
+//! The desktop app and the website do not call this. A private test can store
+//! the sealed bytes; it has no opener to call.
 
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
@@ -244,6 +245,11 @@ impl Zeroize for Confirmed {
 impl ZeroizeOnDrop for Confirmed {}
 
 impl Confirmed {
+    #[doc(hidden)]
+    pub fn entropy_bytes(&self) -> &[u8; 16] {
+        &self.entropy
+    }
+
     /// `extra` is the optional word mixed into the root. Empty means there is none.
     /// Forgetting a word that was set cannot be repaired.
     pub fn root(&self, extra: &str) -> Result<Root, SyncKeyError> {
@@ -274,6 +280,43 @@ pub fn suggest(prefix: &str) -> Vec<&'static str> {
         .filter(|word| word.starts_with(&prefix))
         .take(8)
         .collect()
+}
+
+/// A pasted sheet: drop numbering, commas, and extra space, and ignore case.
+/// `1. River` and `river` are the same word. The check that it is a real key
+/// is still [`RecoveryKey::parse`].
+pub fn normalize_phrase(text: &str) -> String {
+    let mut words = Vec::new();
+    for raw in text.split(|c: char| c.is_whitespace() || c == ',' || c == ';' || c == '|') {
+        let token = raw.trim_matches(|c: char| {
+            matches!(
+                c,
+                '"' | '\'' | '“' | '”' | '‘' | '’' | '(' | ')' | '[' | ']' | '.' | ':' | '!' | '?'
+            )
+        });
+        if token.is_empty() {
+            continue;
+        }
+        let token = strip_index(token);
+        let token = token.trim_matches(|c: char| !c.is_ascii_alphanumeric());
+        if token.is_empty() || token.bytes().all(|byte| byte.is_ascii_digit()) {
+            continue;
+        }
+        words.push(token.to_lowercase());
+    }
+    words.join(" ")
+}
+
+fn strip_index(token: &str) -> &str {
+    let bytes = token.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() && bytes[index].is_ascii_digit() {
+        index += 1;
+    }
+    if index > 0 && index < bytes.len() && (bytes[index] == b'.' || bytes[index] == b')') {
+        return &token[index + 1..];
+    }
+    token
 }
 
 fn checksum_nibble(entropy: &[u8; 16]) -> u8 {
@@ -383,6 +426,11 @@ impl Zeroize for Root {
 impl ZeroizeOnDrop for Root {}
 
 impl Root {
+    #[doc(hidden)]
+    pub fn as_bytes(&self) -> &[u8; KEY_LEN] {
+        &self.0
+    }
+
     fn expand(&self, info: &[u8], out: &mut [u8]) -> Result<(), SyncKeyError> {
         let hk = Hkdf::<Sha256>::new(Some(ROOT_SALT), &self.0);
         hk.expand(info, out).map_err(|_| SyncKeyError::Corrupt)
@@ -454,6 +502,11 @@ impl VaultKey {
     pub fn id(&self) -> &[u8; 16] {
         &self.id
     }
+
+    #[doc(hidden)]
+    pub fn secret(&self) -> &[u8; KEY_LEN] {
+        &self.key
+    }
 }
 
 /// One device's keys. They never leave the device.
@@ -502,6 +555,16 @@ impl DeviceKeys {
         })
     }
 
+    #[doc(hidden)]
+    pub fn signing_secret(&self) -> &[u8; KEY_LEN] {
+        &self.sign
+    }
+
+    #[doc(hidden)]
+    pub fn receive_secret(&self) -> &[u8; KEY_LEN] {
+        &self.receive
+    }
+
     pub fn public(&self) -> DevicePublic {
         DevicePublic {
             id: self.id,
@@ -534,6 +597,12 @@ fn dh(secret: &[u8; KEY_LEN], public: &[u8; KEY_LEN]) -> Result<[u8; KEY_LEN], S
 }
 
 impl DevicePublic {
+    /// A device another screen already checked. The bytes are the id, then the
+    /// signing key, then the receive key, each as they are shown in the open.
+    pub fn from_parts(id: [u8; 16], sign: [u8; KEY_LEN], receive: [u8; KEY_LEN]) -> Self {
+        Self { id, sign, receive }
+    }
+
     pub fn id(&self) -> &[u8; 16] {
         &self.id
     }
@@ -1340,6 +1409,45 @@ mod tests {
         let mut wipe = RecoveryKey::from_entropy(entropy);
         wipe.zeroize();
         assert_eq!(wipe.index, [0u16; WORD_COUNT]);
+    }
+
+    #[test]
+    fn a_pasted_sheet_drops_numbering_commas_and_case() {
+        let key = RecoveryKey::from_entropy([0x42; 16]);
+        let shown = key.words();
+        let pasted = format!(
+            "1. {}\n2. {}, {}\r\n{}\n{} {}\n6. {}\n{}\n{}\n{}\n10. {}\n{}",
+            shown[0].to_uppercase(),
+            capitalize(shown[1]),
+            shown[2],
+            shown[3],
+            shown[4],
+            shown[5],
+            shown[6],
+            shown[7],
+            shown[8],
+            shown[9],
+            shown[10],
+            shown[11],
+        );
+        let normalized = normalize_phrase(&pasted);
+        assert_eq!(normalized, shown.join(" "));
+        assert_eq!(RecoveryKey::parse(&normalized).unwrap().words(), shown);
+
+        let stuck = format!("1.{} 2){}", shown[0], shown[1]);
+        assert_eq!(
+            normalize_phrase(&stuck),
+            format!("{} {}", shown[0], shown[1])
+        );
+        assert_eq!(normalize_phrase("1. 2. 3."), "");
+    }
+
+    fn capitalize(word: &str) -> String {
+        let mut chars = word.chars();
+        match chars.next() {
+            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            None => String::new(),
+        }
     }
 
     #[test]
