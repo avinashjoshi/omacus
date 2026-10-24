@@ -207,7 +207,7 @@ The JSON body is `{ "message": "..." }`. The name is the server's name for the c
 | Unknown | 404 | No mailbox, a missing object, a bad or missing signature, a removed device, a replay, or a request proof that does not match. The sentence is the same in every case. |
 | Conflict | 409 | That account already has a mailbox. |
 | Revision | 409 | Mailbox revision or an object `base` did not match. Nothing was written. |
-| Full | 429 | The server or the object cap is full. |
+| Full | 429 | Too many join requests are waiting, or that account's object cap is full. |
 | Unreadable | 400 | The body, the record magic, an id, or a size is not valid. |
 | BadInvite | 400 | The join code did not match a live invite. |
 | BadAccess | 400 | The invite code for a new mailbox did not match. |
@@ -223,4 +223,6 @@ The server cannot see recovery words, the root, a vault key, a content key, a pa
 
 ## Storage
 
-The mailbox does not require Durable Objects. A `Kv` stores opaque values by string key: get, put, delete, and list by prefix. The in-memory map and a directory of files both implement it. The file layout is a mailbox header at `box/{account}` and one object file at `obj/{account}/{id}` (revision as 8 bytes, then the raw body). A second process opening that directory reads the same bytes. The worker keeps the same shape: the mailbox key `m:{account}`, and one key `o:{account}:{id}` per object. Tests pass an in-memory store or a file store in place of the Durable Object storage. The worker source does not import the file adapter.
+The mailbox does not require Durable Objects. A `Kv` stores opaque values by string key: get, put, delete, and list by prefix. The in-memory map and a directory of files both implement it. The file layout is a mailbox header at `box/{account}` and one object file at `obj/{account}/{id}` (revision as 8 bytes, then the raw body). A second process opening that directory reads the same bytes. The worker keeps the same shape inside an account's object: the mailbox key `m:{account}`, and one key `o:{account}:{id}` per object. Tests pass an in-memory store or a file store in place of the Durable Object storage. The worker source does not import the file adapter.
+
+The worker places each account in its own object. A directory object stores invite hashes, access-code hashes, and one row per account (sizes and device counts, not page text). A join reads the invite hash and opens that account. It does not list the other accounts. There is no cap of 32 accounts. An account still on the older shared object is copied into its own object the first time it is used, then removed from the shared object. The reference server keeps every account in one process and uses the same invite index.

@@ -48,6 +48,9 @@ class Storage {
         put: async (key, value) => {
           this.rows.set(key, structuredClone(value));
         },
+        delete: async (key) => {
+          this.rows.delete(key);
+        },
         list: async ({ prefix } = {}) => {
           const out = new Map();
           for (const [key, value] of this.rows) {

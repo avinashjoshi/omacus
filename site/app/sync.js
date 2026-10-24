@@ -2,7 +2,7 @@
 // A device file stays in this browser. The server receives a sealed record.
 import { SYNC_URL } from "./sync-config.js";
 
-const LABEL = "omacus 1.0.0-beta.11";
+const LABEL = "omacus 1.0.0-beta.12";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 

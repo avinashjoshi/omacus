@@ -153,7 +153,7 @@ const pageB = await openApp(contextB);
 
 try {
   const health = await (await fetch(relay + "/v1/health")).json();
-  if (health.label !== "1.0.0-beta.11") throw new Error(`relay label ${health.label}`);
+  if (health.label !== "1.0.0-beta.12") throw new Error(`relay label ${health.label}`);
 
   await openSync(pageA);
   const guessed = await pageA.getByRole("textbox", { name: "Name this phone or computer" }).inputValue();

@@ -1,5 +1,7 @@
-// Private sync test relay (1.0.0-beta.11) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.12) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
+// Each account lives in its own object. A directory object maps an invite
+// hash to that account, so a join does not list every account.
 // A new set of pages needs an invite code. The code is shown once, and
 // only a hash is stored. A new phone joins with a one-time code, also
 // stored only as a hash. A join request is removed once the waiting phone
@@ -8,14 +10,17 @@
 // This worker holds no keys and cannot open a page.
 import { DurableObject } from "cloudflare:workers";
 import { mint, openCode, spend } from "./access.js";
-import { adminAuthorized, handleAdmin, isolateAllow, noteError } from "./admin.js";
+import { adminAuthorized, deviceCount, handleAdmin, isolateAllow, noteError } from "./admin.js";
 import { allowPut, authorize } from "./auth.js";
 import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
 
-const LABEL = "1.0.0-beta.11";
+const LABEL = "1.0.0-beta.12";
 const MAX_RECORD = 256 * 1024, MAX_MANIFEST = 1024 * 1024, MAX_OBJECT = 4 * 1024 * 1024 + 64;
 const MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024, MAX_BODY = 8 * 1024 * 1024;
-const MAX_MAILBOXES = 32, MAX_REQUESTS = 8, MAX_USES = 20;
+const MAX_REQUESTS = 8, MAX_USES = 20;
+const DIRECTORY = "directory";
+const LEGACY = "test";
+const homed = new Set();
 const enc = new TextEncoder();
 const RECORD_MAGIC = enc.encode("OMACUS-SYNC/1\n");
 const RECORD_MAGIC_V2 = enc.encode("OMACUS-SYNC/2\n");
@@ -251,6 +256,7 @@ export class Mailboxes extends DurableObject {
 
   async route(method, path, body, access, admin, headers, raw, ip) {
     if (path.startsWith("/v1/admin")) return handleAdmin(this.store, method, path, body, admin === true);
+    if (path.startsWith("/v1/internal/")) return this.internal(method, path, body, headers, access);
     const need = () => (body && typeof body === "object" ? body : fail("Unreadable"));
     if (method === "POST" && path === "/v1/access") {
       this.charge(ip);
@@ -267,14 +273,16 @@ export class Mailboxes extends DurableObject {
       const account = accountId(typeof v.account === "string" ? v.account : fail("Unreadable"));
       const record = sealed(v.record);
       const writes = objectWrites(v);
-      if (!access.spend) fail("BadAccess");
-      const signups = await this.store.get("admin:signups");
-      if (signups && signups.paused) fail("Paused");
-      await this.useAccess(access, true);
+      const spent = headers && headers.get && headers.get("x-omacus-access-spent") === "1";
+      if (!spent) {
+        if (!access.spend) fail("BadAccess");
+        const signups = await this.store.get("admin:signups");
+        if (signups && signups.paused) fail("Paused");
+        await this.useAccess(access, true);
+      }
       let written = [];
       await this.store.transaction(async (txn) => {
         if (await txn.get("m:" + account)) fail("Conflict");
-        if ((await txn.list({ prefix: "m:" })).size >= MAX_MAILBOXES) fail("Full");
         await txn.put("m:" + account, { revision: 1, record, requests: {}, created: Date.now() });
         written = await applyObjects(txn, account, writes, []);
       });
@@ -345,12 +353,15 @@ export class Mailboxes extends DurableObject {
       return [200, { objects }];
     }
     if (method === "POST" && sub === "invites" && id === undefined) {
-      return this.change(account, async (m) => {
+      return this.change(account, async (m, txn) => {
         await authed(m);
         const v = need();
         const hash = String(v.hash || "").trim().toLowerCase();
         if (!/^[0-9a-f]{64}$/.test(hash)) fail("Unreadable");
-        m.invite = { hash, expires: Date.now() + INVITE_MS, used: false };
+        if (m.invite && m.invite.hash && m.invite.hash !== hash) await txn.delete("i:" + m.invite.hash);
+        const expires = Date.now() + INVITE_MS;
+        m.invite = { hash, expires, used: false };
+        await txn.put("i:" + hash, { account, expires });
         return [200, { ok: true }];
       });
     }
@@ -399,21 +410,16 @@ export class Mailboxes extends DurableObject {
     const proof = btoa(String.fromCharCode(...given));
     let result;
     await this.store.transaction(async (txn) => {
-      const all = await txn.list({ prefix: "m:" });
-      let account = "";
-      let mailbox = null;
-      for (const [key, stored] of all) {
-        const invite = stored.invite;
-        if (!invite || invite.used || !(invite.expires > now) || invite.hash !== hash) continue;
-        account = key.slice(2);
-        mailbox = stored;
-        break;
-      }
-      if (!mailbox) fail("BadInvite");
+      const indexed = await txn.get("i:" + hash);
+      const account = indexed && typeof indexed.account === "string" ? indexed.account : "";
+      const mailbox = /^[0-9a-f]{64}$/.test(account) ? await txn.get("m:" + account) : null;
+      const invite = mailbox && mailbox.invite;
+      if (!mailbox || !invite || invite.used || !(invite.expires > now) || invite.hash !== hash) fail("BadInvite");
       dropExpired(mailbox, now);
       const pending = Object.values(mailbox.requests).filter((request) => request.state === "pending").length;
       if (pending >= MAX_REQUESTS) fail("Full");
       mailbox.invite.used = true;
+      await txn.delete("i:" + hash);
       mailbox.requests[id] = {
         device: btoa(String.fromCharCode(...device)),
         name: cleanName(typeof v.name === "string" ? v.name : ""),
@@ -428,10 +434,368 @@ export class Mailboxes extends DurableObject {
     });
     return result;
   }
+
+  async internal(method, path, body, headers, access) {
+    if (!headers || !headers.get || headers.get("x-omacus-internal") !== "1") fail("Unknown");
+    const value = body && typeof body === "object" ? body : {};
+    const probe = /^\/v1\/internal\/probe\/([0-9a-f]{64})$/.exec(path);
+    if (method === "GET" && probe) {
+      if (!(await this.store.get("m:" + probe[1]))) fail("Unknown");
+      return [200, { present: true }];
+    }
+    const copy = /^\/v1\/internal\/copy\/([0-9a-f]{64})$/.exec(path);
+    if (method === "POST" && copy) {
+      const account = copy[1];
+      const mailbox = await this.store.get("m:" + account);
+      if (!mailbox) fail("Unknown");
+      const listed = await this.store.list({ prefix: `o:${account}:` });
+      const objects = [...listed].map(([key]) => key.slice(`o:${account}:`.length));
+      return [200, { mailbox, objects }];
+    }
+    const objectPath = /^\/v1\/internal\/object\/([0-9a-f]{64})\/([0-9a-f]{32})$/.exec(path);
+    if (objectPath && method === "GET") {
+      const row = await this.store.get(`o:${objectPath[1]}:${objectPath[2]}`);
+      if (!row) fail("Unknown");
+      return [200, row];
+    }
+    if (objectPath && method === "PUT") {
+      const key = `o:${objectPath[1]}:${objectPath[2]}`;
+      if (!Number.isInteger(value.revision) || typeof value.body !== "string") fail("Unreadable");
+      if (!(await this.store.get(key))) {
+        await this.store.put(key, {
+          revision: value.revision,
+          body: value.body,
+          bytes: Number.isInteger(value.bytes) ? value.bytes : 0,
+        });
+      }
+      return [200, { ok: true }];
+    }
+    const importing = /^\/v1\/internal\/import\/([0-9a-f]{64})$/.exec(path);
+    if (method === "POST" && importing) {
+      const account = importing[1];
+      const mailbox = value.mailbox;
+      if (!mailbox || typeof mailbox !== "object" || typeof mailbox.record !== "string") fail("Unreadable");
+      await this.store.transaction(async (txn) => {
+        if (!(await txn.get("m:" + account))) await txn.put("m:" + account, mailbox);
+        const invite = mailbox.invite;
+        if (invite && /^[0-9a-f]{64}$/.test(invite.hash || "") && !invite.used) {
+          await txn.put("i:" + invite.hash, { account, expires: invite.expires });
+        }
+      });
+      return [200, { ok: true }];
+    }
+    const drop = /^\/v1\/internal\/drop\/([0-9a-f]{64})$/.exec(path);
+    if (method === "POST" && drop) {
+      const account = drop[1];
+      const mailbox = await this.store.get("m:" + account);
+      const objects = await this.store.list({ prefix: `o:${account}:` });
+      for (const key of objects.keys()) await this.store.delete(key);
+      if (mailbox && mailbox.invite && mailbox.invite.hash) await this.store.delete("i:" + mailbox.invite.hash);
+      await this.store.delete("m:" + account);
+      await this.store.delete("r:" + account);
+      return [200, { ok: true }];
+    }
+    if (method === "POST" && path === "/v1/internal/claim") {
+      const account = accountId(typeof value.account === "string" ? value.account : fail("Unreadable"));
+      sealed(value.record);
+      objectWrites(value);
+      if (!access.spend) fail("BadAccess");
+      const signups = await this.store.get("admin:signups");
+      if (signups && signups.paused) fail("Paused");
+      if ((await this.store.get("r:" + account)) || (await this.store.get("m:" + account))) fail("Conflict");
+      await this.useAccess(access, true);
+      await this.store.put("r:" + account, { pending: true, bytes: 0, devices: 0, invite: "" });
+      return [201, { ok: true }];
+    }
+    if (method === "POST" && path === "/v1/internal/release") {
+      const account = accountId(typeof value.account === "string" ? value.account : fail("Unreadable"));
+      const row = await this.store.get("r:" + account);
+      if (row && row.pending) await this.store.delete("r:" + account);
+      return [200, { ok: true }];
+    }
+    if (method === "POST" && path === "/v1/internal/registry") {
+      const account = accountId(typeof value.account === "string" ? value.account : fail("Unreadable"));
+      const prev = (await this.store.get("r:" + account)) || {};
+      await this.store.put("r:" + account, {
+        pending: false,
+        bytes: Number.isInteger(value.bytes) ? value.bytes : 0,
+        devices: Number.isInteger(value.devices) ? value.devices : 0,
+        invite: typeof prev.invite === "string" ? prev.invite : "",
+      });
+      return [200, { ok: true }];
+    }
+    const invite = /^\/v1\/internal\/invite\/([0-9a-f]{64})$/.exec(path);
+    if (invite && method === "PUT") {
+      const account = accountId(typeof value.account === "string" ? value.account : fail("Unreadable"));
+      const hash = invite[1];
+      const prev = (await this.store.get("r:" + account)) || { bytes: 0, devices: 0 };
+      if (prev.invite && prev.invite !== hash) await this.store.delete("i:" + prev.invite);
+      prev.invite = hash;
+      prev.pending = false;
+      await this.store.put("r:" + account, prev);
+      await this.store.put("i:" + hash, { account, expires: Number(value.expires) || 0 });
+      return [200, { ok: true }];
+    }
+    if (invite && method === "GET") {
+      const account = await indexedAccount(this.store, invite[1]);
+      if (!account) fail("BadInvite");
+      return [200, { account }];
+    }
+    if (invite && method === "DELETE") {
+      await this.store.delete("i:" + invite[1]);
+      return [200, { ok: true }];
+    }
+    const size = /^\/v1\/internal\/size\/([0-9a-f]{64})$/.exec(path);
+    if (method === "GET" && size) {
+      const foot = await footprint(this.store, size[1]);
+      if (!foot) fail("Unknown");
+      return [200, foot];
+    }
+    fail("Unknown");
+  }
+}
+
+export function clearPlacement() {
+  homed.clear();
+}
+
+function box(env, name) {
+  return env.MAILBOXES.get(env.MAILBOXES.idFromName(name));
+}
+
+function accountObject(account) {
+  return `acct-${account}`;
+}
+
+function internalHeaders() {
+  const headers = new Headers();
+  headers.set("x-omacus-internal", "1");
+  headers.set("content-type", "application/json");
+  return headers;
 }
 
 function mailbox(env) {
-  return env.MAILBOXES.get(env.MAILBOXES.idFromName("test"));
+  return box(env, DIRECTORY);
+}
+
+async function footprint(store, account) {
+  const mailbox = await store.get("m:" + account);
+  if (!mailbox || typeof mailbox.record !== "string") return null;
+  const record = fromB64(mailbox.record);
+  let bytes = record.length;
+  const objects = await store.list({ prefix: `o:${account}:` });
+  for (const [, row] of objects) bytes += row && Number.isInteger(row.bytes) ? row.bytes : 0;
+  return { bytes, devices: deviceCount(record) };
+}
+
+async function indexedAccount(store, hash) {
+  const row = await store.get("i:" + hash);
+  if (row && typeof row.account === "string" && /^[0-9a-f]{64}$/.test(row.account)) {
+    if (!Number.isInteger(row.expires) || row.expires > Date.now()) return row.account;
+  }
+  const all = await store.list({ prefix: "m:" });
+  for (const [key, stored] of all) {
+    const invite = stored && stored.invite;
+    const account = key.slice(2);
+    if (!/^[0-9a-f]{64}$/.test(account) || !invite || invite.used || invite.hash !== hash) continue;
+    if (!(invite.expires > Date.now())) continue;
+    await store.put("i:" + hash, { account, expires: invite.expires });
+    return account;
+  }
+  return "";
+}
+
+async function remember(env, request, account) {
+  const size = await box(env, accountObject(account)).fetch(new Request(
+    new URL(`/v1/internal/size/${account}`, request.url),
+    { headers: internalHeaders() },
+  ));
+  if (!size.ok) return;
+  const foot = await size.json();
+  await box(env, DIRECTORY).fetch(new Request(new URL("/v1/internal/registry", request.url), {
+    method: "POST",
+    headers: internalHeaders(),
+    body: JSON.stringify({ account, bytes: foot.bytes, devices: foot.devices }),
+  }));
+}
+
+async function migrateIfAbsent(env, request, account) {
+  if (homed.has(account)) return;
+  const home = box(env, accountObject(account));
+  const probe = await home.fetch(new Request(new URL(`/v1/internal/probe/${account}`, request.url), {
+    headers: internalHeaders(),
+  }));
+  if (probe.ok) {
+    homed.add(account);
+    return;
+  }
+  const legacy = box(env, LEGACY);
+  const copy = await legacy.fetch(new Request(new URL(`/v1/internal/copy/${account}`, request.url), {
+    method: "POST",
+    headers: internalHeaders(),
+    body: "{}",
+  }));
+  if (!copy.ok) return;
+  const payload = await copy.json();
+  const imported = await home.fetch(new Request(new URL(`/v1/internal/import/${account}`, request.url), {
+    method: "POST",
+    headers: internalHeaders(),
+    body: JSON.stringify({ mailbox: payload.mailbox }),
+  }));
+  if (!imported.ok) return;
+  for (const id of payload.objects || []) {
+    const object = await legacy.fetch(new Request(
+      new URL(`/v1/internal/object/${account}/${id}`, request.url),
+      { headers: internalHeaders() },
+    ));
+    if (!object.ok) return;
+    const saved = await home.fetch(new Request(
+      new URL(`/v1/internal/object/${account}/${id}`, request.url),
+      {
+        method: "PUT",
+        headers: internalHeaders(),
+        body: JSON.stringify(await object.json()),
+      },
+    ));
+    if (!saved.ok) return;
+  }
+  await legacy.fetch(new Request(new URL(`/v1/internal/drop/${account}`, request.url), {
+    method: "POST",
+    headers: internalHeaders(),
+    body: "{}",
+  }));
+  const invite = payload.mailbox && payload.mailbox.invite;
+  if (invite && invite.hash && !invite.used) {
+    await box(env, DIRECTORY).fetch(new Request(new URL(`/v1/internal/invite/${invite.hash}`, request.url), {
+      method: "PUT",
+      headers: internalHeaders(),
+      body: JSON.stringify({ account, expires: invite.expires }),
+    }));
+  }
+  await remember(env, request, account);
+  homed.add(account);
+}
+
+async function dropCopies(env, request, account) {
+  homed.delete(account);
+  const url = new URL(`/v1/internal/drop/${account}`, request.url);
+  await box(env, accountObject(account)).fetch(new Request(url, { method: "POST", headers: internalHeaders(), body: "{}" }));
+  await box(env, LEGACY).fetch(new Request(url, { method: "POST", headers: internalHeaders(), body: "{}" }));
+}
+
+async function publishInvite(env, request, account, raw) {
+  let body;
+  try { body = JSON.parse(raw); } catch { return; }
+  const hash = String((body && body.hash) || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(hash)) return;
+  await box(env, DIRECTORY).fetch(new Request(new URL(`/v1/internal/invite/${hash}`, request.url), {
+    method: "PUT",
+    headers: internalHeaders(),
+    body: JSON.stringify({ account, expires: Date.now() + INVITE_MS }),
+  }));
+}
+
+async function createAccount(env, request, raw, headers) {
+  let body;
+  try { body = JSON.parse(raw); } catch { body = null; }
+  const account = body && typeof body.account === "string" ? body.account.trim().toLowerCase() : "";
+  if (!/^[0-9a-f]{64}$/.test(account)) {
+    return box(env, DIRECTORY).fetch(new Request(request.url, { method: "POST", headers, body: raw }));
+  }
+  const legacy = await box(env, LEGACY).fetch(new Request(
+    new URL(`/v1/internal/probe/${account}`, request.url),
+    { headers: internalHeaders() },
+  ));
+  if (legacy.ok) return json(409, { message: ERR.Conflict[1] });
+  const claimHeaders = new Headers(headers);
+  claimHeaders.set("x-omacus-internal", "1");
+  const claim = await box(env, DIRECTORY).fetch(new Request(new URL("/v1/internal/claim", request.url), {
+    method: "POST",
+    headers: claimHeaders,
+    body: raw,
+  }));
+  if (!claim.ok) return claim;
+  const createHeaders = new Headers(headers);
+  createHeaders.delete("x-omacus-internal");
+  createHeaders.set("x-omacus-access-spent", "1");
+  const created = await box(env, accountObject(account)).fetch(new Request(request.url, {
+    method: "POST",
+    headers: createHeaders,
+    body: raw,
+  }));
+  if (!created.ok) {
+    await box(env, DIRECTORY).fetch(new Request(new URL("/v1/internal/release", request.url), {
+      method: "POST",
+      headers: internalHeaders(),
+      body: JSON.stringify({ account }),
+    }));
+    return created;
+  }
+  homed.add(account);
+  await remember(env, request, account);
+  return created;
+}
+
+async function lookupInvite(env, request, hash) {
+  const url = new URL(`/v1/internal/invite/${hash}`, request.url);
+  const directory = await box(env, DIRECTORY).fetch(new Request(url, { headers: internalHeaders() }));
+  if (directory.ok) return directory.json();
+  const legacy = await box(env, LEGACY).fetch(new Request(url, { headers: internalHeaders() }));
+  if (legacy.ok) return legacy.json();
+  return null;
+}
+
+async function joinAccount(env, request, raw, headers) {
+  let body;
+  try { body = JSON.parse(raw); } catch { body = null; }
+  const secret = body && decodeCode(body.code);
+  if (!secret) return json(400, { message: ERR.BadInvite[1] });
+  const hash = await hashHex(secret);
+  const found = await lookupInvite(env, request, hash);
+  if (!found) return json(400, { message: ERR.BadInvite[1] });
+  await migrateIfAbsent(env, request, found.account);
+  const response = await box(env, accountObject(found.account)).fetch(new Request(request.url, {
+    method: "POST",
+    headers,
+    body: raw,
+  }));
+  if (response.ok) {
+    const drop = new URL(`/v1/internal/invite/${hash}`, request.url);
+    await box(env, DIRECTORY).fetch(new Request(drop, { method: "DELETE", headers: internalHeaders() }));
+    await box(env, LEGACY).fetch(new Request(drop, { method: "DELETE", headers: internalHeaders() }));
+  }
+  return response;
+}
+
+async function routeClient(env, request) {
+  const url = new URL(request.url);
+  const { pathname: path } = url;
+  const { method } = request;
+  if (path.startsWith("/v1/internal")) return json(404, { message: ERR.Unknown[1] });
+  const headers = new Headers(request.headers);
+  headers.delete("x-omacus-internal");
+  headers.delete("x-omacus-access-spent");
+  headers.delete("content-length");
+  let raw = "";
+  if (method !== "GET" && method !== "HEAD") raw = await request.text();
+  const forward = () => new Request(request.url, {
+    method,
+    headers,
+    body: method === "GET" || method === "HEAD" ? undefined : raw,
+  });
+  if (method === "POST" && path === "/v1/access") return box(env, DIRECTORY).fetch(forward());
+  if (method === "POST" && path === "/v1/mailboxes") return createAccount(env, request, raw, headers);
+  if (method === "POST" && path === "/v1/join") return joinAccount(env, request, raw, headers);
+  const mailboxPath = /^\/v1\/mailboxes\/([0-9a-f]{64})(\/.*)?$/.exec(path);
+  if (mailboxPath) {
+    const account = mailboxPath[1];
+    await migrateIfAbsent(env, request, account);
+    const response = await box(env, accountObject(account)).fetch(forward());
+    if (response.ok && method === "POST" && mailboxPath[2] === "/invites") await publishInvite(env, request, account, raw);
+    if (response.ok && method === "PUT" && !mailboxPath[2]) await remember(env, request, account);
+    return response;
+  }
+  return box(env, DIRECTORY).fetch(forward());
 }
 
 function notFound() {
@@ -488,7 +852,12 @@ async function adminApi(request, env, url) {
     headers,
     body: request.method === "GET" || request.method === "HEAD" ? undefined : JSON.stringify(payload),
   });
-  return mailbox(env).fetch(forward);
+  const response = await mailbox(env).fetch(forward);
+  if (request.method === "DELETE" && response.ok) {
+    const remove = /^\/v1\/admin\/accounts\/([0-9a-f]{64})$/.exec(url.pathname);
+    if (remove) await dropCopies(env, request, remove[1]);
+  }
+  return response;
 }
 
 export default {
@@ -500,10 +869,11 @@ export default {
     if (url.pathname.startsWith("/admin/")) return adminAsset(request, env, url.pathname);
     if (url.pathname === "/css/tokens.css") return adminAsset(request, env, url.pathname);
     if (url.pathname.startsWith("/v1/admin")) return adminApi(request, env, url);
+    if (url.pathname.startsWith("/v1/internal")) return json(404, { message: ERR.Unknown[1] });
     if (url.pathname.startsWith("/v1/")) {
       const forwarded = await gate(request, env, url);
       if (forwarded instanceof Response) return forwarded;
-      return mailbox(env).fetch(forwarded);
+      return routeClient(env, forwarded);
     }
     if (String(env.SERVE_APP) === "1" && env.ASSETS) return env.ASSETS.fetch(request);
     return notFound();

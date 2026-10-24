@@ -16,7 +16,6 @@ const MAX_OBJECT: usize = 4 * 1024 * 1024 + 64;
 const MAX_OBJECTS: usize = 100_000;
 const MAX_CHAIN: usize = 64 * 1024;
 const MAX_WRAP: usize = 1024;
-const MAX_MAILBOXES: usize = 32;
 const MAX_REQUESTS: usize = 8;
 const RECORD_MAGIC: &[u8] = b"OMACUS-SYNC/1\n";
 const RECORD_MAGIC_V2: &[u8] = b"OMACUS-SYNC/2\n";
@@ -117,6 +116,8 @@ pub struct ObjectHead {
 
 pub struct Store {
     mailboxes: BTreeMap<String, Mailbox>,
+    /// Live invite hash → account. A join reads this map. It does not walk the accounts.
+    invites: BTreeMap<[u8; 32], String>,
     access_left: BTreeMap<[u8; 32], u8>,
     access_secret: Vec<u8>,
     now_ms: Option<u64>,
@@ -146,6 +147,7 @@ impl Store {
     pub fn new() -> Self {
         Self {
             mailboxes: BTreeMap::new(),
+            invites: BTreeMap::new(),
             access_left: BTreeMap::new(),
             access_secret: Vec::new(),
             now_ms: None,
@@ -158,8 +160,10 @@ impl Store {
     /// Load whatever the adapter already has, then keep writing through it.
     pub fn with_backend(backend: Box<dyn Kv>) -> Self {
         let (mailboxes, access_left) = load_backend(backend.as_ref());
+        let invites = index_invites(&mailboxes);
         Self {
             mailboxes,
+            invites,
             access_left,
             access_secret: Vec::new(),
             now_ms: None,
@@ -349,9 +353,6 @@ impl Store {
         if self.mailboxes.contains_key(&account) {
             return Err(StoreError::Conflict);
         }
-        if self.mailboxes.len() >= MAX_MAILBOXES {
-            return Err(StoreError::Full);
-        }
         Ok(())
     }
 
@@ -360,9 +361,6 @@ impl Store {
         sealed_record(&record)?;
         if self.mailboxes.contains_key(&account) {
             return Err(StoreError::Conflict);
-        }
-        if self.mailboxes.len() >= MAX_MAILBOXES {
-            return Err(StoreError::Full);
         }
         self.mailboxes.insert(
             account.clone(),
@@ -389,9 +387,6 @@ impl Store {
         sealed_record(&record)?;
         if self.mailboxes.contains_key(&account) {
             return Err(StoreError::Conflict);
-        }
-        if self.mailboxes.len() >= MAX_MAILBOXES {
-            return Err(StoreError::Full);
         }
         let mut objects = BTreeMap::new();
         let mut written = Vec::new();
@@ -579,15 +574,27 @@ impl Store {
         let account = account_id(account)?;
         let hash = invite::parse_hash(hash_hex).ok_or(StoreError::Unreadable)?;
         let expires = self.now().saturating_add(INVITE_MS);
-        let mailbox = self
+        let previous = self
             .mailboxes
+            .get(&account)
+            .ok_or(StoreError::Unknown)?
+            .invite
+            .as_ref()
+            .map(|invite| invite.hash);
+        if let Some(previous) = previous
+            && self.invites.get(&previous) == Some(&account)
+        {
+            self.invites.remove(&previous);
+        }
+        self.mailboxes
             .get_mut(&account)
-            .ok_or(StoreError::Unknown)?;
-        mailbox.invite = Some(Invite {
+            .ok_or(StoreError::Unknown)?
+            .invite = Some(Invite {
             hash,
             expires,
             used: false,
         });
+        self.invites.insert(hash, account);
         Ok(())
     }
 
@@ -606,48 +613,64 @@ impl Store {
         let hash = invite::hash_secret(&secret);
         let now = self.now();
         let account = self
-            .mailboxes
-            .iter()
-            .find_map(|(account, mailbox)| {
-                let invite = mailbox.invite.as_ref()?;
-                if invite.used || invite.expires <= now || invite.hash != hash {
-                    return None;
-                }
-                Some(account.clone())
-            })
+            .invites
+            .get(&hash)
+            .cloned()
             .ok_or(StoreError::BadInvite)?;
         if !invite::proof_matches(&secret, &device, given) {
             return Err(StoreError::BadInvite);
         }
         self.drop_expired(&account);
-        let mailbox = self
+        let matches = self
             .mailboxes
-            .get_mut(&account)
-            .ok_or(StoreError::Unknown)?;
-        let pending = mailbox
-            .requests
-            .values()
-            .filter(|request| request.state == State::Pending)
-            .count();
-        if pending >= MAX_REQUESTS {
-            return Err(StoreError::Full);
-        }
-        if let Some(invite) = mailbox.invite.as_mut() {
-            invite.used = true;
+            .get(&account)
+            .and_then(|mailbox| mailbox.invite.as_ref())
+            .is_some_and(|invite| !invite.used && invite.expires > now && invite.hash == hash);
+        if !matches {
+            let drop_index = match self
+                .mailboxes
+                .get(&account)
+                .and_then(|mailbox| mailbox.invite.as_ref())
+            {
+                Some(invite) => invite.used || invite.hash != hash,
+                None => true,
+            };
+            if drop_index {
+                self.invites.remove(&hash);
+            }
+            return Err(StoreError::BadInvite);
         }
         let id = fresh_id()?;
-        mailbox.requests.insert(
-            id.clone(),
-            Request {
-                device,
-                name: clean_name(name),
-                state: State::Pending,
-                chain: Vec::new(),
-                wrap: Vec::new(),
-                proof: given.to_vec(),
-                created: now,
-            },
-        );
+        {
+            let mailbox = self
+                .mailboxes
+                .get_mut(&account)
+                .ok_or(StoreError::BadInvite)?;
+            let pending = mailbox
+                .requests
+                .values()
+                .filter(|request| request.state == State::Pending)
+                .count();
+            if pending >= MAX_REQUESTS {
+                return Err(StoreError::Full);
+            }
+            if let Some(invite) = mailbox.invite.as_mut() {
+                invite.used = true;
+            }
+            mailbox.requests.insert(
+                id.clone(),
+                Request {
+                    device,
+                    name: clean_name(name),
+                    state: State::Pending,
+                    chain: Vec::new(),
+                    wrap: Vec::new(),
+                    proof: given.to_vec(),
+                    created: now,
+                },
+            );
+        }
+        self.invites.remove(&hash);
         Ok((account, id))
     }
 
@@ -869,6 +892,18 @@ fn save_backend(
         .map(|(hash, left)| json!({"hash": hex_bytes(hash), "left": left}))
         .collect();
     kv.put("access", serde_json::to_vec(&rows).unwrap_or_default());
+}
+
+fn index_invites(mailboxes: &BTreeMap<String, Mailbox>) -> BTreeMap<[u8; 32], String> {
+    let mut invites = BTreeMap::new();
+    for (account, mailbox) in mailboxes {
+        if let Some(invite) = &mailbox.invite
+            && !invite.used
+        {
+            invites.insert(invite.hash, account.clone());
+        }
+    }
+    invites
 }
 
 fn load_backend(kv: &dyn Kv) -> (BTreeMap<String, Mailbox>, BTreeMap<[u8; 32], u8>) {
@@ -1098,6 +1133,38 @@ mod tests {
         let (found, id) = store.join(&code, device.to_vec(), name, &mac).unwrap();
         assert_eq!(found, account);
         id
+    }
+
+    #[test]
+    fn the_33rd_account_is_kept_and_a_join_follows_the_invite_index() {
+        let mut store = Store::new();
+        for n in 0..33u32 {
+            store.create(&format!("{n:064x}"), record()).unwrap();
+        }
+        let first = format!("{:064x}", 0);
+        let second = format!("{:064x}", 32);
+        let secret = [4u8, 5, 6, 7, 8];
+        store.set_now(50);
+        store
+            .open_invite(&second, &invite::hash_hex(&secret))
+            .unwrap();
+        let hash = invite::hash_secret(&secret);
+        // The live invite sits on the 33rd account. Pointing the index elsewhere
+        // must miss. A walk of every account would still find it.
+        store.invites.insert(hash, first);
+        let device = vec![3u8; 80];
+        let code = invite::encode_code(&secret);
+        let mac = invite::proof(&secret, &device);
+        assert_eq!(
+            store
+                .join(&code, device.clone(), "Kitchen", &mac)
+                .unwrap_err(),
+            StoreError::BadInvite
+        );
+        store.invites.insert(hash, second.clone());
+        let (found, _) = store.join(&code, device, "Kitchen", &mac).unwrap();
+        assert_eq!(found, second);
+        assert!(!store.invites.contains_key(&hash));
     }
 
     #[test]

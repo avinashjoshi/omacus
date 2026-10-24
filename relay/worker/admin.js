@@ -180,12 +180,15 @@ async function revokeCode(storage, hash) {
 
 async function collectStats(storage) {
   const mailboxes = await storage.list({ prefix: "m:" });
+  const registered = await storage.list({ prefix: "r:" });
   const signups = await storage.get("admin:signups");
   const storageRows = [];
+  const seen = new Set();
   let devices = 0;
   for (const [key, mailbox] of mailboxes) {
     const account = key.slice(2);
     if (!/^[0-9a-f]{64}$/.test(account)) continue;
+    seen.add(account);
     const bytes = decodeRecord(mailbox && mailbox.record);
     const count = bytes ? deviceCount(bytes) : 0;
     devices += count;
@@ -195,6 +198,17 @@ async function collectStats(storage) {
       objectBytes += value && Number.isInteger(value.bytes) ? value.bytes : 0;
     }
     storageRows.push({ account, bytes: (bytes ? bytes.length : 0) + objectBytes, devices: count });
+  }
+  for (const [key, row] of registered) {
+    const account = key.slice(2);
+    if (!/^[0-9a-f]{64}$/.test(account) || seen.has(account) || !row || row.pending) continue;
+    const count = Number.isInteger(row.devices) ? row.devices : 0;
+    devices += count;
+    storageRows.push({
+      account,
+      bytes: Number.isInteger(row.bytes) ? row.bytes : 0,
+      devices: count,
+    });
   }
   storageRows.sort((a, b) => a.account.localeCompare(b.account));
   return {
@@ -225,11 +239,21 @@ async function setSignups(storage, paused) {
 async function deleteAccount(storage, account, confirm) {
   if (confirm !== account) return [400, { message: "Type the account id to confirm." }];
   const key = "m:" + account;
+  const regKey = "r:" + account;
   const row = await storage.get(key);
-  if (!row) return [404, { message: "No sealed copy is stored for that account." }];
-  const objects = await storage.list({ prefix: `o:${account}:` });
-  for (const objectKey of objects.keys()) await storage.delete(objectKey);
-  await storage.delete(key);
+  const reg = await storage.get(regKey);
+  if (!row && !reg) return [404, { message: "No sealed copy is stored for that account." }];
+  if (row) {
+    const objects = await storage.list({ prefix: `o:${account}:` });
+    for (const objectKey of objects.keys()) await storage.delete(objectKey);
+    if (row.invite && typeof row.invite.hash === "string") await storage.delete("i:" + row.invite.hash);
+    await storage.delete(key);
+  }
+  if (reg && typeof reg.invite === "string" && /^[0-9a-f]{64}$/.test(reg.invite)) {
+    const indexed = await storage.get("i:" + reg.invite);
+    if (!indexed || indexed.account === account) await storage.delete("i:" + reg.invite);
+  }
+  await storage.delete(regKey);
   await audit(storage, "delete", { account });
   return [200, { ok: true }];
 }
