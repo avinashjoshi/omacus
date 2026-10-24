@@ -2,8 +2,9 @@
 // A device file stays in this browser. The server receives a sealed record.
 import { SYNC_URL } from "./sync-config.js";
 import { beginSave, finishSave, noteLocalEdit } from "./sync-save.mjs";
+import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 
-const LABEL = "omacus 1.0.0-beta.14";
+const LABEL = "omacus 1.0.0-beta.15";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 
@@ -93,6 +94,16 @@ export async function mountSync(api) {
   let loop = null;
   let stream = null;
   let ticking = false;
+  let leading = false;
+
+  function lockName() {
+    return tabLockName(location.hostname, document.documentElement?.dataset?.syncTest);
+  }
+
+  function asLeader(fn) {
+    if (leading) return fn();
+    return withTabLock(navigator.locks, lockName(), fn);
+  }
 
   let saveWanted = false;
   let saveTimer = null;
@@ -704,6 +715,15 @@ export async function mountSync(api) {
     if (["off", "access", "save", "confirm", "recover", "join", "join-start", "join-type", "join-scan", "approve", "remove-ask", "off-ask", "removed"].includes(state.screen)) return;
     ticking = true;
     try {
+      await ifTabLeader(navigator.locks, lockName(), () => follow());
+    } finally {
+      ticking = false;
+    }
+  }
+
+  async function follow() {
+    leading = true;
+    try {
       if (navigator.onLine === false) {
         saveWanted = false;
         clearTimeout(saveTimer);
@@ -732,7 +752,7 @@ export async function mountSync(api) {
       saveTimer = null;
       setChip(error.offline || navigator.onLine === false ? "Offline" : "Not saved", "off");
     } finally {
-      ticking = false;
+      leading = false;
     }
   }
 
@@ -1215,6 +1235,31 @@ export async function mountSync(api) {
 
   async function approve() {
     if (!state.pending || state.busy) return;
+    await asLeader(async () => {
+      if (!state.pending || state.busy) return;
+      const id = state.pending.id;
+      let still = false;
+      try {
+        const data = await callServer("GET", `/v1/mailboxes/${state.account}/requests`);
+        still = (data.requests || []).some((request) => request.id === id);
+      } catch (error) {
+        state.error = plainError(error.message);
+        draw();
+        return;
+      }
+      if (!still) {
+        state.pending = null;
+        state.invite = null;
+        state.error = "";
+        state.screen = "linked";
+        draw();
+        return;
+      }
+      await approvePending();
+    });
+  }
+
+  async function approvePending() {
     const prior = api.storeGet("device-file");
     state.busy = true;
     state.error = "";
@@ -1263,15 +1308,32 @@ export async function mountSync(api) {
       draw();
       return;
     }
-    try {
-      await callServer("POST", `/v1/mailboxes/${state.account}/requests/${state.pending.id}`, { reject: true });
-    } catch {
-      // The request can expire. This device still has the pages.
-    }
-    state.pending = null;
-    state.invite = null;
-    state.screen = "linked";
-    draw();
+    await asLeader(async () => {
+      if (!state.pending) {
+        state.screen = "linked";
+        draw();
+        return;
+      }
+      const id = state.pending.id;
+      let still = true;
+      try {
+        const data = await callServer("GET", `/v1/mailboxes/${state.account}/requests`);
+        still = (data.requests || []).some((request) => request.id === id);
+      } catch {
+        still = true;
+      }
+      if (still) {
+        try {
+          await callServer("POST", `/v1/mailboxes/${state.account}/requests/${id}`, { reject: true });
+        } catch {
+          // The request can expire. This device still has the pages.
+        }
+      }
+      state.pending = null;
+      state.invite = null;
+      state.screen = "linked";
+      draw();
+    });
   }
 
   function askRemove(device) {
@@ -1283,6 +1345,29 @@ export async function mountSync(api) {
   }
 
   async function removeDevice(id) {
+    await asLeader(async () => {
+      try {
+        const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
+        if (mailbox.revision !== state.revision) await pull(mailbox);
+      } catch (error) {
+        state.error = plainError(error.message);
+        state.busy = false;
+        draw();
+        return;
+      }
+      await refreshDevices();
+      if (!state.devices.some((device) => device.id === id && !device.self)) {
+        state.removing = null;
+        state.screen = "linked";
+        state.busy = false;
+        draw();
+        return;
+      }
+      await removeListed(id);
+    });
+  }
+
+  async function removeListed(id) {
     const removed = JSON.parse(sync.removeDevice(state.desk, id));
     if (!removed.ok) {
       state.error = removed.message;

@@ -23,6 +23,7 @@ const APP_FILES = [
   "backup.js",
   "sync.js",
   "sync-save.mjs",
+  "sync-leader.mjs",
   "migrate.js",
   "migrate-client.js",
   "migrate-protocol.js",
