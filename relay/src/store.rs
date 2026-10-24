@@ -56,6 +56,9 @@ struct Request {
     chain: Vec<u8>,
     wrap: Vec<u8>,
     proof: Vec<u8>,
+    /// When the request arrived. A decision can be read once. After that,
+    /// or once the invite window has passed, the request is removed.
+    created: u64,
 }
 
 struct Invite {
@@ -218,8 +221,9 @@ impl Store {
         Ok(1)
     }
 
-    pub fn get(&self, account: &str) -> Result<(u64, Vec<u8>), StoreError> {
+    pub fn get(&mut self, account: &str) -> Result<(u64, Vec<u8>), StoreError> {
         let account = account_id(account)?;
+        self.drop_expired(&account);
         let mailbox = self.mailboxes.get(&account).ok_or(StoreError::Unknown)?;
         Ok((mailbox.revision, mailbox.record.clone()))
     }
@@ -232,6 +236,7 @@ impl Store {
     ) -> Result<u64, StoreError> {
         let account = account_id(account)?;
         sealed_record(&record)?;
+        self.drop_expired(&account);
         let mailbox = self
             .mailboxes
             .get_mut(&account)
@@ -289,6 +294,7 @@ impl Store {
         if !invite::proof_matches(&secret, &device, given) {
             return Err(StoreError::BadInvite);
         }
+        self.drop_expired(&account);
         let mailbox = self
             .mailboxes
             .get_mut(&account)
@@ -314,13 +320,15 @@ impl Store {
                 chain: Vec::new(),
                 wrap: Vec::new(),
                 proof: given.to_vec(),
+                created: now,
             },
         );
         Ok((account, id))
     }
 
-    pub fn pending(&self, account: &str) -> Result<Vec<Pending>, StoreError> {
+    pub fn pending(&mut self, account: &str) -> Result<Vec<Pending>, StoreError> {
         let account = account_id(account)?;
+        self.drop_expired(&account);
         let mailbox = self.mailboxes.get(&account).ok_or(StoreError::Unknown)?;
         Ok(mailbox
             .requests
@@ -368,11 +376,17 @@ impl Store {
         Ok(())
     }
 
-    pub fn request(&self, account: &str, id: &str) -> Result<RequestView, StoreError> {
+    /// The waiting phone reads a decision once. That read removes it.
+    pub fn request(&mut self, account: &str, id: &str) -> Result<RequestView, StoreError> {
         let account = account_id(account)?;
-        let mailbox = self.mailboxes.get(&account).ok_or(StoreError::Unknown)?;
+        self.drop_expired(&account);
+        let mailbox = self
+            .mailboxes
+            .get_mut(&account)
+            .ok_or(StoreError::Unknown)?;
         let request = mailbox.requests.get(id).ok_or(StoreError::Unknown)?;
-        Ok(RequestView {
+        let decided = request.state != State::Pending;
+        let view = RequestView {
             state: match request.state {
                 State::Pending => "pending",
                 State::Approved => "approved",
@@ -382,11 +396,26 @@ impl Store {
             name: request.name.clone(),
             chain: request.chain.clone(),
             wrap: request.wrap.clone(),
-        })
+        };
+        if decided {
+            mailbox.requests.remove(id);
+        }
+        Ok(view)
+    }
+
+    fn drop_expired(&mut self, account: &str) {
+        let now = self.now();
+        let Some(mailbox) = self.mailboxes.get_mut(account) else {
+            return;
+        };
+        mailbox
+            .requests
+            .retain(|_, request| request.created.saturating_add(INVITE_MS) > now);
     }
 
     fn request_mut(&mut self, account: &str, id: &str) -> Result<&mut Request, StoreError> {
         let account = account_id(account)?;
+        self.drop_expired(&account);
         let mailbox = self
             .mailboxes
             .get_mut(&account)
@@ -453,6 +482,25 @@ mod tests {
 
     fn record() -> Vec<u8> {
         b"OMACUS-SYNC/1\nsealed".to_vec()
+    }
+
+    fn arrive(
+        store: &mut Store,
+        account: &str,
+        when: u64,
+        secret: [u8; 5],
+        device: &[u8],
+        name: &str,
+    ) -> String {
+        store.set_now(when);
+        let code = invite::encode_code(&secret);
+        store
+            .open_invite(account, &invite::hash_hex(&secret))
+            .unwrap();
+        let mac = invite::proof(&secret, device);
+        let (found, id) = store.join(&code, device.to_vec(), name, &mac).unwrap();
+        assert_eq!(found, account);
+        id
     }
 
     #[test]
@@ -549,5 +597,116 @@ mod tests {
             store.join(&code, device, "Phone", &mac).unwrap_err(),
             StoreError::BadInvite
         );
+    }
+
+    #[test]
+    fn a_join_request_is_dropped_once_it_is_approved_declined_or_expired() {
+        let mut store = Store::new();
+        let account = account();
+        store.create(&account, record()).unwrap();
+        let chain = b"OMACUS-DEVICES/1porch".to_vec();
+        let wrap = b"porch-wrap".to_vec();
+
+        let gone = |store: &Store, needle: &[u8]| {
+            let kept = store.stored_bytes();
+            !kept.windows(needle.len()).any(|window| window == needle)
+        };
+
+        let device = vec![3u8; 80];
+        let id = arrive(
+            &mut store,
+            &account,
+            10_000,
+            [3, 1, 4, 1, 5],
+            &device,
+            "Porch lamp",
+        );
+        store.reject(&account, &id).unwrap();
+        assert_eq!(store.request(&account, &id).unwrap().state, "rejected");
+        assert!(matches!(
+            store.request(&account, &id),
+            Err(StoreError::Unknown)
+        ));
+        assert!(gone(&store, &device));
+        assert!(gone(&store, b"Porch lamp"));
+
+        let device = vec![4u8; 80];
+        let id = arrive(
+            &mut store,
+            &account,
+            20_000,
+            [2, 7, 1, 8, 2],
+            &device,
+            "Cabin shelf",
+        );
+        store
+            .approve(&account, &id, chain.clone(), wrap.clone())
+            .unwrap();
+        let view = store.request(&account, &id).unwrap();
+        assert_eq!(view.state, "approved");
+        assert_eq!(view.chain, chain);
+        assert_eq!(view.wrap, wrap);
+        assert!(matches!(
+            store.request(&account, &id),
+            Err(StoreError::Unknown)
+        ));
+        assert!(gone(&store, &chain));
+        assert!(gone(&store, &wrap));
+        assert!(gone(&store, &device));
+        assert!(gone(&store, b"Cabin shelf"));
+
+        let device = vec![5u8; 80];
+        let id = arrive(
+            &mut store,
+            &account,
+            30_000,
+            [8, 6, 7, 5, 3],
+            &device,
+            "Shed light",
+        );
+        assert_eq!(store.pending(&account).unwrap()[0].id, id);
+        store.set_now(30_000 + INVITE_MS);
+        store.get(&account).unwrap();
+        assert!(store.pending(&account).unwrap().is_empty());
+        assert!(matches!(
+            store.request(&account, &id),
+            Err(StoreError::Unknown)
+        ));
+        assert_eq!(
+            store
+                .approve(&account, &id, chain.clone(), wrap.clone())
+                .unwrap_err(),
+            StoreError::Unknown
+        );
+        assert!(gone(&store, &device));
+        assert!(gone(&store, b"Shed light"));
+
+        let device = vec![6u8; 80];
+        let unread = b"unread-wrap".to_vec();
+        let id = arrive(
+            &mut store,
+            &account,
+            40_000,
+            [1, 1, 2, 3, 5],
+            &device,
+            "Hall table",
+        );
+        store
+            .approve(
+                &account,
+                &id,
+                b"OMACUS-DEVICES/1hall".to_vec(),
+                unread.clone(),
+            )
+            .unwrap();
+        store.set_now(40_000 + INVITE_MS);
+        store.get(&account).unwrap();
+        assert!(matches!(
+            store.request(&account, &id),
+            Err(StoreError::Unknown)
+        ));
+        assert!(gone(&store, &unread));
+        assert!(gone(&store, &device));
+        assert!(gone(&store, b"Hall table"));
     }
 }

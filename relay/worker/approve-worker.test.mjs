@@ -155,7 +155,7 @@ if (joined.json.account !== account) {
 
 const pending = await call(box, "GET", `/v1/mailboxes/${account}/requests`);
 const approval = parse(approveDevice(upgraded.id, pending.json.requests[0].device));
-const packed = parse(packPages("", JSON.stringify([["trip", "Trip Budget\nferry = 40\n"]])));
+const packed = parse(packPages("", JSON.stringify([["trip", "Trip Budget\nferry = 40\n"]]), ""));
 const sealed = parse(sealPages(upgraded.id, packed.packed));
 
 // Overlap the page save and the approval the way a slow phone does.
@@ -174,6 +174,10 @@ console.log("PUT", put.status, put.json);
 console.log("POST", post.status, post.json);
 
 const decision = await call(box, "GET", `/v1/mailboxes/${account}/requests/${joined.json.id}`);
+const again = await call(box, "GET", `/v1/mailboxes/${account}/requests/${joined.json.id}`);
+if (again.status !== 404) throw new Error("approved request stayed " + JSON.stringify(again));
+const after = await storage.get("m:" + account);
+if (after.requests[joined.json.id]) throw new Error("approved request still stored");
 const mailboxBody = await call(box, "GET", `/v1/mailboxes/${account}`);
 console.log("decision", decision.json.state, "chain", (decision.json.chain || "").slice(0, 24), "recordRev", mailboxBody.json.revision);
 if (mailboxBody.json.revision !== 2) {

@@ -1,14 +1,15 @@
-// Private sync test relay (1.0.0-beta.7) as a Cloudflare Worker.
-// Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes and
-// device approvals that arrive. A new set of pages needs an invite code.
-// The code is not stored — only a hash of it. A new phone joins with a
-// one-time code, also stored only as a hash. This worker holds no keys
-// and cannot open a page.
+// Private sync test relay (1.0.0-beta.8) as a Cloudflare Worker.
+// Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
+// A new set of pages needs an invite code. The code is not stored — only
+// a hash of it. A new phone joins with a one-time code, also stored only
+// as a hash. A join request is removed once the waiting phone has read
+// the answer, or once the same window as the code has passed. This worker
+// holds no keys and cannot open a page.
 import { DurableObject } from "cloudflare:workers";
 import { openCode, spend } from "./access.js";
 import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
 
-const LABEL = "1.0.0-beta.7";
+const LABEL = "1.0.0-beta.8";
 const MAX_RECORD = 256 * 1024, MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024;
 const MAX_MAILBOXES = 32, MAX_REQUESTS = 8, MAX_USES = 20;
 const enc = new TextEncoder();
@@ -32,6 +33,13 @@ const CORS = {
 const json = (status, value) =>
   new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json", ...CORS } });
 const fail = (name) => { throw name; };
+function dropExpired(m, now) {
+  if (!m.requests) m.requests = {};
+  for (const [id, request] of Object.entries(m.requests)) {
+    const created = Number.isInteger(request.created) ? request.created : 0;
+    if (created + INVITE_MS <= now) delete m.requests[id];
+  }
+}
 const startsWith = (b, m) => b.length >= m.length && m.every((x, i) => b[i] === x);
 const fromB64 = (s) => {
   if (typeof s !== "string") fail("Unreadable");
@@ -120,6 +128,7 @@ export class Mailboxes extends DurableObject {
     let out;
     await this.ctx.storage.transaction(async (txn) => {
       const m = (await txn.get("m:" + account)) || fail("Unknown");
+      dropExpired(m, Date.now());
       out = await update(m);
       await txn.put("m:" + account, m);
     });
@@ -163,8 +172,7 @@ export class Mailboxes extends DurableObject {
     const [sub, id, extra] = rest.slice(1);
     if (extra !== undefined) fail("Unknown");
     if (method === "GET" && sub === undefined) {
-      const m = await this.load(account);
-      return [200, { revision: m.revision, record: m.record }];
+      return this.change(account, (m) => [200, { revision: m.revision, record: m.record }]);
     }
     if (method === "PUT" && sub === undefined) {
       const v = need();
@@ -188,14 +196,23 @@ export class Mailboxes extends DurableObject {
     }
     if (sub !== "requests") fail("Unknown");
     if (method === "GET" && id === undefined) {
-      const m = await this.load(account);
-      return [200, { requests: Object.entries(m.requests).filter(([, r]) => r.state === "pending")
-        .map(([rid, r]) => ({ id: rid, device: r.device, name: r.name, proof: r.proof || "" })) }];
+      return this.change(account, (m) => [200, {
+        requests: Object.entries(m.requests).filter(([, r]) => r.state === "pending")
+          .map(([rid, r]) => ({ id: rid, device: r.device, name: r.name, proof: r.proof || "" })),
+      }]);
     }
     if (method === "GET") {
-      const m = await this.load(account);
-      const r = Object.hasOwn(m.requests, id) ? m.requests[id] : fail("Unknown");
-      return [200, { state: r.state, name: r.name, device: r.device, chain: r.chain, wrap: r.wrap }];
+      // Commit the removal first. An expired request must not come back
+      // because the missing-request error rolled the write back.
+      const [status, body] = await this.change(account, (m) => {
+        const r = Object.hasOwn(m.requests, id) ? m.requests[id] : null;
+        if (!r) return [404, null];
+        const answer = { state: r.state, name: r.name, device: r.device, chain: r.chain, wrap: r.wrap };
+        if (r.state !== "pending") delete m.requests[id];
+        return [200, answer];
+      });
+      if (status === 404) fail("Unknown");
+      return [status, body];
     }
     if (method === "POST") {
       const v = need();
@@ -242,6 +259,7 @@ export class Mailboxes extends DurableObject {
         break;
       }
       if (!mailbox) fail("BadInvite");
+      dropExpired(mailbox, now);
       const pending = Object.values(mailbox.requests).filter((request) => request.state === "pending").length;
       if (pending >= MAX_REQUESTS) fail("Full");
       mailbox.invite.used = true;
@@ -252,6 +270,7 @@ export class Mailboxes extends DurableObject {
         chain: "",
         wrap: "",
         proof,
+        created: now,
       };
       await txn.put("m:" + account, mailbox);
       result = [201, { id, account }];

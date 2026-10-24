@@ -281,6 +281,18 @@ fn the_relay_holds_no_key_and_no_page() {
     let (status, body) = exchange(
         port,
         "GET",
+        &format!("/v1/mailboxes/{account}/requests/{id}"),
+        b"",
+        &mut wire,
+    );
+    assert_eq!(status, 404, "an approved request is not kept");
+    assert_eq!(
+        json_body(&body)["message"],
+        "This test server has no pages for that yet."
+    );
+    let (status, body) = exchange(
+        port,
+        "GET",
         &format!("/v1/mailboxes/{account}"),
         b"",
         &mut wire,
@@ -697,7 +709,7 @@ fn the_test_pages_do_not_name_private_parts_or_the_live_app() {
     ] {
         assert!(!text.contains(word), "the test pages say {word}");
     }
-    assert!(text.contains("1.0.0-beta.7"));
+    assert!(text.contains("1.0.0-beta.8"));
     assert!(
         !std::fs::read_to_string(root.join("../site/app/index.html"))
             .unwrap()
