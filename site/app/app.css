@@ -6,37 +6,59 @@
   display: none !important;
 }
 
-/* The installed app draws edge to edge (viewport-fit=cover). The page, the
-   bar, and the safe areas are one colour, so the clock and the home
-   indicator do not sit on a different strip. */
+/* The page and the bar are one colour, including any strip around the web view. */
 html:has(body.app-page) {
-  height: 100%;
+  margin: 0;
   overflow: hidden;
   background: var(--app-bg);
 }
 
 .app-page {
   --bar: 56px;
-  /* Room for the notch and the home indicator when the page runs under them
-     (installed, or Safari with viewport-fit=cover). Zero on a desktop window. */
-  --safe-top: env(safe-area-inset-top, 0px);
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --safe-left: env(safe-area-inset-left, 0px);
-  --safe-right: env(safe-area-inset-right, 0px);
+  /* Probe elements write --probed-* after launch. Until then, env() is the
+     inset. Padding uses these. They are not added to the shell's height. */
+  --safe-top: var(--probed-top, env(safe-area-inset-top, 0px));
+  --safe-bottom: var(--probed-bottom, env(safe-area-inset-bottom, 0px));
+  --safe-left: var(--probed-left, env(safe-area-inset-left, 0px));
+  --safe-right: var(--probed-right, env(safe-area-inset-right, 0px));
   --side-w: 240px;
   --line-h: 1.7;
   --font-size: 15px;
   --res-w: 12ch;
-  /* Fixed to the viewport. Safari's toolbar is the viewport. The installed
-     app's viewport stops short of the screen; the standalone rule below
-     adds that strip back. */
+  /* Safari: fixed to the visual viewport. 100vh there includes the toolbar.
+     The Home Screen rule below is the one that fills the phone. */
   position: fixed;
   inset: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  margin: 0;
   background: var(--app-bg);
   color: var(--app-fg);
+}
+
+/* Home Screen cold start. A percentage height drops viewport-fit=cover, so the
+   page never reaches the bottom edge. The dynamic viewport unit is wrong until
+   the phone is rotated. 100vh is the height that is right from the first paint.
+   There is no egui canvas in this shell; the page is this element. */
+@media (display-mode: standalone) {
+  html:has(body.app-page),
+  body.app-page {
+    height: 100vh;
+  }
+
+  body.app-page {
+    bottom: auto;
+  }
+}
+
+html.standalone:has(body.app-page),
+html.standalone body.app-page {
+  height: 100vh;
+}
+
+html.standalone body.app-page {
+  bottom: auto;
 }
 
 .app-page .btn {
@@ -92,7 +114,12 @@ html:has(body.app-page) {
 /* ---------- Top bar ---------- */
 
 .bar {
-  position: relative;
+  /* Fixed to the top edge, solid, so the status bar takes this colour
+     instead of a blur over the pages button and the more button. */
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
   z-index: 50;
   display: flex;
   flex: none;
@@ -103,6 +130,7 @@ html:has(body.app-page) {
   border-bottom: 1px solid var(--app-line-strong);
   background-color: var(--app-bg);
   background-image: none;
+  opacity: 1;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -171,6 +199,10 @@ html:has(body.app-page) {
   color: var(--app-fg);
   border-color: var(--app-line-strong);
   background-color: var(--app-bg);
+  background-image: none;
+  opacity: 1;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .icon-btn {
@@ -289,6 +321,8 @@ html:has(body.app-page) {
   grid-template-rows: minmax(0, 1fr);
   flex: 1;
   min-height: 0;
+  /* The bar is fixed over the top of the shell. This keeps the page below it. */
+  margin-top: calc(var(--bar) + var(--safe-top));
 }
 
 .side {
@@ -2194,11 +2228,12 @@ body.answers-inline .md .pill {
     width: min(300px, 84vw);
     transform: translateX(-102%);
     transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
-    box-shadow: 20px 0 60px -20px var(--black);
+    box-shadow: none;
   }
 
   .app-page.drawer .side {
     transform: none;
+    box-shadow: 20px 0 60px -20px var(--black);
   }
 
   .cm-editor .cm-scroller {
@@ -2281,42 +2316,6 @@ body.answers-inline .md .pill {
 
 .drawer-scrim {
   display: none;
-}
-
-/* Home Screen: the layout viewport is shorter than the phone. Grow the shell
-   by that strip. The sidebar and the scrim are fixed to the short viewport,
-   so they grow by the same amount. The home indicator stays padding. */
-@media (display-mode: standalone) {
-  .app-page {
-    bottom: auto;
-    height: calc(100% + var(--standalone-gap, var(--safe-bottom)));
-  }
-}
-
-@media (display-mode: standalone) and (max-width: 760px) {
-  .side,
-  .drawer-scrim,
-  .settings-card {
-    bottom: calc(var(--standalone-gap, var(--safe-bottom)) * -1);
-  }
-}
-
-@media (max-width: 760px) {
-  html.standalone .app-page {
-    bottom: auto;
-    height: calc(100% + var(--standalone-gap, var(--safe-bottom)));
-  }
-
-  html.standalone .side,
-  html.standalone .drawer-scrim,
-  html.standalone .settings-card {
-    bottom: calc(var(--standalone-gap, var(--safe-bottom)) * -1);
-  }
-}
-
-html.standalone .app-page {
-  bottom: auto;
-  height: calc(100% + var(--standalone-gap, var(--safe-bottom)));
 }
 
 /* Tablets use the wide layout, but iPad still zooms a focused field under 16px. */

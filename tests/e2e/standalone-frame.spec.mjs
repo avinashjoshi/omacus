@@ -1,16 +1,14 @@
-// The installed iPhone app (display-mode: standalone) used to leave a frosted
-// status bar and an empty strip under the page. Safari's viewport is the page,
-// and it stays that way. A screen-reader announcement stays in the tree and
-// off the page.
+// Home Screen: html and body are 100vh. A percentage height drops
+// viewport-fit=cover, and the dynamic viewport unit is wrong until the phone
+// rotates. A taller screen.height must not move the shell; that measurement
+// is not the page height. Safari stays on the visual viewport, because 100vh
+// there includes the toolbar. Playwright cannot draw the iOS status bar.
 
 import { test, expect } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 
 const shots = process.env.OMACUS_SHOTS || "";
-const GAP = 70;
 
-// Same phone frame as the before shots: iPhone 13's layout viewport (the
-// screen is taller; that extra is not part of this picture).
 test.use({
   viewport: { width: 390, height: 664 },
   deviceScaleFactor: 3,
@@ -19,7 +17,7 @@ test.use({
 });
 
 async function pretendInstalled(page) {
-  await page.addInitScript((gap) => {
+  await page.addInitScript(() => {
     const real = window.matchMedia.bind(window);
     window.matchMedia = (query) => {
       const text = String(query);
@@ -45,19 +43,9 @@ async function pretendInstalled(page) {
         get: () => true,
       });
     } catch {
-      // Already defined. frame.js also accepts the media query.
+      // Already defined.
     }
-    const height = () => window.innerHeight + gap;
-    const define = (object) => {
-      try {
-        Object.defineProperty(object, "height", { configurable: true, get: height });
-      } catch {
-        // Some engines freeze screen.height. The test retries after load.
-      }
-    };
-    define(window.screen);
-    define(Screen.prototype);
-  }, GAP);
+  });
 }
 
 async function openApp(page) {
@@ -70,62 +58,78 @@ async function openApp(page) {
   });
 }
 
-async function applyGap(page) {
-  return page.evaluate((gap) => {
-    const root = document.documentElement;
-    const read = () => parseFloat(root.style.getPropertyValue("--standalone-gap")) || 0;
-    if (root.classList.contains("standalone") && read() === gap) return { gap: read(), fromFrame: true };
-    const height = () => window.innerHeight + gap;
-    let defined = false;
-    try {
-      Object.defineProperty(window.screen, "height", { configurable: true, get: height });
-      defined = window.screen.height === window.innerHeight + gap;
-    } catch {
-      defined = false;
-    }
-    if (defined) {
-      window.dispatchEvent(new Event("resize"));
-      if (root.classList.contains("standalone") && read() === gap) return { gap: read(), fromFrame: true };
-    }
-    root.classList.add("standalone");
-    root.style.setProperty("--standalone-gap", gap + "px");
-    return { gap: read(), fromFrame: false };
-  }, GAP);
-}
-
 async function frame(page) {
   return page.evaluate(() => {
     const shell = document.querySelector(".app-page");
     const bar = document.querySelector(".bar");
+    const btn = document.querySelector(".bar .icon-btn");
     const side = document.querySelector(".side");
     const foot = document.querySelector(".side-foot");
+    const scrim = document.querySelector("[data-scrim]");
     const barCs = getComputedStyle(bar);
-    const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--standalone-gap")) || 0;
+    const btnCs = getComputedStyle(btn);
+    const probe = document.createElement("div");
+    probe.style.background = "var(--app-bg)";
+    document.body.appendChild(probe);
+    const appBg = getComputedStyle(probe).backgroundColor;
+    probe.remove();
     return {
-      standalone: document.documentElement.classList.contains("standalone"),
-      gap,
       innerHeight: window.innerHeight,
+      shellTop: shell.getBoundingClientRect().top,
       shellBottom: shell.getBoundingClientRect().bottom,
       sideBottom: side.getBoundingClientRect().bottom,
       sidePad: parseFloat(getComputedStyle(side).paddingBottom),
       footBottom: foot.getBoundingClientRect().bottom,
+      closedShadow: getComputedStyle(side).boxShadow,
       barH: bar.getBoundingClientRect().height,
+      barTop: bar.getBoundingClientRect().top,
       barPadTop: parseFloat(barCs.paddingTop),
       barBg: barCs.backgroundColor,
       pageBg: getComputedStyle(shell).backgroundColor,
+      htmlBg: getComputedStyle(document.documentElement).backgroundColor,
+      appBg,
       blur: barCs.backdropFilter,
+      btnBlur: btnCs.backdropFilter,
+      btnBg: btnCs.backgroundColor,
+      scrimTop: parseFloat(getComputedStyle(scrim).top),
+      barBottom: bar.getBoundingClientRect().bottom,
       status: document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.outerHTML || "",
+      manifest: !!document.querySelector('link[rel="manifest"]'),
     };
   });
 }
 
-function expectBar(box) {
+function expectFlush(box) {
   expect(box.status).toBe("");
   expect(box.blur).toBe("none");
+  expect(box.btnBlur).toBe("none");
   expect(box.barBg).toBe(box.pageBg);
+  expect(box.htmlBg).toBe(box.appBg);
+  expect(box.pageBg).toBe(box.appBg);
+  expect(box.btnBg).toBe(box.appBg);
+  expect(box.barTop).toBe(0);
   expect(box.barPadTop).toBe(59);
   expect(Math.abs(box.barH - (56 + 59))).toBeLessThanOrEqual(1);
+  expect(box.scrimTop).toBeGreaterThanOrEqual(box.barBottom - 1);
   expect(box.sidePad).toBe(34);
+  expect(box.closedShadow).toBe("none");
+  expect(Math.abs(box.shellTop)).toBeLessThanOrEqual(1);
+  expect(Math.abs(box.shellBottom - box.innerHeight)).toBeLessThanOrEqual(1);
+  expect(Math.abs(box.sideBottom - box.innerHeight)).toBeLessThanOrEqual(1);
+  expect(box.footBottom).toBeLessThanOrEqual(box.innerHeight - 34 + 1);
+}
+
+async function lieAboutScreen(page, extra) {
+  return page.evaluate((extra) => {
+    Object.defineProperty(window.screen, "height", {
+      configurable: true,
+      get: () => window.innerHeight + extra,
+    });
+    window.dispatchEvent(new Event("resize"));
+    if (window.visualViewport) window.visualViewport.dispatchEvent(new Event("resize"));
+    const shell = document.querySelector(".app-page").getBoundingClientRect();
+    return { top: shell.top, bottom: shell.bottom, innerHeight: window.innerHeight };
+  }, extra);
 }
 
 test.describe("installed iPhone", () => {
@@ -133,54 +137,35 @@ test.describe("installed iPhone", () => {
     await pretendInstalled(page);
   });
 
-  test("the page and the sidebar fill the screen, and the bar is solid", async ({ page }, info) => {
+  test("the page and the sidebar fill the viewport, and the bar is solid", async ({ page }, info) => {
     await openApp(page);
-    const applied = await applyGap(page);
-    expect(applied.fromFrame).toBe(true);
     const box = await frame(page);
-    expect(box.standalone).toBe(true);
-    expect(box.gap).toBe(GAP);
-    const edge = box.innerHeight + GAP;
-    expect(Math.abs(box.shellBottom - edge)).toBeLessThanOrEqual(1);
-    expect(Math.abs(box.sideBottom - edge)).toBeLessThanOrEqual(1);
-    expect(box.footBottom).toBeLessThanOrEqual(edge - 34 + 1);
-    expectBar(box);
+    expectFlush(box);
+
+    for (const extra of [62, 70, 400]) {
+      const lied = await lieAboutScreen(page, extra);
+      expect(Math.abs(lied.top)).toBeLessThanOrEqual(1);
+      expect(Math.abs(lied.bottom - lied.innerHeight)).toBeLessThanOrEqual(1);
+    }
 
     if (shots && info.project.name === "webkit") {
       mkdirSync(shots, { recursive: true });
+      await page.waitForFunction(() => document.querySelectorAll(".res").length >= 8);
       for (const name of ["dark", "light"]) {
         await page.evaluate((theme) => {
           document.documentElement.dataset.appTheme = theme;
         }, name);
-        await page.screenshot({ path: `${shots}/iphone-standalone-after-${name}.png` });
+        await page.screenshot({ path: `${shots}/iphone-fill-after-${name}.png` });
         await page.locator(".sheets-toggle").click();
         await page.waitForFunction(() => document.querySelector(".side").getBoundingClientRect().left >= -1);
-        await page.screenshot({ path: `${shots}/iphone-standalone-after-drawer-${name}.png` });
+        await page.screenshot({ path: `${shots}/iphone-fill-drawer-${name}.png` });
         await page.evaluate(() => document.body.classList.remove("drawer"));
       }
     }
-
-    const capped = await page.evaluate(() => {
-      Object.defineProperty(window.screen, "height", {
-        configurable: true,
-        get: () => window.innerHeight + 400,
-      });
-      window.dispatchEvent(new Event("resize"));
-      const root = document.documentElement;
-      const shell = document.querySelector(".app-page").getBoundingClientRect().bottom;
-      return {
-        gap: parseFloat(root.style.getPropertyValue("--standalone-gap")) || 0,
-        shell,
-        innerHeight: window.innerHeight,
-      };
-    });
-    expect(capped.gap).toBe(0);
-    expect(Math.abs(capped.shell - capped.innerHeight)).toBeLessThanOrEqual(1);
   });
 
   test("Selection deleted stays off the page and in the tree", async ({ page }) => {
     await openApp(page);
-    await applyGap(page);
     const content = page.locator(".cm-content");
     await content.evaluate((el) => el.focus());
     await page.keyboard.press("Control+a");
@@ -212,12 +197,7 @@ test.describe("Safari", () => {
   test("the page stays on the viewport", async ({ page }, info) => {
     await openApp(page);
     const box = await frame(page);
-    expect(box.standalone).toBe(false);
-    expect(box.gap).toBe(0);
-    expect(Math.abs(box.shellBottom - box.innerHeight)).toBeLessThanOrEqual(1);
-    expect(Math.abs(box.sideBottom - box.innerHeight)).toBeLessThanOrEqual(1);
-    expect(box.footBottom).toBeLessThanOrEqual(box.innerHeight - 34 + 1);
-    expectBar(box);
+    expectFlush(box);
     if (shots && info.project.name === "webkit") {
       mkdirSync(shots, { recursive: true });
       await page.evaluate(() => {
