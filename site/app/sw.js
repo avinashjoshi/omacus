@@ -2,7 +2,7 @@
 // so a reload — including one that bypasses the HTTP cache — still opens offline.
 // A new version waits. The page saves the open edit, then asks this worker to take over.
 
-const CACHE = "omacus-app-9";
+const CACHE = "omacus-app-10";
 
 const APP_FILES = [
   "./",
@@ -16,6 +16,7 @@ const APP_FILES = [
   "worker.js",
   "store.js",
   "trust.js",
+  "frame.js",
   "recover.js",
   "backup.js",
   "migrate.js",
