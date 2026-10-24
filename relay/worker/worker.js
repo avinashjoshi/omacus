@@ -1,4 +1,4 @@
-// Private sync test relay (1.0.0-beta.16) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.17) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
 // Each account lives in its own object. A directory object maps an invite
 // hash to that account, so a join does not list every account.
@@ -14,7 +14,7 @@ import { adminAuthorized, deviceCount, handleAdmin, isolateAllow, noteError } fr
 import { allowPut, authorize } from "./auth.js";
 import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
 
-const LABEL = "1.0.0-beta.16";
+const LABEL = "1.0.0-beta.17";
 const MAX_RECORD = 256 * 1024, MAX_MANIFEST = 1024 * 1024, MAX_OBJECT = 4 * 1024 * 1024 + 64;
 const MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024, MAX_BODY = 8 * 1024 * 1024;
 const MAX_REQUESTS = 8, MAX_USES = 20;
@@ -176,21 +176,35 @@ export class Mailboxes extends DurableObject {
     this.store = ctx.storage;
     this.ipHits = new Map();
     this.accountHits = new Map();
+    this.guessHits = new Map();
+    this.joinHits = new Map();
+    this.readIpHits = new Map();
+    this.readAccountHits = new Map();
+  }
+  bump(map, key, limit) {
+    if (!key) return;
+    const now = Date.now();
+    const row = map.get(key);
+    if (!row || now - row.start >= 60_000) {
+      map.set(key, { start: now, count: 1 });
+      return;
+    }
+    if (row.count >= limit) fail("Limited");
+    row.count += 1;
   }
   charge(ip, account) {
-    const now = Date.now();
-    const hit = (map, key, limit) => {
-      if (!key) return;
-      const row = map.get(key);
-      if (!row || now - row.start >= 60_000) {
-        map.set(key, { start: now, count: 1 });
-        return;
-      }
-      if (row.count >= limit) fail("Limited");
-      row.count += 1;
-    };
-    hit(this.ipHits, ip, 800);
-    hit(this.accountHits, account, 240);
+    this.bump(this.ipHits, ip, 800);
+    this.bump(this.accountHits, account, 240);
+  }
+  chargeGuess(ip) {
+    this.bump(this.guessHits, ip, 10);
+  }
+  chargeJoin(ip) {
+    this.bump(this.joinHits, ip, 10);
+  }
+  chargeRead(ip, account) {
+    this.bump(this.readIpHits, ip, 500);
+    this.bump(this.readAccountHits, account, 180);
   }
   async guard(method, path, raw, headers, mailbox) {
     const auth = await authorize(method, path, raw, headers, mailbox.record, Date.now(), mailbox);
@@ -276,11 +290,13 @@ export class Mailboxes extends DurableObject {
     const need = () => (body && typeof body === "object" ? body : fail("Unreadable"));
     if (method === "POST" && path === "/v1/access") {
       this.charge(ip);
+      this.chargeGuess(ip);
       await this.useAccess(access, false);
       return [200, { ok: true }];
     }
     if (method === "POST" && path === "/v1/join") {
       this.charge(ip);
+      this.chargeJoin(ip);
       return this.join(need());
     }
     if (method === "POST" && path === "/v1/mailboxes") {
@@ -310,6 +326,9 @@ export class Mailboxes extends DurableObject {
     this.charge(ip);
     const account = accountId(rest[0]);
     this.charge(null, account);
+    if (method === "GET" || (method === "POST" && sub === "objects" && id === undefined)) {
+      this.chargeRead(ip, account);
+    }
     const header = (name) => (headers && headers.get ? headers.get(name) : "") || "";
     if (method === "GET" && sub === "requests" && id !== undefined) {
       const given = proofBytes(header("x-omacus-proof"));

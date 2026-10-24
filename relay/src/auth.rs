@@ -12,6 +12,10 @@ pub const WINDOW_MS: u64 = 5 * 60 * 1000;
 pub const RATE_WINDOW_MS: u64 = 60_000;
 pub const ACCOUNT_LIMIT: u32 = 240;
 pub const IP_LIMIT: u32 = 800;
+pub const GUESS_LIMIT: u32 = 10;
+pub const JOIN_LIMIT: u32 = 10;
+pub const READ_ACCOUNT_LIMIT: u32 = 180;
+pub const READ_IP_LIMIT: u32 = 500;
 const MAX_NONCES: usize = 64;
 const RECOVERY_ID: [u8; 16] = *b"recovery-signer\0";
 

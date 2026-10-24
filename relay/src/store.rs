@@ -124,6 +124,10 @@ pub struct Store {
     backend: Option<Box<dyn Kv>>,
     account_hits: BTreeMap<String, Hit>,
     ip_hits: BTreeMap<String, Hit>,
+    guess_hits: BTreeMap<String, Hit>,
+    join_hits: BTreeMap<String, Hit>,
+    read_account_hits: BTreeMap<String, Hit>,
+    read_ip_hits: BTreeMap<String, Hit>,
 }
 
 #[derive(Clone)]
@@ -154,6 +158,10 @@ impl Store {
             backend: None,
             account_hits: BTreeMap::new(),
             ip_hits: BTreeMap::new(),
+            guess_hits: BTreeMap::new(),
+            join_hits: BTreeMap::new(),
+            read_account_hits: BTreeMap::new(),
+            read_ip_hits: BTreeMap::new(),
         }
     }
 
@@ -170,6 +178,10 @@ impl Store {
             backend: Some(backend),
             account_hits: BTreeMap::new(),
             ip_hits: BTreeMap::new(),
+            guess_hits: BTreeMap::new(),
+            join_hits: BTreeMap::new(),
+            read_account_hits: BTreeMap::new(),
+            read_ip_hits: BTreeMap::new(),
         }
     }
 
@@ -210,6 +222,32 @@ impl Store {
             &account,
             now,
             crate::auth::ACCOUNT_LIMIT,
+        )
+    }
+
+    pub fn charge_guess(&mut self, ip: &str) -> Result<(), StoreError> {
+        let now = self.now();
+        fresh(&mut self.guess_hits, now);
+        bump(&mut self.guess_hits, ip, now, crate::auth::GUESS_LIMIT)
+    }
+
+    pub fn charge_join(&mut self, ip: &str) -> Result<(), StoreError> {
+        let now = self.now();
+        fresh(&mut self.join_hits, now);
+        bump(&mut self.join_hits, ip, now, crate::auth::JOIN_LIMIT)
+    }
+
+    pub fn charge_read(&mut self, ip: &str, account: &str) -> Result<(), StoreError> {
+        let account = account_id(account)?;
+        let now = self.now();
+        fresh(&mut self.read_ip_hits, now);
+        fresh(&mut self.read_account_hits, now);
+        bump(&mut self.read_ip_hits, ip, now, crate::auth::READ_IP_LIMIT)?;
+        bump(
+            &mut self.read_account_hits,
+            &account,
+            now,
+            crate::auth::READ_ACCOUNT_LIMIT,
         )
     }
 
@@ -776,6 +814,10 @@ impl Default for Store {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn fresh(hits: &mut BTreeMap<String, Hit>, now: u64) {
+    hits.retain(|_, hit| now.saturating_sub(hit.start) < crate::auth::RATE_WINDOW_MS);
 }
 
 fn bump(

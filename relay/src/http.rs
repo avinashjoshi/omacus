@@ -149,10 +149,12 @@ fn route(
     }
     if method == "POST" && path == "/v1/join" {
         store.charge_ip(ip)?;
+        store.charge_join(ip)?;
         return accept_join(store, body);
     }
     if method == "POST" && path == "/v1/access" {
         store.charge_ip(ip)?;
+        store.charge_guess(ip)?;
         let value = json_body(body)?;
         let code = value.get("code").and_then(Value::as_str).unwrap_or("");
         store.peek_access(code)?;
@@ -174,6 +176,9 @@ fn route(
     }
     store.charge_ip(ip)?;
     store.charge_account(account)?;
+    if method == "GET" || (method == "POST" && sub == Some("objects") && id.is_none()) {
+        store.charge_read(ip, account)?;
+    }
     if let ("GET", Some("requests"), Some(id)) = (method, sub, id) {
         let proof = crate::auth::read_proof(headers).ok_or(StoreError::Unknown)?;
         let request = store.request_with_proof(account, id, &proof)?;
@@ -504,7 +509,10 @@ fn find_header(buf: &[u8]) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::same_revision;
+    use crate::store::StoreError;
 
     #[test]
     fn a_matching_revision_tag_is_the_only_one_that_skips_the_record() {
@@ -514,5 +522,112 @@ mod tests {
         assert!(!same_revision("4", 4));
         assert!(!same_revision("*", 4));
         assert!(!same_revision("W/\"4\"", 4));
+    }
+
+    #[test]
+    fn a_guess_a_join_and_a_read_stop_before_they_can_name_a_missing_account() {
+        let mut store = crate::store::Store::new();
+        store.set_now(4_000);
+        let headers = BTreeMap::new();
+        let guess = "203.0.113.40";
+        for _ in 0..crate::auth::GUESS_LIMIT {
+            let err = super::route(
+                "POST",
+                "/v1/access",
+                br#"{"code":"nope"}"#,
+                &headers,
+                guess,
+                &mut store,
+            )
+            .unwrap_err();
+            assert_eq!(err, StoreError::BadAccess);
+        }
+        let capped = super::route(
+            "POST",
+            "/v1/access",
+            br#"{"code":"nope"}"#,
+            &headers,
+            guess,
+            &mut store,
+        )
+        .unwrap_err();
+        assert_eq!(capped, StoreError::Limited);
+        assert_eq!(capped.message(), "Try again in a moment.");
+        store.set_now(4_000 + crate::auth::RATE_WINDOW_MS);
+        let again = super::route(
+            "POST",
+            "/v1/access",
+            br#"{"code":"nope"}"#,
+            &headers,
+            guess,
+            &mut store,
+        )
+        .unwrap_err();
+        assert_eq!(again, StoreError::BadAccess);
+
+        store.set_now(4_000);
+        let join = "203.0.113.41";
+        for _ in 0..crate::auth::JOIN_LIMIT {
+            let err = super::route(
+                "POST",
+                "/v1/join",
+                br#"{"code":"nope"}"#,
+                &headers,
+                join,
+                &mut store,
+            )
+            .unwrap_err();
+            assert_eq!(err, StoreError::BadInvite);
+        }
+        assert_eq!(
+            super::route(
+                "POST",
+                "/v1/join",
+                br#"{"code":"nope"}"#,
+                &headers,
+                join,
+                &mut store,
+            )
+            .unwrap_err(),
+            StoreError::Limited
+        );
+
+        let missing = "cd".repeat(32);
+        let read = "203.0.113.42";
+        for _ in 0..crate::auth::READ_ACCOUNT_LIMIT {
+            let err = super::route(
+                "GET",
+                &format!("/v1/mailboxes/{missing}"),
+                b"",
+                &headers,
+                read,
+                &mut store,
+            )
+            .unwrap_err();
+            assert_eq!(err, StoreError::Unknown);
+        }
+        let hidden = super::route(
+            "GET",
+            &format!("/v1/mailboxes/{missing}"),
+            b"",
+            &headers,
+            read,
+            &mut store,
+        )
+        .unwrap_err();
+        assert_eq!(hidden, StoreError::Limited);
+        assert!(!hidden.message().contains(&missing));
+        let other = "ce".repeat(32);
+        let still = super::route(
+            "GET",
+            &format!("/v1/mailboxes/{other}"),
+            b"",
+            &headers,
+            "203.0.113.43",
+            &mut store,
+        )
+        .unwrap_err();
+        assert_eq!(still, StoreError::Unknown);
+        assert_eq!(still.message(), StoreError::Unknown.message());
     }
 }

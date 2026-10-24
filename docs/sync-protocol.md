@@ -213,7 +213,7 @@ The JSON body is `{ "message": "..." }`. The name is the server's name for the c
 | Unreadable | 400 | The body, the record magic, an id, or a size is not valid. |
 | BadInvite | 400 | The join code did not match a live invite. |
 | BadAccess | 400 | The invite code for a new mailbox did not match. |
-| Limited | 429 | Too many requests for one account (240 in 60 seconds) or one address (800 in 60 seconds). The sentence is the same whether or not the account exists. |
+| Limited | 429 | Too many requests for one account (240 in 60 seconds) or one address (800 in 60 seconds). A code guess is 10 per address, a join attempt is 10 per address, and a read is 180 per account or 500 per address, each in 60 seconds. The sentence is the same whether or not the account exists. The cap is checked before the account is looked up. |
 
 A body over 8 MiB is HTTP 400 with the unreadable sentence, before it is parsed.
 
