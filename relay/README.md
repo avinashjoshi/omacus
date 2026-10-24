@@ -1,6 +1,6 @@
 # Private sync test
 
-This is a private test, labeled 1.0.0-beta.3. This repository does not deploy it.
+This is a private test, labeled 1.0.0-beta.4. This repository does not deploy it.
 
 The server keeps sealed copies of pages. It cannot open them. The words stay on the device.
 
@@ -14,7 +14,7 @@ From the repository:
 
 Then open <http://127.0.0.1:8787>. The first screen can point at another test server, and `?server=` does the same.
 
-To try it, open the address in two windows. In one, choose Start fresh, type an invite code, and write down the 12 words. Then choose Add a phone or computer. In the other, choose Join my existing pages and type that code. Joining does not ask for an invite code. Approve only when the six numbers match. Use my recovery key instead pastes the 12 words, or scans the paper, then asks for three taps. The local server reads `ACCESS_SECRET` from the environment and does not print it.
+To try it, open the address in two windows. In one, choose Start fresh, type an invite code, and write down the 12 words. Then choose Add a phone or computer. In the other, choose Join my existing pages and type that code. Joining does not ask for an invite code. Approve only when the six numbers match. Use my recovery key instead pastes the 12 words, or scans the paper, then asks for three taps. The web app calls those words recovery words. Typing them is enough, and they still open the latest pages after a phone is removed. The local server reads `ACCESS_SECRET` from the environment and does not print it.
 
 ## Invite codes
 

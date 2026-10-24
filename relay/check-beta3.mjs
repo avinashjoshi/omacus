@@ -82,11 +82,11 @@ async function startFresh(page, inviteCode) {
   await page.getByRole("button", { name: "Start fresh" }).click();
   await page.waitForSelector(".sync-word", { timeout: 30000 });
   const words = await wordsOnSheet(page);
-  await page.getByRole("button", { name: "I wrote them down" }).click();
+  await page.getByRole("button", { name: "I saved them" }).click();
   await pickWords(page, words);
   await page.getByRole("button", { name: "These match" }).click();
-  await page.getByRole("button", { name: "Done" }).click();
   await page.locator("[data-sync-set]").waitFor();
+  return words;
 }
 
 async function joinFrom(page, host) {
@@ -99,13 +99,11 @@ async function joinFrom(page, host) {
   await page.getByRole("button", { name: "Join my existing pages" }).click();
   await page.locator("[data-join-code]").fill(invite);
   await page.getByRole("button", { name: "Join", exact: true }).click();
-  await page.getByRole("heading", { name: "Does this code match?" }).waitFor({ timeout: 20000 });
+  await page.getByRole("heading", { name: "Approve on your other device" }).waitFor({ timeout: 20000 });
   await host.getByRole("heading", { name: "Is this your phone or computer?" }).waitFor({ timeout: 20000 });
   await host.getByRole("button", { name: "Yes, approve it" }).click();
-  await page.getByRole("heading", { name: "Your pages are here" }).waitFor({ timeout: 60000 });
-  await host.getByRole("heading", { name: "That phone or computer can open your pages" }).waitFor({ timeout: 60000 });
-  await host.getByRole("button", { name: "Done" }).click();
-  await host.locator("[data-sync-set]").waitFor();
+  await page.locator("[data-sync-set]").waitFor({ timeout: 60000 });
+  await host.locator("[data-sync-set]").waitFor({ timeout: 60000 });
 }
 
 async function padDevices(page) {
@@ -182,7 +180,7 @@ const inviteCode = await mint(process.env.ACCESS_SECRET || "omacus-access-test-s
 if (!inviteCode) throw new Error("could not mint an invite code");
 
 try {
-  await startFresh(pageA, inviteCode);
+  const words = await startFresh(pageA, inviteCode);
   await joinFrom(pageB, pageA);
 
   await frame(pageB, "light", 1280, 800);
@@ -191,12 +189,12 @@ try {
   await shot(pageB, "joined-phone");
   await frame(pageB, "light", 1280, 800);
   const joined = await pageB.locator("[data-settings-panel='sync'] h2").innerText();
-  if (joined !== "Your pages are here") throw new Error(`joined heading ${joined}`);
+  if (joined !== "Sync is on") throw new Error(`joined heading ${joined}`);
 
   await addLine(pageA, "museum = 12");
   await pageB.locator(".cm-content").getByText("museum = 12").waitFor({ timeout: 20000 });
   const during = await pageB.locator("[data-settings-panel='sync'] h2").innerText();
-  if (during !== "Your pages are here") throw new Error(`left the success screen while an edit arrived: ${during}`);
+  if (during !== "Sync is on") throw new Error(`left sync while an edit arrived: ${during}`);
 
   await pageB.locator(".settings-card [aria-label='Close']").click();
   await pageB.locator("[data-settings]").waitFor({ state: "hidden" });
@@ -286,14 +284,36 @@ try {
   await openSync(removedPage);
   await removedPage.locator("[data-sync-removed]").waitFor({ timeout: 20000 });
 
+  await addLine(pageA, "bread $2");
+  const contextR = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const pageR = await openApp(contextR);
+  await openSync(pageR);
+  await pageR.getByRole("button", { name: "Join my existing pages" }).click();
+  await pageR.getByRole("button", { name: "Use my recovery words instead" }).click();
+  await pageR.locator("textarea").fill(words.map((word, index) => `${index + 1}. ${word}`).join("\n"));
+  await frame(pageR, "dark", 390, 844);
+  await shot(pageR, "recover-words-phone");
+  await pageR.getByRole("button", { name: "Open my pages" }).click();
+  await pageR.locator("[data-sync-set]").waitFor({ timeout: 60000 });
+  if (await pageR.locator(".sync-choice").count()) throw new Error("recovery asked to match words");
+  const recoveredHeading = await pageR.locator("[data-settings-panel='sync'] h2").innerText();
+  if (recoveredHeading !== "Sync is on") throw new Error(`recovery landed on ${recoveredHeading}`);
+  await closeSettings(pageR);
+  await frame(pageR, "dark", 1280, 800);
+  await openNamed(pageR, "Trip Budget");
+  await pageR.locator(".cm-content").getByText("bread $2").waitFor({ timeout: 20000 });
+  await frame(pageR, "dark", 390, 844);
+  await shot(pageR, "recover-pages-phone");
+  await contextR.close();
+
   await frame(pageA, "dark", 390, 844);
   await pageA.locator(".side-name").first().waitFor();
   const version = (await pageA.locator(".side-version").innerText()).trim();
-  if (version !== "omacus 1.0.0-beta.3") throw new Error(`version line ${version}`);
+  if (version !== "omacus 1.0.0-beta.4") throw new Error(`version line ${version}`);
   const beta = await pageA.locator(".sync-beta").innerText();
-  if (!beta.includes("1.0.0-beta.3")) throw new Error(`phone label ${beta}`);
+  if (!beta.includes("1.0.0-beta.4")) throw new Error(`phone label ${beta}`);
   const panelLabel = await removedPage.locator(".sync-label").innerText();
-  if (!panelLabel.includes("1.0.0-beta.3")) throw new Error(`panel label ${panelLabel}`);
+  if (!panelLabel.includes("1.0.0-beta.4")) throw new Error(`panel label ${panelLabel}`);
 
   console.log("sync stays on after close, a removed phone can join again, and the device list stays clear of the buttons");
 } catch (error) {

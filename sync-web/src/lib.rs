@@ -261,6 +261,14 @@ pub fn start_recovery(text: &str) -> String {
     })
 }
 
+#[wasm_bindgen(js_name = acceptRecovery)]
+pub fn accept_recovery(id: u32) -> String {
+    call(|| {
+        let account = with_desk(id, |desk| desk.accept_phrase())??;
+        Ok(json!({ "ok": true, "account": account }))
+    })
+}
+
 #[wasm_bindgen(js_name = recoveryAccount)]
 pub fn recovery_account(id: u32, picks_json: &str) -> String {
     call(|| {
@@ -346,12 +354,15 @@ pub fn recovery_open_pages(id: u32, record_b64: &str) -> String {
 #[wasm_bindgen(js_name = deviceList)]
 pub fn device_list(id: u32) -> String {
     call(|| {
-        let rows = with_desk(id, |desk| desk.listed_devices())??;
+        let (rows, former) = with_desk(id, |desk| {
+            let former = desk.formerly_listed();
+            desk.listed_devices().map(|rows| (rows, former))
+        })??;
         let devices: Vec<_> = rows
             .into_iter()
             .map(|(id, code, mine)| json!({ "id": id, "code": code, "self": mine }))
             .collect();
-        Ok(json!({ "ok": true, "devices": devices }))
+        Ok(json!({ "ok": true, "devices": devices, "former": former }))
     })
 }
 

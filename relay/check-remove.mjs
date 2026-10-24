@@ -58,10 +58,9 @@ try {
   await pageA.getByRole("button", { name: "Start fresh" }).click();
   await pageA.waitForSelector(".sync-word", { timeout: 30000 });
   const words = await wordsOnSheet(pageA);
-  await pageA.getByRole("button", { name: "I wrote them down" }).click();
+  await pageA.getByRole("button", { name: "I saved them" }).click();
   await pickWords(pageA, words);
   await pageA.getByRole("button", { name: "These match" }).click();
-  await pageA.getByRole("button", { name: "Done" }).click();
   await pageA.locator("[data-sync-set]").waitFor();
 
   await pageA.getByRole("button", { name: "Add a phone or computer" }).click();
@@ -75,9 +74,7 @@ try {
   await pageB.locator(".sync-code").waitFor({ timeout: 20000 });
   await pageA.getByRole("heading", { name: "Is this your phone or computer?" }).waitFor({ timeout: 20000 });
   await pageA.getByRole("button", { name: "Yes, approve it" }).click();
-  await pageA.getByRole("heading", { name: "That phone or computer can open your pages" }).waitFor({ timeout: 60000 });
-  await pageA.getByRole("button", { name: "Done" }).click();
-  await pageA.locator("[data-sync-set]").waitFor();
+  await pageA.locator("[data-sync-set]").waitFor({ timeout: 60000 });
 
   const removes = pageA.getByRole("button", { name: "Remove", exact: true });
   if (await removes.count() !== 1) throw new Error(`expected one Remove, saw ${await removes.count()}`);
