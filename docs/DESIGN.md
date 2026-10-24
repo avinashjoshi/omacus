@@ -340,7 +340,7 @@ Don't: collect an email, or describe sync as something the app already does. The
 
 ### Sync test
 
-A private test, labeled `1.0.0-beta.2`. `relay/www` is the small test page. The same screens also live in the web app's Settings, on a Sync tab, and only when that copy is the test (`sync-test.omacus.com`, or `data-sync-test="1"` on the page). The published app does not show the tab. One question or one instruction on each screen. One primary button. A Back, Cancel, No, or Done button is on every screen. The typed code is the main way to join. Scanning is a shortcut. Each step says what to do on the other phone or computer. Starting a new set of pages asks for an invite code. Joining, and opening pages with the recovery key, do not.
+A private test, labeled `1.0.0-beta.3`. `relay/www` is the small test page. The same screens also live in the web app's Settings, on a Sync tab, and only when that copy is the test (`sync-test.omacus.com`, or `data-sync-test="1"` on the page). The published app does not show the tab. One question or one instruction on each screen. One primary button. A Back, Cancel, No, or Done button is on every screen. The typed code is the main way to join. Scanning is a shortcut. Each step says what to do on the other phone or computer. Starting a new set of pages asks for an invite code. Joining, and opening pages with the recovery key, do not.
 
 Before, the first screen offered three peer actions, and later screens talked about "devices" without saying which phone was doing what.
 
@@ -364,8 +364,9 @@ After, the words name a phone or computer, and each screen is one step.
 - **Write down these 12 words.** "They are the only way back in if you lose every phone and computer. Write them on paper. You will not see them again." The words, then "The same words" on the picture. I wrote them down. Copy. Print. Back. Back does not turn sync on.
 - **Do these match your paper?** "Pick word 3, word 7, and word 11." Six choices each, nothing to type. These match. Back to the words. A miss says "That's not word 7. Look at your paper and try again."
 - **Sync is on.** "Your pages stay on your phones and computers. Add a phone or computer when you want them there too." Add a phone or computer. Done.
-- **Sync is on, home.** "Your pages stay on your phones and computers." This phone, or this computer. Any other is "Phone or computer", with its six numbers and Remove. "Remove stops that phone or computer from getting new changes. Pages already there stay there." Add a phone or computer. Turn sync off. Back. This phone does not offer Remove for itself.
+- **Sync is on, home.** "Your pages stay on your phones and computers." This phone, or this computer. Any other is "Phone or computer", with its six numbers and Remove. "Remove stops that phone or computer from getting new changes. Pages already there stay there." Add a phone or computer. Turn sync off. Back. This phone does not offer Remove for itself. On a phone, the list scrolls and those three buttons sit under it.
 - **Remove this phone or computer?** The name and the six numbers. "It will stop getting your pages. Pages already on it stay there." Remove. Keep it.
+- **This phone was removed from sync.** "Your pages are still here." Join again. Back. The top bar says Sync off. There is no device list, no Remove, and no extra step to turn sync off. On a computer the heading says "This computer was removed from sync."
 - **An approval that cannot be opened.** The screen names the check. "The approval's list didn't check out." "The saved copy's list didn't check out." "The approval's list version doesn't line up." "The saved copy's list version doesn't line up." A phone that is already on the list says so. A phone that is no longer on the list says so.
 - **Add a phone or computer.** "On the other phone or computer, open Sync and tap Join my existing pages. Type this code. It works for about 5 minutes, and only once." The code `K7QM-4R2P` comes first. "Or scan this picture." Back.
 - **Join my existing pages.** "On a phone or computer that already has your pages, open Sync and tap Add a phone or computer. Type the code you see there." The field is on this screen. If this phone already has pages: "Pages already on this phone will be combined with those. Nothing is deleted." Join. Scan the code instead. Use my recovery key instead. Back. A bad code says "That code didn't work. Check it on the other phone or computer." The join path never says there are no pages.
@@ -373,7 +374,7 @@ After, the words name a phone or computer, and each screen is one step.
 - **Does this code match?** "On your other phone or computer, you should see the same six numbers. Tap Yes, approve it there only if they match." The numbers are grouped as `482 916`. Waiting for that phone or computer. Cancel.
 - **Is this your phone or computer?** "It wants to open your pages. The same six numbers should be on that screen. Tap Yes, approve it only if they match." Yes, approve it. No.
 - **That phone or computer can open your pages.** "Your pages stay on your phones and computers." Done.
-- **Your pages are here.** "They stay on your phones and computers." If this phone already had pages: "Pages already here were combined. Nothing was deleted." Done.
+- **Your pages are here.** "They stay on your phones and computers." If this phone already had pages: "Pages already here were combined. Nothing was deleted." Done. Closing Settings, leaving the Sync tab, or pressing Esc keeps sync running the same way Done does. Edits keep arriving.
 - **Use your recovery key.** "Type or paste the 12 words you wrote down. Numbers and capitals are fine." The same combine line, when this phone already has pages. Open my pages. Scan the paper instead. Back.
 - **Do these match your paper?** Same three-word check as the fresh start.
 - **Turn sync off on this phone?** "Your pages stay here. This phone will stop sharing them. The 12 words still open them." Turn sync off. Not now.
@@ -381,7 +382,7 @@ After, the words name a phone or computer, and each screen is one step.
 
 The home screen is one set of pages. A later version can add a second set on this same screen (multiple syncs, planned for v1.1). This version does not.
 
-The chip in the top bar says Sync off, Saving…, Saved, Offline, or Not saved. It returns to Saved when the connection is back. A deleted line stays deleted. A line typed on the other phone at the same time stays. The sidebar version line reads `omacus 1.0.0-beta.2`, and the phone bar shows that same label while the page list is closed. The closed page list casts no shadow and leaves no line along the left edge of the page.
+The chip in the top bar says Sync off, Saving…, Saved, Offline, or Not saved. It returns to Saved when the connection is back. A deleted line stays deleted. A line typed on the other phone at the same time stays. The sidebar version line reads `omacus 1.0.0-beta.3`, and the phone bar shows that same label while the page list is closed. The closed page list casts no shadow and leaves no line along the left edge of the page.
 
 The test copy keeps its own pages, separate from the published app. Offline, the pages already on the phone stay there. The server still never sees the words or the pages.
 
