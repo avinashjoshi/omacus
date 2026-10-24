@@ -66,6 +66,7 @@ export async function mountSync(api) {
     joinCode: "",
     accessCode: "",
     localPages: false,
+    removing: null,
   };
   let wordlist = [];
   let timer = null;
@@ -95,6 +96,7 @@ export async function mountSync(api) {
     if (/no pages/i.test(text)) return "That code didn't work. Check it on the other phone or computer.";
     text = text.replaceAll("other device", "other phone or computer");
     text = text.replaceAll("That device", "That phone or computer");
+    text = text.replaceAll("This device", "This phone or computer");
     text = text.replaceAll("this device", "this phone or computer");
     text = text.replaceAll("a new device", "a phone or computer");
     text = text.replaceAll("new device", "phone or computer");
@@ -233,20 +235,35 @@ export async function mountSync(api) {
     await saveFile();
   }
 
-  async function pull(mailbox) {
+  async function pull(mailbox, depth = 0) {
     const opened = JSON.parse(sync.absorbRecord(state.desk, mailbox.record));
-    if (!opened.ok) throw new Error(opened.message || "Those pages could not be opened.");
+    if (!opened.ok) {
+      if (state.member && depth < 1) {
+        state.revision = mailbox.revision;
+        state.dirty = true;
+        await push();
+        return;
+      }
+      throw new Error(opened.message || "Those pages could not be opened.");
+    }
     state.member = opened.member !== false;
+    state.revision = mailbox.revision;
+    if (opened.replace === false) {
+      await saveFile();
+      await refreshDevices();
+      if (opened.republish && state.member && depth < 1) await push();
+      return;
+    }
     const remote = await asSet(opened.packed);
     const snap = await api.snapshot();
     const localPacked = await pack(snap.doc, snap.pages);
     const merged = JSON.parse(sync.mergePacked(localPacked, remote.packed));
     if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
     await installMerged(merged);
-    state.revision = mailbox.revision;
-    state.dirty = merged.packed !== remote.packed;
+    state.dirty = merged.packed !== remote.packed || opened.republish === true;
     await saveFile();
     await refreshDevices();
+    if (opened.republish && state.member && depth < 1) await push();
   }
 
   async function push() {
@@ -265,7 +282,7 @@ export async function mountSync(api) {
     } catch (error) {
       if (error.status !== 409) throw error;
       const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
-      await pull(mailbox);
+      await pull(mailbox, 1);
       state.dirty = true;
     }
   }
@@ -273,11 +290,12 @@ export async function mountSync(api) {
   async function refreshDevices() {
     const list = JSON.parse(sync.deviceList(state.desk));
     state.devices = list.ok ? list.devices : [];
+    if (list.ok) state.member = state.devices.some((device) => device.self);
   }
 
   async function tick() {
     if (ticking || !state.desk || !state.account) return;
-    if (["off", "access", "save", "confirm", "recover", "recover-confirm", "join", "join-start", "join-type", "join-scan", "ready", "joined", "approved", "off-ask", "off-done"].includes(state.screen)) return;
+    if (["off", "access", "save", "confirm", "recover", "recover-confirm", "join", "join-start", "join-type", "join-scan", "ready", "joined", "approved", "approve", "remove-ask", "off-ask", "off-done"].includes(state.screen)) return;
     ticking = true;
     try {
       if (navigator.onLine === false) setChip("Offline", "off");
@@ -769,8 +787,12 @@ export async function mountSync(api) {
       }
       state.busy = true;
       draw();
-      const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
-      const opened = JSON.parse(sync.openApprovalPages(state.desk, decision.chain, decision.wrap, mailbox.record));
+      let mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
+      let opened = JSON.parse(sync.openApprovalPages(state.desk, decision.chain, decision.wrap, mailbox.record));
+      for (let attempt = 0; !opened.ok && attempt < 3 && /saved copy/i.test(opened.message || ""); attempt += 1) {
+        mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
+        opened = JSON.parse(sync.openApprovalPages(state.desk, decision.chain, decision.wrap, mailbox.record));
+      }
       if (!opened.ok) throw new Error(opened.message);
       const remote = await asSet(opened.packed);
       const snap = await api.snapshot();
@@ -791,7 +813,8 @@ export async function mountSync(api) {
   }
 
   async function approve() {
-    if (!state.pending) return;
+    if (!state.pending || state.busy) return;
+    const prior = api.storeGet("device-file");
     state.busy = true;
     state.error = "";
     draw();
@@ -815,10 +838,19 @@ export async function mountSync(api) {
       });
       state.pending = null;
       state.invite = null;
+      state.error = "";
       state.screen = "approved";
       await refreshDevices();
       setChip("Saved", "on");
     } catch (error) {
+      if (prior) {
+        await api.storeSet("device-file", prior);
+        const imported = JSON.parse(sync.importLocal(prior));
+        if (imported.ok) {
+          state.desk = imported.id;
+          if (imported.account) state.account = imported.account;
+        }
+      }
       state.error = plainError(error.message);
     }
     state.busy = false;
@@ -842,10 +874,19 @@ export async function mountSync(api) {
     draw();
   }
 
+  function askRemove(device) {
+    if (!device || device.self) return;
+    state.removing = device;
+    state.screen = "remove-ask";
+    state.error = "";
+    draw();
+  }
+
   async function removeDevice(id) {
     const removed = JSON.parse(sync.removeDevice(state.desk, id));
     if (!removed.ok) {
       state.error = removed.message;
+      state.busy = false;
       draw();
       return;
     }
@@ -854,8 +895,11 @@ export async function mountSync(api) {
       await push();
       await refreshDevices();
     } catch (error) {
-      state.error = error.message;
+      state.error = plainError(error.message);
     }
+    state.removing = null;
+    state.screen = "linked";
+    state.busy = false;
     draw();
   }
 
@@ -902,6 +946,7 @@ export async function mountSync(api) {
     else if (state.screen === "join") drawJoin();
     else if (state.screen === "joined") drawJoined();
     else if (state.screen === "approve") drawApprove();
+    else if (state.screen === "remove-ask") drawRemoveAsk();
     else if (state.screen === "approved") drawApproved();
     else if (state.screen === "recover") drawRecover();
     else if (state.screen === "off-ask") drawOffAsk();
@@ -1121,6 +1166,20 @@ export async function mountSync(api) {
     );
   }
 
+  function drawRemoveAsk() {
+    const name = state.removing?.self ? hereCap() : "Phone or computer";
+    panel.append(
+      el("h2", {}, ["Remove this phone or computer?"]),
+      el("p", { class: "setting-help" }, [name]),
+      el("div", { class: "sync-code" }, [state.removing?.code || ""]),
+      el("p", { class: "setting-help" }, ["It will stop getting your pages. Pages already on it stay there."]),
+      addActions([
+        ["Remove", "danger", () => removeDevice(state.removing?.id), state.busy || !state.removing || state.removing.self],
+        ["Keep it", "", () => { state.screen = "linked"; state.removing = null; state.error = ""; draw(); }, state.busy],
+      ]),
+    );
+  }
+
   function drawApproved() {
     panel.append(
       el("h2", {}, ["That phone or computer can open your pages"]),
@@ -1202,7 +1261,7 @@ export async function mountSync(api) {
       ]));
       if (!device.self) {
         const remove = button("Remove", { type: "button", class: "btn small" });
-        remove.addEventListener("click", () => removeDevice(device.id));
+        remove.addEventListener("click", () => askRemove(device));
         row.append(remove);
       }
       home.append(row);
@@ -1278,7 +1337,7 @@ export async function mountSync(api) {
       state.account = imported.account;
       state.revision = Number(api.storeGet("sync-revision") || 0);
       state.screen = "linked";
-      state.member = true;
+      state.member = false;
       await refreshDevices().catch(() => {});
       setChip("Saved", "on");
     }

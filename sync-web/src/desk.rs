@@ -30,6 +30,17 @@ pub struct Desk {
     sealed_page: Vec<u8>,
     recovery: Option<RecoveryKey>,
     root: Option<Root>,
+    phrase_kek: Option<[u8; 32]>,
+}
+
+/// What [`Desk::absorb_record`] opened.
+pub struct OpenedRecord {
+    pub pages: Vec<u8>,
+    pub member: bool,
+    /// False when the pages already on this device should stay as they are.
+    pub replace: bool,
+    /// True when this device should publish its own sealed pages again.
+    pub republish: bool,
 }
 
 pub struct Approval {
@@ -94,6 +105,7 @@ impl Desk {
             sealed_page: Vec::new(),
             recovery: Some(RecoveryKey::generate()?),
             root: None,
+            phrase_kek: None,
         })
     }
 
@@ -109,6 +121,7 @@ impl Desk {
             sealed_page: Vec::new(),
             recovery: None,
             root: None,
+            phrase_kek: None,
         })
     }
 
@@ -128,6 +141,7 @@ impl Desk {
             sealed_page: Vec::new(),
             recovery: Some(RecoveryKey::parse(&check.normalized)?),
             root: None,
+            phrase_kek: None,
         })
     }
 
@@ -153,12 +167,13 @@ impl Desk {
                 return Err(error);
             }
         };
-        let (account, phrase, vault) = {
+        let (account, phrase, vault, kek) = {
             let root = confirmed.root("")?;
             let account = root.account_public()?;
             let vault = VaultKey::generate()?;
-            let phrase = sync_keys::wrap_vault_for_phrase(&root, &vault, self.epoch)?;
-            (account, phrase, vault)
+            let kek = sync_keys::phrase_kek(&root)?;
+            let phrase = sync_keys::wrap_vault_with_kek(&kek, &vault, self.epoch)?;
+            (account, phrase, vault, kek)
         };
         let chain = sync_keys::found_devices(&self.device)?;
         let wrap = sync_keys::wrap_vault_for_device(&self.device.public(), &vault, self.epoch)?;
@@ -169,6 +184,7 @@ impl Desk {
         self.phrase_wrap = phrase;
         self.wraps = vec![wrap];
         self.sealed_page = sealed;
+        self.phrase_kek = Some(kek);
         self.record()
     }
 
@@ -186,7 +202,10 @@ impl Desk {
 
     pub fn approve_new(&mut self, device: &[u8]) -> Result<Approval, SyncKeyError> {
         let newcomer = decode_device(device)?;
-        let chain = self.chain.as_ref().ok_or(SyncKeyError::NotApproved)?;
+        let chain = self
+            .chain
+            .as_ref()
+            .ok_or(SyncKeyError::NotApproved(sync_keys::NO_LIST))?;
         let vault = self.vault.as_ref().ok_or(SyncKeyError::Sealed)?;
         let (chain, wrap) = sync_keys::approve(&self.device, chain, &newcomer, vault, self.epoch)?;
         self.chain = Some(chain);
@@ -255,7 +274,16 @@ impl Desk {
             .as_ref()
             .map(DeviceChain::to_bytes)
             .unwrap_or_default();
-        sync_keys::store_device(&self.device, vault, &account, self.epoch, &chain)
+        let kek = self.phrase_kek.unwrap_or([0u8; 32]);
+        let stored_kek: &[u8] = if self.phrase_kek.is_some() { &kek } else { &[] };
+        sync_keys::store_device(
+            &self.device,
+            vault,
+            &account,
+            self.epoch,
+            &chain,
+            stored_kek,
+        )
     }
 
     pub fn import_local(bytes: &[u8]) -> Result<Self, SyncKeyError> {
@@ -278,6 +306,13 @@ impl Desk {
             sealed_page: Vec::new(),
             recovery: None,
             root: None,
+            phrase_kek: if file.kek.len() == 32 {
+                let mut kek = [0u8; 32];
+                kek.copy_from_slice(&file.kek);
+                Some(kek)
+            } else {
+                None
+            },
         })
     }
 
@@ -292,9 +327,10 @@ impl Desk {
         open_sealed(vault, self.epoch, &self.sealed_page)
     }
 
-    /// Open a newer record. A chain that drops a removal we already have is not adopted.
-    /// The opened pages come back either way, so a merge can keep every page.
-    pub fn absorb_record(&mut self, record: &[u8]) -> Result<(Vec<u8>, bool), SyncKeyError> {
+    /// Open a record. A chain that drops a removal we already have is not adopted.
+    /// A new seal for the remaining phones is opened from this device's wrap.
+    /// A phone that was removed keeps the pages it already has and is no longer a member.
+    pub fn absorb_record(&mut self, record: &[u8]) -> Result<OpenedRecord, SyncKeyError> {
         let view = ServerView::parse(record)?;
         view.chain.verify()?;
         if let Some(account) = self.account
@@ -302,44 +338,79 @@ impl Desk {
         {
             return Err(SyncKeyError::Sealed);
         }
-        let opened = if let Some(vault) = &self.vault {
-            if vault.id() != &view.key_id {
-                return Err(SyncKeyError::Sealed);
-            }
-            open_sealed(vault, view.epoch, &view.page)?
-        } else {
-            let mut found = None;
-            for wrap in &view.device_wraps {
-                if let Ok(vault) =
-                    sync_keys::open_device_wrap(&self.device, wrap, view.epoch, &view.key_id)
-                {
-                    let pages = open_sealed(&vault, view.epoch, &view.page)?;
-                    found = Some((vault, pages));
-                    break;
-                }
-            }
-            let (vault, pages) = found.ok_or(SyncKeyError::Sealed)?;
-            self.vault = Some(vault);
-            pages
-        };
+        let mine = *self.device.public().id();
+        let on_list = view
+            .chain
+            .devices()?
+            .iter()
+            .any(|device| *device.id() == mine);
         let take_chain = match &self.chain {
             None => true,
-            Some(local) => {
-                matches!(
-                    view.chain.compared_with(local),
-                    sync_keys::ChainOrder::Newer | sync_keys::ChainOrder::Same
-                )
-            }
+            Some(local) => matches!(
+                view.chain.compared_with(local),
+                sync_keys::ChainOrder::Newer | sync_keys::ChainOrder::Same
+            ),
         };
-        if take_chain {
-            self.chain = Some(view.chain);
-            self.phrase_wrap = view.phrase_wrap;
-            self.wraps = view.device_wraps;
-            self.sealed_page = view.page;
-            self.epoch = view.epoch;
+        let opened = if let Some(vault) = &self.vault {
+            if vault.id() == &view.key_id {
+                Some(Opened::Current(open_sealed(vault, view.epoch, &view.page)?))
+            } else {
+                open_wrapped(&self.device, &view)?
+                    .map(|(vault, pages)| Opened::Wrapped(vault, pages))
+            }
+        } else {
+            open_wrapped(&self.device, &view)?.map(|(vault, pages)| Opened::Wrapped(vault, pages))
+        };
+        match opened {
+            Some(Opened::Current(pages)) => {
+                if take_chain {
+                    self.adopt_view(view);
+                } else {
+                    self.account = Some(view.account);
+                }
+                Ok(OpenedRecord {
+                    pages,
+                    member: self.member(),
+                    replace: true,
+                    republish: false,
+                })
+            }
+            Some(Opened::Wrapped(vault, pages)) => {
+                let republish = !take_chain && self.member();
+                if take_chain {
+                    self.adopt_view(view);
+                    self.vault = Some(vault);
+                } else {
+                    self.account = Some(view.account);
+                }
+                Ok(OpenedRecord {
+                    pages,
+                    member: self.member(),
+                    replace: true,
+                    republish,
+                })
+            }
+            None if !on_list => {
+                if take_chain {
+                    self.chain = Some(view.chain);
+                    self.epoch = view.epoch;
+                }
+                self.account = Some(view.account);
+                Ok(OpenedRecord {
+                    pages: Vec::new(),
+                    member: false,
+                    replace: false,
+                    republish: false,
+                })
+            }
+            None if self.member() => Ok(OpenedRecord {
+                pages: Vec::new(),
+                member: true,
+                replace: false,
+                republish: true,
+            }),
+            None => Err(SyncKeyError::Sealed),
         }
-        self.account = Some(view.account);
-        Ok((opened, self.member()))
     }
 
     pub fn member(&self) -> bool {
@@ -351,7 +422,10 @@ impl Desk {
     }
 
     pub fn listed_devices(&self) -> Result<Vec<(String, String, bool)>, SyncKeyError> {
-        let chain = self.chain.as_ref().ok_or(SyncKeyError::NotApproved)?;
+        let chain = self
+            .chain
+            .as_ref()
+            .ok_or(SyncKeyError::NotApproved(sync_keys::NO_LIST))?;
         let mine = *self.device.public().id();
         let mut rows = Vec::new();
         for device in chain.devices()? {
@@ -362,8 +436,24 @@ impl Desk {
     }
 
     pub fn remove_listed(&mut self, id: &[u8; 16]) -> Result<Vec<u8>, SyncKeyError> {
-        let chain = self.chain.clone().ok_or(SyncKeyError::NotApproved)?;
-        self.chain = Some(sync_keys::remove_device(&self.device, &chain, id)?);
+        let chain = self
+            .chain
+            .clone()
+            .ok_or(SyncKeyError::NotApproved(sync_keys::NO_LIST))?;
+        let chain = sync_keys::remove_device(&self.device, &chain, id)?;
+        let vault = VaultKey::generate()?;
+        let mut wraps = Vec::new();
+        for device in chain.devices()? {
+            wraps.push(sync_keys::wrap_vault_for_device(
+                &device, &vault, self.epoch,
+            )?);
+        }
+        if let Some(kek) = self.phrase_kek {
+            self.phrase_wrap = sync_keys::wrap_vault_with_kek(&kek, &vault, self.epoch)?;
+        }
+        self.vault = Some(vault);
+        self.wraps = wraps;
+        self.chain = Some(chain);
         self.record()
     }
 
@@ -374,9 +464,13 @@ impl Desk {
         record: &[u8],
     ) -> Result<Vec<u8>, SyncKeyError> {
         let chain = DeviceChain::from_bytes(chain)?;
-        chain.verify()?;
+        chain
+            .verify()
+            .map_err(|error| sync_keys::scope_list_error(error, false))?;
         let view = ServerView::parse(record)?;
-        view.chain.verify()?;
+        view.chain
+            .verify()
+            .map_err(|error| sync_keys::scope_list_error(error, true))?;
         let vault = sync_keys::open_device_wrap(&self.device, wrap, view.epoch, &view.key_id)?;
         let pages = open_sealed(&vault, view.epoch, &view.page)?;
         self.keep_opened(view, vault, chain);
@@ -388,10 +482,20 @@ impl Desk {
         if self.account != Some(view.account) {
             return Err(SyncKeyError::Sealed);
         }
+        view.chain
+            .verify()
+            .map_err(|error| sync_keys::scope_list_error(error, true))?;
         let root = self.root.take().ok_or(SyncKeyError::NotConfirmed)?;
-        view.chain.verify()?;
+        let kek = sync_keys::phrase_kek(&root)?;
         let vault =
-            sync_keys::open_phrase_wrap(&root, &view.phrase_wrap, view.epoch, &view.key_id)?;
+            match sync_keys::open_phrase_wrap(&root, &view.phrase_wrap, view.epoch, &view.key_id) {
+                Ok(vault) => vault,
+                Err(error) => {
+                    self.root = Some(root);
+                    return Err(error);
+                }
+            };
+        self.phrase_kek = Some(kek);
         let pages = open_sealed(&vault, view.epoch, &view.page)?;
         let chain = view.chain.clone();
         self.keep_opened(view, vault, chain);
@@ -408,6 +512,15 @@ impl Desk {
 
     pub fn root(&self) -> Option<&Root> {
         self.root.as_ref()
+    }
+
+    fn adopt_view(&mut self, view: ServerView) {
+        self.epoch = view.epoch;
+        self.account = Some(view.account);
+        self.phrase_wrap = view.phrase_wrap;
+        self.wraps = view.device_wraps;
+        self.sealed_page = view.page;
+        self.chain = Some(view.chain);
     }
 
     fn keep_opened(&mut self, view: ServerView, vault: VaultKey, chain: DeviceChain) {
@@ -432,6 +545,24 @@ impl Desk {
         };
         Ok(view.stored())
     }
+}
+
+enum Opened {
+    Current(Vec<u8>),
+    Wrapped(VaultKey, Vec<u8>),
+}
+
+fn open_wrapped(
+    device: &DeviceKeys,
+    view: &ServerView,
+) -> Result<Option<(VaultKey, Vec<u8>)>, SyncKeyError> {
+    for wrap in &view.device_wraps {
+        if let Ok(vault) = sync_keys::open_device_wrap(device, wrap, view.epoch, &view.key_id) {
+            let pages = open_sealed(&vault, view.epoch, &view.page)?;
+            return Ok(Some((vault, pages)));
+        }
+    }
+    Ok(None)
 }
 
 fn open_sealed(vault: &VaultKey, epoch: u64, stored: &[u8]) -> Result<Vec<u8>, SyncKeyError> {
@@ -534,6 +665,76 @@ pub(crate) fn qr_svg(payload: &str, label: &str) -> Result<String, SyncKeyError>
 mod tests {
     use super::*;
 
+    fn confirmed_desk() -> (Desk, Vec<u8>) {
+        let mut desk = Desk::start_new().unwrap();
+        let words = desk.words().unwrap();
+        let picks: Vec<(u8, &str)> = CONFIRM_AT
+            .into_iter()
+            .map(|n| (n, words[n as usize - 1]))
+            .collect();
+        let record = desk.confirm_saved(&picks).unwrap();
+        (desk, record)
+    }
+
+    #[test]
+    fn a_reloaded_device_can_approve_a_new_one() {
+        let (founder, first) = confirmed_desk();
+        let file = founder.export_local().unwrap();
+        let mut founder = Desk::import_local(&file).unwrap();
+        assert!(
+            founder.wraps.is_empty(),
+            "a reload forgets the sealed copies"
+        );
+        let _ = founder.absorb_record(&first).unwrap();
+        let joiner = Desk::start_join().unwrap();
+        let device = joiner.public_device();
+        let approval = founder.approve_new(&device).unwrap();
+        let published = founder.seal_pages(b"Trip Budget\nferry = 40\n").unwrap();
+        let mut joiner = joiner;
+        joiner
+            .open_approval_pages(&approval.chain, &approval.wrap, &published)
+            .expect("reloaded device approval should open");
+    }
+
+    #[test]
+    fn a_reloaded_device_approves_before_it_has_pulled() {
+        let (founder, first) = confirmed_desk();
+        let file = founder.export_local().unwrap();
+        // Upgraded in place: the device file has the chain and the vault, and
+        // nothing else. A slow reload has not pulled the mailbox yet.
+        let mut founder = Desk::import_local(&file).unwrap();
+        assert!(founder.wraps.is_empty());
+        let mut joiner = Desk::start_join().unwrap();
+        let approval = founder.approve_new(&joiner.public_device()).unwrap();
+        let published = founder.seal_pages(b"Trip Budget\nferry = 40\n").unwrap();
+        let err = joiner
+            .open_approval_pages(&approval.chain, &approval.wrap, &published)
+            .err();
+        assert!(
+            err.is_none(),
+            "pulled-nothing approval failed: {}",
+            err.unwrap().message()
+        );
+        // The copy still on the server from before this reload.
+        joiner
+            .open_approval_pages(&approval.chain, &approval.wrap, &first)
+            .expect("old copy");
+    }
+
+    #[test]
+    fn a_stale_mailbox_still_opens_after_approve() {
+        let (founder, first) = confirmed_desk();
+        let file = founder.export_local().unwrap();
+        let mut founder = Desk::import_local(&file).unwrap();
+        founder.absorb_record(&first).unwrap();
+        let mut joiner = Desk::start_join().unwrap();
+        let approval = founder.approve_new(&joiner.public_device()).unwrap();
+        // A slow tick published nothing new: the joiner still sees the previous copy.
+        joiner
+            .open_approval_pages(&approval.chain, &approval.wrap, &first)
+            .expect("previous copy should still open");
+    }
+
     #[test]
     fn a_numbered_paste_looks_right_when_the_words_match() {
         let key = RecoveryKey::from_entropy([0x11; 16]);
@@ -554,6 +755,140 @@ mod tests {
         assert_eq!(
             check_phrase("one").message,
             "That's 1 word. A recovery key is 12."
+        );
+    }
+
+    #[test]
+    fn a_second_approve_needs_the_list_from_before_the_first_tap() {
+        let (mut founder, _) = confirmed_desk();
+        let file = founder.export_local().unwrap();
+        let joiner = Desk::start_join().unwrap();
+        let device = joiner.public_device();
+        founder.approve_new(&device).unwrap();
+        let Err(error) = founder.approve_new(&device) else {
+            panic!("the phone was approved twice");
+        };
+        assert_eq!(error.message(), "That device is already on the list.");
+        let mut restored = Desk::import_local(&file).unwrap();
+        restored
+            .approve_new(&device)
+            .expect("the saved file can approve");
+    }
+
+    #[test]
+    fn a_bad_approval_says_which_list_failed() {
+        let (mut founder, record) = confirmed_desk();
+        let mut joiner = Desk::start_join().unwrap();
+        let approval = founder.approve_new(&joiner.public_device()).unwrap();
+        let mut forged = approval.chain.clone();
+        let last = forged.len() - 1;
+        forged[last] ^= 0xff;
+        let err = joiner
+            .open_approval_pages(&forged, &approval.wrap, &record)
+            .unwrap_err();
+        assert_eq!(err.message(), "The approval's list didn't check out.");
+        joiner
+            .open_approval_pages(&approval.chain, &approval.wrap, &record)
+            .expect("a real approval still opens");
+    }
+
+    fn other_id(desk: &Desk) -> [u8; 16] {
+        let listed = desk.listed_devices().unwrap();
+        let (id, _, mine) = listed.iter().find(|(_, _, mine)| !mine).unwrap();
+        assert!(!mine);
+        decode_hex_id(id).unwrap()
+    }
+
+    #[test]
+    fn a_removed_device_cannot_open_pages_sealed_afterward() {
+        let mut founder = Desk::start_new().unwrap();
+        let words = founder.words().unwrap();
+        let phrase = words.join(" ");
+        let picks: Vec<(u8, &str)> = CONFIRM_AT
+            .into_iter()
+            .map(|n| (n, words[n as usize - 1]))
+            .collect();
+        founder.confirm_saved(&picks).unwrap();
+
+        let mut laptop = Desk::start_join().unwrap();
+        let approval = founder.approve_new(&laptop.public_device()).unwrap();
+        let first = founder.seal_pages(b"ferry = 40\n").unwrap();
+        laptop
+            .open_approval_pages(&approval.chain, &approval.wrap, &first)
+            .unwrap();
+
+        let mut phone = Desk::start_join().unwrap();
+        let approval = founder.approve_new(&phone.public_device()).unwrap();
+        let shared = founder.seal_pages(b"ferry = 40\n").unwrap();
+        phone
+            .open_approval_pages(&approval.chain, &approval.wrap, &shared)
+            .unwrap();
+
+        let phone_id = *phone.device().public().id();
+        founder.remove_listed(&phone_id).unwrap();
+        let later = founder.seal_pages(b"bread $2\n").unwrap();
+
+        let kept = laptop.absorb_record(&later).unwrap();
+        assert!(kept.member);
+        assert!(kept.replace);
+        assert_eq!(kept.pages, b"bread $2\n");
+
+        let dropped = phone.absorb_record(&later).unwrap();
+        assert!(!dropped.member);
+        assert!(!dropped.replace);
+        let view = ServerView::parse(&later).unwrap();
+        assert!(view.device_wraps.iter().all(|wrap| {
+            sync_keys::open_device_wrap(phone.device(), wrap, view.epoch, &view.key_id).is_err()
+        }));
+
+        let mut recovered = Desk::start_recovery(&phrase).unwrap();
+        recovered.recovery_account(&picks).unwrap();
+        assert_eq!(
+            recovered.recovery_open_pages(&later).unwrap(),
+            b"bread $2\n"
+        );
+    }
+
+    #[test]
+    fn a_beta1_file_can_approve_and_removal_still_locks_new_pages() {
+        let mut founder = Desk::start_new().unwrap();
+        let words = founder.words().unwrap();
+        let phrase = words.join(" ");
+        let picks: Vec<(u8, &str)> = CONFIRM_AT
+            .into_iter()
+            .map(|n| (n, words[n as usize - 1]))
+            .collect();
+        let first = founder.confirm_saved(&picks).unwrap();
+        let file = founder.export_local().unwrap();
+        let stored = sync_keys::open_device_store(&file).unwrap();
+        let legacy = sync_keys::store_device(
+            &stored.device,
+            &stored.vault,
+            &stored.account,
+            stored.epoch,
+            &stored.chain,
+            &[],
+        )
+        .unwrap();
+        let mut founder = Desk::import_local(&legacy).unwrap();
+        founder.absorb_record(&first).unwrap();
+
+        let mut phone = Desk::start_join().unwrap();
+        let approval = founder.approve_new(&phone.public_device()).unwrap();
+        let shared = founder.seal_pages(b"ferry = 40\n").unwrap();
+        phone
+            .open_approval_pages(&approval.chain, &approval.wrap, &shared)
+            .expect("beta.1 device file can approve");
+
+        founder.remove_listed(&other_id(&founder)).unwrap();
+        let later = founder.seal_pages(b"bread $2\n").unwrap();
+        let dropped = phone.absorb_record(&later).unwrap();
+        assert!(!dropped.member && !dropped.replace);
+        let mut recovered = Desk::start_recovery(&phrase).unwrap();
+        recovered.recovery_account(&picks).unwrap();
+        assert_eq!(
+            recovered.recovery_open_pages(&later).unwrap_err().message(),
+            "Those pages could not be opened."
         );
     }
 }

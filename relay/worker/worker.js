@@ -114,6 +114,17 @@ export class Mailboxes extends DurableObject {
     return (await this.ctx.storage.get("m:" + account)) || fail("Unknown");
   }
   async save(account, m) { await this.ctx.storage.put("m:" + account, m); }
+  // A put and an approval can overlap on a slow phone. One transaction keeps
+  // both changes; the last write must not roll the saved pages back.
+  async change(account, update) {
+    let out;
+    await this.ctx.storage.transaction(async (txn) => {
+      const m = (await txn.get("m:" + account)) || fail("Unknown");
+      out = await update(m);
+      await txn.put("m:" + account, m);
+    });
+    return out;
+  }
 
   async useAccess(access, take) {
     const hash = access.hash;
@@ -138,11 +149,13 @@ export class Mailboxes extends DurableObject {
       const v = need();
       const account = accountId(typeof v.account === "string" ? v.account : fail("Unreadable"));
       const record = sealed(v.record);
-      if (await this.ctx.storage.get("m:" + account)) fail("Conflict");
-      if ((await this.ctx.storage.list({ prefix: "m:" })).size >= MAX_MAILBOXES) fail("Full");
       if (!access.spend) fail("BadAccess");
       await this.useAccess(access, true);
-      await this.save(account, { revision: 1, record, requests: {}, created: Date.now() });
+      await this.ctx.storage.transaction(async (txn) => {
+        if (await txn.get("m:" + account)) fail("Conflict");
+        if ((await txn.list({ prefix: "m:" })).size >= MAX_MAILBOXES) fail("Full");
+        await txn.put("m:" + account, { revision: 1, record, requests: {}, created: Date.now() });
+      });
       return [201, { revision: 1 }];
     }
     const rest = path.startsWith("/v1/mailboxes/") ? path.slice(14).split("/") : fail("Unknown");
@@ -157,20 +170,21 @@ export class Mailboxes extends DurableObject {
       const v = need();
       if (!Number.isInteger(v.revision) || v.revision < 0) fail("Unreadable");
       const record = sealed(v.record);
-      const m = await this.load(account);
-      if (m.revision !== v.revision) fail("Revision");
-      m.revision += 1; m.record = record;
-      await this.save(account, m);
-      return [200, { revision: m.revision }];
+      return this.change(account, (m) => {
+        if (m.revision !== v.revision) fail("Revision");
+        m.revision += 1;
+        m.record = record;
+        return [200, { revision: m.revision }];
+      });
     }
     if (method === "POST" && sub === "invites" && id === undefined) {
       const v = need();
       const hash = String(v.hash || "").trim().toLowerCase();
       if (!/^[0-9a-f]{64}$/.test(hash)) fail("Unreadable");
-      const m = await this.load(account);
-      m.invite = { hash, expires: Date.now() + INVITE_MS, used: false };
-      await this.save(account, m);
-      return [200, { ok: true }];
+      return this.change(account, (m) => {
+        m.invite = { hash, expires: Date.now() + INVITE_MS, used: false };
+        return [200, { ok: true }];
+      });
     }
     if (sub !== "requests") fail("Unknown");
     if (method === "GET" && id === undefined) {
@@ -178,22 +192,26 @@ export class Mailboxes extends DurableObject {
       return [200, { requests: Object.entries(m.requests).filter(([, r]) => r.state === "pending")
         .map(([rid, r]) => ({ id: rid, device: r.device, name: r.name, proof: r.proof || "" })) }];
     }
-    const m = await this.load(account);
-    const r = Object.hasOwn(m.requests, id) ? m.requests[id] : fail("Unknown");
-    if (method === "GET") return [200, { state: r.state, name: r.name, device: r.device, chain: r.chain, wrap: r.wrap }];
+    if (method === "GET") {
+      const m = await this.load(account);
+      const r = Object.hasOwn(m.requests, id) ? m.requests[id] : fail("Unknown");
+      return [200, { state: r.state, name: r.name, device: r.device, chain: r.chain, wrap: r.wrap }];
+    }
     if (method === "POST") {
       const v = need();
-      if (v.reject === true) {
-        if (r.state !== "pending") fail("Conflict");
-        r.state = "rejected";
-      } else {
-        const chain = fromB64(v.chain), wrap = fromB64(v.wrap);
-        if (chain.length > MAX_CHAIN || !startsWith(chain, CHAIN_MAGIC) || !wrap.length || wrap.length > MAX_WRAP) fail("Unreadable");
-        if (r.state !== "pending") fail("Conflict");
-        r.state = "approved"; r.chain = v.chain.trim(); r.wrap = v.wrap.trim();
-      }
-      await this.save(account, m);
-      return [200, { ok: true }];
+      return this.change(account, (m) => {
+        const r = Object.hasOwn(m.requests, id) ? m.requests[id] : fail("Unknown");
+        if (v.reject === true) {
+          if (r.state !== "pending") fail("Conflict");
+          r.state = "rejected";
+        } else {
+          const chain = fromB64(v.chain), wrap = fromB64(v.wrap);
+          if (chain.length > MAX_CHAIN || !startsWith(chain, CHAIN_MAGIC) || !wrap.length || wrap.length > MAX_WRAP) fail("Unreadable");
+          if (r.state !== "pending") fail("Conflict");
+          r.state = "approved"; r.chain = v.chain.trim(); r.wrap = v.wrap.trim();
+        }
+        return [200, { ok: true }];
+      });
     }
     fail("Unknown");
   }
@@ -207,33 +225,38 @@ export class Mailboxes extends DurableObject {
     if (given.length !== 32) fail("Unreadable");
     const hash = await hashHex(secret);
     const now = Date.now();
-    const all = await this.ctx.storage.list({ prefix: "m:" });
-    let account = "";
-    let mailbox = null;
-    for (const [key, stored] of all) {
-      const invite = stored.invite;
-      if (!invite || invite.used || !(invite.expires > now) || invite.hash !== hash) continue;
-      account = key.slice(2);
-      mailbox = stored;
-      break;
-    }
-    if (!mailbox) fail("BadInvite");
-    if (!sameBytes(await hmacBytes(secret, device), given)) fail("BadInvite");
-    const pending = Object.values(mailbox.requests).filter((request) => request.state === "pending").length;
-    if (pending >= MAX_REQUESTS) fail("Full");
-    mailbox.invite.used = true;
+    const proofBytes = await hmacBytes(secret, device);
+    if (!sameBytes(proofBytes, given)) fail("BadInvite");
     const id = freshId();
     const proof = btoa(String.fromCharCode(...given));
-    mailbox.requests[id] = {
-      device: btoa(String.fromCharCode(...device)),
-      name: cleanName(typeof v.name === "string" ? v.name : ""),
-      state: "pending",
-      chain: "",
-      wrap: "",
-      proof,
-    };
-    await this.save(account, mailbox);
-    return [201, { id, account }];
+    let result;
+    await this.ctx.storage.transaction(async (txn) => {
+      const all = await txn.list({ prefix: "m:" });
+      let account = "";
+      let mailbox = null;
+      for (const [key, stored] of all) {
+        const invite = stored.invite;
+        if (!invite || invite.used || !(invite.expires > now) || invite.hash !== hash) continue;
+        account = key.slice(2);
+        mailbox = stored;
+        break;
+      }
+      if (!mailbox) fail("BadInvite");
+      const pending = Object.values(mailbox.requests).filter((request) => request.state === "pending").length;
+      if (pending >= MAX_REQUESTS) fail("Full");
+      mailbox.invite.used = true;
+      mailbox.requests[id] = {
+        device: btoa(String.fromCharCode(...device)),
+        name: cleanName(typeof v.name === "string" ? v.name : ""),
+        state: "pending",
+        chain: "",
+        wrap: "",
+        proof,
+      };
+      await txn.put("m:" + account, mailbox);
+      result = [201, { id, account }];
+    });
+    return result;
   }
 }
 
