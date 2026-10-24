@@ -22,6 +22,7 @@ const APP_FILES = [
   "recover.js",
   "backup.js",
   "sync.js",
+  "sync-save.mjs",
   "migrate.js",
   "migrate-client.js",
   "migrate-protocol.js",

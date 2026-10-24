@@ -1,8 +1,9 @@
 // Sync for the private test. The published app does not mount this.
 // A device file stays in this browser. The server receives a sealed record.
 import { SYNC_URL } from "./sync-config.js";
+import { beginSave, finishSave, noteLocalEdit } from "./sync-save.mjs";
 
-const LABEL = "omacus 1.0.0-beta.13";
+const LABEL = "omacus 1.0.0-beta.14";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 
@@ -67,6 +68,7 @@ export async function mountSync(api) {
     error: "",
     busy: false,
     dirty: false,
+    editGen: 0,
     member: true,
     devices: [],
     name: matchMedia("(pointer: coarse)").matches ? "This phone" : "This browser",
@@ -223,7 +225,7 @@ export async function mountSync(api) {
     saveNames();
     showPlaces();
     if (state.member && state.account) {
-      state.dirty = true;
+      noteLocalEdit(state);
       armSaving();
       schedule();
     }
@@ -250,7 +252,7 @@ export async function mountSync(api) {
     }
     saveNames();
     if (state.member && state.account) {
-      state.dirty = true;
+      noteLocalEdit(state);
       armSaving();
       schedule();
     }
@@ -627,13 +629,14 @@ export async function mountSync(api) {
       setChip("Sync off", "off");
       return;
     }
+    const started = beginSave(state);
     const snap = await api.snapshot();
     const packed = await pack(snap.doc, snap.pages);
     const sealed = await sealPacked(packed);
     try {
       await commitSeal(sealed);
-      state.dirty = false;
-      calm();
+      finishSave(state, started);
+      if (!state.dirty) calm();
     } catch (error) {
       if (error.status !== 409) throw error;
       const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
@@ -645,12 +648,13 @@ export async function mountSync(api) {
   async function publishListedName(remote) {
     rememberSelf();
     if (!state.selfId || !remote) return;
+    const started = beginSave(state);
     const doc = remote.doc ? api.b64ToBytes(remote.doc) : new Uint8Array();
     const packed = await pack(doc, remote.pages || []);
     const sealed = await sealPacked(packed);
-    state.dirty = false;
     await commitSeal(sealed);
-    calm();
+    finishSave(state, started);
+    if (!state.dirty) calm();
   }
 
   async function refreshDevices() {
@@ -1286,7 +1290,7 @@ export async function mountSync(api) {
       draw();
       return;
     }
-    state.dirty = true;
+    noteLocalEdit(state);
     try {
       await push();
       await refreshDevices();
@@ -1729,7 +1733,7 @@ export async function mountSync(api) {
         saveNames();
         showPlaces();
         if (state.member) {
-          state.dirty = true;
+          noteLocalEdit(state);
           armSaving();
           schedule();
         }
@@ -1743,7 +1747,7 @@ export async function mountSync(api) {
         state.selfRev += 1;
         saveNames();
         if (state.member) {
-          state.dirty = true;
+          noteLocalEdit(state);
           armSaving();
           schedule();
         }
@@ -1829,7 +1833,7 @@ export async function mountSync(api) {
 
   api.onEdit(() => {
     if (!state.account || !state.member) return;
-    state.dirty = true;
+    noteLocalEdit(state);
     armSaving();
     schedule();
   });

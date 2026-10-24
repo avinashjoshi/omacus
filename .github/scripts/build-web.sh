@@ -66,7 +66,7 @@ wasm-bindgen --target web --no-typescript --out-dir "$out/pkg" \
 cp site/app/index.html site/app/app.js site/app/app.css site/app/editor.js \
   site/app/worker.js site/app/tree.js site/app/store.js site/app/sw.js \
   site/app/trust.js site/app/recover.js site/app/frame.js site/app/backup.js \
-  site/app/seed.js site/app/examples.js site/app/sync.js site/app/sync-config.js \
+  site/app/seed.js site/app/examples.js site/app/sync.js site/app/sync-save.mjs site/app/sync-config.js \
   site/app/manifest.webmanifest site/app/migrate.js site/app/migrate.html \
   site/app/migrate-client.js site/app/migrate-protocol.js site/app/_headers "$out/"
 cp site/css/site.css site/css/tokens.css "$out/css/"
