@@ -7,5 +7,3 @@ node_modules/
 /test-results/
 /playwright-report/
 /blob-report/
-# Optional local phrases for the private-term checks. One phrase per line.
-/tests/private-terms.local
