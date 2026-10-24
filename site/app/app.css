@@ -2570,9 +2570,20 @@ body.answers-inline .md .pill {
 }
 
 .sync-err {
-  margin: var(--space-2) 0 0;
+  margin: var(--space-2) 0 var(--space-3);
   color: var(--app-danger);
   font: 400 var(--type-caption) / 1.4 var(--sans);
+}
+
+.sync-note {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--app-line);
+  border-left: 3px solid var(--app-danger);
+  border-radius: var(--radius-sm);
+  background: var(--app-side);
+  color: var(--app-fg);
+  font: 400 var(--type-caption) / 1.45 var(--sans);
 }
 
 .sync-device {

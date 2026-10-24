@@ -33,6 +33,15 @@ pub struct Desk {
     phrase_kek: Option<[u8; 32]>,
     /// The part of the recovery words that can seal a new key. Not a decryption key.
     recovery_public: Option<[u8; 32]>,
+    /// Phones still on the list when the words could not open the newest seal.
+    prior_devices: Vec<DevicePublic>,
+}
+
+/// What the recovery words could open from one record.
+pub struct PhraseOpen {
+    pub pages: Vec<u8>,
+    /// The newest seal did not open. `pages` is an older copy, or empty.
+    pub partial: bool,
 }
 
 /// What [`Desk::absorb_record`] opened.
@@ -43,6 +52,8 @@ pub struct OpenedRecord {
     pub replace: bool,
     /// True when this device should publish its own sealed pages again.
     pub republish: bool,
+    /// True when the pages already here must be combined with `pages`.
+    pub combine: bool,
 }
 
 pub struct Approval {
@@ -109,6 +120,7 @@ impl Desk {
             root: None,
             phrase_kek: None,
             recovery_public: None,
+            prior_devices: Vec::new(),
         })
     }
 
@@ -126,6 +138,7 @@ impl Desk {
             root: None,
             phrase_kek: None,
             recovery_public: None,
+            prior_devices: Vec::new(),
         })
     }
 
@@ -147,6 +160,7 @@ impl Desk {
             root: None,
             phrase_kek: None,
             recovery_public: None,
+            prior_devices: Vec::new(),
         })
     }
 
@@ -297,13 +311,59 @@ impl Desk {
     }
 
     pub fn recovery_open(&mut self, record: &[u8]) -> Result<String, SyncKeyError> {
-        let page = self.unlock_phrase(record)?;
-        String::from_utf8(page).map_err(|_| SyncKeyError::Corrupt)
+        let opened = self.unlock_phrase(record)?;
+        String::from_utf8(opened.pages).map_err(|_| SyncKeyError::Corrupt)
     }
 
     /// Same as [`Desk::recovery_open`], returning the sealed pages as bytes.
-    pub fn recovery_open_pages(&mut self, record: &[u8]) -> Result<Vec<u8>, SyncKeyError> {
+    /// `partial` means the newest seal did not open. `pages` is the newest copy
+    /// the words could open, which may be empty.
+    pub fn recovery_open_pages(&mut self, record: &[u8]) -> Result<PhraseOpen, SyncKeyError> {
         self.unlock_phrase(record)
+    }
+
+    /// Seal `packed` for these words and for this phone, and for any phone that
+    /// was still on the list. Later recovery opens this seal. A phone from that
+    /// list can open it too, and merge what it still has.
+    pub fn reestablish_pages(&mut self, packed: &[u8]) -> Result<Vec<u8>, SyncKeyError> {
+        let public = self.recovery_public.ok_or(SyncKeyError::NotConfirmed)?;
+        let kek = self.phrase_kek.ok_or(SyncKeyError::NotConfirmed)?;
+        let vault = VaultKey::generate()?;
+        let mut chain = sync_keys::found_devices(&self.device)?;
+        let mut wraps = Vec::new();
+        let mine = *self.device.public().id();
+        wraps.push(sync_keys::wrap_vault_for_device(
+            &self.device.public(),
+            &vault,
+            self.epoch,
+            Some(&public),
+        )?);
+        for device in &self.prior_devices {
+            if *device.id() == mine {
+                continue;
+            }
+            let (next, wrap) = sync_keys::approve(
+                &self.device,
+                &chain,
+                device,
+                &vault,
+                self.epoch,
+                Some(&public),
+            )?;
+            chain = next;
+            wraps.push(wrap);
+        }
+        let phrase = sync_keys::wrap_vault_for_recovery(&public, &vault, self.epoch)?;
+        let sealed = sync_keys::seal_page(&vault, self.epoch, PAGES_ID, packed)?;
+        self.vault = Some(vault);
+        self.chain = Some(chain);
+        self.phrase_wrap = phrase;
+        self.wraps = wraps;
+        self.sealed_page = sealed;
+        self.phrase_kek = Some(kek);
+        self.recovery_public = Some(public);
+        self.prior_devices.clear();
+        self.record()
     }
 
     pub fn export_local(&self) -> Result<Vec<u8>, SyncKeyError> {
@@ -367,6 +427,7 @@ impl Desk {
             } else {
                 None
             },
+            prior_devices: Vec::new(),
         })
     }
 
@@ -398,13 +459,18 @@ impl Desk {
             .devices()?
             .iter()
             .any(|device| *device.id() == mine);
-        let take_chain = match &self.chain {
+        let order = self
+            .chain
+            .as_ref()
+            .map(|local| view.chain.compared_with(local));
+        let take_chain = match order {
             None => true,
-            Some(local) => matches!(
-                view.chain.compared_with(local),
-                sync_keys::ChainOrder::Newer | sync_keys::ChainOrder::Same
-            ),
+            Some(sync_keys::ChainOrder::Newer | sync_keys::ChainOrder::Same) => true,
+            Some(sync_keys::ChainOrder::Older | sync_keys::ChainOrder::Diverge) => false,
         };
+        // A recovery on another phone starts a new list and seals the key for
+        // anyone still linked. Follow that seal. An older list is a rollback.
+        let diverged = matches!(order, Some(sync_keys::ChainOrder::Diverge));
         let opened = if let Some(vault) = &self.vault {
             if vault.id() == &view.key_id {
                 Some(Opened::Current(open_sealed(vault, view.epoch, &view.page)?))
@@ -428,6 +494,7 @@ impl Desk {
                     member: self.member(),
                     replace: true,
                     republish: repaired,
+                    combine: false,
                 })
             }
             Some(Opened::Wrapped(WrappedPages {
@@ -436,8 +503,8 @@ impl Desk {
                 recovery_public: public,
             })) => {
                 self.note_recovery(public);
-                let republish_older = !take_chain && self.member();
-                if take_chain {
+                let republish_older = !take_chain && !diverged && self.member();
+                if take_chain || diverged {
                     self.adopt_view(view);
                     self.vault = Some(vault);
                 } else {
@@ -448,7 +515,8 @@ impl Desk {
                     pages,
                     member: self.member(),
                     replace: true,
-                    republish: republish_older || repaired,
+                    republish: republish_older || repaired || diverged,
+                    combine: diverged,
                 })
             }
             None if !on_list => {
@@ -462,6 +530,7 @@ impl Desk {
                     member: false,
                     replace: false,
                     republish: false,
+                    combine: false,
                 })
             }
             None if self.member() => {
@@ -471,6 +540,7 @@ impl Desk {
                     member: true,
                     replace: false,
                     republish: true,
+                    combine: false,
                 })
             }
             None => Err(SyncKeyError::Sealed),
@@ -559,7 +629,7 @@ impl Desk {
         Ok(pages)
     }
 
-    fn unlock_phrase(&mut self, record: &[u8]) -> Result<Vec<u8>, SyncKeyError> {
+    fn unlock_phrase(&mut self, record: &[u8]) -> Result<PhraseOpen, SyncKeyError> {
         let view = ServerView::parse(record)?;
         if self.account != Some(view.account) {
             return Err(SyncKeyError::Sealed);
@@ -582,27 +652,51 @@ impl Desk {
                 return Err(error);
             }
         };
-        let vault = if sync_keys::recovery_wrap_key_id(&view.phrase_wrap).is_some() {
-            sync_keys::open_recovery_wrap(&root, &view.phrase_wrap, view.epoch, &view.key_id)
-        } else {
-            match sync_keys::open_phrase_wrap(&root, &view.phrase_wrap, view.epoch, &view.key_id) {
-                Ok(vault) => Ok(vault),
-                Err(_) => Err(SyncKeyError::StaleRecovery),
+        let vault = phrase_vault(&root, &view);
+        let opened = match vault {
+            Some(vault) => match open_sealed(&vault, view.epoch, &view.page) {
+                Ok(pages) if vault.id() == &view.key_id => {
+                    self.phrase_kek = Some(kek);
+                    self.recovery_public = Some(public);
+                    let chain = view.chain.clone();
+                    self.keep_opened(view, vault, chain);
+                    PhraseOpen {
+                        pages,
+                        partial: false,
+                    }
+                }
+                Ok(pages) => {
+                    self.remember_partial(&view, kek, public);
+                    PhraseOpen {
+                        pages,
+                        partial: true,
+                    }
+                }
+                Err(_) => {
+                    self.remember_partial(&view, kek, public);
+                    PhraseOpen {
+                        pages: Vec::new(),
+                        partial: true,
+                    }
+                }
+            },
+            None => {
+                self.remember_partial(&view, kek, public);
+                PhraseOpen {
+                    pages: Vec::new(),
+                    partial: true,
+                }
             }
         };
-        let vault = match vault {
-            Ok(vault) => vault,
-            Err(error) => {
-                self.root = Some(root);
-                return Err(error);
-            }
-        };
+        Ok(opened)
+    }
+
+    fn remember_partial(&mut self, view: &ServerView, kek: [u8; 32], public: [u8; 32]) {
+        self.epoch = view.epoch;
+        self.account = Some(view.account);
         self.phrase_kek = Some(kek);
         self.recovery_public = Some(public);
-        let pages = open_sealed(&vault, view.epoch, &view.page)?;
-        let chain = view.chain.clone();
-        self.keep_opened(view, vault, chain);
-        Ok(pages)
+        self.prior_devices = view.chain.devices().unwrap_or_default();
     }
 
     pub fn device(&self) -> &DeviceKeys {
@@ -746,6 +840,14 @@ fn open_wrapped(
         }
     }
     Ok(None)
+}
+
+/// The key the words can open, even when the record names a newer one.
+fn phrase_vault(root: &Root, view: &ServerView) -> Option<VaultKey> {
+    if let Some(id) = sync_keys::recovery_wrap_key_id(&view.phrase_wrap) {
+        return sync_keys::open_recovery_wrap(root, &view.phrase_wrap, view.epoch, &id).ok();
+    }
+    sync_keys::open_phrase_wrap(root, &view.phrase_wrap, view.epoch, &view.key_id).ok()
 }
 
 fn open_sealed(vault: &VaultKey, epoch: u64, stored: &[u8]) -> Result<Vec<u8>, SyncKeyError> {
@@ -1014,6 +1116,7 @@ mod tests {
         let kept = laptop.absorb_record(&later).unwrap();
         assert!(kept.member);
         assert!(kept.replace);
+        assert!(!kept.combine);
         assert_eq!(kept.pages, b"bread $2\n");
 
         let dropped = phone.absorb_record(&later).unwrap();
@@ -1027,10 +1130,9 @@ mod tests {
 
         let mut recovered = Desk::start_recovery(&phrase).unwrap();
         recovered.recovery_account(&picks).unwrap();
-        assert_eq!(
-            recovered.recovery_open_pages(&later).unwrap(),
-            b"bread $2\n"
-        );
+        let opened = recovered.recovery_open_pages(&later).unwrap();
+        assert!(!opened.partial);
+        assert_eq!(opened.pages, b"bread $2\n");
         assert!(!recovered.member());
         assert!(!recovered.formerly_listed());
     }
@@ -1095,18 +1197,86 @@ mod tests {
             .expect("beta.1 device file can approve");
 
         founder.remove_listed(&other_id(&founder)).unwrap();
-        let later = founder.seal_pages(b"bread $2\n").unwrap();
+        let later = founder.seal_pages(b"sesame = 12 g\n").unwrap();
         let dropped = phone.absorb_record(&later).unwrap();
         assert!(!dropped.member && !dropped.replace);
         let mut recovered = Desk::start_recovery(&phrase).unwrap();
-        recovered.recovery_account(&picks).unwrap();
-        let message = recovered.recovery_open_pages(&later).unwrap_err().message();
-        assert_eq!(
-            message,
-            "These recovery words are right, but they don't open the latest pages yet. Open sync on a phone or computer that still has them, then try again."
+        recovered.accept_phrase().unwrap();
+        let opened = recovered.recovery_open_pages(&later).unwrap();
+        assert!(opened.partial);
+        assert!(opened.pages.is_empty());
+        let restored = recovered.reestablish_pages(b"lentils = 180 g\n").unwrap();
+        let root = RecoveryKey::parse(&phrase)
+            .unwrap()
+            .accept()
+            .unwrap()
+            .root("")
+            .unwrap();
+        let secret = sync_keys::recovery_secret(&root).unwrap();
+        assert!(
+            !restored
+                .windows(secret.len())
+                .any(|window| window == secret),
+            "the fresh seal holds the recovery secret"
         );
-        assert_ne!(message, "That copy could not be read.");
-        assert_ne!(message, "Those pages could not be opened.");
+        if let Ok(path) = std::env::var("OMACUS_STALE_FIXTURE") {
+            let record = b64_encode(&later);
+            let account = founder.account_hex().unwrap();
+            std::fs::write(
+                path,
+                format!(
+                    "{{\"words\":\"{phrase}\",\"account\":\"{account}\",\"record\":\"{record}\"}}\n"
+                ),
+            )
+            .unwrap();
+        }
+        let mut again = Desk::start_recovery(&phrase).unwrap();
+        again.accept_phrase().unwrap();
+        let second = again.recovery_open_pages(&restored).unwrap();
+        assert!(!second.partial);
+        assert_eq!(second.pages, b"lentils = 180 g\n");
+        let brought = founder.absorb_record(&restored).unwrap();
+        assert!(brought.member);
+        assert!(brought.replace);
+        assert!(brought.combine);
+        assert_eq!(brought.pages, b"lentils = 180 g\n");
+        let still_out = phone.absorb_record(&restored).unwrap();
+        assert!(!still_out.member && !still_out.replace);
+    }
+
+    #[test]
+    fn recovery_opens_an_older_seal_when_the_newest_key_is_only_named() {
+        let mut founder = Desk::start_new().unwrap();
+        let words = founder.words().unwrap();
+        let phrase = words.join(" ");
+        let picks: Vec<(u8, &str)> = CONFIRM_AT
+            .into_iter()
+            .map(|n| (n, words[n as usize - 1]))
+            .collect();
+        let first = founder.confirm_saved(&picks).unwrap();
+        let old = ServerView::parse(&first).unwrap();
+        let decoy = VaultKey::generate().unwrap();
+        let stale = ServerView {
+            epoch: old.epoch,
+            account: old.account,
+            chain: old.chain,
+            phrase_wrap: old.phrase_wrap,
+            device_wraps: old.device_wraps,
+            key_id: *decoy.id(),
+            page: old.page,
+        }
+        .stored();
+        let mut recovered = Desk::start_recovery(&phrase).unwrap();
+        recovered.accept_phrase().unwrap();
+        let opened = recovered.recovery_open_pages(&stale).unwrap();
+        assert!(opened.partial);
+        assert_eq!(opened.pages, SAMPLE_PAGE.as_bytes());
+        let restored = recovered.reestablish_pages(b"lentils = 180 g\n").unwrap();
+        let mut again = Desk::start_recovery(&phrase).unwrap();
+        again.accept_phrase().unwrap();
+        let second = again.recovery_open_pages(&restored).unwrap();
+        assert!(!second.partial);
+        assert_eq!(second.pages, b"lentils = 180 g\n");
     }
 
     #[test]
@@ -1189,10 +1359,9 @@ mod tests {
 
         let mut recovered = Desk::start_recovery(&phrase).unwrap();
         recovered.accept_phrase().unwrap();
-        assert_eq!(
-            recovered.recovery_open_pages(&latest).unwrap(),
-            b"bread $2\npark = 2\n"
-        );
+        let opened = recovered.recovery_open_pages(&latest).unwrap();
+        assert!(!opened.partial);
+        assert_eq!(opened.pages, b"bread $2\npark = 2\n");
     }
 
     #[test]
@@ -1249,9 +1418,8 @@ mod tests {
 
         let mut recovered = Desk::start_recovery(&phrase).unwrap();
         recovered.accept_phrase().unwrap();
-        assert_eq!(
-            recovered.recovery_open_pages(&repaired).unwrap(),
-            b"bread $2\n"
-        );
+        let opened = recovered.recovery_open_pages(&repaired).unwrap();
+        assert!(!opened.partial);
+        assert_eq!(opened.pages, b"bread $2\n");
     }
 }

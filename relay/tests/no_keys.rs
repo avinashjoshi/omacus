@@ -561,8 +561,9 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
     let latest = base64::engine::general_purpose::STANDARD
         .decode(json_body(&body)["record"].as_str().unwrap())
         .unwrap();
-    let recovered_pages =
-        PageSet::from_bytes(&recovered.recovery_open_pages(&latest).unwrap()).unwrap();
+    let opened = recovered.recovery_open_pages(&latest).unwrap();
+    assert!(!opened.partial);
+    let recovered_pages = PageSet::from_bytes(&opened.pages).unwrap();
     let recovered_trip = recovered_pages
         .pages
         .iter()
@@ -693,7 +694,7 @@ fn the_test_pages_do_not_name_private_parts_or_the_live_app() {
     ] {
         assert!(!text.contains(word), "the test pages say {word}");
     }
-    assert!(text.contains("1.0.0-beta.4"));
+    assert!(text.contains("1.0.0-beta.5"));
     assert!(
         !std::fs::read_to_string(root.join("../site/app/index.html"))
             .unwrap()

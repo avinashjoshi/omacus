@@ -327,6 +327,7 @@ pub fn absorb_record(id: u32, record_b64: &str) -> String {
             "member": opened.member,
             "replace": opened.replace,
             "republish": opened.republish,
+            "combine": opened.combine,
         }))
     })
 }
@@ -346,8 +347,21 @@ pub fn open_approval_pages(id: u32, chain_b64: &str, wrap_b64: &str, record_b64:
 pub fn recovery_open_pages(id: u32, record_b64: &str) -> String {
     call(|| {
         let record = b64_decode(record_b64)?;
-        let packed = with_desk(id, |desk| desk.recovery_open_pages(&record))??;
-        Ok(json!({ "ok": true, "packed": b64_encode(&packed) }))
+        let opened = with_desk(id, |desk| desk.recovery_open_pages(&record))??;
+        Ok(json!({
+            "ok": true,
+            "packed": b64_encode(&opened.pages),
+            "partial": opened.partial,
+        }))
+    })
+}
+
+#[wasm_bindgen(js_name = reestablishPages)]
+pub fn reestablish_pages(id: u32, packed_b64: &str) -> String {
+    call(|| {
+        let packed = b64_decode(packed_b64)?;
+        let record = with_desk(id, |desk| desk.reestablish_pages(&packed))??;
+        Ok(json!({ "ok": true, "record": b64_encode(&record) }))
     })
 }
 
