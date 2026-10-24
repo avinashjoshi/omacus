@@ -8,6 +8,7 @@ description = "Private sync test relay. It stores sealed pages and cannot open t
 
 [dependencies]
 base64 = "0.22"
+ed25519-dalek = "3.0.0"
 getrandom = "0.2"
 hmac = "0.13"
 serde_json = "1.0.154"

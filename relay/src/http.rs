@@ -1,6 +1,7 @@
 //! A small HTTP mailbox. Bodies that are not sealed records are refused
 //! and not kept.
 
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -12,6 +13,8 @@ use serde_json::{Value, json};
 
 use crate::LABEL;
 use crate::store::{ObjectWrite, Store, StoreError};
+
+const CORS: &str = "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, X-Omacus-Device, X-Omacus-Time, X-Omacus-Nonce, X-Omacus-Signature, X-Omacus-Proof\r\n";
 
 pub fn serve(listener: TcpListener, www: PathBuf, site: PathBuf, store: Arc<Mutex<Store>>) {
     for stream in listener.incoming() {
@@ -56,15 +59,23 @@ fn handle(
     let mut parts = request.split(' ');
     let method = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("/");
+    let mut headers = BTreeMap::new();
     let mut length = 0usize;
     for line in lines {
         let Some((name, value)) = line.split_once(':') else {
             continue;
         };
-        if name.eq_ignore_ascii_case("content-length") {
-            length = value.trim().parse().unwrap_or(usize::MAX);
+        let name = name.trim().to_ascii_lowercase();
+        let value = value.trim().to_string();
+        if name == "content-length" {
+            length = value.parse().unwrap_or(usize::MAX);
         }
+        headers.insert(name, value);
     }
+    let ip = stream
+        .peer_addr()
+        .map(|addr| addr.ip().to_string())
+        .unwrap_or_else(|_| "0.0.0.0".to_string());
     if length > 8 * 1024 * 1024 {
         return write_json(
             &mut stream,
@@ -88,17 +99,24 @@ fn handle(
         return write_bytes(&mut stream, 204, "No Content", "text/plain", b"", true);
     }
     if path.starts_with("/v1/") {
-        let (status, payload) = api(method, path, &body, store);
+        let (status, payload) = api(method, path, &body, &headers, &ip, store);
         return write_json(&mut stream, status, &payload);
     }
     serve_file(&mut stream, www, site, path)
 }
 
-fn api(method: &str, path: &str, body: &[u8], store: &Mutex<Store>) -> (u16, Value) {
+fn api(
+    method: &str,
+    path: &str,
+    body: &[u8],
+    headers: &BTreeMap<String, String>,
+    ip: &str,
+    store: &Mutex<Store>,
+) -> (u16, Value) {
     let Ok(mut store) = store.lock() else {
         return (500, json!({"message": "Try again in a moment."}));
     };
-    match route(method, path, body, &mut store) {
+    match route(method, path, body, headers, ip, &mut store) {
         Ok((status, value)) => (status, value),
         Err(error) => (error.status(), json!({"message": error.message()})),
     }
@@ -108,21 +126,26 @@ fn route(
     method: &str,
     path: &str,
     body: &[u8],
+    headers: &BTreeMap<String, String>,
+    ip: &str,
     store: &mut Store,
 ) -> Result<(u16, Value), StoreError> {
     if method == "GET" && path == "/v1/health" {
         return Ok((200, json!({"label": LABEL})));
     }
     if method == "POST" && path == "/v1/join" {
+        store.charge_ip(ip)?;
         return accept_join(store, body);
     }
     if method == "POST" && path == "/v1/access" {
+        store.charge_ip(ip)?;
         let value = json_body(body)?;
         let code = value.get("code").and_then(Value::as_str).unwrap_or("");
         store.peek_access(code)?;
         return Ok((200, json!({"ok": true})));
     }
     if method == "POST" && path == "/v1/mailboxes" {
+        store.charge_ip(ip)?;
         return accept_create(store, body);
     }
     let Some(rest) = path.strip_prefix("/v1/mailboxes/") else {
@@ -130,7 +153,29 @@ fn route(
     };
     let mut parts = rest.split('/');
     let account = parts.next().unwrap_or("");
-    match (method, parts.next(), parts.next()) {
+    let sub = parts.next();
+    let id = parts.next();
+    if parts.next().is_some() {
+        return Err(StoreError::Unknown);
+    }
+    store.charge_ip(ip)?;
+    store.charge_account(account)?;
+    if let ("GET", Some("requests"), Some(id)) = (method, sub, id) {
+        let proof = crate::auth::read_proof(headers).ok_or(StoreError::Unknown)?;
+        let request = store.request_with_proof(account, id, &proof)?;
+        return Ok((
+            200,
+            json!({
+                "state": request.state,
+                "name": request.name,
+                "device": b64(&request.device),
+                "chain": b64(&request.chain),
+                "wrap": b64(&request.wrap),
+            }),
+        ));
+    }
+    let recovery = store.authorize(account, method, path, body, headers)?;
+    match (method, sub, id) {
         ("GET", None, None) => {
             let (revision, record) = store.get(account)?;
             let objects = object_heads(store, account)?;
@@ -146,6 +191,7 @@ fn route(
                 .and_then(Value::as_u64)
                 .ok_or(StoreError::Unreadable)?;
             let record = decode_field(&value, "record")?;
+            store.allow_put(account, &record, recovery)?;
             let writes = object_writes(&value)?;
             let dropping = id_list(&value, "drop")?;
             if writes.is_empty() && dropping.is_empty() {
@@ -192,19 +238,6 @@ fn route(
                 .ok_or(StoreError::Unreadable)?;
             store.open_invite(account, hash)?;
             Ok((200, json!({"ok": true})))
-        }
-        ("GET", Some("requests"), Some(id)) => {
-            let request = store.request(account, id)?;
-            Ok((
-                200,
-                json!({
-                    "state": request.state,
-                    "name": request.name,
-                    "device": b64(&request.device),
-                    "chain": b64(&request.chain),
-                    "wrap": b64(&request.wrap),
-                }),
-            ))
         }
         ("POST", Some("requests"), Some(id)) => {
             let value = json_body(body)?;
@@ -391,9 +424,7 @@ fn write_bytes(
         body.len()
     );
     if cors {
-        head.push_str(
-            "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n",
-        );
+        head.push_str(CORS);
     }
     head.push_str("\r\n");
     stream.write_all(head.as_bytes())?;

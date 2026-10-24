@@ -380,6 +380,20 @@ pub fn device_list(id: u32) -> String {
     })
 }
 
+#[wasm_bindgen(js_name = signRequest)]
+pub fn sign_request(id: u32, method: &str, path: &str, body: &str) -> String {
+    call(|| {
+        let auth = with_desk(id, |desk| desk.sign_request(method, path, body.as_bytes()))??;
+        Ok(json!({
+            "ok": true,
+            "device": auth.device,
+            "time": auth.time,
+            "nonce": auth.nonce,
+            "signature": auth.signature,
+        }))
+    })
+}
+
 #[wasm_bindgen(js_name = removeDevice)]
 pub fn remove_device(id: u32, device_id_hex: &str) -> String {
     call(|| {
@@ -694,6 +708,7 @@ pub fn recovery_peek(id: u32, record_b64: &str) -> String {
             "partial": peeked.partial,
             "legacy": peeked.legacy,
             "want": want,
+            "resign": peeked.resign,
         }))
     })
 }

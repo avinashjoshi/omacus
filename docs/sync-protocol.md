@@ -42,9 +42,12 @@ phrase_wrap(chunk)    vault key sealed for the recovery words
 wrap_count(u16)
 device_wrap(chunk) × wrap_count
 page(chunk)           v1: sealed page blob. v2: sealed manifest.
+signer(16) || signature(64)   present when a linked device signed the record
 ```
 
 `key_id` is a random 16-byte id for the current vault key. It is not a page id.
+
+A signed record ends with exactly 80 bytes: the signer id, then an Ed25519 signature over `omacus-record/1` concatenated with every byte before those 80. The signer is a device on the latest list, or the recovery signer. Anything else left over after the page chunk is corrupt. An older record may omit the 80 bytes. A device that can open that copy publishes a signed record. After this device has seen a signature, it rejects a copy that has none.
 
 ### Version 1 page blob
 
@@ -89,7 +92,7 @@ HKDF-SHA256, salt `omacus-v1`, expands the root:
 
 | Info | Use |
 | --- | --- |
-| `omacus/v1/account-sign` | Ed25519 account key. The public key is the account id. |
+| `omacus/v1/account-sign` | Ed25519 account key. The public key is the account id. The same key signs requests during recovery. |
 | `omacus/v1/vault-wrap/0` | 32-byte key for an older phrase wrap. |
 | `omacus/v1/recovery-receive/0` | X25519 receive key for a recovery wrap. |
 
@@ -114,6 +117,8 @@ The list is a chain of signed snapshots. Each snapshot covers:
 
 The signature is Ed25519, 64 bytes, by the device named `signer`. `prev` is the hash of the previous snapshot. Version 1 has an empty `prev`. Each later version is exactly one device added or removed, and the signer is on the previous list. The signature does not cover the vault key. The stored chain is `OMACUS-DEVICES/1`, a `u16` count, then each snapshot as version, prev, signer, signature, device count, and the public keys. At most 64 devices.
 
+One list entry has the 16-byte id `recovery-signer` followed by a zero byte. Its verify key is the account public key. It is not a phone. A linked device adds it when publishing, so recovery can sign later requests. Removing a phone does not remove this entry.
+
 ## Invite and join
 
 A linked device picks a one-time code and sends SHA-256 of that code to `POST /v1/mailboxes/:account/invites`. The code stays on the device. The server keeps the hash for 5 minutes.
@@ -124,7 +129,7 @@ The picture encodes four lines: `omacus-join`, the origin, the account id, and t
 
 Both screens show the same six digits. They are `SHA-256("omacus/v1/pair" || sign || receive)` reduced mod 1,000,000, printed as two groups of three. The digits are not a key.
 
-The linked device checks the HMAC, then `POST .../requests/:id` with the new device list (`chain`) and a device wrap (`wrap`). `reject: true` declines. The waiting device reads `GET .../requests/:id` once. After that read, or after the 5 minutes, the server deletes the request.
+The linked device checks the HMAC, then `POST .../requests/:id` with the new device list (`chain`) and a device wrap (`wrap`). `reject: true` declines. The waiting device reads `GET .../requests/:id` once, with `X-Omacus-Proof` set to the same HMAC. That proof does not read the record, list requests, or approve anyone. After that read, or after the 5 minutes, the server deletes the request. A missing proof, a wrong proof, and an unknown request all return the same 404.
 
 Starting a mailbox also spends an invite code (`POST /v1/access` checks it, `POST /v1/mailboxes` spends it). The server stores a hash, not the code.
 
@@ -156,6 +161,26 @@ Creating a mailbox may include objects. Each `base` is 0. The revision comes bac
 
 The admin routes are not part of this protocol. They are described in `docs/sync-ops.md`. They do not return page text, names, or keys.
 
+## Requests
+
+After a mailbox exists, every request except `GET .../requests/:id` is signed by a device on the latest list, or by the recovery signer. The message is:
+
+```text
+"omacus-auth/1\n" || METHOD || "\n" || path || "\n" || time_ms(u64) || nonce(16) || SHA-256(body)
+```
+
+`METHOD` is uppercase. `path` has no query. An empty body hashes as SHA-256 of zero bytes. The signature is over those exact bytes, not a re-parsed JSON value. Headers are `X-Omacus-Device` (32 hex), `X-Omacus-Time` (decimal unix milliseconds), `X-Omacus-Nonce` (32 hex), and `X-Omacus-Signature` (128 hex).
+
+The server checks the signature against the latest device list inside the stored record. A device that was removed is on an older snapshot only, and is rejected. The recovery signer verifies with the account public key. If that entry is already on the list, its verify key must equal the account id in the record.
+
+`time_ms` must be within 5 minutes of the server clock. Each nonce is remembered for that account and rejected the second time. The server keeps at most 64 recent nonces.
+
+`POST /v1/mailboxes` stays on the invite code and does not need this signature. `POST /v1/join` stays on the invite HMAC. `GET /v1/health` is open.
+
+A PUT must also carry a signed record. The new device list shares a prefix with the stored list and is the same length or longer, unless the request was signed by the recovery signer. Recovery may publish a new list. A device that is not the recovery signer cannot fork the list.
+
+The server checks the signature before compare-and-swap. A stale `revision` or object `base` is still 409, and only after the signature and the new record check out. A missing account, a bad signature, a removed device, and a replay are the same 404. The body does not say which.
+
 ## Compare-and-swap
 
 A PUT names the mailbox `revision` it read. Each object write names `base`:
@@ -171,7 +196,7 @@ A device keeps a local slot per page: object id, content hash, content key, serv
 
 ## Migration
 
-A version 1 record still opens. The device that opens it seals a version 2 manifest and one object per page on its next save, using the same page ids. A second device that loses that race gets 409, opens the version 2 record, and merges by page id, so a page is not stored twice and a page is not dropped. Recovery that can only open an older seal publishes a fresh version 2 manifest after it combines the pages already on the phone, and drops object ids the new manifest does not use. Nothing in that combine is deleted.
+A version 1 record still opens. A record with no signature still opens once, on a device that has not yet seen a signature, and that device then publishes a signed record. The device that opens a version 1 record seals a version 2 manifest and one object per page on its next save, using the same page ids. A second device that loses that race gets 409, opens the version 2 record, and merges by page id, so a page is not stored twice and a page is not dropped. Recovery that can only open an older seal publishes a fresh version 2 manifest after it combines the pages already on the phone, and drops object ids the new manifest does not use. Nothing in that combine is deleted.
 
 ## Errors
 
@@ -179,21 +204,22 @@ The JSON body is `{ "message": "..." }`. The name is the server's name for the c
 
 | Name | HTTP | When |
 | --- | --- | --- |
-| Unknown | 404 | No mailbox, or a requested object id is not stored. |
+| Unknown | 404 | No mailbox, a missing object, a bad or missing signature, a removed device, a replay, or a request proof that does not match. The sentence is the same in every case. |
 | Conflict | 409 | That account already has a mailbox. |
 | Revision | 409 | Mailbox revision or an object `base` did not match. Nothing was written. |
 | Full | 429 | The server or the object cap is full. |
 | Unreadable | 400 | The body, the record magic, an id, or a size is not valid. |
 | BadInvite | 400 | The join code did not match a live invite. |
 | BadAccess | 400 | The invite code for a new mailbox did not match. |
+| Limited | 429 | Too many requests for one account (240 in 60 seconds) or one address (800 in 60 seconds). The sentence is the same whether or not the account exists. |
 
 A body over 8 MiB is HTTP 400 with the unreadable sentence, before it is parsed.
 
 ## What the server can see
 
-The server can see the account id, the request time, and the client address. It can see mailbox revisions, object ids, object revisions, and the stored length of each object. Those lengths fall on the buckets above, plus the 40-byte nonce and tag, so the size is a bucket, not the exact page length. It can see invite hashes, access-code hashes, join proofs, the display name on a join request, and device public keys if it parses the record envelope. The envelope is not encrypted as a whole. The chain, the key id, the epoch, and the wrap ciphertexts are in the record bytes.
+The server can see the account id, the request time, the nonce, and the client address. It can see mailbox revisions, object ids, object revisions, and the stored length of each object. Those lengths fall on the buckets above, plus the 40-byte nonce and tag, so the size is a bucket, not the exact page length. It can see invite hashes, access-code hashes, join proofs, the display name on a join request, and device public keys if it parses the record envelope. The envelope is not encrypted as a whole. The chain, the key id, the epoch, and the wrap ciphertexts are in the record bytes.
 
-The server cannot see recovery words, the root, a vault key, a content key, a page id, a page name, a folder name, the vault name, or page text. Those sit inside the sealed manifest or a sealed object. A removed device is not wrapped for the new vault key, so it cannot open a later manifest. GET of the index still lists object ids to anyone who knows the account id. Knowing the id is not enough to read a page.
+The server cannot see recovery words, the root, a vault key, a content key, a page id, a page name, a folder name, the vault name, or page text. Those sit inside the sealed manifest or a sealed object. A removed device is not wrapped for the new vault key, so it cannot open a later manifest. Reading the index requires a signature from a device still on the list, or from the recovery signer. Knowing the account id is not enough to read a page, replace the record, or approve a phone. A client also checks that signature itself and rejects a record or manifest signed by anyone else, including a server that substitutes one.
 
 ## Storage
 

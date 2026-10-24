@@ -10,6 +10,35 @@ use omacus_engine::sync_keys::{
 };
 use qrcode::QrCode;
 
+#[cfg(target_arch = "wasm32")]
+mod clock {
+    use wasm_bindgen::prelude::*;
+
+    #[wasm_bindgen]
+    extern "C" {
+        type Date;
+
+        #[wasm_bindgen(static_method_of = Date)]
+        fn now() -> f64;
+    }
+
+    pub fn unix_ms() -> u64 {
+        Date::now() as u64
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+mod clock {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    pub fn unix_ms() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis() as u64)
+            .unwrap_or(0)
+    }
+}
+
 const EPOCH: u64 = 1;
 const PAGE_ID: &[u8] = b"trip";
 /// The sealed field that holds every page, not the sample page.
@@ -35,6 +64,8 @@ pub struct Desk {
     recovery_public: Option<[u8; 32]>,
     /// Phones still on the list when the words could not open the newest seal.
     prior_devices: Vec<DevicePublic>,
+    /// This device has opened a signed record. An unsigned copy is then refused.
+    signed_seen: bool,
 }
 
 /// What the recovery words could open from one record.
@@ -60,6 +91,23 @@ pub struct Approval {
     pub chain: Vec<u8>,
     pub wrap: Vec<u8>,
     pub record: Vec<u8>,
+}
+
+/// Headers for one mailbox request. The signing seed is not here.
+pub struct RequestAuth {
+    pub device: String,
+    pub time: String,
+    pub nonce: String,
+    pub signature: String,
+}
+
+impl RequestAuth {
+    pub fn headers(&self) -> String {
+        format!(
+            "X-Omacus-Device: {}\r\nX-Omacus-Time: {}\r\nX-Omacus-Nonce: {}\r\nX-Omacus-Signature: {}\r\n",
+            self.device, self.time, self.nonce, self.signature
+        )
+    }
 }
 
 pub struct PhraseCheck {
@@ -121,6 +169,7 @@ impl Desk {
             phrase_kek: None,
             recovery_public: None,
             prior_devices: Vec::new(),
+            signed_seen: false,
         })
     }
 
@@ -139,6 +188,7 @@ impl Desk {
             phrase_kek: None,
             recovery_public: None,
             prior_devices: Vec::new(),
+            signed_seen: false,
         })
     }
 
@@ -161,6 +211,7 @@ impl Desk {
             phrase_kek: None,
             recovery_public: None,
             prior_devices: Vec::new(),
+            signed_seen: false,
         })
     }
 
@@ -211,6 +262,8 @@ impl Desk {
         self.sealed_page = sealed;
         self.phrase_kek = Some(kek);
         self.recovery_public = Some(public);
+        self.ensure_recovery()?;
+        self.signed_seen = true;
         self.record()
     }
 
@@ -243,6 +296,8 @@ impl Desk {
         )?;
         self.chain = Some(chain);
         self.wraps.push(wrap.clone());
+        self.ensure_recovery()?;
+        self.signed_seen = true;
         let record = self.record()?;
         let chain_bytes = self.chain.as_ref().ok_or(SyncKeyError::Corrupt)?.to_bytes();
         Ok(Approval {
@@ -363,6 +418,8 @@ impl Desk {
         self.phrase_kek = Some(kek);
         self.recovery_public = Some(public);
         self.prior_devices.clear();
+        self.ensure_recovery()?;
+        self.signed_seen = true;
         self.record()
     }
 
@@ -390,6 +447,7 @@ impl Desk {
             &chain,
             stored_kek,
             stored_public,
+            self.signed_seen,
         )
     }
 
@@ -428,12 +486,15 @@ impl Desk {
                 None
             },
             prior_devices: Vec::new(),
+            signed_seen: file.signed_seen,
         })
     }
 
     pub fn seal_pages(&mut self, packed: &[u8]) -> Result<Vec<u8>, SyncKeyError> {
         let vault = self.vault.as_ref().ok_or(SyncKeyError::Sealed)?;
         self.sealed_page = sync_keys::seal_page(vault, self.epoch, PAGES_ID, packed)?;
+        self.ensure_recovery()?;
+        self.signed_seen = true;
         self.record()
     }
 
@@ -456,6 +517,7 @@ impl Desk {
     ) -> Result<OpenedRecord, SyncKeyError> {
         let view = ServerView::parse(record)?;
         view.chain.verify()?;
+        let unsigned = self.note_signature(&view)?;
         if let Some(account) = self.account
             && account != view.account
         {
@@ -501,7 +563,7 @@ impl Desk {
                     pages,
                     member: self.member(),
                     replace: true,
-                    republish: repaired,
+                    republish: repaired || unsigned,
                     combine: false,
                 })
             }
@@ -523,7 +585,7 @@ impl Desk {
                     pages,
                     member: self.member(),
                     replace: true,
-                    republish: republish_older || repaired || diverged,
+                    republish: republish_older || repaired || diverged || unsigned,
                     combine: diverged,
                 })
             }
@@ -583,6 +645,9 @@ impl Desk {
         let mine = *self.device.public().id();
         let mut rows = Vec::new();
         for device in chain.devices()? {
+            if *device.id() == sync_keys::RECOVERY_ID {
+                continue;
+            }
             let code = sync_keys::pairing_code(&device);
             rows.push((hex(device.id()), code, *device.id() == mine));
         }
@@ -598,6 +663,9 @@ impl Desk {
         let vault = VaultKey::generate()?;
         let mut wraps = Vec::new();
         for device in chain.devices()? {
+            if *device.id() == sync_keys::RECOVERY_ID {
+                continue;
+            }
             wraps.push(sync_keys::wrap_vault_for_device(
                 &device,
                 &vault,
@@ -611,6 +679,8 @@ impl Desk {
         self.vault = Some(vault);
         self.wraps = wraps;
         self.chain = Some(chain);
+        self.ensure_recovery()?;
+        self.signed_seen = true;
         self.record()
     }
 
@@ -628,6 +698,7 @@ impl Desk {
         view.chain
             .verify()
             .map_err(|error| sync_keys::scope_list_error(error, true))?;
+        self.note_signature(&view)?;
         let opened =
             sync_keys::open_device_wrap_parts(&self.device, wrap, view.epoch, &view.key_id)?;
         let pages = open_sealed(&opened.vault, view.epoch, &view.page)?;
@@ -645,6 +716,7 @@ impl Desk {
         view.chain
             .verify()
             .map_err(|error| sync_keys::scope_list_error(error, true))?;
+        self.note_signature(&view)?;
         let root = self.root.take().ok_or(SyncKeyError::NotConfirmed)?;
         let kek = match sync_keys::phrase_kek(&root) {
             Ok(kek) => kek,
@@ -696,6 +768,7 @@ impl Desk {
                 }
             }
         };
+        self.root = Some(root);
         Ok(opened)
     }
 
@@ -704,7 +777,13 @@ impl Desk {
         self.account = Some(view.account);
         self.phrase_kek = Some(kek);
         self.recovery_public = Some(public);
-        self.prior_devices = view.chain.devices().unwrap_or_default();
+        self.prior_devices = view
+            .chain
+            .devices()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|device| *device.id() != sync_keys::RECOVERY_ID)
+            .collect();
     }
 
     pub fn device(&self) -> &DeviceKeys {
@@ -819,8 +898,78 @@ impl Desk {
             device_wraps: self.wraps.clone(),
             key_id: *self.vault.as_ref().ok_or(SyncKeyError::Corrupt)?.id(),
             page: self.sealed_page.clone(),
+            version,
+            signer: None,
+            signature: None,
         };
-        Ok(view.to_bytes(version))
+        let prefix = view.to_bytes(version);
+        let (signer, mut secret) = self.record_secret()?;
+        let signed = sync_keys::append_record_signature(&prefix, &signer, &secret);
+        secret.fill(0);
+        Ok(signed)
+    }
+
+    fn record_secret(&self) -> Result<([u8; 16], [u8; 32]), SyncKeyError> {
+        if self.member() {
+            return Ok((*self.device.public().id(), *self.device.signing_secret()));
+        }
+        if let Some(root) = &self.root {
+            return Ok((sync_keys::RECOVERY_ID, root.account_signing_secret()?));
+        }
+        Ok((*self.device.public().id(), *self.device.signing_secret()))
+    }
+
+    fn ensure_recovery(&mut self) -> Result<(), SyncKeyError> {
+        if !self.member() {
+            return Ok(());
+        }
+        let Some(account) = self.account else {
+            return Ok(());
+        };
+        let Some(chain) = self.chain.clone() else {
+            return Ok(());
+        };
+        let receive = self.recovery_public.unwrap_or([0u8; 32]);
+        self.chain = Some(sync_keys::admit_recovery(
+            &self.device,
+            &chain,
+            &account,
+            &receive,
+        )?);
+        Ok(())
+    }
+
+    /// `Ok(true)` when the record is an older unsigned copy.
+    fn note_signature(&mut self, view: &ServerView) -> Result<bool, SyncKeyError> {
+        let unsigned = sync_keys::trust_signature(view, self.signed_seen)?;
+        if !unsigned {
+            self.signed_seen = true;
+        }
+        Ok(unsigned)
+    }
+
+    pub fn sign_request(
+        &self,
+        method: &str,
+        path: &str,
+        body: &[u8],
+    ) -> Result<RequestAuth, SyncKeyError> {
+        let time = clock::unix_ms();
+        let nonce = sync_keys::fresh_nonce()?;
+        let (signer, mut secret) = if let Some(root) = &self.root {
+            (sync_keys::RECOVERY_ID, root.account_signing_secret()?)
+        } else {
+            (*self.device.public().id(), *self.device.signing_secret())
+        };
+        let message = sync_keys::auth_message(method, path, time, &nonce, body);
+        let signature = sync_keys::sign_auth(&secret, &message);
+        secret.fill(0);
+        Ok(RequestAuth {
+            device: hex(&signer),
+            time: time.to_string(),
+            nonce: hex(&nonce),
+            signature: hex(&signature),
+        })
     }
 
     pub fn seal_library(
@@ -834,6 +983,8 @@ impl Desk {
             omacus_engine::sync_objects::plan(vault, self.epoch, &set, slots)?
         };
         self.sealed_page = planned.sealed_manifest.clone();
+        self.ensure_recovery()?;
+        self.signed_seen = true;
         let _ = self.record_at(2)?;
         Ok(planned)
     }
@@ -909,6 +1060,8 @@ impl Desk {
 
     fn peek_manifest(&self, record: &[u8]) -> Result<Vec<u8>, SyncKeyError> {
         let view = ServerView::parse(record)?;
+        view.chain.verify()?;
+        sync_keys::trust_signature(&view, self.signed_seen)?;
         if let Some(vault) = &self.vault
             && vault.id() == &view.key_id
         {
@@ -927,6 +1080,9 @@ impl Desk {
 
 impl Desk {
     pub fn recovery_peek(&mut self, record: &[u8]) -> Result<RecoveryPeeked, SyncKeyError> {
+        let resign = ServerView::parse(record)
+            .ok()
+            .is_some_and(|view| view.signer.is_none());
         if !omacus_engine::sync_objects::is_v2(record) {
             let opened = self.recovery_open_pages(record)?;
             return Ok(RecoveryPeeked {
@@ -934,6 +1090,7 @@ impl Desk {
                 partial: opened.partial,
                 legacy: true,
                 want: Vec::new(),
+                resign,
             });
         }
         let view = ServerView::parse(record)?;
@@ -943,6 +1100,7 @@ impl Desk {
         view.chain
             .verify()
             .map_err(|error| sync_keys::scope_list_error(error, true))?;
+        self.note_signature(&view)?;
         let root = self.root.take().ok_or(SyncKeyError::NotConfirmed)?;
         let kek = match sync_keys::phrase_kek(&root) {
             Ok(kek) => kek,
@@ -960,44 +1118,58 @@ impl Desk {
         };
         let Some(vault) = phrase_vault(&root, &view) else {
             self.remember_partial(&view, kek, public);
+            self.root = Some(root);
             return Ok(RecoveryPeeked {
                 packed: Vec::new(),
                 partial: true,
                 legacy: false,
                 want: Vec::new(),
+                resign,
             });
         };
         if vault.id() != &view.key_id {
             self.remember_partial(&view, kek, public);
+            self.root = Some(root);
             return Ok(RecoveryPeeked {
                 packed: Vec::new(),
                 partial: true,
                 legacy: false,
                 want: Vec::new(),
+                resign,
             });
         }
         let plain = match open_manifest(&vault, view.epoch, &view.page) {
             Ok(plain) => plain,
             Err(_) => {
                 self.remember_partial(&view, kek, public);
+                self.root = Some(root);
                 return Ok(RecoveryPeeked {
                     packed: Vec::new(),
                     partial: true,
                     legacy: false,
                     want: Vec::new(),
+                    resign,
                 });
             }
         };
-        let want = omacus_engine::sync_objects::manifest_wants(&plain, &[])?;
+        let want = match omacus_engine::sync_objects::manifest_wants(&plain, &[]) {
+            Ok(want) => want,
+            Err(error) => {
+                self.root = Some(root);
+                return Err(error);
+            }
+        };
         self.phrase_kek = Some(kek);
         self.recovery_public = Some(public);
         let chain = view.chain.clone();
         self.keep_opened(view, vault, chain);
+        self.root = Some(root);
         Ok(RecoveryPeeked {
             packed: Vec::new(),
             partial: false,
             legacy: false,
             want,
+            resign,
         })
     }
 
@@ -1033,6 +1205,7 @@ impl Desk {
         view.chain
             .verify()
             .map_err(|error| sync_keys::scope_list_error(error, true))?;
+        self.note_signature(&view)?;
         let opened =
             sync_keys::open_device_wrap_parts(&self.device, wrap, view.epoch, &view.key_id)?;
         let plain = open_manifest(&opened.vault, view.epoch, &view.page)?;
@@ -1063,6 +1236,8 @@ pub struct RecoveryPeeked {
     pub partial: bool,
     pub legacy: bool,
     pub want: Vec<[u8; 16]>,
+    /// The record had no signature. The device should publish a signed copy.
+    pub resign: bool,
 }
 
 pub struct ApprovalPlan {
@@ -1455,6 +1630,9 @@ mod tests {
             device_wraps: wraps,
             key_id: view.key_id,
             page: view.page,
+            version: 1,
+            signer: None,
+            signature: None,
         }
         .stored();
         let legacy = sync_keys::store_device(
@@ -1465,6 +1643,7 @@ mod tests {
             &stored.chain,
             &[],
             &[],
+            false,
         )
         .unwrap();
         let mut founder = Desk::import_local(&legacy).unwrap();
@@ -1545,6 +1724,9 @@ mod tests {
             device_wraps: old.device_wraps,
             key_id: *decoy.id(),
             page: old.page,
+            version: 1,
+            signer: None,
+            signature: None,
         }
         .stored();
         let mut recovered = Desk::start_recovery(&phrase).unwrap();
@@ -1667,6 +1849,7 @@ mod tests {
             &stored.chain,
             &kek,
             &[],
+            false,
         )
         .unwrap();
         let mut legacy = Desk::import_local(&file).unwrap();
@@ -1687,6 +1870,9 @@ mod tests {
             device_wraps: wraps,
             key_id: *new_vault.id(),
             page,
+            version: old.version,
+            signer: None,
+            signature: None,
         }
         .stored();
         let opened = legacy.absorb_record(&stale).unwrap();
@@ -1745,5 +1931,65 @@ mod tests {
             kept.objects.is_empty(),
             "an unchanged page is not uploaded again"
         );
+    }
+
+    #[test]
+    fn a_forged_record_is_refused_and_an_unsigned_copy_still_opens() {
+        let (founder, signed) = confirmed_desk();
+        assert!(signed.len() > 80);
+        let file = founder.export_local().unwrap();
+        let stored = sync_keys::open_device_store(&file).unwrap();
+        let old_file = sync_keys::store_device(
+            &stored.device,
+            &stored.vault,
+            &stored.account,
+            stored.epoch,
+            &stored.chain,
+            &stored.kek,
+            &stored.recovery_public,
+            false,
+        )
+        .unwrap();
+        let mut old = Desk::import_local(&old_file).unwrap();
+        let unsigned = &signed[..signed.len() - 80];
+        let migrated = old.absorb_record(unsigned).unwrap();
+        assert!(migrated.member);
+        assert!(
+            migrated.republish,
+            "an older copy is published with a signature"
+        );
+        let opened = old.absorb_record(&signed).unwrap();
+        assert!(opened.member);
+        assert_eq!(opened.pages, SAMPLE_PAGE.as_bytes());
+        assert!(matches!(
+            old.absorb_record(unsigned),
+            Err(SyncKeyError::Sealed)
+        ));
+
+        let mut flipped = signed.clone();
+        let last = flipped.len() - 1;
+        flipped[last] ^= 0xff;
+        assert!(matches!(
+            old.absorb_record(&flipped),
+            Err(SyncKeyError::Sealed)
+        ));
+        let mut body = signed.clone();
+        let inside = body.len() - 81;
+        body[inside] ^= 0xff;
+        assert!(matches!(
+            old.absorb_record(&body),
+            Err(SyncKeyError::Sealed)
+        ));
+
+        let stranger = DeviceKeys::generate().unwrap();
+        let forged = sync_keys::append_record_signature(
+            unsigned,
+            stranger.public().id(),
+            stranger.signing_secret(),
+        );
+        assert!(matches!(
+            old.absorb_record(&forged),
+            Err(SyncKeyError::Sealed)
+        ));
     }
 }

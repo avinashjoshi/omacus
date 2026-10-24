@@ -17,6 +17,7 @@ import init, {
   packPages,
   deviceList,
   removeDevice,
+  signRequest,
 } from "./public/pkg/omacus_sync_web.js";
 
 const wasm = await readFile(new URL("./public/pkg/omacus_sync_web_bg.wasm", import.meta.url));
@@ -99,16 +100,30 @@ function mailbox(storage) {
 }
 
 async function call(box, method, path, body, headers = {}) {
+  const text = body === undefined || body === null
+    ? undefined
+    : (typeof body === "string" ? body : JSON.stringify(body));
   const request = new Request("https://sync.test" + path, {
     method,
     headers: { "content-type": "application/json", ...headers },
-    body: body ? JSON.stringify(body) : undefined,
+    body: text,
   });
   const response = await box.fetch(request);
-  const text = await response.text();
+  const raw = await response.text();
   let json = {};
-  try { json = JSON.parse(text); } catch { json = { raw: text }; }
+  try { json = JSON.parse(raw); } catch { json = { raw }; }
   return { status: response.status, json };
+}
+
+async function authed(box, deskId, method, path, body) {
+  const text = body === undefined ? "" : JSON.stringify(body);
+  const auth = parse(signRequest(deskId, method, path, text));
+  return call(box, method, path, body === undefined ? undefined : text, {
+    "x-omacus-device": auth.device,
+    "x-omacus-time": auth.time,
+    "x-omacus-nonce": auth.nonce,
+    "x-omacus-signature": auth.signature,
+  });
 }
 
 const started = parse(startNew());
@@ -137,7 +152,7 @@ if (!stored.requests || Object.keys(stored.requests).length !== 0) throw new Err
 
 const secret = Buffer.from([1, 2, 3, 4, 5]).toString("base64");
 const invite = parse(makeInvite(account, "https://sync-test.omacus.com", secret));
-const posted = await call(box, "POST", `/v1/mailboxes/${account}/invites`, { hash: invite.hash });
+const posted = await authed(box, upgraded.id, "POST", `/v1/mailboxes/${account}/invites`, { hash: invite.hash });
 if (posted.status !== 200) throw new Error("invite " + JSON.stringify(posted));
 
 const joiner = parse(startJoin());
@@ -153,15 +168,15 @@ if (joined.json.account !== account) {
   throw new Error(`join account ${joined.json.account} != approver ${account}`);
 }
 
-const pending = await call(box, "GET", `/v1/mailboxes/${account}/requests`);
+const pending = await authed(box, upgraded.id, "GET", `/v1/mailboxes/${account}/requests`);
 const approval = parse(approveDevice(upgraded.id, pending.json.requests[0].device));
 const packed = parse(packPages("", JSON.stringify([["trip", "Trip Budget\nferry = 40\n"]]), ""));
 const sealed = parse(sealPages(upgraded.id, packed.packed));
 
 // Overlap the page save and the approval the way a slow phone does.
 storage.overlap = true;
-const putPromise = call(box, "PUT", `/v1/mailboxes/${account}`, { revision: 1, record: sealed.record });
-const postPromise = call(box, "POST", `/v1/mailboxes/${account}/requests/${joined.json.id}`, {
+const putPromise = authed(box, upgraded.id, "PUT", `/v1/mailboxes/${account}`, { revision: 1, record: sealed.record });
+const postPromise = authed(box, upgraded.id, "POST", `/v1/mailboxes/${account}/requests/${joined.json.id}`, {
   chain: approval.chain,
   wrap: approval.wrap,
 });
@@ -173,12 +188,14 @@ storage.overlap = false;
 console.log("PUT", put.status, put.json);
 console.log("POST", post.status, post.json);
 
-const decision = await call(box, "GET", `/v1/mailboxes/${account}/requests/${joined.json.id}`);
+const decision = await call(box, "GET", `/v1/mailboxes/${account}/requests/${joined.json.id}`, undefined, {
+  "x-omacus-proof": proof.proof,
+});
 const again = await call(box, "GET", `/v1/mailboxes/${account}/requests/${joined.json.id}`);
 if (again.status !== 404) throw new Error("approved request stayed " + JSON.stringify(again));
 const after = await storage.get("m:" + account);
 if (after.requests[joined.json.id]) throw new Error("approved request still stored");
-const mailboxBody = await call(box, "GET", `/v1/mailboxes/${account}`);
+const mailboxBody = await authed(box, upgraded.id, "GET", `/v1/mailboxes/${account}`);
 console.log("decision", decision.json.state, "chain", (decision.json.chain || "").slice(0, 24), "recordRev", mailboxBody.json.revision);
 if (mailboxBody.json.revision !== 2) {
   console.error("saved revision rolled back to " + mailboxBody.json.revision);
@@ -196,6 +213,27 @@ try {
 }
 console.log("OPEN", opened.ok ? "ok" : opened.message);
 if (!opened.ok) process.exitCode = 1;
+
+const linked = await authed(box, joiner.id, "GET", `/v1/mailboxes/${account}`);
+if (linked.status !== 200) {
+  console.error("linked phone could not read " + JSON.stringify(linked));
+  process.exitCode = 1;
+}
+const joinerRow = JSON.parse(deviceList(upgraded.id)).devices.find((device) => !device.self);
+const dropped = parse(removeDevice(upgraded.id, joinerRow.id));
+const droppedPut = await authed(box, upgraded.id, "PUT", `/v1/mailboxes/${account}`, {
+  revision: mailboxBody.json.revision,
+  record: dropped.record,
+});
+if (droppedPut.status !== 200) {
+  console.error("remove put " + JSON.stringify(droppedPut));
+  process.exitCode = 1;
+}
+const denied = await authed(box, joiner.id, "GET", `/v1/mailboxes/${account}`);
+if (denied.status !== 404) {
+  console.error("removed phone still read " + JSON.stringify(denied));
+  process.exitCode = 1;
+}
 
 // Remove the phone that just joined, upgrade the computer in place, add another.
 const phone = parse(startJoin());

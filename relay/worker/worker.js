@@ -9,6 +9,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { mint, openCode, spend } from "./access.js";
 import { adminAuthorized, handleAdmin, isolateAllow, noteError } from "./admin.js";
+import { allowPut, authorize } from "./auth.js";
 import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
 
 const LABEL = "1.0.0-beta.11";
@@ -28,11 +29,12 @@ const ERR = {
   BadInvite: [400, "That code didn't work. Check it on the other device."],
   BadAccess: [400, "That invite code didn't work. Check it and try again."],
   Paused: [403, "New signups are paused."],
+  Limited: [429, "Try again in a moment."],
 };
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, X-Omacus-Device, X-Omacus-Time, X-Omacus-Nonce, X-Omacus-Signature, X-Omacus-Proof",
   "Cache-Control": "no-store",
 };
 const json = (status, value) =>
@@ -54,6 +56,14 @@ const accountId = (a) => {
   a = String(a).trim().toLowerCase();
   return /^[0-9a-f]{64}$/.test(a) ? a : fail("Unreadable");
 };
+function proofBytes(text) {
+  if (typeof text !== "string" || !text.trim()) return null;
+  try {
+    return Uint8Array.from(atob(text.trim()), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
 const sealed = (b64) => {
   const b = fromB64(b64);
   const v1 = startsWith(b, RECORD_MAGIC) && b.length <= MAX_RECORD;
@@ -155,6 +165,28 @@ export class Mailboxes extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.store = ctx.storage;
+    this.ipHits = new Map();
+    this.accountHits = new Map();
+  }
+  charge(ip, account) {
+    const now = Date.now();
+    const hit = (map, key, limit) => {
+      if (!key) return;
+      const row = map.get(key);
+      if (!row || now - row.start >= 60_000) {
+        map.set(key, { start: now, count: 1 });
+        return;
+      }
+      if (row.count >= limit) fail("Limited");
+      row.count += 1;
+    };
+    hit(this.ipHits, ip, 800);
+    hit(this.accountHits, account, 240);
+  }
+  async guard(method, path, raw, headers, mailbox) {
+    const auth = await authorize(method, path, raw, headers, mailbox.record, Date.now(), mailbox);
+    if (!auth) fail("Unknown");
+    return auth;
   }
   async fetch(request) {
     const url = new URL(request.url);
@@ -163,15 +195,17 @@ export class Mailboxes extends DurableObject {
       uses: Number(request.headers.get("x-omacus-access-uses") || "0"),
       spend: request.headers.get("x-omacus-access-spend") === "1",
     };
+    let raw = "";
     let body = {};
-    if (request.method !== "GET") {
-      const text = await request.text();
-      if (text.length > MAX_BODY) return json(400, { message: ERR.Unreadable[1] });
-      try { body = JSON.parse(text); } catch { body = null; }
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      raw = await request.text();
+      if (raw.length > MAX_BODY) return json(400, { message: ERR.Unreadable[1] });
+      try { body = JSON.parse(raw); } catch { body = null; }
     }
     try {
       const admin = request.headers.get("x-omacus-admin") === "1";
-      const [status, value] = await this.route(request.method, url.pathname, body, access, admin);
+      const ip = request.headers.get("cf-connecting-ip") || "local";
+      const [status, value] = await this.route(request.method, url.pathname, body, access, admin, request.headers, raw, ip);
       return json(status, value);
     } catch (e) {
       const name = Object.hasOwn(ERR, e) ? e : "Other";
@@ -215,15 +249,20 @@ export class Mailboxes extends DurableObject {
     await this.store.put(key, next);
   }
 
-  async route(method, path, body, access, admin) {
+  async route(method, path, body, access, admin, headers, raw, ip) {
     if (path.startsWith("/v1/admin")) return handleAdmin(this.store, method, path, body, admin === true);
     const need = () => (body && typeof body === "object" ? body : fail("Unreadable"));
     if (method === "POST" && path === "/v1/access") {
+      this.charge(ip);
       await this.useAccess(access, false);
       return [200, { ok: true }];
     }
-    if (method === "POST" && path === "/v1/join") return this.join(need());
+    if (method === "POST" && path === "/v1/join") {
+      this.charge(ip);
+      return this.join(need());
+    }
     if (method === "POST" && path === "/v1/mailboxes") {
+      this.charge(ip);
       const v = need();
       const account = accountId(typeof v.account === "string" ? v.account : fail("Unreadable"));
       const record = sealed(v.record);
@@ -242,11 +281,29 @@ export class Mailboxes extends DurableObject {
       return [201, { revision: 1, objects: written }];
     }
     const rest = path.startsWith("/v1/mailboxes/") ? path.slice(14).split("/") : fail("Unknown");
-    const account = accountId(rest[0]);
     const [sub, id, extra] = rest.slice(1);
     if (extra !== undefined) fail("Unknown");
+    this.charge(ip);
+    const account = accountId(rest[0]);
+    this.charge(null, account);
+    const header = (name) => (headers && headers.get ? headers.get(name) : "") || "";
+    if (method === "GET" && sub === "requests" && id !== undefined) {
+      const given = proofBytes(header("x-omacus-proof"));
+      const [status, answer] = await this.change(account, (m) => {
+        const r = Object.hasOwn(m.requests, id) ? m.requests[id] : null;
+        const stored = r ? proofBytes(r.proof) : null;
+        if (!r || !given || !stored || !sameBytes(given, stored)) return [404, null];
+        const reply = { state: r.state, name: r.name, device: r.device, chain: r.chain, wrap: r.wrap };
+        if (r.state !== "pending") delete m.requests[id];
+        return [200, reply];
+      });
+      if (status === 404) fail("Unknown");
+      return [status, answer];
+    }
+    const authed = (m) => this.guard(method, path, raw, headers, m);
     if (method === "GET" && sub === undefined) {
       return this.change(account, async (m, txn) => {
+        await authed(m);
         const listed = await txn.list({ prefix: `o:${account}:` });
         const objects = [...listed].map(([key, value]) => ({
           id: key.slice(`o:${account}:`.length),
@@ -258,13 +315,15 @@ export class Mailboxes extends DurableObject {
       });
     }
     if (method === "PUT" && sub === undefined) {
-      const v = need();
-      if (!Number.isInteger(v.revision) || v.revision < 0) fail("Unreadable");
-      const record = sealed(v.record);
-      const writes = objectWrites(v);
-      const dropping = idList(v.drop);
       return this.change(account, async (m, txn) => {
+        const auth = await authed(m);
+        const v = need();
+        if (!Number.isInteger(v.revision) || v.revision < 0) fail("Unreadable");
+        const record = sealed(v.record);
+        if (!await allowPut(m.record, record, auth.recovery)) fail("Unreadable");
         if (m.revision !== v.revision) fail("Revision");
+        const writes = objectWrites(v);
+        const dropping = idList(v.drop);
         const written = await applyObjects(txn, account, writes, dropping);
         m.revision += 1;
         m.record = record;
@@ -272,47 +331,43 @@ export class Mailboxes extends DurableObject {
       });
     }
     if (method === "POST" && sub === "objects" && id === undefined) {
+      await this.change(account, async (m) => {
+        await authed(m);
+        return [200, { ok: true }];
+      });
       const ids = idList(need().ids);
       const objects = [];
-      for (const id of ids) {
-        const cur = await this.store.get(`o:${account}:${id}`);
+      for (const object of ids) {
+        const cur = await this.store.get(`o:${account}:${object}`);
         if (!cur) fail("Unknown");
-        objects.push({ id, revision: cur.revision, body: cur.body });
+        objects.push({ id: object, revision: cur.revision, body: cur.body });
       }
       return [200, { objects }];
     }
     if (method === "POST" && sub === "invites" && id === undefined) {
-      const v = need();
-      const hash = String(v.hash || "").trim().toLowerCase();
-      if (!/^[0-9a-f]{64}$/.test(hash)) fail("Unreadable");
-      return this.change(account, (m) => {
+      return this.change(account, async (m) => {
+        await authed(m);
+        const v = need();
+        const hash = String(v.hash || "").trim().toLowerCase();
+        if (!/^[0-9a-f]{64}$/.test(hash)) fail("Unreadable");
         m.invite = { hash, expires: Date.now() + INVITE_MS, used: false };
         return [200, { ok: true }];
       });
     }
     if (sub !== "requests") fail("Unknown");
     if (method === "GET" && id === undefined) {
-      return this.change(account, (m) => [200, {
-        requests: Object.entries(m.requests).filter(([, r]) => r.state === "pending")
-          .map(([rid, r]) => ({ id: rid, device: r.device, name: r.name, proof: r.proof || "" })),
-      }]);
-    }
-    if (method === "GET") {
-      // Commit the removal first. An expired request must not come back
-      // because the missing-request error rolled the write back.
-      const [status, body] = await this.change(account, (m) => {
-        const r = Object.hasOwn(m.requests, id) ? m.requests[id] : null;
-        if (!r) return [404, null];
-        const answer = { state: r.state, name: r.name, device: r.device, chain: r.chain, wrap: r.wrap };
-        if (r.state !== "pending") delete m.requests[id];
-        return [200, answer];
+      return this.change(account, async (m) => {
+        await authed(m);
+        return [200, {
+          requests: Object.entries(m.requests).filter(([, r]) => r.state === "pending")
+            .map(([rid, r]) => ({ id: rid, device: r.device, name: r.name, proof: r.proof || "" })),
+        }];
       });
-      if (status === 404) fail("Unknown");
-      return [status, body];
     }
-    if (method === "POST") {
-      const v = need();
-      return this.change(account, (m) => {
+    if (method === "POST" && id !== undefined) {
+      return this.change(account, async (m) => {
+        await authed(m);
+        const v = need();
         const r = Object.hasOwn(m.requests, id) ? m.requests[id] : fail("Unknown");
         if (v.reject === true) {
           if (r.state !== "pending") fail("Conflict");

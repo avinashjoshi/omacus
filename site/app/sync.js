@@ -59,6 +59,7 @@ export async function mountSync(api) {
     code: "",
     device: "",
     requestId: "",
+    joinProof: "",
     pending: null,
     phrase: "",
     phraseMsg: "",
@@ -423,15 +424,30 @@ export async function mountSync(api) {
     return state.asks.filter((n) => state.picks[n]).map((n) => [n, state.picks[n]]);
   }
 
-  async function callServer(method, path, body, origin) {
+  async function callServer(method, path, body, origin, authMode) {
     const base = (origin || syncOrigin()).replace(/\/$/, "");
     const url = `${base}${path}`;
+    const text = body ? JSON.stringify(body) : "";
+    const headers = {};
+    if (body) headers["Content-Type"] = "application/json";
+    if (authMode === "open") {
+      // A new set of pages, and a phone that is still joining, use their own checks.
+    } else if (authMode && authMode.proof) {
+      headers["X-Omacus-Proof"] = authMode.proof;
+    } else if (state.desk) {
+      const signed = JSON.parse(sync.signRequest(state.desk, method, path, text));
+      if (!signed.ok) throw new Error(signed.message || "Couldn't sync.");
+      headers["X-Omacus-Device"] = signed.device;
+      headers["X-Omacus-Time"] = signed.time;
+      headers["X-Omacus-Nonce"] = signed.nonce;
+      headers["X-Omacus-Signature"] = signed.signature;
+    }
     let response;
     try {
       response = await fetch(url, {
         method,
-        headers: body ? { "Content-Type": "application/json" } : undefined,
-        body: body ? JSON.stringify(body) : undefined,
+        headers,
+        body: body ? text : undefined,
       });
     } catch {
       const error = new Error("Offline. Your pages are still here.");
@@ -498,7 +514,7 @@ export async function mountSync(api) {
         record,
         code: state.accessCode,
         ...extra,
-      })
+      }, undefined, "open")
       : await callServer("PUT", `/v1/mailboxes/${state.account}`, {
         revision: state.revision,
         record,
@@ -899,7 +915,7 @@ export async function mountSync(api) {
     state.error = "";
     draw();
     try {
-      await callServer("POST", "/v1/access", { code });
+      await callServer("POST", "/v1/access", { code }, undefined, "open");
     } catch (error) {
       state.busy = false;
       state.error = plainError(error.message);
@@ -965,6 +981,7 @@ export async function mountSync(api) {
     state.words = [];
     state.qr = "";
     state.requestId = "";
+    state.joinProof = "";
     state.dirty = false;
     state.screen = "off";
     state.busy = false;
@@ -1026,12 +1043,13 @@ export async function mountSync(api) {
         device: started.device,
         name: "",
         proof: proof.proof,
-      }, origin);
+      }, origin, "open");
       state.desk = started.id;
       state.code = started.code;
       state.device = started.device;
       state.account = created.account;
       state.requestId = created.id;
+      state.joinProof = proof.proof;
     } catch (error) {
       state.busy = false;
       state.error = plainError(error.message || "That code didn't work. Check it on the other phone or computer.");
@@ -1140,7 +1158,7 @@ export async function mountSync(api) {
   async function waitForApproval() {
     if (state.screen !== "join" || !state.requestId) return;
     try {
-      const decision = await callServer("GET", `/v1/mailboxes/${state.account}/requests/${state.requestId}`);
+      const decision = await callServer("GET", `/v1/mailboxes/${state.account}/requests/${state.requestId}`, undefined, undefined, { proof: state.joinProof });
       if (decision.state === "pending") {
         setTimeout(waitForApproval, 1000);
         return;
@@ -1369,7 +1387,7 @@ export async function mountSync(api) {
         state.screen = "linked";
         await saveFile();
         await refreshDevices();
-        if (peeked.legacy) {
+        if (peeked.legacy || peeked.resign) {
           state.dirty = true;
           await push();
         }

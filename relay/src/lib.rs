@@ -5,6 +5,7 @@
 
 pub mod access;
 pub mod adapter;
+pub mod auth;
 pub mod http;
 pub mod invite;
 pub mod store;

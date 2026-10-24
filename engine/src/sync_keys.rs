@@ -25,6 +25,9 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 /// The vault these keys open. The same id the page library uses.
 pub const VAULT_ID: &str = "personal";
 
+/// The device id of the recovery signing key. It is not a phone.
+pub const RECOVERY_ID: [u8; 16] = *b"recovery-signer\0";
+
 /// Protocol version mixed into every seal.
 pub const PROTOCOL: u16 = 1;
 
@@ -516,6 +519,14 @@ impl Root {
         secret.zeroize();
         Ok(key.verifying_key().to_bytes())
     }
+
+    /// The signing seed behind [`Root::account_public`]. The caller wipes it.
+    #[doc(hidden)]
+    pub fn account_signing_secret(&self) -> Result<[u8; KEY_LEN], SyncKeyError> {
+        let mut secret = [0u8; KEY_LEN];
+        self.expand(b"omacus/v1/account-sign", &mut secret)?;
+        Ok(secret)
+    }
 }
 
 /// Four everyday words for checking an account, made from the public key only.
@@ -989,6 +1000,47 @@ pub fn approve(
     Ok((approved, wrap))
 }
 
+/// An approved device adds the recovery signing key. There is no device wrap.
+/// The public key is the account id, which every linked device already has.
+pub fn admit_recovery(
+    approver: &DeviceKeys,
+    chain: &DeviceChain,
+    sign_public: &[u8; KEY_LEN],
+    receive: &[u8; KEY_LEN],
+) -> Result<DeviceChain, SyncKeyError> {
+    chain.verify()?;
+    let latest = chain.latest()?;
+    if latest.devices.iter().any(|device| device.id == RECOVERY_ID) {
+        return Ok(chain.clone());
+    }
+    if !latest.devices.iter().any(|device| device.id == approver.id) {
+        return Err(SyncKeyError::NotApproved(NOT_ON_LIST));
+    }
+    let mut devices = latest.devices.clone();
+    devices.push(DevicePublic {
+        id: RECOVERY_ID,
+        sign: *sign_public,
+        receive: *receive,
+    });
+    let mut next = SignedDevices {
+        version: latest.version + 1,
+        prev: {
+            let mut hash = [0u8; KEY_LEN];
+            hash.copy_from_slice(&Sha256::digest(latest.message()));
+            hash
+        },
+        signer: approver.id,
+        devices,
+        signature: [0u8; 64],
+    };
+    next.signature = sign_list(approver, &next)?;
+    let mut lists = chain.lists.clone();
+    lists.push(next);
+    let admitted = DeviceChain { lists };
+    admitted.verify()?;
+    Ok(admitted)
+}
+
 /// An approved device removes one other device from the list.
 /// The removed device is no longer approved to add or remove devices.
 pub fn remove_device(
@@ -998,7 +1050,7 @@ pub fn remove_device(
 ) -> Result<DeviceChain, SyncKeyError> {
     chain.verify()?;
     let latest = chain.latest()?;
-    if approver.id == *target || latest.devices.len() < 2 {
+    if approver.id == *target || *target == RECOVERY_ID || latest.devices.len() < 2 {
         return Err(SyncKeyError::NotApproved(NOT_ON_LIST));
     }
     if !latest.devices.iter().any(|device| device.id == approver.id) {
@@ -1292,6 +1344,7 @@ pub fn open_page(
 }
 
 /// What a server would store. Public keys, signatures, and ciphertext.
+#[derive(Clone)]
 pub struct ServerView {
     pub epoch: u64,
     pub account: [u8; KEY_LEN],
@@ -1300,6 +1353,11 @@ pub struct ServerView {
     pub device_wraps: Vec<Vec<u8>>,
     pub key_id: [u8; 16],
     pub page: Vec<u8>,
+    /// 1 is one sealed page blob. 2 is a sealed manifest.
+    pub version: u8,
+    /// Set when the record ends with a signature. Absent on an older copy.
+    pub signer: Option<[u8; 16]>,
+    pub signature: Option<[u8; 64]>,
 }
 
 impl ServerView {
@@ -1330,15 +1388,23 @@ impl ServerView {
             push_chunk(&mut out, wrap);
         }
         push_chunk(&mut out, &self.page);
+        if let (Some(signer), Some(signature)) = (self.signer, self.signature) {
+            out.extend_from_slice(&signer);
+            out.extend_from_slice(&signature);
+        }
         out
     }
 
     pub fn parse(bytes: &[u8]) -> Result<Self, SyncKeyError> {
         let mut reader = Reader::new(bytes);
         let magic = reader.take(14)?;
-        if magic != b"OMACUS-SYNC/1\n" && magic != b"OMACUS-SYNC/2\n" {
+        let version = if magic == b"OMACUS-SYNC/1\n" {
+            1
+        } else if magic == b"OMACUS-SYNC/2\n" {
+            2
+        } else {
             return Err(SyncKeyError::Corrupt);
-        }
+        };
         let vault_len = usize::from(reader.byte()?);
         if reader.take(vault_len)? != VAULT_ID.as_bytes() {
             return Err(SyncKeyError::Corrupt);
@@ -1354,6 +1420,15 @@ impl ServerView {
             device_wraps.push(reader.chunk()?);
         }
         let page = reader.chunk()?;
+        let (signer, signature) = if reader.is_empty() {
+            (None, None)
+        } else if reader.rest.len() == 80 {
+            let signer = reader.array()?;
+            let signature = reader.array()?;
+            (Some(signer), Some(signature))
+        } else {
+            return Err(SyncKeyError::Corrupt);
+        };
         reader.finish()?;
         Ok(Self {
             epoch,
@@ -1363,8 +1438,126 @@ impl ServerView {
             device_wraps,
             key_id,
             page,
+            version,
+            signer,
+            signature,
         })
     }
+}
+
+/// `Ok(true)` is an older unsigned record this device may still open.
+/// `Ok(false)` is a signature by a device on the newest list, or the recovery key.
+/// Anything else is refused, including a signature that does not check out.
+pub fn trust_signature(view: &ServerView, signed_seen: bool) -> Result<bool, SyncKeyError> {
+    match (view.signer, view.signature) {
+        (None, None) => {
+            if signed_seen {
+                Err(SyncKeyError::Sealed)
+            } else {
+                Ok(true)
+            }
+        }
+        (Some(signer), Some(signature)) => {
+            if record_signature_ok(view, signer, signature)? {
+                Ok(false)
+            } else {
+                Err(SyncKeyError::Sealed)
+            }
+        }
+        _ => Err(SyncKeyError::Corrupt),
+    }
+}
+
+fn record_signature_ok(
+    view: &ServerView,
+    signer: [u8; 16],
+    signature: [u8; 64],
+) -> Result<bool, SyncKeyError> {
+    let mut bare = view.clone();
+    bare.signer = None;
+    bare.signature = None;
+    let prefix = bare.to_bytes(view.version);
+    let message = record_message(&prefix);
+    let sig = Signature::from_slice(&signature).map_err(|_| SyncKeyError::Corrupt)?;
+    let mut key_bytes = if signer == RECOVERY_ID {
+        match view
+            .chain
+            .devices()?
+            .into_iter()
+            .find(|device| *device.id() == RECOVERY_ID)
+        {
+            Some(device) => *device.signing_key(),
+            None => view.account,
+        }
+    } else {
+        let Some(device) = view
+            .chain
+            .devices()?
+            .into_iter()
+            .find(|device| *device.id() == signer)
+        else {
+            return Ok(false);
+        };
+        *device.signing_key()
+    };
+    if signer == RECOVERY_ID && key_bytes != view.account {
+        key_bytes.zeroize();
+        return Ok(false);
+    }
+    let key = VerifyingKey::from_bytes(&key_bytes).map_err(|_| SyncKeyError::Corrupt)?;
+    key_bytes.zeroize();
+    Ok(key.verify(&message, &sig).is_ok())
+}
+
+fn record_message(prefix: &[u8]) -> Vec<u8> {
+    let mut message = Vec::with_capacity(16 + prefix.len());
+    message.extend_from_slice(b"omacus-record/1");
+    message.extend_from_slice(prefix);
+    message
+}
+
+/// Append a device signature to a record prefix.
+pub fn append_record_signature(
+    prefix: &[u8],
+    signer: &[u8; 16],
+    secret: &[u8; KEY_LEN],
+) -> Vec<u8> {
+    let signature = SigningKey::from_bytes(secret)
+        .sign(&record_message(prefix))
+        .to_bytes();
+    let mut out = prefix.to_vec();
+    out.extend_from_slice(signer);
+    out.extend_from_slice(&signature);
+    out
+}
+
+/// The bytes a mailbox request signature covers.
+pub fn auth_message(
+    method: &str,
+    path: &str,
+    time_ms: u64,
+    nonce: &[u8; 16],
+    body: &[u8],
+) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"omacus-auth/1\n");
+    message.extend_from_slice(method.to_ascii_uppercase().as_bytes());
+    message.push(b'\n');
+    message.extend_from_slice(path.as_bytes());
+    message.push(b'\n');
+    message.extend_from_slice(&time_ms.to_be_bytes());
+    message.extend_from_slice(nonce);
+    message.extend_from_slice(&Sha256::digest(body));
+    message
+}
+
+pub fn sign_auth(secret: &[u8; KEY_LEN], message: &[u8]) -> [u8; 64] {
+    SigningKey::from_bytes(secret).sign(message).to_bytes()
+}
+
+#[doc(hidden)]
+pub fn fresh_nonce() -> Result<[u8; 16], SyncKeyError> {
+    random_bytes()
 }
 
 /// What one device remembers so a reload stays linked. It is not a mailbox record.
@@ -1378,6 +1571,8 @@ pub struct DeviceStore {
     pub kek: Vec<u8>,
     /// Empty on a file saved before this field. Not a decryption key.
     pub recovery_public: Vec<u8>,
+    /// True after this device has seen a signed record. An unsigned copy is then refused.
+    pub signed_seen: bool,
 }
 
 impl std::fmt::Debug for DeviceStore {
@@ -1386,6 +1581,7 @@ impl std::fmt::Debug for DeviceStore {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn store_device(
     device: &DeviceKeys,
     vault: &VaultKey,
@@ -1394,6 +1590,7 @@ pub fn store_device(
     chain: &[u8],
     kek: &[u8],
     recovery_public: &[u8],
+    signed_seen: bool,
 ) -> Result<Vec<u8>, SyncKeyError> {
     if chain.len() > MAX_CHAIN_BYTES
         || !(kek.is_empty() || kek.len() == KEY_LEN)
@@ -1411,7 +1608,11 @@ pub fn store_device(
     out.extend_from_slice(account);
     out.extend_from_slice(&epoch.to_be_bytes());
     push_chunk(&mut out, chain);
-    if !recovery_public.is_empty() {
+    if signed_seen {
+        push_chunk(&mut out, kek);
+        push_chunk(&mut out, recovery_public);
+        push_chunk(&mut out, &[1]);
+    } else if !recovery_public.is_empty() {
         push_chunk(&mut out, kek);
         push_chunk(&mut out, recovery_public);
     } else if !kek.is_empty() {
@@ -1449,20 +1650,28 @@ pub fn open_device_store(bytes: &[u8]) -> Result<DeviceStore, SyncKeyError> {
         chain: reader.chunk()?,
         kek: Vec::new(),
         recovery_public: Vec::new(),
+        signed_seen: false,
     };
-    let (kek, recovery_public) = if reader.is_empty() {
-        (Vec::new(), Vec::new())
+    let (kek, recovery_public, signed_seen) = if reader.is_empty() {
+        (Vec::new(), Vec::new(), false)
     } else {
         let kek = reader.chunk()?;
         if reader.is_empty() {
-            (kek, Vec::new())
+            (kek, Vec::new(), false)
         } else {
-            (kek, reader.chunk()?)
+            let recovery_public = reader.chunk()?;
+            if reader.is_empty() {
+                (kek, recovery_public, false)
+            } else {
+                let flag = reader.chunk()?;
+                (kek, recovery_public, flag == [1])
+            }
         }
     };
     let store = DeviceStore {
         kek,
         recovery_public,
+        signed_seen,
         ..store
     };
     if store.chain.len() > MAX_CHAIN_BYTES
@@ -2426,6 +2635,9 @@ mod tests {
             device_wraps: vec![laptop_wrap, phone_wrap],
             key_id: *vault.id(),
             page: sealed,
+            version: 1,
+            signer: None,
+            signature: None,
         };
         let stored = view.stored();
         let read = ServerView::parse(&stored).unwrap();
@@ -2493,7 +2705,7 @@ mod tests {
         let vault = VaultKey::generate().unwrap();
         let account = [0x11u8; 32];
         let chain = found_devices(&device).unwrap().to_bytes();
-        let stored = store_device(&device, &vault, &account, 1, &chain, &[], &[]).unwrap();
+        let stored = store_device(&device, &vault, &account, 1, &chain, &[], &[], false).unwrap();
         assert!(stored.starts_with(DEVICE_MAGIC));
         assert!(!stored.starts_with(b"OMACUS-SYNC/1\n"));
         let opened = open_device_store(&stored).unwrap();
@@ -2507,16 +2719,19 @@ mod tests {
         assert_eq!(opened.chain, chain);
         assert!(opened.kek.is_empty());
         let kek = [0x5au8; KEY_LEN];
-        let with_kek = store_device(&device, &vault, &account, 1, &chain, &kek, &[]).unwrap();
+        let with_kek =
+            store_device(&device, &vault, &account, 1, &chain, &kek, &[], false).unwrap();
         let opened_kek = open_device_store(&with_kek).unwrap();
         assert_eq!(opened_kek.kek, kek);
         assert!(opened_kek.recovery_public.is_empty());
         let public = [0x3cu8; KEY_LEN];
-        let with_public = store_device(&device, &vault, &account, 1, &chain, &[], &public).unwrap();
+        let with_public =
+            store_device(&device, &vault, &account, 1, &chain, &[], &public, false).unwrap();
         let opened_public = open_device_store(&with_public).unwrap();
         assert!(opened_public.kek.is_empty());
         assert_eq!(opened_public.recovery_public, public);
-        let with_both = store_device(&device, &vault, &account, 1, &chain, &kek, &public).unwrap();
+        let with_both =
+            store_device(&device, &vault, &account, 1, &chain, &kek, &public, false).unwrap();
         let opened_both = open_device_store(&with_both).unwrap();
         assert_eq!(opened_both.kek, kek);
         assert_eq!(opened_both.recovery_public, public);

@@ -31,6 +31,7 @@ pub enum StoreError {
     Unreadable,
     BadInvite,
     BadAccess,
+    Limited,
 }
 
 impl StoreError {
@@ -38,7 +39,7 @@ impl StoreError {
         match self {
             StoreError::Unknown => 404,
             StoreError::Conflict | StoreError::Revision => 409,
-            StoreError::Full => 429,
+            StoreError::Full | StoreError::Limited => 429,
             StoreError::Unreadable | StoreError::BadInvite | StoreError::BadAccess => 400,
         }
     }
@@ -52,6 +53,7 @@ impl StoreError {
             StoreError::Unreadable => "That copy could not be read.",
             StoreError::BadInvite => "That code didn't work. Check it on the other device.",
             StoreError::BadAccess => "That invite code didn't work. Check it and try again.",
+            StoreError::Limited => "Try again in a moment.",
         }
     }
 }
@@ -87,12 +89,18 @@ struct StoredObject {
     body: Vec<u8>,
 }
 
+struct Hit {
+    start: u64,
+    count: u32,
+}
+
 struct Mailbox {
     revision: u64,
     record: Vec<u8>,
     requests: BTreeMap<String, Request>,
     invite: Option<Invite>,
     objects: BTreeMap<String, StoredObject>,
+    nonces: BTreeMap<String, u64>,
 }
 
 pub struct ObjectWrite {
@@ -113,6 +121,8 @@ pub struct Store {
     access_secret: Vec<u8>,
     now_ms: Option<u64>,
     backend: Option<Box<dyn Kv>>,
+    account_hits: BTreeMap<String, Hit>,
+    ip_hits: BTreeMap<String, Hit>,
 }
 
 #[derive(Clone)]
@@ -140,6 +150,8 @@ impl Store {
             access_secret: Vec::new(),
             now_ms: None,
             backend: None,
+            account_hits: BTreeMap::new(),
+            ip_hits: BTreeMap::new(),
         }
     }
 
@@ -152,6 +164,8 @@ impl Store {
             access_secret: Vec::new(),
             now_ms: None,
             backend: Some(backend),
+            account_hits: BTreeMap::new(),
+            ip_hits: BTreeMap::new(),
         }
     }
 
@@ -173,6 +187,95 @@ impl Store {
     /// Tests pin the clock so a code's lifetime does not depend on the wall time.
     pub fn set_now(&mut self, ms: u64) {
         self.now_ms = Some(ms);
+    }
+
+    pub fn charge_ip(&mut self, ip: &str) -> Result<(), StoreError> {
+        let now = self.now();
+        self.ip_hits
+            .retain(|_, hit| now.saturating_sub(hit.start) < crate::auth::RATE_WINDOW_MS);
+        bump(&mut self.ip_hits, ip, now, crate::auth::IP_LIMIT)
+    }
+
+    pub fn charge_account(&mut self, account: &str) -> Result<(), StoreError> {
+        let account = account_id(account)?;
+        let now = self.now();
+        self.account_hits
+            .retain(|_, hit| now.saturating_sub(hit.start) < crate::auth::RATE_WINDOW_MS);
+        bump(
+            &mut self.account_hits,
+            &account,
+            now,
+            crate::auth::ACCOUNT_LIMIT,
+        )
+    }
+
+    /// Check a device signature and remember its nonce. A failure is the same
+    /// as a missing mailbox.
+    pub fn authorize(
+        &mut self,
+        account: &str,
+        method: &str,
+        path: &str,
+        body: &[u8],
+        headers: &BTreeMap<String, String>,
+    ) -> Result<bool, StoreError> {
+        let account = account_id(account)?;
+        let auth = crate::auth::read_auth(headers).ok_or(StoreError::Unknown)?;
+        let now = self.now();
+        let recovery = {
+            let mailbox = self
+                .mailboxes
+                .get_mut(&account)
+                .ok_or(StoreError::Unknown)?;
+            crate::auth::accept_request(
+                method,
+                path,
+                body,
+                &auth,
+                now,
+                &mailbox.record,
+                &mut mailbox.nonces,
+            )
+            .ok_or(StoreError::Unknown)?
+        };
+        self.checkpoint();
+        Ok(recovery)
+    }
+
+    pub fn allow_put(
+        &self,
+        account: &str,
+        record: &[u8],
+        recovery: bool,
+    ) -> Result<(), StoreError> {
+        let account = account_id(account)?;
+        let mailbox = self.mailboxes.get(&account).ok_or(StoreError::Unknown)?;
+        if crate::auth::put_allowed(&mailbox.record, record, recovery) {
+            Ok(())
+        } else {
+            Err(StoreError::Unreadable)
+        }
+    }
+
+    /// The joining device may read only its own request, and only with the
+    /// same check value it used to create that request.
+    pub fn request_with_proof(
+        &mut self,
+        account: &str,
+        id: &str,
+        proof: &[u8],
+    ) -> Result<RequestView, StoreError> {
+        let account_key = account_id(account)?;
+        self.drop_expired(&account_key);
+        let mailbox = self
+            .mailboxes
+            .get(&account_key)
+            .ok_or(StoreError::Unknown)?;
+        let request = mailbox.requests.get(id).ok_or(StoreError::Unknown)?;
+        if !same_bytes(&request.proof, proof) {
+            return Err(StoreError::Unknown);
+        }
+        self.request(&account_key, id)
     }
 
     fn now(&self) -> u64 {
@@ -269,6 +372,7 @@ impl Store {
                 requests: BTreeMap::new(),
                 invite: None,
                 objects: BTreeMap::new(),
+                nonces: BTreeMap::new(),
             },
         );
         self.checkpoint();
@@ -321,6 +425,7 @@ impl Store {
                 requests: BTreeMap::new(),
                 invite: None,
                 objects,
+                nonces: BTreeMap::new(),
             },
         );
         self.checkpoint();
@@ -650,6 +755,38 @@ impl Default for Store {
     }
 }
 
+fn bump(
+    hits: &mut BTreeMap<String, Hit>,
+    key: &str,
+    now: u64,
+    limit: u32,
+) -> Result<(), StoreError> {
+    let hit = hits.entry(key.to_string()).or_insert(Hit {
+        start: now,
+        count: 0,
+    });
+    if now.saturating_sub(hit.start) >= crate::auth::RATE_WINDOW_MS {
+        hit.start = now;
+        hit.count = 0;
+    }
+    if hit.count >= limit {
+        return Err(StoreError::Limited);
+    }
+    hit.count += 1;
+    Ok(())
+}
+
+fn same_bytes(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (one, other) in left.iter().zip(right) {
+        diff |= one ^ other;
+    }
+    diff == 0
+}
+
 fn account_id(account: &str) -> Result<String, StoreError> {
     let account = account.trim().to_ascii_lowercase();
     if account.len() == 64 && account.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -830,6 +967,7 @@ fn mailbox_bytes(mailbox: &Mailbox) -> Vec<u8> {
         "record": b64(&mailbox.record),
         "requests": requests,
         "invite": invite,
+        "nonces": mailbox.nonces.iter().map(|(nonce, time)| json!({"nonce": nonce, "time": time})).collect::<Vec<_>>(),
     }))
     .unwrap_or_default()
 }
@@ -868,12 +1006,25 @@ fn mailbox_from(bytes: &[u8]) -> Option<Mailbox> {
             used: row.get("used")?.as_bool()?,
         }),
     };
+    let mut nonces = BTreeMap::new();
+    if let Some(rows) = value.get("nonces").and_then(Value::as_array) {
+        for row in rows {
+            let Some(nonce) = row.get("nonce").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(time) = row.get("time").and_then(Value::as_u64) else {
+                continue;
+            };
+            nonces.insert(nonce.to_string(), time);
+        }
+    }
     Some(Mailbox {
         revision,
         record,
         requests,
         invite,
         objects: BTreeMap::new(),
+        nonces,
     })
 }
 
@@ -1263,5 +1414,33 @@ mod tests {
             vec![4u8; 80]
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_burst_is_limited_without_naming_a_missing_account() {
+        let mut store = Store::new();
+        store.set_now(1_000);
+        let missing = "cd".repeat(32);
+        for _ in 0..crate::auth::ACCOUNT_LIMIT {
+            store.charge_account(&missing).unwrap();
+        }
+        assert_eq!(
+            store.charge_account(&missing).unwrap_err(),
+            StoreError::Limited
+        );
+        assert_eq!(StoreError::Limited.message(), "Try again in a moment.");
+        let other = "ce".repeat(32);
+        store.charge_account(&other).unwrap();
+        store.set_now(1_000 + crate::auth::RATE_WINDOW_MS);
+        store.charge_account(&missing).unwrap();
+
+        let ip = "203.0.113.9";
+        for _ in 0..crate::auth::IP_LIMIT {
+            store.charge_ip(ip).unwrap();
+        }
+        assert_eq!(store.charge_ip(ip).unwrap_err(), StoreError::Limited);
+        store.charge_ip("203.0.113.10").unwrap();
+        store.set_now(1_000 + crate::auth::RATE_WINDOW_MS + crate::auth::RATE_WINDOW_MS);
+        store.charge_ip(ip).unwrap();
     }
 }

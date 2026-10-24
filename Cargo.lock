@@ -2829,6 +2829,7 @@ name = "omacus-relay"
 version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
+ "ed25519-dalek",
  "getrandom 0.2.17",
  "hmac",
  "omacus-doc",

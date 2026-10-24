@@ -61,16 +61,17 @@ fn access_code(uses: u8, id: [u8; 6]) -> String {
     omacus_relay::access::mint(b"omacus-access-test-secret", uses, &id).expect("access code")
 }
 
-fn exchange(
+fn exchange_with(
     port: u16,
     method: &str,
     path: &str,
     body: &[u8],
+    extra: &str,
     wire: &mut Vec<u8>,
 ) -> (u16, Vec<u8>) {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
     let head = format!(
-        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
     stream.write_all(head.as_bytes()).unwrap();
@@ -90,6 +91,28 @@ fn exchange(
     (status, buf[head_end..].to_vec())
 }
 
+fn exchange(
+    port: u16,
+    method: &str,
+    path: &str,
+    body: &[u8],
+    wire: &mut Vec<u8>,
+) -> (u16, Vec<u8>) {
+    exchange_with(port, method, path, body, "", wire)
+}
+
+fn signed(
+    port: u16,
+    desk: &Desk,
+    method: &str,
+    path: &str,
+    body: &[u8],
+    wire: &mut Vec<u8>,
+) -> (u16, Vec<u8>) {
+    let auth = desk.sign_request(method, path, body).unwrap();
+    exchange_with(port, method, path, body, &auth.headers(), wire)
+}
+
 fn json_body(bytes: &[u8]) -> serde_json::Value {
     serde_json::from_slice(bytes).unwrap()
 }
@@ -97,20 +120,31 @@ fn json_body(bytes: &[u8]) -> serde_json::Value {
 struct Joined {
     id: String,
     code: String,
+    proof: String,
 }
 
 /// Opens a one-time code on `account`, rejects a join with no code and a join
 /// with the wrong code, then joins once. The code is not kept afterwards.
-fn post_join(port: u16, account: &str, device: &[u8], name: &str, wire: &mut Vec<u8>) -> Joined {
+fn post_join(
+    port: u16,
+    desk: &Desk,
+    account: &str,
+    device: &[u8],
+    name: &str,
+    wire: &mut Vec<u8>,
+) -> Joined {
     let secret = [0x11u8, 0x22, 0x33, 0x44, 0x55];
     let code = omacus_relay::invite::encode_code(&secret);
     let hash = omacus_relay::invite::hash_hex(&secret);
     let mac = omacus_relay::invite::proof(&secret, device);
-    let (status, _) = exchange(
+    let proof = b64(&mac);
+    let invite = serde_json::json!({ "hash": hash }).to_string();
+    let (status, _) = signed(
         port,
+        desk,
         "POST",
         &format!("/v1/mailboxes/{account}/invites"),
-        serde_json::json!({ "hash": hash }).to_string().as_bytes(),
+        invite.as_bytes(),
         wire,
     );
     assert_eq!(status, 200);
@@ -152,8 +186,9 @@ fn post_join(port: u16, account: &str, device: &[u8], name: &str, wire: &mut Vec
         wire,
     );
     assert_eq!(status, 404);
-    let (status, body) = exchange(
+    let (status, body) = signed(
         port,
+        desk,
         "GET",
         &format!("/v1/mailboxes/{account}/requests"),
         b"",
@@ -186,7 +221,7 @@ fn post_join(port: u16, account: &str, device: &[u8], name: &str, wire: &mut Vec
         wire,
     );
     assert_eq!(status, 400, "a code works once");
-    Joined { id, code }
+    Joined { id, code, proof }
 }
 
 #[test]
@@ -225,11 +260,12 @@ fn the_relay_holds_no_key_and_no_page() {
     let device = joiner.public_device();
     let code = joiner.pairing_code();
     assert_eq!(code, desk::code_for_device(&device).unwrap());
-    let joined = post_join(port, &account, &device, "This phone", &mut wire);
-    let id = joined.id;
+    let joined = post_join(port, &founder, &account, &device, "This phone", &mut wire);
+    let id = joined.id.clone();
 
-    let (status, body) = exchange(
+    let (status, body) = signed(
         port,
+        &founder,
         "GET",
         &format!("/v1/mailboxes/{account}/requests"),
         b"",
@@ -247,32 +283,33 @@ fn the_relay_holds_no_key_and_no_page() {
     let chain = approval.chain;
     let wrap = approval.wrap;
     let updated = approval.record;
-    let (status, _) = exchange(
+    let put = serde_json::json!({"revision": 1, "record": b64(&updated)}).to_string();
+    let (status, _) = signed(
         port,
+        &founder,
         "PUT",
         &format!("/v1/mailboxes/{account}"),
-        serde_json::json!({"revision": 1, "record": b64(&updated)})
-            .to_string()
-            .as_bytes(),
+        put.as_bytes(),
         &mut wire,
     );
     assert_eq!(status, 200);
-    let (status, _) = exchange(
+    let approve = serde_json::json!({"chain": b64(&chain), "wrap": b64(&wrap)}).to_string();
+    let (status, _) = signed(
         port,
+        &founder,
         "POST",
         &format!("/v1/mailboxes/{account}/requests/{id}"),
-        serde_json::json!({"chain": b64(&chain), "wrap": b64(&wrap)})
-            .to_string()
-            .as_bytes(),
+        approve.as_bytes(),
         &mut wire,
     );
     assert_eq!(status, 200);
 
-    let (status, body) = exchange(
+    let (status, body) = exchange_with(
         port,
         "GET",
         &format!("/v1/mailboxes/{account}/requests/{id}"),
         b"",
+        &format!("X-Omacus-Proof: {}\r\n", joined.proof),
         &mut wire,
     );
     assert_eq!(status, 200);
@@ -290,8 +327,9 @@ fn the_relay_holds_no_key_and_no_page() {
         json_body(&body)["message"],
         "This test server has no pages for that yet."
     );
-    let (status, body) = exchange(
+    let (status, body) = signed(
         port,
+        &founder,
         "GET",
         &format!("/v1/mailboxes/{account}"),
         b"",
@@ -437,7 +475,7 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
 
     let mut joiner = Desk::start_join().unwrap();
     let device = joiner.public_device();
-    let joined = post_join(port, &account, &device, "Other device", &mut wire);
+    let joined = post_join(port, &founder, &account, &device, "Other device", &mut wire);
     let id = joined.id;
     assert!(!holds(
         &store.lock().unwrap().stored_bytes(),
@@ -445,28 +483,30 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
     ));
     let approval = founder.approve_new(&device).unwrap();
     let updated = founder.seal_pages(&packed).unwrap();
-    let (status, _) = exchange(
+    let put = serde_json::json!({"revision": 1, "record": b64(&updated)}).to_string();
+    let (status, _) = signed(
         port,
+        &founder,
         "PUT",
         &format!("/v1/mailboxes/{account}"),
-        serde_json::json!({"revision": 1, "record": b64(&updated)})
-            .to_string()
-            .as_bytes(),
+        put.as_bytes(),
         &mut wire,
     );
     assert_eq!(status, 200);
-    let (status, _) = exchange(
+    let approve =
+        serde_json::json!({"chain": b64(&approval.chain), "wrap": b64(&approval.wrap)}).to_string();
+    let (status, _) = signed(
         port,
+        &founder,
         "POST",
         &format!("/v1/mailboxes/{account}/requests/{id}"),
-        serde_json::json!({"chain": b64(&approval.chain), "wrap": b64(&approval.wrap)})
-            .to_string()
-            .as_bytes(),
+        approve.as_bytes(),
         &mut wire,
     );
     assert_eq!(status, 200);
-    let (status, body) = exchange(
+    let (status, body) = signed(
         port,
+        &founder,
         "GET",
         &format!("/v1/mailboxes/{account}"),
         b"",
@@ -476,11 +516,12 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
     let stored_record = base64::engine::general_purpose::STANDARD
         .decode(json_body(&body)["record"].as_str().unwrap())
         .unwrap();
-    let (status, body) = exchange(
+    let (status, body) = exchange_with(
         port,
         "GET",
         &format!("/v1/mailboxes/{account}/requests/{id}"),
         b"",
+        &format!("X-Omacus-Proof: {}\r\n", joined.proof),
         &mut wire,
     );
     assert_eq!(status, 200);
@@ -551,13 +592,13 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
     assert!(trip_text.contains("bread $2"), "{trip_text}");
     assert!(merged.pages.iter().any(|(id, _)| id == "market"));
     let merged_record = founder.seal_pages(&merged.to_bytes().unwrap()).unwrap();
-    let (status, _) = exchange(
+    let merged_put = serde_json::json!({"revision": 2, "record": b64(&merged_record)}).to_string();
+    let (status, _) = signed(
         port,
+        &founder,
         "PUT",
         &format!("/v1/mailboxes/{account}"),
-        serde_json::json!({"revision": 2, "record": b64(&merged_record)})
-            .to_string()
-            .as_bytes(),
+        merged_put.as_bytes(),
         &mut wire,
     );
     assert_eq!(status, 200);
@@ -565,8 +606,9 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
     let pasted = words.join(" ");
     let mut recovered = Desk::start_recovery(&pasted).unwrap();
     assert_eq!(recovered.recovery_account(&picks).unwrap(), account);
-    let (status, body) = exchange(
+    let (status, body) = signed(
         port,
+        &recovered,
         "GET",
         &format!("/v1/mailboxes/{account}"),
         b"",
@@ -665,6 +707,7 @@ fn the_server_crate_has_no_opener() {
         "src/http.rs",
         "src/invite.rs",
         "src/access.rs",
+        "src/auth.rs",
         "src/main.rs",
     ] {
         let text = std::fs::read_to_string(root.join(source)).unwrap();
@@ -785,13 +828,48 @@ fn an_invite_code_is_spent_once_and_is_not_stored() {
         json_body(&body)["message"],
         "That invite code didn't work. Check it and try again."
     );
-    let (status, _) = exchange(
+    let (status, body) = exchange(
         port,
         "PUT",
         &format!("/v1/mailboxes/{first}"),
         serde_json::json!({ "revision": 1, "record": record })
             .to_string()
             .as_bytes(),
+        &mut Vec::new(),
+    );
+    assert_eq!(status, 404, "an unsigned update is refused");
+    assert_eq!(
+        json_body(&body)["message"],
+        "This test server has no pages for that yet."
+    );
+
+    let mut founder = Desk::start_new().unwrap();
+    let words = founder.words().unwrap();
+    let picks = [(3, words[2]), (7, words[6]), (11, words[10])];
+    let sealed = founder.confirm_saved(&picks).unwrap();
+    let live = founder.account_hex().unwrap();
+    let again_code = access_code(1, [3, 3, 3, 3, 3, 3]);
+    let create = serde_json::json!({
+        "account": live,
+        "record": b64(&sealed),
+        "code": again_code,
+    })
+    .to_string();
+    let (status, _) = exchange(
+        port,
+        "POST",
+        "/v1/mailboxes",
+        create.as_bytes(),
+        &mut Vec::new(),
+    );
+    assert_eq!(status, 201);
+    let update = serde_json::json!({ "revision": 1, "record": b64(&sealed) }).to_string();
+    let (status, _) = signed(
+        port,
+        &founder,
+        "PUT",
+        &format!("/v1/mailboxes/{live}"),
+        update.as_bytes(),
         &mut Vec::new(),
     );
     assert_eq!(status, 200, "pages that already exist do not ask again");
@@ -838,5 +916,124 @@ fn an_invite_code_is_spent_once_and_is_not_stored() {
     assert!(
         !holds(&kept, code.replace('-', "").as_bytes()),
         "the stored copy kept the code"
+    );
+}
+
+#[test]
+fn an_unsigned_request_a_removed_phone_and_a_replay_are_refused() {
+    let Started { port, .. } = start();
+    let mut founder = Desk::start_new().unwrap();
+    let words = founder.words().unwrap();
+    let picks = [(3, words[2]), (7, words[6]), (11, words[10])];
+    let record = founder.confirm_saved(&picks).unwrap();
+    let account = founder.account_hex().unwrap();
+    let path = format!("/v1/mailboxes/{account}");
+    let missing = "This test server has no pages for that yet.";
+    let create = serde_json::json!({
+        "account": account,
+        "record": b64(&record),
+        "code": access_code(1, [4, 4, 4, 4, 4, 4]),
+    })
+    .to_string();
+    let (status, _) = exchange(
+        port,
+        "POST",
+        "/v1/mailboxes",
+        create.as_bytes(),
+        &mut Vec::new(),
+    );
+    assert_eq!(status, 201);
+
+    let (status, body) = exchange(port, "GET", &path, b"", &mut Vec::new());
+    assert_eq!(status, 404);
+    assert_eq!(json_body(&body)["message"], missing);
+    let refused = serde_json::json!({"revision": 1, "record": b64(&record)}).to_string();
+    let (status, body) = exchange(port, "PUT", &path, refused.as_bytes(), &mut Vec::new());
+    assert_eq!(status, 404);
+    assert_eq!(json_body(&body)["message"], missing);
+    let (status, body) = signed(port, &founder, "GET", &path, b"", &mut Vec::new());
+    assert_eq!(status, 200);
+    let kept = base64::engine::general_purpose::STANDARD
+        .decode(json_body(&body)["record"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(
+        kept, record,
+        "an unsigned update does not replace the pages"
+    );
+
+    let auth = founder.sign_request("GET", &path, b"").unwrap();
+    let (status, _) = exchange_with(port, "GET", &path, b"", &auth.headers(), &mut Vec::new());
+    assert_eq!(status, 200);
+    let (status, body) = exchange_with(port, "GET", &path, b"", &auth.headers(), &mut Vec::new());
+    assert_eq!(status, 404, "a repeated request is refused");
+    assert_eq!(json_body(&body)["message"], missing);
+
+    let joiner = Desk::start_join().unwrap();
+    let device = joiner.public_device();
+    let joined = post_join(
+        port,
+        &founder,
+        &account,
+        &device,
+        "Harbor phone",
+        &mut Vec::new(),
+    );
+    let approval = founder.approve_new(&device).unwrap();
+    let put = serde_json::json!({"revision": 1, "record": b64(&approval.record)}).to_string();
+    let (status, _) = signed(
+        port,
+        &founder,
+        "PUT",
+        &path,
+        put.as_bytes(),
+        &mut Vec::new(),
+    );
+    assert_eq!(status, 200);
+    let approve =
+        serde_json::json!({"chain": b64(&approval.chain), "wrap": b64(&approval.wrap)}).to_string();
+    let (status, _) = signed(
+        port,
+        &founder,
+        "POST",
+        &format!("/v1/mailboxes/{account}/requests/{}", joined.id),
+        approve.as_bytes(),
+        &mut Vec::new(),
+    );
+    assert_eq!(status, 200);
+    let (status, _) = signed(port, &joiner, "GET", &path, b"", &mut Vec::new());
+    assert_eq!(status, 200, "a linked phone can read");
+
+    let removed = founder
+        .remove_listed(joiner.device().public().id())
+        .unwrap();
+    let drop = serde_json::json!({"revision": 2, "record": b64(&removed)}).to_string();
+    let (status, _) = signed(
+        port,
+        &founder,
+        "PUT",
+        &path,
+        drop.as_bytes(),
+        &mut Vec::new(),
+    );
+    assert_eq!(status, 200, "removing a phone still saves");
+    let (status, body) = signed(port, &joiner, "GET", &path, b"", &mut Vec::new());
+    assert_eq!(status, 404, "a removed phone is refused");
+    assert_eq!(json_body(&body)["message"], missing);
+    let (status, _) = signed(port, &founder, "GET", &path, b"", &mut Vec::new());
+    assert_eq!(status, 200);
+
+    let unknown = "ee".repeat(32);
+    let (status, body) = exchange(
+        port,
+        "GET",
+        &format!("/v1/mailboxes/{unknown}"),
+        b"",
+        &mut Vec::new(),
+    );
+    assert_eq!(status, 404);
+    assert_eq!(
+        json_body(&body)["message"],
+        missing,
+        "a missing account reads the same"
     );
 }
