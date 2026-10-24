@@ -22,6 +22,7 @@ pub enum StoreError {
     Full,
     Unreadable,
     BadInvite,
+    BadAccess,
 }
 
 impl StoreError {
@@ -30,7 +31,7 @@ impl StoreError {
             StoreError::Unknown => 404,
             StoreError::Conflict | StoreError::Revision => 409,
             StoreError::Full => 429,
-            StoreError::Unreadable | StoreError::BadInvite => 400,
+            StoreError::Unreadable | StoreError::BadInvite | StoreError::BadAccess => 400,
         }
     }
 
@@ -42,6 +43,7 @@ impl StoreError {
             StoreError::Full => "This test server is full.",
             StoreError::Unreadable => "That copy could not be read.",
             StoreError::BadInvite => "That code didn't work. Check it on the other device.",
+            StoreError::BadAccess => "That invite code didn't work. Check it and try again.",
         }
     }
 }
@@ -78,6 +80,8 @@ struct Mailbox {
 
 pub struct Store {
     mailboxes: BTreeMap<String, Mailbox>,
+    access_left: BTreeMap<[u8; 32], u8>,
+    access_secret: Vec<u8>,
     now_ms: Option<u64>,
 }
 
@@ -102,7 +106,16 @@ impl Store {
     pub fn new() -> Self {
         Self {
             mailboxes: BTreeMap::new(),
+            access_left: BTreeMap::new(),
+            access_secret: Vec::new(),
             now_ms: None,
+        }
+    }
+
+    /// The secret checks invite codes. It is not part of the stored mailbox.
+    pub fn set_access_secret(&mut self, secret: &[u8]) {
+        if secret.len() >= crate::access::MIN_SECRET {
+            self.access_secret = secret.to_vec();
         }
     }
 
@@ -138,7 +151,50 @@ impl Store {
                 out.extend_from_slice(&request.proof);
             }
         }
+        for (hash, left) in &self.access_left {
+            out.extend_from_slice(hash);
+            out.push(*left);
+        }
         out
+    }
+
+    /// A code can be looked at without using it up.
+    pub fn peek_access(&self, code: &str) -> Result<(), StoreError> {
+        let _ = self.access_room(code)?;
+        Ok(())
+    }
+
+    /// Creating a set of pages spends one use. The code itself is not kept.
+    pub fn take_access(&mut self, code: &str) -> Result<(), StoreError> {
+        let (hash, left) = self.access_room(code)?;
+        self.access_left.insert(hash, left - 1);
+        Ok(())
+    }
+
+    fn access_room(&self, code: &str) -> Result<([u8; 32], u8), StoreError> {
+        let opened = crate::access::open(&self.access_secret, code).ok_or(StoreError::BadAccess)?;
+        let left = self
+            .access_left
+            .get(&opened.hash)
+            .copied()
+            .unwrap_or(opened.uses);
+        if left == 0 {
+            return Err(StoreError::BadAccess);
+        }
+        Ok((opened.hash, left))
+    }
+
+    /// Checks that a new mailbox would be accepted, without writing it.
+    pub fn reserve(&self, account: &str, record: &[u8]) -> Result<(), StoreError> {
+        let account = account_id(account)?;
+        sealed_record(record)?;
+        if self.mailboxes.contains_key(&account) {
+            return Err(StoreError::Conflict);
+        }
+        if self.mailboxes.len() >= MAX_MAILBOXES {
+            return Err(StoreError::Full);
+        }
+        Ok(())
     }
 
     pub fn create(&mut self, account: &str, record: Vec<u8>) -> Result<u64, StoreError> {

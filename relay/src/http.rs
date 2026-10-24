@@ -116,6 +116,12 @@ fn route(
     if method == "POST" && path == "/v1/join" {
         return accept_join(store, body);
     }
+    if method == "POST" && path == "/v1/access" {
+        let value = json_body(body)?;
+        let code = value.get("code").and_then(Value::as_str).unwrap_or("");
+        store.peek_access(code)?;
+        return Ok((200, json!({"ok": true})));
+    }
     if method == "POST" && path == "/v1/mailboxes" {
         return accept_create(store, body);
     }
@@ -211,6 +217,9 @@ pub fn accept_create(store: &mut Store, body: &[u8]) -> Result<(u16, Value), Sto
         .and_then(Value::as_str)
         .ok_or(StoreError::Unreadable)?;
     let record = decode_field(&value, "record")?;
+    let code = value.get("code").and_then(Value::as_str).unwrap_or("");
+    store.reserve(account, &record)?;
+    store.take_access(code)?;
     let revision = store.create(account, record)?;
     Ok((201, json!({"revision": revision})))
 }

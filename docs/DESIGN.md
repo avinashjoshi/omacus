@@ -338,14 +338,51 @@ Don't: collect an email, or describe sync as something the app already does. The
 
 ### Sync test
 
-A private test, labeled `1.0.0-beta.1`. `relay/www` is the small test page. The same screens also live in the web app's Settings, on a Sync tab, and only when that copy is the test (`sync-test.omacus.com`, or `data-sync-test="1"` on the page). The published app does not show the tab. The screens are Turn on sync, Save your recovery key, Pick the three words, Add a device, Add this device, Approve a new device, and Use your recovery key. A linked device lists the others, and Remove drops one from that list. Add a device shows a code to scan or type. It works for about 5 minutes, and only once. Add this device offers Scan code and Type code.
+A private test, labeled `1.0.0-beta.2`. `relay/www` is the small test page. The same screens also live in the web app's Settings, on a Sync tab, and only when that copy is the test (`sync-test.omacus.com`, or `data-sync-test="1"` on the page). The published app does not show the tab. One question or one instruction on each screen. One primary button. A Back, Cancel, No, or Done button is on every screen. The typed code is the main way to join. Scanning is a shortcut. Each step says what to do on the other phone or computer. Starting a new set of pages asks for an invite code. Joining, and opening pages with the recovery key, do not.
 
-The recovery screen is one box. Numbers, commas, capitals, and line breaks are fine. Scan reads the same words off the sheet. Confirm is three numbered words, each with six choices, nothing to type, and the sheet's other words are not the decoys. Approve shows the same six-digit code on both devices, grouped as `482 916`. A status chip in the top bar says when sync is off, syncing, saved, or offline, and it returns to saved when the connection is back. A deleted line stays deleted. A line typed on the other device at the same time stays. The sidebar version line reads `omacus 1.0.0-beta.1`, and the phone bar shows that same label while the page list is closed. The closed page list casts no shadow and leaves no line along the left edge of the page.
+Before, the first screen offered three peer actions, and later screens talked about "devices" without saying which phone was doing what.
 
-The test copy keeps its own pages, separate from the published app. Offline, the pages already on the device stay there.
+- **Sync.** "Pages can open on your other devices. They stay on your devices. This test cannot read them." Turn on sync. Add this device. Use your recovery key.
+- **Turn on sync.** Step 1 of 3. "Next you will get 12 words." Turn on sync. Not now.
+- **Save your recovery key.** Step 2 of 3. Twelve words and a picture. "Write them down, or print the sheet." Copy. Print. I saved them.
+- **Pick the three words.** Step 3 of 3. "From your sheet, pick word 3, word 7, and word 11." Confirm. Back.
+- **Sync is on.** "This device" and "Linked device", each with Remove. Add a device. Back. No success screen, and no way to turn sync off.
+- **Add a device.** A picture first, then a short code. "On the new device, scan this code or type it."
+- **Add this device.** Scan code. Type code. Back. A miss could say the server had no pages.
+- **Type the code.** A field. "It looks like K7QM-4R2P." Continue. Back.
+- **Scan code.** "Point the camera at the code." Type code instead.
+- **Add this device, waiting.** The six numbers. "Tap Approve." Cancel.
+- **Approve a new device?** "New device wants to open your pages." Approve. Not now.
+- **Use your recovery key.** One box. Scan recovery sheet. Open my pages.
+
+After, the words name a phone or computer, and each screen is one step.
+
+- **Turn on sync.** "Your pages can open on your other phones and computers, and they stay there." "Start fresh if this is the first time. Join if your pages are already on another phone or computer." Start fresh. Join my existing pages. Back.
+- **Have an invite code?** "Type the code you were given. This starts a new set of pages here. It is not the code on your other phone." The field. Start fresh. Back. A wrong or used code says "That invite code didn't work. Check it and try again." This screen is only on Start fresh.
+- **Write down these 12 words.** "They are the only way back in if you lose every phone and computer. Write them on paper. You will not see them again." The words, then "The same words" on the picture. I wrote them down. Copy. Print. Back. Back does not turn sync on.
+- **Do these match your paper?** "Pick word 3, word 7, and word 11." Six choices each, nothing to type. These match. Back to the words. A miss says "That's not word 7. Look at your paper and try again."
+- **Sync is on.** "Your pages stay on your phones and computers. Add a phone or computer when you want them there too." Add a phone or computer. Done.
+- **Sync is on, home.** "Your pages stay on your phones and computers." This phone, or this computer. Any other is "Phone or computer", with its six numbers and Remove. "Remove stops that phone or computer from getting new changes. Pages already there stay there." Add a phone or computer. Turn sync off. Back.
+- **Add a phone or computer.** "On the other phone or computer, open Sync and tap Join my existing pages. Type this code. It works for about 5 minutes, and only once." The code `K7QM-4R2P` comes first. "Or scan this picture." Back.
+- **Join my existing pages.** "On a phone or computer that already has your pages, open Sync and tap Add a phone or computer. Type the code you see there." The field is on this screen. If this phone already has pages: "Pages already on this phone will be combined with those. Nothing is deleted." Join. Scan the code instead. Use my recovery key instead. Back. A bad code says "That code didn't work. Check it on the other phone or computer." The join path never says there are no pages.
+- **Scan the code.** "Point the camera at the picture on your other phone or computer." Type the code instead.
+- **Does this code match?** "On your other phone or computer, you should see the same six numbers. Tap Yes, approve it there only if they match." The numbers are grouped as `482 916`. Waiting for that phone or computer. Cancel.
+- **Is this your phone or computer?** "It wants to open your pages. The same six numbers should be on that screen. Tap Yes, approve it only if they match." Yes, approve it. No.
+- **That phone or computer can open your pages.** "Your pages stay on your phones and computers." Done.
+- **Your pages are here.** "They stay on your phones and computers." If this phone already had pages: "Pages already here were combined. Nothing was deleted." Done.
+- **Use your recovery key.** "Type or paste the 12 words you wrote down. Numbers and capitals are fine." The same combine line, when this phone already has pages. Open my pages. Scan the paper instead. Back.
+- **Do these match your paper?** Same three-word check as the fresh start.
+- **Turn sync off on this phone?** "Your pages stay here. This phone will stop sharing them. The 12 words still open them." Turn sync off. Not now.
+- **Sync is off.** "Your pages are still on this phone." Done. The top bar then says Sync off, and Sync opens the first screen again.
+
+The home screen is one set of pages. A later version can add a second set on this same screen (multiple syncs, planned for v1.1). This version does not.
+
+The chip in the top bar says Sync off, Saving…, Saved, Offline, or Not saved. It returns to Saved when the connection is back. A deleted line stays deleted. A line typed on the other phone at the same time stays. The sidebar version line reads `omacus 1.0.0-beta.2`, and the phone bar shows that same label while the page list is closed. The closed page list casts no shadow and leaves no line along the left edge of the page.
+
+The test copy keeps its own pages, separate from the published app. Offline, the pages already on the phone stay there. The server still never sees the words or the pages.
 
 Do: use the app tokens. Sentence case. One primary button on each screen. Trip Budget for a made-up page.
-Don't: put this on the website, show the Sync tab in the published app, write the words anywhere but the device, or name the parts of a key in the words a person reads.
+Don't: put this on the website, show the Sync tab in the published app, write the words anywhere but the phone, or name the parts of a key in the words a person reads.
 
 ### Foldable showcase
 

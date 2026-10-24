@@ -44,7 +44,9 @@ struct Started {
 fn start() -> Started {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let port = listener.local_addr().unwrap().port();
-    let store = Arc::new(Mutex::new(Store::new()));
+    let mut fresh = Store::new();
+    fresh.set_access_secret(b"omacus-access-test-secret");
+    let store = Arc::new(Mutex::new(fresh));
     let shared = Arc::clone(&store);
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let www = root.join("www");
@@ -53,6 +55,10 @@ fn start() -> Started {
         omacus_relay::http::serve(listener, www, site, shared);
     });
     Started { port, store }
+}
+
+fn access_code(uses: u8, id: [u8; 6]) -> String {
+    omacus_relay::access::mint(b"omacus-access-test-secret", uses, &id).expect("access code")
 }
 
 fn exchange(
@@ -206,7 +212,7 @@ fn the_relay_holds_no_key_and_no_page() {
         port,
         "POST",
         "/v1/mailboxes",
-        serde_json::json!({"account": account, "record": b64(&record)})
+        serde_json::json!({"account": account, "record": b64(&record), "code": access_code(1, [1, 0, 0, 0, 0, 1])})
             .to_string()
             .as_bytes(),
         &mut wire,
@@ -350,7 +356,7 @@ fn the_relay_holds_no_key_and_no_page() {
         port,
         "POST",
         "/v1/mailboxes",
-        serde_json::json!({"account": "cd".repeat(32), "record": attack})
+        serde_json::json!({"account": "cd".repeat(32), "record": attack, "code": access_code(1, [1, 0, 0, 0, 0, 2])})
             .to_string()
             .as_bytes(),
         &mut Vec::new(),
@@ -391,7 +397,7 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
         port,
         "POST",
         "/v1/mailboxes",
-        serde_json::json!({"account": account, "record": b64(&record)})
+        serde_json::json!({"account": account, "record": b64(&record), "code": access_code(1, [1, 0, 0, 0, 0, 3])})
             .to_string()
             .as_bytes(),
         &mut wire,
@@ -584,7 +590,7 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
         port,
         "POST",
         "/v1/mailboxes",
-        serde_json::json!({"account": "ef".repeat(32), "record": b64(&file)})
+        serde_json::json!({"account": "ef".repeat(32), "record": b64(&file), "code": access_code(1, [1, 0, 0, 0, 0, 4])})
             .to_string()
             .as_bytes(),
         &mut wire,
@@ -642,6 +648,7 @@ fn the_server_crate_has_no_opener() {
         "src/store.rs",
         "src/http.rs",
         "src/invite.rs",
+        "src/access.rs",
         "src/main.rs",
     ] {
         let text = std::fs::read_to_string(root.join(source)).unwrap();
@@ -686,10 +693,134 @@ fn the_test_pages_do_not_name_private_parts_or_the_live_app() {
     ] {
         assert!(!text.contains(word), "the test pages say {word}");
     }
-    assert!(text.contains("1.0.0-beta.1"));
+    assert!(text.contains("1.0.0-beta.2"));
     assert!(
         !std::fs::read_to_string(root.join("../site/app/index.html"))
             .unwrap()
-            .contains("1.0.0-beta.1")
+            .contains("1.0.0-beta")
+    );
+}
+
+#[test]
+fn an_invite_code_is_spent_once_and_is_not_stored() {
+    let Started { port, store } = start();
+    let record = b64(b"OMACUS-SYNC/1\nsealed-test-record");
+    let wrong = serde_json::json!({
+        "account": "aa".repeat(32),
+        "record": record,
+        "code": "nope",
+    })
+    .to_string();
+    let (status, body) = exchange(
+        port,
+        "POST",
+        "/v1/mailboxes",
+        wrong.as_bytes(),
+        &mut Vec::new(),
+    );
+    assert_eq!(status, 400);
+    assert_eq!(
+        json_body(&body)["message"],
+        "That invite code didn't work. Check it and try again."
+    );
+    let (status, _) = exchange(
+        port,
+        "GET",
+        &format!("/v1/mailboxes/{}", "aa".repeat(32)),
+        b"",
+        &mut Vec::new(),
+    );
+    assert_eq!(status, 404, "a wrong code creates no pages");
+
+    let code = access_code(1, [1, 2, 3, 4, 5, 6]);
+    assert_eq!(code, "0410-6105-0R0N-S1ZK-97T3-78B1");
+    let peek = serde_json::json!({ "code": code }).to_string();
+    let (status, _) = exchange(port, "POST", "/v1/access", peek.as_bytes(), &mut Vec::new());
+    assert_eq!(status, 200);
+    let (status, _) = exchange(port, "POST", "/v1/access", peek.as_bytes(), &mut Vec::new());
+    assert_eq!(status, 200, "looking at a code does not use it up");
+
+    let first = "ab".repeat(32);
+    let create =
+        serde_json::json!({ "account": first, "record": record, "code": code }).to_string();
+    let (status, _) = exchange(
+        port,
+        "POST",
+        "/v1/mailboxes",
+        create.as_bytes(),
+        &mut Vec::new(),
+    );
+    assert_eq!(status, 201);
+    let again = serde_json::json!({
+        "account": "ac".repeat(32),
+        "record": record,
+        "code": code,
+    })
+    .to_string();
+    let (status, body) = exchange(
+        port,
+        "POST",
+        "/v1/mailboxes",
+        again.as_bytes(),
+        &mut Vec::new(),
+    );
+    assert_eq!(status, 400, "a code works once");
+    assert_eq!(
+        json_body(&body)["message"],
+        "That invite code didn't work. Check it and try again."
+    );
+    let (status, _) = exchange(
+        port,
+        "PUT",
+        &format!("/v1/mailboxes/{first}"),
+        serde_json::json!({ "revision": 1, "record": record })
+            .to_string()
+            .as_bytes(),
+        &mut Vec::new(),
+    );
+    assert_eq!(status, 200, "pages that already exist do not ask again");
+
+    let twice = access_code(2, [9, 8, 7, 6, 5, 4]);
+    for (n, account) in ["ad", "ae"].iter().enumerate() {
+        let body = serde_json::json!({
+            "account": account.repeat(32),
+            "record": record,
+            "code": twice,
+        })
+        .to_string();
+        let (status, _) = exchange(
+            port,
+            "POST",
+            "/v1/mailboxes",
+            body.as_bytes(),
+            &mut Vec::new(),
+        );
+        assert_eq!(status, 201, "use {}", n + 1);
+    }
+    let third = serde_json::json!({
+        "account": "af".repeat(32),
+        "record": record,
+        "code": twice,
+    })
+    .to_string();
+    let (status, _) = exchange(
+        port,
+        "POST",
+        "/v1/mailboxes",
+        third.as_bytes(),
+        &mut Vec::new(),
+    );
+    assert_eq!(status, 400, "the third use is refused");
+
+    let kept = store.lock().unwrap().stored_bytes();
+    let secret = b"omacus-access-test-secret";
+    assert!(!holds(&kept, secret), "the stored copy kept the secret");
+    assert!(
+        !holds(&kept, code.as_bytes()),
+        "the stored copy kept the code"
+    );
+    assert!(
+        !holds(&kept, code.replace('-', "").as_bytes()),
+        "the stored copy kept the code"
     );
 }

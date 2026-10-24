@@ -1,4 +1,6 @@
 {
+  // ACCESS_SECRET is a Worker secret: `npx wrangler secret put ACCESS_SECRET`.
+  // It is not written in this file.
   "name": "omacus-sync-test",
   "main": "worker.js",
   "compatibility_date": "2026-10-01",
