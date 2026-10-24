@@ -16,7 +16,7 @@ if (words.length !== 12) throw new Error(`fixture words ${words.length}`);
 
 const health = await fetch(relay + "/v1/health");
 const label = (await health.json()).label;
-if (label !== "1.0.0-beta.5") throw new Error(`relay label ${label}`);
+if (label !== "1.0.0-beta.6") throw new Error(`relay label ${label}`);
 
 const code = await mint("omacus-access-test-secret", 1);
 const created = await fetch(relay + "/v1/mailboxes", {

@@ -323,7 +323,10 @@ await pageA.waitForTimeout(700);
 await pageB.waitForTimeout(700);
 await contextA.setOffline(false);
 await contextB.setOffline(false);
-await pageA.waitForFunction(() => document.querySelector(".sync-chip")?.textContent === "Saved", null, { timeout: 20000 });
+await pageA.waitForFunction(() => {
+  const chip = document.querySelector(".sync-chip");
+  return chip?.dataset.state === "on" && chip.textContent !== "Saving…";
+}, null, { timeout: 20000 });
 await pageB.locator(".cm-content").getByText("museum = 12").waitFor({ timeout: 30000 });
 await pageA.locator(".cm-content").getByText("park = 2").waitFor({ timeout: 30000 });
 const afterDelete = await pageA.locator(".cm-content").innerText();
@@ -335,7 +338,10 @@ if (!afterDeleteB.includes("park = 2")) throw new Error("B lost the new line");
 await contextA.setOffline(true);
 await pageA.waitForFunction(() => document.querySelector(".sync-chip")?.textContent === "Offline", null, { timeout: 15000 });
 await contextA.setOffline(false);
-await pageA.waitForFunction(() => document.querySelector(".sync-chip")?.textContent === "Saved", null, { timeout: 20000 });
+await pageA.waitForFunction(() => {
+  const chip = document.querySelector(".sync-chip");
+  return chip?.dataset.state === "on" && chip.textContent !== "Saving…";
+}, null, { timeout: 20000 });
 
 await pageA.setViewportSize({ width: 1280, height: 800 });
 await pageB.setViewportSize({ width: 1280, height: 800 });
@@ -353,9 +359,9 @@ await shot(pageB, "page-b-desktop-light");
 await pageA.setViewportSize({ width: 390, height: 844 });
 await pageB.setViewportSize({ width: 390, height: 844 });
 const version = (await pageA.locator(".side-version").innerText()).trim();
-if (version !== "omacus 1.0.0-beta.5") throw new Error(`version line ${version}`);
+if (version !== "omacus 1.0.0-beta.6") throw new Error(`version line ${version}`);
 const beta = await pageA.locator(".sync-beta").innerText();
-if (!beta.includes("1.0.0-beta.5")) throw new Error(`phone label ${beta}`);
+if (!beta.includes("1.0.0-beta.6")) throw new Error(`phone label ${beta}`);
 await pageA.waitForFunction(() => document.querySelector(".side")?.getBoundingClientRect().right <= 0, null, { timeout: 2000 });
 const edge = await pageA.locator(".side").evaluate((node) => {
   const style = getComputedStyle(node);

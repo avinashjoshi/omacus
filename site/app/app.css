@@ -2373,6 +2373,10 @@ body.answers-inline .md .pill {
 .sync-chip {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  width: 7.5rem;
   min-height: var(--hit);
   padding: var(--space-1) var(--space-3);
   border: 1px solid var(--app-line);
@@ -2380,7 +2384,25 @@ body.answers-inline .md .pill {
   background: transparent;
   color: var(--app-dim);
   font: 500 var(--type-caption) / 1 var(--sans);
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.sync-chip::before {
+  content: "";
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-pill);
+  background: var(--app-line-strong);
+}
+
+.sync-chip[data-state="on"]::before {
+  background: var(--app-accent);
+}
+
+.sync-chip[data-state="wait"]::before {
+  background: var(--app-dim);
 }
 
 .sync-chip:hover {
@@ -2584,6 +2606,37 @@ body.answers-inline .md .pill {
   background: var(--app-side);
   color: var(--app-fg);
   font: 400 var(--type-caption) / 1.45 var(--sans);
+}
+
+.sync-field {
+  margin: var(--space-3) 0 var(--space-1);
+  color: var(--app-dim);
+  font: 600 var(--type-caption) / 1.3 var(--sans);
+}
+
+.sync-pages {
+  margin-top: var(--space-3);
+}
+
+.side-sync-label {
+  padding: var(--space-3) var(--space-3) var(--space-1);
+  color: var(--app-dim);
+  font: 600 var(--type-caption) / 1.3 var(--sans);
+}
+
+.sheet-list .sync-place {
+  flex: none;
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--app-accent-soft);
+  color: var(--app-dim);
+  font: 500 var(--type-caption) / 1.4 var(--sans);
+}
+
+.sheet-list .sync-place[data-local="1"] {
+  background: transparent;
+  border: 1px solid var(--app-line);
 }
 
 .sync-device {

@@ -1,7 +1,7 @@
 // Sync for the private test. The published app does not mount this.
 // A device file stays in this browser. The server receives a sealed record.
 
-const LABEL = "omacus 1.0.0-beta.5";
+const LABEL = "omacus 1.0.0-beta.6";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 
@@ -70,6 +70,14 @@ export async function mountSync(api) {
     removing: null,
     removed: false,
     notice: "",
+    selfId: "",
+    selfName: "",
+    selfRev: 1,
+    vaultName: "My pages",
+    vaultRev: 1,
+    deviceNames: [],
+    membership: [],
+    pageList: [],
   };
   let wordlist = [];
   let timer = null;
@@ -77,9 +85,254 @@ export async function mountSync(api) {
   let stream = null;
   let ticking = false;
 
+  let saveWanted = false;
+  let saveTimer = null;
+
   function setChip(text, mode) {
     chip.textContent = text;
     chip.dataset.state = mode || "off";
+    chip.setAttribute("aria-label", text || "Synced");
+  }
+
+  function calm() {
+    saveWanted = false;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    if (!state.member || state.removed || !state.account) setChip("Sync off", "off");
+    else setChip("", "on");
+  }
+
+  function armSaving() {
+    if (saveWanted) return;
+    saveWanted = true;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      if (saveWanted) setChip("Saving…", "wait");
+    }, 1000);
+  }
+
+  function guessDeviceName() {
+    const ua = navigator.userAgent || "";
+    const phone = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android" : "";
+    let browser = "Browser";
+    if (/Edg\//.test(ua)) browser = "Edge";
+    else if (/Chrome\//.test(ua)) browser = "Chrome";
+    else if (/Safari\//.test(ua) && !/Chrome\//.test(ua)) browser = "Safari";
+    else if (/Firefox\//.test(ua)) browser = "Firefox";
+    let computer = "computer";
+    if (/Mac OS X/.test(ua)) computer = "Mac";
+    else if (/Windows/.test(ua)) computer = "Windows";
+    else if (/CrOS/.test(ua)) computer = "Chromebook";
+    else if (/Linux/.test(ua)) computer = "Linux";
+    if (phone) return browser === "Safari" || browser === "Browser" ? phone : `${browser} on ${phone}`;
+    return `${browser} on ${computer}`;
+  }
+
+  function cleanName(value) {
+    return String(value || "").replace(/\s+/g, " ").trim().slice(0, 40);
+  }
+
+  function loadNames() {
+    state.selfName = cleanName(api.storeGet("sync-device-name")) || guessDeviceName();
+    state.selfRev = Number(api.storeGet("sync-device-rev") || 1) || 1;
+    state.vaultName = cleanName(api.storeGet("sync-vault-name")) || "My pages";
+    state.vaultRev = Number(api.storeGet("sync-vault-rev") || 1) || 1;
+    state.selfId = api.storeGet("sync-self-id") || "";
+    state.deviceNames = readJson(api.storeGet("sync-names"), []);
+    state.membership = readJson(api.storeGet("sync-membership"), []);
+  }
+
+  function readJson(text, fallback) {
+    if (!text) return fallback;
+    try {
+      const value = JSON.parse(text);
+      return Array.isArray(value) ? value : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function saveNames() {
+    api.storeSet("sync-device-name", state.selfName);
+    api.storeSet("sync-device-rev", String(state.selfRev || 1));
+    api.storeSet("sync-vault-name", state.vaultName);
+    api.storeSet("sync-vault-rev", String(state.vaultRev || 1));
+    api.storeSet("sync-self-id", state.selfId || "");
+    api.storeSet("sync-names", JSON.stringify(state.deviceNames));
+    api.storeSet("sync-membership", JSON.stringify(state.membership));
+  }
+
+  function rememberSelf() {
+    if (!state.desk) return;
+    const list = JSON.parse(sync.deviceList(state.desk));
+    if (!list.ok) return;
+    const mine = (list.devices || []).find((device) => device.self);
+    if (mine?.id) state.selfId = mine.id;
+  }
+
+  function metaForPack() {
+    rememberSelf();
+    const devices = state.deviceNames.filter((row) => row.id && row.id !== state.selfId && row.name);
+    if (state.selfId && state.selfName) {
+      devices.push({ id: state.selfId, rev: state.selfRev || 1, name: state.selfName });
+    }
+    return {
+      vaultName: state.vaultName || "My pages",
+      nameRev: state.vaultRev || 1,
+      devices,
+      membership: state.membership.filter((row) => row.id),
+    };
+  }
+
+  function localIds() {
+    return state.membership.filter((row) => row && row.inVault === false).map((row) => row.id);
+  }
+
+  function showPlaces() {
+    const on = !!(state.account && state.member && !state.removed);
+    api.setSyncPlaces?.(on ? {
+      vaultName: state.vaultName || "My pages",
+      localIds: localIds(),
+      here: onPhone() ? "On this phone" : "On this computer",
+      keep: onPhone() ? "Keep on this phone" : "Keep on this computer",
+      move: (id, inVault) => movePage(id, inVault),
+    } : null);
+  }
+
+  function movePage(id, inVault) {
+    if (!id) return;
+    const prior = state.membership.find((row) => row.id === id);
+    const rev = (prior?.rev || 0) + 1;
+    state.membership = state.membership.filter((row) => row.id !== id);
+    state.membership.push({ id, rev, inVault: !!inVault });
+    saveNames();
+    showPlaces();
+    if (state.member && state.account) {
+      state.dirty = true;
+      armSaving();
+      schedule();
+    }
+    if (state.screen === "linked") draw();
+  }
+
+  function adoptMeta(meta) {
+    if (!meta || typeof meta !== "object") return;
+    const remoteName = cleanName(meta.vaultName) || "";
+    const remoteRev = Number(meta.nameRev || 0);
+    if (remoteName && (remoteRev > state.vaultRev || (remoteRev === state.vaultRev && remoteName > state.vaultName))) {
+      state.vaultName = remoteName;
+      state.vaultRev = remoteRev;
+    }
+    for (const device of meta.devices || []) {
+      const name = cleanName(device.name);
+      const rev = Number(device.rev || 0);
+      if (!device.id || !name) continue;
+      if (device.id === state.selfId) {
+        if (rev > state.selfRev) {
+          state.selfName = name;
+          state.selfRev = rev;
+        }
+        continue;
+      }
+      const row = state.deviceNames.find((item) => item.id === device.id);
+      if (!row) state.deviceNames.push({ id: device.id, rev, name });
+      else if (rev > row.rev || (rev === row.rev && name > row.name)) {
+        row.rev = rev;
+        row.name = name;
+      }
+    }
+    for (const member of meta.membership || []) {
+      if (!member.id) continue;
+      const rev = Number(member.rev || 0);
+      const inVault = member.inVault !== false;
+      const row = state.membership.find((item) => item.id === member.id);
+      if (!row) state.membership.push({ id: member.id, rev, inVault });
+      else if (rev > row.rev || (rev === row.rev && inVault && !row.inVault)) {
+        row.rev = rev;
+        row.inVault = inVault;
+      }
+    }
+    saveNames();
+    showPlaces();
+  }
+
+  function pageTitle(text) {
+    const line = String(text || "").split("\n").map((part) => part.trim()).find(Boolean) || "Untitled";
+    return line.replace(/^#+\s*/, "").slice(0, 80);
+  }
+
+  let listing = false;
+  async function refreshPageList() {
+    if (listing) return;
+    listing = true;
+    try {
+      const snap = await api.snapshot();
+      const next = (snap.pages || []).map(([id, text]) => ({ id, title: pageTitle(text) }));
+      const same = JSON.stringify(next) === JSON.stringify(state.pageList);
+      state.pageList = next;
+      if (!same && state.screen === "linked" && !panel.hidden) draw();
+    } catch {
+      state.pageList = state.pageList || [];
+    } finally {
+      listing = false;
+    }
+  }
+
+  function pageSections() {
+    const local = new Set(localIds());
+    const vault = [];
+    const here = [];
+    for (const page of state.pageList) {
+      (local.has(page.id) ? here : vault).push(page);
+    }
+    const wrap = el("div", { class: "sync-pages" });
+    wrap.append(pageBlock(state.vaultName || "My pages", vault, false));
+    wrap.append(pageBlock(onPhone() ? "On this phone" : "On this computer", here, true));
+    return wrap;
+  }
+
+  function pageBlock(title, pages, local) {
+    const block = el("div", { class: "sync-pages-block" });
+    block.append(el("p", { class: "sync-field" }, [title]));
+    if (!pages.length) {
+      block.append(el("p", { class: "setting-help" }, [local ? "Pages you keep here show up in this list." : "Pages you sync show up in this list."]));
+      return block;
+    }
+    for (const page of pages) {
+      const row = el("div", { class: "sync-device", "data-sync-page": page.title });
+      row.append(el("b", {}, [page.title]));
+      const move = button(local ? "Sync this page" : "Keep here", {
+        type: "button",
+        class: "btn small",
+        "data-sync-move": page.id,
+      });
+      move.addEventListener("click", () => movePage(page.id, local));
+      row.append(move);
+      block.append(row);
+    }
+    return block;
+  }
+
+  function deviceTitle(device) {
+    if (device.self) return state.selfName || hereCap();
+    return device.name || "Phone or computer";
+  }
+
+  function nameField(label, value, onValue) {
+    const field = el("input", {
+      class: "sync-name",
+      "aria-label": label,
+      maxlength: "40",
+      autocomplete: "off",
+      spellcheck: "false",
+    });
+    field.value = value || "";
+    let typed = value || "";
+    field.addEventListener("input", () => {
+      typed = field.value;
+    });
+    field.addEventListener("change", () => onValue(cleanName(typed)));
+    return field;
   }
 
   function onPhone() {
@@ -189,6 +442,7 @@ export async function mountSync(api) {
 
   async function installMerged(merged) {
     const unpacked = JSON.parse(sync.unpackPages(merged.packed));
+    if (unpacked.ok) adoptMeta(unpacked.meta);
     if (!unpacked.ok) throw new Error(unpacked.message || "Those pages could not be opened.");
     const doc = unpacked.doc ? api.b64ToBytes(unpacked.doc) : new Uint8Array();
     await api.apply(doc, unpacked.pages || []);
@@ -196,14 +450,17 @@ export async function mountSync(api) {
 
   async function pack(doc, pages) {
     const docB64 = doc && doc.length ? api.bytesToB64(doc) : "";
-    const result = JSON.parse(sync.packPages(docB64, JSON.stringify(pages)));
+    const result = JSON.parse(sync.packPages(docB64, JSON.stringify(pages), JSON.stringify(metaForPack())));
     if (!result.ok) throw new Error(result.message || "That copy could not be read.");
     return result.packed;
   }
 
   async function asSet(packed) {
     const unpacked = JSON.parse(sync.unpackPages(packed));
-    if (unpacked.ok) return { packed, doc: unpacked.doc, pages: unpacked.pages };
+    if (unpacked.ok) {
+      adoptMeta(unpacked.meta);
+      return { packed, doc: unpacked.doc, pages: unpacked.pages };
+    }
     const bytes = api.b64ToBytes(packed);
     let text = "";
     try {
@@ -300,7 +557,7 @@ export async function mountSync(api) {
     try {
       await publish(sealed.record);
       state.dirty = false;
-      setChip("Saved", "on");
+      calm();
     } catch (error) {
       if (error.status !== 409) throw error;
       const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
@@ -309,10 +566,36 @@ export async function mountSync(api) {
     }
   }
 
+  async function publishListedName(remote) {
+    rememberSelf();
+    if (!state.selfId || !remote) return;
+    const doc = remote.doc ? api.b64ToBytes(remote.doc) : new Uint8Array();
+    const packed = await pack(doc, remote.pages || []);
+    const sealed = JSON.parse(sync.sealPages(state.desk, packed));
+    if (!sealed.ok) return;
+    state.dirty = false;
+    await publish(sealed.record);
+    calm();
+  }
+
   async function refreshDevices() {
+    rememberSelf();
     const list = JSON.parse(sync.deviceList(state.desk));
-    state.devices = list.ok ? list.devices : [];
-    if (!list.ok) return;
+    const rows = list.ok ? list.devices : [];
+    state.devices = rows.map((device) => ({
+      ...device,
+      name: device.self
+        ? state.selfName
+        : (state.deviceNames.find((row) => row.id === device.id)?.name || ""),
+    }));
+    const listed = JSON.stringify(state.devices.map((device) => [device.id, device.name, device.code, device.self]))
+      + JSON.stringify(state.membership);
+    const changed = listed !== state.listed;
+    state.listed = listed;
+    if (!list.ok) {
+      showPlaces();
+      return;
+    }
     const onList = state.devices.some((device) => device.self);
     if (onList) {
       state.member = true;
@@ -323,11 +606,14 @@ export async function mountSync(api) {
     } else if (!state.removed && !state.member) {
       state.member = false;
     }
+    showPlaces();
+    if (changed && state.screen === "linked" && !panel.hidden) draw();
   }
 
   function showRemoved() {
     state.member = false;
     state.removed = true;
+    showPlaces();
     const stay = ["off", "access", "save", "confirm", "recover", "join", "join-start", "join-type", "join-scan", "approve", "remove-ask", "off-ask", "removed"];
     if (!stay.includes(state.screen)) state.screen = "removed";
     setChip("Sync off", "off");
@@ -339,13 +625,21 @@ export async function mountSync(api) {
     if (["off", "access", "save", "confirm", "recover", "join", "join-start", "join-type", "join-scan", "approve", "remove-ask", "off-ask", "removed"].includes(state.screen)) return;
     ticking = true;
     try {
-      if (navigator.onLine === false) setChip("Offline", "off");
-      else setChip("Saving…", "on");
+      if (navigator.onLine === false) {
+        saveWanted = false;
+        clearTimeout(saveTimer);
+        setChip("Offline", "off");
+      }
       const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
-      if (mailbox.revision !== state.revision) await pull(mailbox);
-      if (state.dirty && state.member) await push();
-      else if (state.member) setChip("Saved", "on");
-      else setChip("Sync off", "off");
+      if (mailbox.revision !== state.revision) {
+        armSaving();
+        await pull(mailbox);
+      }
+      if (state.dirty && state.member) {
+        armSaving();
+        await push();
+      } else if (state.member && navigator.onLine !== false) calm();
+      else if (!state.member) setChip("Sync off", "off");
       if (state.screen === "linked" || state.screen === "invite") {
         const found = await findRequest();
         if (found) {
@@ -354,6 +648,9 @@ export async function mountSync(api) {
         }
       }
     } catch (error) {
+      saveWanted = false;
+      clearTimeout(saveTimer);
+      saveTimer = null;
       setChip(error.offline || navigator.onLine === false ? "Offline" : "Not saved", "off");
     } finally {
       ticking = false;
@@ -522,7 +819,7 @@ export async function mountSync(api) {
       state.removed = false;
       state.screen = "linked";
       await refreshDevices();
-      setChip("Saved", "on");
+      calm();
     } catch (error) {
       state.error = plainError(error.message);
       state.screen = "confirm";
@@ -815,7 +1112,12 @@ export async function mountSync(api) {
       state.screen = "linked";
       await saveFile();
       await refreshDevices();
-      setChip("Saved", "on");
+      try {
+        await publishListedName(remote);
+      } catch {
+        state.dirty = true;
+      }
+      calm();
     } catch (error) {
       state.error = plainError(error.message);
     }
@@ -852,7 +1154,7 @@ export async function mountSync(api) {
       state.error = "";
       state.screen = "linked";
       await refreshDevices();
-      setChip("Saved", "on");
+      calm();
     } catch (error) {
       if (prior) {
         await api.storeSet("device-file", prior);
@@ -969,7 +1271,7 @@ export async function mountSync(api) {
         await publish(restored.record);
         state.screen = "linked";
         await refreshDevices();
-        setChip("Saved", "on");
+        calm();
       } else {
         const remote = await asSet(opened.packed);
         const merged = JSON.parse(sync.mergePacked(await pack(snap.doc, snap.pages), remote.packed));
@@ -990,7 +1292,7 @@ export async function mountSync(api) {
         state.screen = "linked";
         await saveFile();
         await refreshDevices();
-        setChip("Saved", "on");
+        calm();
       }
     } catch (error) {
       state.error = plainError(error.message);
@@ -1027,6 +1329,14 @@ export async function mountSync(api) {
       el("h2", {}, ["Turn on sync"]),
       el("p", { class: "setting-help" }, ["Your pages can open on your other phones and computers, and they stay there."]),
       el("p", { class: "setting-help" }, ["Start fresh if this is the first time. Join if your pages are already on another phone or computer."]),
+      el("label", { class: "sync-field" }, [`Name this ${onPhone() ? "phone" : "computer"}`]),
+      nameField("Name this phone or computer", state.selfName, (name) => {
+        const next = name || guessDeviceName();
+        if (next === state.selfName) return;
+        state.selfName = next;
+        state.selfRev += 1;
+        saveNames();
+      }),
       addActions([
         [state.busy ? "Working…" : "Start fresh", "primary", () => { state.error = ""; state.screen = "access"; draw(); }, state.busy],
         ["Join my existing pages", "", () => addDevice(), state.busy],
@@ -1166,6 +1476,14 @@ export async function mountSync(api) {
     const bits = [
       el("h2", {}, ["Join my existing pages"]),
       el("p", { class: "setting-help" }, ["On a phone or computer that already has your pages, open Sync and tap Add a phone or computer. Type the code you see there."]),
+      el("label", { class: "sync-field" }, ["Name this " + (onPhone() ? "phone" : "computer")]),
+      nameField("Name this phone or computer", state.selfName, (name) => {
+        const next = name || guessDeviceName();
+        if (next === state.selfName) return;
+        state.selfName = next;
+        state.selfRev += 1;
+        saveNames();
+      }),
     ];
     const merged = mergeLine();
     if (merged) bits.push(el("p", { class: "setting-help" }, [merged]));
@@ -1227,10 +1545,9 @@ export async function mountSync(api) {
   }
 
   function drawRemoveAsk() {
-    const name = state.removing?.self ? hereCap() : "Phone or computer";
+    const name = deviceTitle(state.removing || {});
     panel.append(
-      el("h2", {}, ["Remove this phone or computer?"]),
-      el("p", { class: "setting-help" }, [name]),
+      el("h2", {}, [`Remove ${name}?`]),
       el("div", { class: "sync-code" }, [state.removing?.code || ""]),
       el("p", { class: "setting-help" }, ["It will stop getting your pages. Pages already on it stay there."]),
       addActions([
@@ -1302,13 +1619,44 @@ export async function mountSync(api) {
       home.append(el("p", { class: "sync-note", role: "status", "data-sync-note": "" }, [state.notice]));
     }
     home.append(el("p", { class: "setting-help", "data-sync-linked": "" }, ["Your pages stay on your phones and computers."]));
+    home.append(
+      el("label", { class: "sync-field" }, ["Name for these pages"]),
+      nameField("Name for these pages", state.vaultName, (name) => {
+        const next = name || "My pages";
+        if (next === state.vaultName) return;
+        state.vaultName = next;
+        state.vaultRev += 1;
+        saveNames();
+        showPlaces();
+        if (state.member) {
+          state.dirty = true;
+          armSaving();
+          schedule();
+        }
+        draw();
+      }),
+      el("label", { class: "sync-field" }, [`Name this ${onPhone() ? "phone" : "computer"}`]),
+      nameField("Name this phone or computer", state.selfName, (name) => {
+        const next = name || guessDeviceName();
+        if (next === state.selfName) return;
+        state.selfName = next;
+        state.selfRev += 1;
+        saveNames();
+        if (state.member) {
+          state.dirty = true;
+          armSaving();
+          schedule();
+        }
+        draw();
+      }),
+    );
     const list = el("div", { class: "sync-devices" });
     if (!state.devices.length) list.append(el("p", { class: "setting-help" }, [hereCap()]));
     for (const device of state.devices) {
       const row = el("div", { class: "sync-device" });
       row.append(el("div", {}, [
-        el("b", {}, [device.self ? hereCap() : "Phone or computer"]),
-        el("span", {}, [device.code]),
+        el("b", {}, [deviceTitle(device)]),
+        el("span", {}, [device.self ? hereCap() : device.code]),
       ]));
       if (!device.self) {
         const remove = button("Remove", { type: "button", class: "btn small" });
@@ -1317,10 +1665,12 @@ export async function mountSync(api) {
       }
       list.append(row);
     }
-    home.append(list);
     if (others) {
-      home.append(el("p", { class: "setting-help" }, ["Remove stops that phone or computer from getting new changes. Pages already there stay there."]));
+      list.append(el("p", { class: "setting-help" }, ["Remove stops that phone or computer from getting new changes. Pages already there stay there."]));
     }
+    list.append(pageSections());
+    home.append(list);
+    refreshPageList();
     home.append(addActions([
       [state.busy ? "Working…" : "Add a phone or computer", "primary", () => startInvite(), state.busy],
       ["Turn sync off", "", () => { state.screen = "off-ask"; state.error = ""; draw(); }, state.busy],
@@ -1378,8 +1728,12 @@ export async function mountSync(api) {
   api.onEdit(() => {
     if (!state.account || !state.member) return;
     state.dirty = true;
+    armSaving();
     schedule();
   });
+
+  loadNames();
+  showPlaces();
 
   const stored = api.storeGet("device-file");
   if (stored) {
@@ -1395,7 +1749,7 @@ export async function mountSync(api) {
         state.screen = "removed";
         setChip("Sync off", "off");
       } else if (state.member) {
-        setChip("Saved", "on");
+        calm();
       } else {
         setChip("Sync off", "off");
       }
@@ -1430,7 +1784,10 @@ export async function mountSync(api) {
   if (settingsRoot) watch.observe(settingsRoot, { attributes: true, attributeFilter: ["hidden"] });
   watch.observe(panel, { attributes: true, attributeFilter: ["hidden"] });
   document.addEventListener("click", (event) => {
-    if (event.target.closest?.("[data-settings-tab='sync']")) draw();
+    if (event.target.closest?.("[data-settings-tab='sync']")) {
+      refreshPageList();
+      draw();
+    }
   });
   window.addEventListener("resize", () => {
     if (panel.hidden || state.screen === "join-scan" || state.video) return;

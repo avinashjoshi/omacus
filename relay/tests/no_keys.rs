@@ -388,6 +388,7 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
             ("trip".to_string(), trip.to_string()),
             ("market".to_string(), market.to_string()),
         ],
+        meta: Default::default(),
     }
     .to_bytes()
     .unwrap();
@@ -515,6 +516,7 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
             ("trip".to_string(), cake.to_string()),
             ("market".to_string(), market.to_string()),
         ],
+        meta: Default::default(),
     };
     let right = PageSet {
         doc: right_lib.save(),
@@ -522,6 +524,7 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
             ("trip".to_string(), bread.to_string()),
             ("market".to_string(), market.to_string()),
         ],
+        meta: Default::default(),
     };
     let merged = left.merge(right);
     let trip_text = merged
@@ -694,7 +697,7 @@ fn the_test_pages_do_not_name_private_parts_or_the_live_app() {
     ] {
         assert!(!text.contains(word), "the test pages say {word}");
     }
-    assert!(text.contains("1.0.0-beta.5"));
+    assert!(text.contains("1.0.0-beta.6"));
     assert!(
         !std::fs::read_to_string(root.join("../site/app/index.html"))
             .unwrap()

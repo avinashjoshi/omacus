@@ -406,7 +406,7 @@ fn page_pairs(text: &str) -> Result<Vec<(String, String)>, SyncKeyError> {
 }
 
 #[wasm_bindgen(js_name = packPages)]
-pub fn pack_pages(doc_b64: &str, pages_json: &str) -> String {
+pub fn pack_pages(doc_b64: &str, pages_json: &str, meta_json: &str) -> String {
     call(|| {
         let doc = if doc_b64.is_empty() {
             Vec::new()
@@ -414,7 +414,7 @@ pub fn pack_pages(doc_b64: &str, pages_json: &str) -> String {
             b64_decode(doc_b64)?
         };
         let pages = page_pairs(pages_json)?;
-        let packed = sync_keys_pack(&doc, &pages)?;
+        let packed = sync_keys_pack(&doc, &pages, meta_json)?;
         Ok(json!({ "ok": true, "packed": b64_encode(&packed) }))
     })
 }
@@ -433,6 +433,7 @@ pub fn unpack_pages(packed_b64: &str) -> String {
             "ok": true,
             "doc": b64_encode(&set.doc),
             "pages": pages,
+            "meta": meta_value(&set.meta),
         }))
     })
 }
@@ -448,10 +449,90 @@ pub fn merge_packed(local_b64: &str, remote_b64: &str) -> String {
     })
 }
 
-fn sync_keys_pack(doc: &[u8], pages: &[(String, String)]) -> Result<Vec<u8>, SyncKeyError> {
-    omacus_engine::sync_keys::PageSet {
+fn sync_keys_pack(
+    doc: &[u8],
+    pages: &[(String, String)],
+    meta_json: &str,
+) -> Result<Vec<u8>, SyncKeyError> {
+    let mut set = omacus_engine::sync_keys::PageSet {
         doc: doc.to_vec(),
         pages: pages.to_vec(),
+        meta: parse_meta(meta_json)?,
+    };
+    set.retain_vault();
+    set.to_bytes()
+}
+
+fn parse_meta(text: &str) -> Result<omacus_engine::sync_keys::SyncMeta, SyncKeyError> {
+    use omacus_engine::sync_keys::{DeviceLabel, PageMember, SyncMeta};
+    if text.trim().is_empty() {
+        return Ok(SyncMeta::default());
     }
-    .to_bytes()
+    let value: Value = serde_json::from_str(text).map_err(|_| SyncKeyError::Corrupt)?;
+    let vault_name = value
+        .get("vaultName")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let name_rev = value.get("nameRev").and_then(Value::as_u64).unwrap_or(0);
+    let mut devices = Vec::new();
+    if let Some(rows) = value.get("devices").and_then(Value::as_array) {
+        for row in rows {
+            let id = row.get("id").and_then(Value::as_str).unwrap_or("");
+            let name = row
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            if id.is_empty() || name.is_empty() {
+                continue;
+            }
+            devices.push(DeviceLabel {
+                id: desk::decode_hex_id(id)?,
+                rev: row.get("rev").and_then(Value::as_u64).unwrap_or(0),
+                name,
+            });
+        }
+    }
+    let mut membership = Vec::new();
+    if let Some(rows) = value.get("membership").and_then(Value::as_array) {
+        for row in rows {
+            let id = row
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            if id.is_empty() {
+                continue;
+            }
+            membership.push(PageMember {
+                id,
+                rev: row.get("rev").and_then(Value::as_u64).unwrap_or(0),
+                in_vault: row.get("inVault").and_then(Value::as_bool).unwrap_or(true),
+            });
+        }
+    }
+    Ok(SyncMeta {
+        vault_name,
+        name_rev,
+        devices,
+        membership,
+    })
+}
+
+fn meta_value(meta: &omacus_engine::sync_keys::SyncMeta) -> Value {
+    json!({
+        "vaultName": meta.vault_name,
+        "nameRev": meta.name_rev,
+        "devices": meta.devices.iter().map(|device| json!({
+            "id": desk::hex(&device.id),
+            "rev": device.rev,
+            "name": device.name,
+        })).collect::<Vec<_>>(),
+        "membership": meta.membership.iter().map(|member| json!({
+            "id": member.id,
+            "rev": member.rev,
+            "inVault": member.in_vault,
+        })).collect::<Vec<_>>(),
+    })
 }

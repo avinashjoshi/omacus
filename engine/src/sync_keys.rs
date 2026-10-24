@@ -51,6 +51,9 @@ const MAX_CHAIN_BYTES: usize = 64 * 1024;
 pub const DEVICE_MAGIC: &[u8] = b"OMACUS-DEVICE/1\n";
 /// A sealed snapshot of every page, inside a mailbox record.
 pub const PAGES_MAGIC: &[u8] = b"OMACUS-PAGES/1\n";
+const META_MAGIC: &[u8] = b"OMACUS-META/1\n";
+const MAX_NAME: usize = 80;
+const MAX_DEVICES: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SyncKeyError {
@@ -1461,11 +1464,112 @@ pub fn open_device_store(bytes: &[u8]) -> Result<DeviceStore, SyncKeyError> {
     Ok(store)
 }
 
+/// A name for one phone, carried inside the sealed pages.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DeviceLabel {
+    pub id: [u8; 16],
+    pub rev: u64,
+    pub name: String,
+}
+
+/// Whether one page is in the synced set. A higher `rev` wins.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PageMember {
+    pub id: String,
+    pub rev: u64,
+    pub in_vault: bool,
+}
+
+/// The name of the synced pages, the phone names, and which pages are in the set.
+/// This rides inside the sealed pages. A blank value is the older page format.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SyncMeta {
+    pub vault_name: String,
+    pub name_rev: u64,
+    pub devices: Vec<DeviceLabel>,
+    pub membership: Vec<PageMember>,
+}
+
+impl SyncMeta {
+    pub fn is_blank(&self) -> bool {
+        self.vault_name.is_empty()
+            && self.name_rev == 0
+            && self.devices.is_empty()
+            && self.membership.is_empty()
+    }
+
+    /// Pages with no membership line stay in the set, as older copies did.
+    pub fn in_vault(&self, id: &str) -> bool {
+        self.membership
+            .iter()
+            .find(|member| member.id == id)
+            .map(|member| member.in_vault)
+            .unwrap_or(true)
+    }
+
+    pub fn merge(self, other: Self) -> Self {
+        let (vault_name, name_rev) = later_name(
+            &self.vault_name,
+            self.name_rev,
+            &other.vault_name,
+            other.name_rev,
+        );
+        let mut devices = self.devices;
+        for device in other.devices {
+            match devices.iter_mut().find(|row| row.id == device.id) {
+                Some(row) => {
+                    if device.rev > row.rev || (device.rev == row.rev && device.name > row.name) {
+                        row.rev = device.rev;
+                        row.name = device.name;
+                    }
+                }
+                None => devices.push(device),
+            }
+        }
+        let mut membership = self.membership;
+        for member in other.membership {
+            match membership.iter_mut().find(|row| row.id == member.id) {
+                Some(row) => {
+                    if member.rev > row.rev
+                        || (member.rev == row.rev && member.in_vault && !row.in_vault)
+                    {
+                        row.rev = member.rev;
+                        row.in_vault = member.in_vault;
+                    }
+                }
+                None => membership.push(member),
+            }
+        }
+        Self {
+            vault_name,
+            name_rev,
+            devices,
+            membership,
+        }
+    }
+}
+
+fn later_name(left: &str, left_rev: u64, right: &str, right_rev: u64) -> (String, u64) {
+    if right_rev > left_rev || (right_rev == left_rev && right > left) {
+        (right.to_string(), right_rev)
+    } else {
+        (left.to_string(), left_rev)
+    }
+}
+
+fn check_name(name: &str) -> Result<(), SyncKeyError> {
+    if name.len() > MAX_NAME || name.chars().any(|ch| ch.is_control()) {
+        return Err(SyncKeyError::Corrupt);
+    }
+    Ok(())
+}
+
 /// Every page, plus the library document, before it is sealed.
 #[derive(Clone)]
 pub struct PageSet {
     pub doc: Vec<u8>,
     pub pages: Vec<(String, String)>,
+    pub meta: SyncMeta,
 }
 
 impl PageSet {
@@ -1493,7 +1597,121 @@ impl PageSet {
             out.extend_from_slice(id_bytes);
             push_chunk(&mut out, text_bytes);
         }
+        if !self.meta.is_blank() {
+            self.write_meta(&mut out)?;
+        }
         Ok(out)
+    }
+
+    fn write_meta(&self, out: &mut Vec<u8>) -> Result<(), SyncKeyError> {
+        check_name(&self.meta.vault_name)?;
+        if self.meta.devices.len() > MAX_DEVICES || self.meta.membership.len() > MAX_PAGES {
+            return Err(SyncKeyError::Corrupt);
+        }
+        out.extend_from_slice(META_MAGIC);
+        push_chunk(out, self.meta.vault_name.as_bytes());
+        out.extend_from_slice(&self.meta.name_rev.to_be_bytes());
+        let count = u16::try_from(self.meta.devices.len()).map_err(|_| SyncKeyError::Corrupt)?;
+        out.extend_from_slice(&count.to_be_bytes());
+        for device in &self.meta.devices {
+            check_name(&device.name)?;
+            out.extend_from_slice(&device.id);
+            out.extend_from_slice(&device.rev.to_be_bytes());
+            push_chunk(out, device.name.as_bytes());
+        }
+        let members =
+            u32::try_from(self.meta.membership.len()).map_err(|_| SyncKeyError::Corrupt)?;
+        out.extend_from_slice(&members.to_be_bytes());
+        for member in &self.meta.membership {
+            let id = member.id.as_bytes();
+            if id.is_empty() || id.len() > MAX_PAGE_ID {
+                return Err(SyncKeyError::Corrupt);
+            }
+            let id_len = u16::try_from(id.len()).map_err(|_| SyncKeyError::Corrupt)?;
+            out.extend_from_slice(&id_len.to_be_bytes());
+            out.extend_from_slice(id);
+            out.extend_from_slice(&member.rev.to_be_bytes());
+            out.push(u8::from(member.in_vault));
+        }
+        Ok(())
+    }
+
+    fn read_meta(reader: &mut Reader<'_>) -> Result<SyncMeta, SyncKeyError> {
+        if reader.is_empty() {
+            return Ok(SyncMeta::default());
+        }
+        if reader.take(META_MAGIC.len())? != META_MAGIC {
+            return Err(SyncKeyError::Corrupt);
+        }
+        let name_bytes = reader.chunk()?;
+        if name_bytes.len() > MAX_NAME {
+            return Err(SyncKeyError::Corrupt);
+        }
+        let vault_name = String::from_utf8(name_bytes).map_err(|_| SyncKeyError::Corrupt)?;
+        check_name(&vault_name)?;
+        let name_rev = reader.u64()?;
+        let count = usize::from(reader.u16()?);
+        if count > MAX_DEVICES {
+            return Err(SyncKeyError::Corrupt);
+        }
+        let mut devices = Vec::with_capacity(count);
+        for _ in 0..count {
+            let id = reader.array()?;
+            let rev = reader.u64()?;
+            let name_bytes = reader.chunk()?;
+            if name_bytes.len() > MAX_NAME {
+                return Err(SyncKeyError::Corrupt);
+            }
+            let name = String::from_utf8(name_bytes).map_err(|_| SyncKeyError::Corrupt)?;
+            check_name(&name)?;
+            devices.push(DeviceLabel { id, rev, name });
+        }
+        let members = usize::try_from(reader.u32()?).map_err(|_| SyncKeyError::Corrupt)?;
+        if members > MAX_PAGES {
+            return Err(SyncKeyError::Corrupt);
+        }
+        let mut membership = Vec::with_capacity(members);
+        for _ in 0..members {
+            let id_len = usize::from(reader.u16()?);
+            if id_len == 0 || id_len > MAX_PAGE_ID {
+                return Err(SyncKeyError::Corrupt);
+            }
+            let id = std::str::from_utf8(reader.take(id_len)?)
+                .map_err(|_| SyncKeyError::Corrupt)?
+                .to_string();
+            let rev = reader.u64()?;
+            let flag = reader.byte()?;
+            if flag > 1 {
+                return Err(SyncKeyError::Corrupt);
+            }
+            membership.push(PageMember {
+                id,
+                rev,
+                in_vault: flag == 1,
+            });
+        }
+        Ok(SyncMeta {
+            vault_name,
+            name_rev,
+            devices,
+            membership,
+        })
+    }
+
+    /// Drop pages that left the synced set, from the document and from the list.
+    pub fn retain_vault(&mut self) {
+        let drop_ids: Vec<String> = self
+            .meta
+            .membership
+            .iter()
+            .filter(|member| !member.in_vault)
+            .map(|member| member.id.clone())
+            .collect();
+        if drop_ids.is_empty() {
+            return;
+        }
+        self.doc = without_pages(&self.doc, &drop_ids);
+        self.pages.retain(|(id, _)| self.meta.in_vault(id));
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, SyncKeyError> {
@@ -1525,18 +1743,45 @@ impl PageSet {
             let text = String::from_utf8(text_bytes).map_err(|_| SyncKeyError::Corrupt)?;
             pages.push((id, text));
         }
+        let meta = Self::read_meta(&mut reader)?;
         reader.finish()?;
-        Ok(Self { doc, pages })
+        Ok(Self { doc, pages, meta })
     }
 
     /// One document for both sides. A deleted line stays deleted. A line the
     /// other side added at the same time stays. A page that exists on only one
-    /// side is kept. A backup of the previous copy is the caller's job.
+    /// side is kept. A page that left the synced set stays out of it, and is
+    /// not copied into a second page. A backup of the previous copy is the caller's job.
     pub fn merge(self, other: Self) -> Self {
+        let meta = self.meta.clone().merge(other.meta.clone());
+        let mut local = self;
+        let mut remote = other;
+        local.meta = meta.clone();
+        remote.meta = meta.clone();
+        local.retain_vault();
+        remote.retain_vault();
         let (doc, pages) =
-            omacus_doc::merge_libraries(&self.doc, &self.pages, &other.doc, &other.pages);
-        Self { doc, pages }
+            omacus_doc::merge_libraries(&local.doc, &local.pages, &remote.doc, &remote.pages);
+        let mut merged = Self { doc, pages, meta };
+        merged.retain_vault();
+        merged
     }
+}
+
+fn without_pages(doc: &[u8], drop_ids: &[String]) -> Vec<u8> {
+    if drop_ids.is_empty() || doc.is_empty() {
+        return doc.to_vec();
+    }
+    let Ok(mut lib) = omacus_doc::Library::load(doc) else {
+        return doc.to_vec();
+    };
+    let mut changed = false;
+    for id in drop_ids {
+        if lib.remove_page(id) {
+            changed = true;
+        }
+    }
+    if changed { lib.save() } else { doc.to_vec() }
 }
 
 fn push_chunk(out: &mut Vec<u8>, bytes: &[u8]) {
@@ -2279,6 +2524,7 @@ mod tests {
         let local = PageSet {
             doc: local_lib.save(),
             pages: vec![("trip".to_string(), "milk $3\n".to_string())],
+            meta: SyncMeta::default(),
         };
         let remote = PageSet {
             doc: remote_lib.save(),
@@ -2286,6 +2532,7 @@ mod tests {
                 "trip".to_string(),
                 "ferry = 40\nmilk $3\nbread $2\n".to_string(),
             )],
+            meta: SyncMeta::default(),
         };
         let merged = local.merge(remote);
         let trip = merged
@@ -2309,6 +2556,115 @@ mod tests {
                 .unwrap()
                 .1,
             trip
+        );
+    }
+
+    #[test]
+    fn a_renamed_set_stays_sealed_and_a_page_that_leaves_is_not_copied() {
+        let vault_name = "Lantern pages";
+        let phone = "Harbor laptop";
+        let mut library = omacus_doc::Library::new();
+        library.reconcile("trip", "ferry = 40\n", None);
+        library.note_written("trip", "ferry = 40\n");
+        library.reconcile("market", "oats = 2\n", None);
+        library.note_written("market", "oats = 2\n");
+        let doc = library.save();
+        let local = PageSet {
+            doc: doc.clone(),
+            pages: vec![
+                ("trip".into(), "ferry = 40\n".into()),
+                ("market".into(), "oats = 2\n".into()),
+            ],
+            meta: SyncMeta {
+                vault_name: "My pages".into(),
+                name_rev: 1,
+                devices: vec![DeviceLabel {
+                    id: [1; 16],
+                    rev: 1,
+                    name: phone.into(),
+                }],
+                membership: vec![PageMember {
+                    id: "market".into(),
+                    rev: 2,
+                    in_vault: false,
+                }],
+            },
+        };
+        let remote = PageSet {
+            doc: doc.clone(),
+            pages: vec![
+                ("trip".into(), "ferry = 40\npark = 2\n".into()),
+                ("market".into(), "oats = 2\nrye = 1\n".into()),
+            ],
+            meta: SyncMeta {
+                vault_name: vault_name.into(),
+                name_rev: 2,
+                devices: vec![DeviceLabel {
+                    id: [2; 16],
+                    rev: 1,
+                    name: "Safari on iPhone".into(),
+                }],
+                membership: vec![],
+            },
+        };
+        let merged = local.merge(remote);
+        assert_eq!(merged.meta.vault_name, vault_name);
+        assert_eq!(merged.meta.devices.len(), 2);
+        assert_eq!(
+            merged.pages.iter().filter(|(id, _)| id == "trip").count(),
+            1
+        );
+        assert!(merged.pages.iter().all(|(id, _)| id != "market"));
+        let trip = &merged.pages.iter().find(|(id, _)| id == "trip").unwrap().1;
+        assert!(trip.contains("park = 2"), "{trip}");
+        let kept = omacus_doc::Library::load(&merged.doc).unwrap();
+        assert_eq!(
+            kept.page_ids()
+                .iter()
+                .filter(|id| id.as_str() == "trip")
+                .count(),
+            1
+        );
+        assert!(kept.page_ids().iter().all(|id| id != "market"));
+        let again = PageSet::from_bytes(&merged.to_bytes().unwrap()).unwrap();
+        assert_eq!(again.meta.vault_name, vault_name);
+        assert_eq!(again.pages.len(), merged.pages.len());
+
+        let mut back = merged.clone();
+        back.meta.membership[0].rev = 3;
+        back.meta.membership[0].in_vault = true;
+        back.pages.push(("market".into(), "oats = 2\n".into()));
+        let returned = back.clone().merge(PageSet {
+            doc: Vec::new(),
+            pages: vec![("trip".into(), "ferry = 40\npark = 2\n".into())],
+            meta: SyncMeta::default(),
+        });
+        assert_eq!(
+            returned
+                .pages
+                .iter()
+                .filter(|(id, _)| id == "market")
+                .count(),
+            1
+        );
+
+        let packed = merged.to_bytes().unwrap();
+        assert!(
+            packed
+                .windows(vault_name.len())
+                .any(|window| window == vault_name.as_bytes())
+        );
+        let key = VaultKey::generate().unwrap();
+        let sealed = seal_page(&key, 1, b"pages", &packed).unwrap();
+        assert!(
+            sealed
+                .windows(vault_name.len())
+                .all(|window| window != vault_name.as_bytes())
+        );
+        assert!(
+            sealed
+                .windows(phone.len())
+                .all(|window| window != phone.as_bytes())
         );
     }
 }

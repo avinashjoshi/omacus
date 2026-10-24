@@ -238,7 +238,7 @@ try {
   const removes = pageA.getByRole("button", { name: "Remove", exact: true });
   if (await removes.count() < 1) throw new Error("no device to remove");
   await removes.first().click();
-  await pageA.getByRole("heading", { name: "Remove this phone or computer?" }).waitFor();
+  await pageA.getByRole("heading", { name: /^Remove .+\?$/ }).waitFor();
   await pageA.getByRole("button", { name: "Remove", exact: true }).click();
   await pageA.locator("[data-sync-set]").waitFor({ timeout: 20000 });
 
@@ -309,11 +309,11 @@ try {
   await frame(pageA, "dark", 390, 844);
   await pageA.locator(".side-name").first().waitFor();
   const version = (await pageA.locator(".side-version").innerText()).trim();
-  if (version !== "omacus 1.0.0-beta.5") throw new Error(`version line ${version}`);
+  if (version !== "omacus 1.0.0-beta.6") throw new Error(`version line ${version}`);
   const beta = await pageA.locator(".sync-beta").innerText();
-  if (!beta.includes("1.0.0-beta.5")) throw new Error(`phone label ${beta}`);
+  if (!beta.includes("1.0.0-beta.6")) throw new Error(`phone label ${beta}`);
   const panelLabel = await removedPage.locator(".sync-label").innerText();
-  if (!panelLabel.includes("1.0.0-beta.5")) throw new Error(`panel label ${panelLabel}`);
+  if (!panelLabel.includes("1.0.0-beta.6")) throw new Error(`panel label ${panelLabel}`);
 
   console.log("sync stays on after close, a removed phone can join again, and the device list stays clear of the buttons");
 } catch (error) {

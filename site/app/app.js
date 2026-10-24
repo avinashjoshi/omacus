@@ -915,6 +915,34 @@ function installLibrary(lib) {
 
 let syncTouched = () => {};
 let applyingRemote = false;
+let syncPlaces = null;
+
+function setSyncPlaces(places) {
+  syncPlaces = places || null;
+  renderSidebar();
+}
+
+function filterSyncedTree(nodes, local) {
+  const out = [];
+  for (const node of nodes || []) {
+    if (!node) continue;
+    if (node.type === "page") {
+      if (!local.has(node.id)) out.push(node);
+    } else if (node.type === "folder") {
+      const children = filterSyncedTree(node.children, local);
+      if (children.length) out.push({ ...node, children });
+    }
+  }
+  return out;
+}
+
+function sideCaption(text, kind) {
+  const row = document.createElement("div");
+  row.className = "side-sync-label";
+  row.dataset.syncSection = kind;
+  row.textContent = text;
+  return row;
+}
 function noteSyncEdit() {
   if (!applyingRemote) syncTouched();
 }
@@ -1633,8 +1661,21 @@ addEventListener("pagehide", () => {
 function renderSidebar() {
   const rows = [];
   if (state.shared) rows.push(pageRow("shared", state.shared.text, true, 0));
-  for (const entry of visible(state.tree)) {
-    rows.push(entry.type === "folder" ? folderRow(entry) : pageRow(entry.id, shownPlain(entry.id), false, entry.depth));
+  if (!syncPlaces) {
+    for (const entry of visible(state.tree)) {
+      rows.push(entry.type === "folder" ? folderRow(entry) : pageRow(entry.id, shownPlain(entry.id), false, entry.depth));
+    }
+  } else {
+    const local = new Set(syncPlaces.localIds || []);
+    rows.push(sideCaption(syncPlaces.vaultName || "My pages", "vault"));
+    for (const entry of visible(filterSyncedTree(state.tree, local))) {
+      rows.push(entry.type === "folder" ? folderRow(entry) : pageRow(entry.id, shownPlain(entry.id), false, entry.depth, "synced"));
+    }
+    rows.push(sideCaption(syncPlaces.here || "On this computer", "local"));
+    for (const id of pageIds(state.tree)) {
+      if (!local.has(id) || !state.texts.has(id)) continue;
+      rows.push(pageRow(id, shownPlain(id), false, 0, "local"));
+    }
   }
   const fill = document.createElement("div");
   fill.className = "side-fill";
@@ -1711,7 +1752,7 @@ function moreButton(label) {
   return button;
 }
 
-function pageRow(id, text, shared, depth) {
+function pageRow(id, text, shared, depth, place) {
   const row = sideRow(shared ? "shared" : "page", id, depth);
   const name = document.createElement("button");
   name.type = "button";
@@ -1734,6 +1775,13 @@ function pageRow(id, text, shared, depth) {
     name.append(tag);
   }
   row.append(name);
+  if (!shared && place) {
+    const tag = document.createElement("i");
+    tag.className = "sync-place";
+    tag.dataset.local = place === "local" ? "1" : "0";
+    tag.textContent = place === "local" ? "Here" : "Synced";
+    row.append(tag);
+  }
   if (!shared) row.append(moreButton("Page menu"));
   if (id === state.active && !preview) row.setAttribute("aria-current", "true");
   return row;
@@ -3729,6 +3777,13 @@ function openRowMenu(row, x, y) {
   if (!ends.first) items.push({ label: "Move up", run: () => nudge(id, -1) });
   if (!ends.last) items.push({ label: "Move down", run: () => nudge(id, 1) });
   items.push({ label: "Move to folder…", run: () => openMove(id) });
+  if (syncPlaces && typeof syncPlaces.move === "function") {
+    const local = (syncPlaces.localIds || []).includes(id);
+    items.push({
+      label: local ? `Sync with ${syncPlaces.vaultName || "My pages"}` : (syncPlaces.keep || "Keep on this computer"),
+      run: () => syncPlaces.move(id, local),
+    });
+  }
   items.push("sep");
   const covered = !!(coveringLock(state.tree, id) && !individualLock(id));
   const choice = pageLockChoice(id);
@@ -4740,6 +4795,7 @@ async function start() {
       onEdit: (fn) => {
         syncTouched = fn;
       },
+      setSyncPlaces,
     });
   }
   if (matchMedia("(min-width: 761px)").matches) view.focus();
