@@ -1,6 +1,6 @@
 # Private sync test
 
-This is a private test, labeled 1.0.0-beta.9. This repository does not deploy it.
+This is a private test, labeled 1.0.0-beta.10. This repository does not deploy it. Hosting for the test and for production is in `docs/sync-ops.md`.
 
 The server keeps sealed copies of pages. It cannot open them. The words stay on the device.
 
@@ -18,22 +18,21 @@ To try it, open the address in two windows. In one, choose Start fresh, type an 
 
 ## Invite codes
 
-Start fresh asks for an invite code. Join and the recovery key do not. The server stores a hash of the code and how many uses are left. It does not store the code. The secret stays out of the repository.
+Start fresh asks for an invite code. Join and the recovery key do not. The admin page at `/admin`, and `admin.mjs`, mint a code. The server stores a hash, how many uses are left, a label, and the times. It does not store the code. The code is printed once. The secret stays out of the repository.
 
 ```
-npx wrangler secret put ACCESS_SECRET
-read -s ACCESS_SECRET && export ACCESS_SECRET
-node relay/worker/mint.mjs
-node relay/worker/mint.mjs --uses 3
+read -s ADMIN_KEY && export ADMIN_KEY
+node relay/worker/admin.mjs mint --uses 3 --label "Friends"
+node relay/worker/admin.mjs list
 ```
 
-The command prints only the code. A code works once, unless `--uses` sets a higher number from 1 to 20. Existing pages keep syncing without a new code.
+The command talks to the test host. A code works once, unless `--uses` sets a higher number from 1 to 20. Existing pages keep syncing without a new code. The admin page can also pause new signups and remove a sealed copy. It cannot open a page.
 
 With the server already running, `node relay/check.mjs` walks that path in a browser.
 
 ## Web app bundle
 
-`./relay/worker/build.sh` builds the web app into `relay/worker/public`. The worker serves that app at `/` and the sealed mailbox at `/v1`. Sync is in Settings, and that copy keeps its own pages.
+`./relay/worker/build.sh` builds the web app into `relay/worker/public`. The worker serves that app at `/`, the admin at `/admin`, and the sealed mailbox at `/v1`. Sync is in Settings, and that copy keeps its own pages.
 
 ```
 ./relay/worker/build.sh && cd relay/worker && npx wrangler deploy

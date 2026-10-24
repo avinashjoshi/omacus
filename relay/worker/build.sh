@@ -1,6 +1,7 @@
 #!/bin/sh
 # Build the private test app into ./public.
-# The worker serves that app at / and the sealed mailbox at /v1.
+# The worker serves that app at /, the admin at /admin, and the sealed mailbox at /v1.
+# The built app is pointed at the test sync host. The source file stays empty.
 set -e
 cd "$(dirname "$0")"
 root="../.."
@@ -19,6 +20,8 @@ cd relay/worker
 cp public/pkg-web/* public/pkg-sync/* public/pkg/
 rm -rf public/pkg-web public/pkg-sync
 cp ../../site/app/*.js ../../site/app/*.css ../../site/app/*.html ../../site/app/*.webmanifest public/
+mkdir -p public/admin
+cp admin/index.html admin/admin.css admin/admin.js public/admin/
 cp ../../site/css/tokens.css ../../site/css/site.css public/css/
 cp -r ../../site/fonts public/fonts
 cp -r ../../site/img public/img
@@ -35,6 +38,13 @@ body = manifest.read_text()
 body = body.replace('"name": "Omacus"', '"name": "Omacus sync test"', 1)
 body = body.replace('"short_name": "Omacus"', '"short_name": "Omacus sync"', 1)
 manifest.write_text(body)
+config = Path("public/sync-config.js")
+text = config.read_text()
+old = 'export const SYNC_URL = "";'
+new = 'export const SYNC_URL = "https://sync-test.omacus.com";'
+if old not in text:
+    raise SystemExit("sync-config.js has no empty SYNC_URL")
+config.write_text(text.replace(old, new, 1))
 PY
 printf '/*\n  Cache-Control: no-store\n' > public/_headers
 echo "Built relay/worker/public"

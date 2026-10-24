@@ -66,7 +66,7 @@ wasm-bindgen --target web --no-typescript --out-dir "$out/pkg" \
 cp site/app/index.html site/app/app.js site/app/app.css site/app/editor.js \
   site/app/worker.js site/app/tree.js site/app/store.js site/app/sw.js \
   site/app/trust.js site/app/recover.js site/app/frame.js site/app/backup.js \
-  site/app/seed.js site/app/examples.js \
+  site/app/seed.js site/app/examples.js site/app/sync.js site/app/sync-config.js \
   site/app/manifest.webmanifest site/app/migrate.js site/app/migrate.html \
   site/app/migrate-client.js site/app/migrate-protocol.js site/app/_headers "$out/"
 cp site/css/site.css site/css/tokens.css "$out/css/"
@@ -119,6 +119,20 @@ short="$(sha256sum "$out/frame.js" | cut -c1-10)"
 sed -i "s#\"frame.js\"#\"frame.js?v=$short\"#" "$out/index.html"
 short="$(sha256sum "$out/recover.js" | cut -c1-10)"
 sed -i "s#\"recover.js\"#\"recover.js?v=$short\"#" "$out/index.html"
+python3 - "$out/sync-config.js" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+old = 'export const SYNC_URL = "";'
+new = 'export const SYNC_URL = "https://sync.omacus.com";'
+if old not in text:
+    raise SystemExit("sync-config.js has no empty SYNC_URL")
+path.write_text(text.replace(old, new, 1))
+PY
+short="$(sha256sum "$out/sync-config.js" | cut -c1-10)"
+sed -i "s#\"./sync-config.js\"#\"./sync-config.js?v=$short\"#" "$out/sync.js"
+short="$(sha256sum "$out/sync.js" | cut -c1-10)"
+sed -i "s#\"./sync.js\"#\"./sync.js?v=$short\"#" "$out/app.js"
 short="$(sha256sum "$out/app.js" | cut -c1-10)"
 sed -i "s#\"app.js\"#\"app.js?v=$short\"#" "$out/index.html"
 
@@ -126,7 +140,10 @@ test -f "$out/_headers"
 grep -q "wasm-unsafe-eval" "$out/_headers"
 grep -q "require-trusted-types-for" "$out/_headers"
 grep -q "open.er-api.com" "$out/_headers"
+grep -q "https://sync.omacus.com" "$out/_headers"
+grep -q 'https://sync.omacus.com' "$out/sync-config.js"
 ! grep -q "unsafe-inline" "$out/_headers"
+! grep -q "1.0.0-beta" "$out/index.html"
 grep -q "name=\"omacus-build\" content=\"$hash\"" "$out/index.html"
 test -s "$out/seed.js"
 test -s "$out/examples.js"

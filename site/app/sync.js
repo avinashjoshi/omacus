@@ -1,9 +1,15 @@
 // Sync for the private test. The published app does not mount this.
 // A device file stays in this browser. The server receives a sealed record.
+import { SYNC_URL } from "./sync-config.js";
 
-const LABEL = "omacus 1.0.0-beta.9";
+const LABEL = "omacus 1.0.0-beta.10";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
+
+function syncOrigin() {
+  const configured = String(SYNC_URL || "").trim().replace(/\/$/, "");
+  return configured || location.origin;
+}
 
 export async function mountSync(api) {
   if (!api?.syncTest) return;
@@ -417,7 +423,8 @@ export async function mountSync(api) {
   }
 
   async function callServer(method, path, body, origin) {
-    const url = origin && origin !== location.origin ? `${origin.replace(/\/$/, "")}${path}` : path;
+    const base = (origin || syncOrigin()).replace(/\/$/, "");
+    const url = `${base}${path}`;
     let response;
     try {
       response = await fetch(url, {
@@ -931,7 +938,7 @@ export async function mountSync(api) {
     draw();
     const raw = crypto.getRandomValues(new Uint8Array(5));
     const secret = btoa(String.fromCharCode(...raw));
-    const made = JSON.parse(sync.makeInvite(state.account, location.origin, secret));
+    const made = JSON.parse(sync.makeInvite(state.account, syncOrigin(), secret));
     if (!made.ok) {
       state.busy = false;
       state.error = plainError(made.message);
@@ -1010,7 +1017,7 @@ export async function mountSync(api) {
   function allowedOrigin(origin) {
     try {
       const url = new URL(origin);
-      if (url.origin === location.origin) return true;
+      if (url.origin === location.origin || url.origin === syncOrigin()) return true;
       if (url.protocol === "https:" && (url.hostname === "omacus.com" || url.hostname.endsWith(".omacus.com"))) return true;
       if (url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost")) return true;
     } catch {
