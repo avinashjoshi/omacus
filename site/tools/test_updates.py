@@ -30,9 +30,9 @@ def release(tag, notes, day="2026-10-20T12:00:00Z", assets=None):
     }
 
 
-def build(releases, fetch=None):
+def build(releases, fetch=None, upcoming=False):
     out = Path(tempfile.mkdtemp())
-    updates.build(releases, out, fetch=fetch)
+    updates.build(releases, out, fetch=fetch, upcoming=upcoming)
     page = (out / "updates" / "index.html").read_text()
     feed = (out / "updates" / "feed.xml").read_text()
     return page, feed, out
@@ -197,6 +197,27 @@ class UpdatesPage(unittest.TestCase):
         self.assertIn("Behind-the-scenes improvements to how updates ship", page)
         self.assertNotIn("<!--", page)
         self.assertIn("v1.7.0 — Behind-the-scenes improvements to how updates ship", feed)
+
+    def test_the_upcoming_release_leads_the_page(self):
+        page, feed, _ = build([
+            release("v0.2.0", "**Pages on this computer**\n\nA sentence about pages on disk."),
+        ], upcoming=True)
+        self.assertLess(page.index('id="v1.0.0"'), page.index('id="v0.2.0"'))
+        self.assertIn('href="/sync/"', page)
+        self.assertIn('href="/privacy/"', page)
+        self.assertIn(">Coming<", page)
+        self.assertIn("This is the upcoming 1.0 release.", page)
+        self.assertIn("v1.0.0 — Sync is in the web app", feed)
+        self.assertIn('href="/sync/"', feed)
+        self.assertTrue(feed.index("#v1.0.0") < feed.index("#v0.2.0"))
+
+    def test_a_published_1_0_is_not_listed_twice(self):
+        page, feed, _ = build([
+            release("v1.0.0", "**Sync is in the web app**\n\nYour pages can open on your other phones."),
+        ], upcoming=True)
+        self.assertEqual(page.count('id="v1.0.0"'), 1)
+        self.assertNotIn(">Coming<", page)
+        self.assertEqual(feed.count("v1.0.0 — Sync is in the web app"), 1)
 
 
 if __name__ == "__main__":

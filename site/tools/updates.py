@@ -63,7 +63,7 @@ BULLET = re.compile(r"^( *)- (.*)$")
 COMPARE = re.compile(r"https://github\.com/\S+/compare/\S+")
 TITLE_LINE = re.compile(r"^\*\*(.+)\*\*$")
 DETAILS_LINE = re.compile(r"^\*\*Details:\*\*\s+\S+\s*$", re.I)
-FLAG = re.compile(r"<!--\s*(internal|minor)\s*-->", re.I)
+FLAG = re.compile(r"<!--\s*(internal|minor|upcoming)\b.*?-->", re.I)
 COMMENT = re.compile(r"<!--.*?-->", re.S)
 MAX_IMAGE = 8_000_000
 
@@ -501,19 +501,80 @@ def entry_html(entry, images):
 </li>'''
 
 
-def toc_html(entries):
-    links = "\n".join(
+def upcoming_notes():
+    """The changelog's upcoming 1.0 section, or None.
+
+    The app version stays put until 1.0 ships. The marker keeps the section on
+    the updates page without treating it as a published release.
+    """
+    path = Path(__file__).resolve().parents[2] / "CHANGELOG.md"
+    if not path.is_file():
+        return None
+    text = path.read_text()
+    match = re.search(r"^## 1\.0\.0[ \t]*$", text, re.M)
+    if not match:
+        return None
+    rest = text[match.end():]
+    nxt = re.search(r"^## ", rest, re.M)
+    body = (rest[:nxt.start()] if nxt else rest).strip()
+    cleaned, flags = strip_flags(body)
+    if "upcoming" not in flags:
+        return None
+    title, body_text = split_title(cleaned)
+    if not title:
+        return None
+    return {"title": title, "blocks": parse_notes(body_text)}
+
+
+def upcoming_html(rel, images):
+    body = render_blocks(rel["blocks"], images)
+    return f'''<li class="entry" id="v1.0.0">
+<div class="entry-meta">
+<a class="version-pill" href="#v1.0.0">v1.0.0</a>
+<span class="pre">Coming</span>
+</div>
+<div class="entry-body">
+<h2>{html.escape(rel["title"])}</h2>
+<div class="notes">
+{body}
+</div>
+<p class="entry-links"><a href="/sync/">Sync</a> · <a href="/privacy/">Privacy</a></p>
+</div>
+</li>'''
+
+
+def upcoming_feed(rel, images, updated):
+    title = f'v1.0.0 — {plain(rel["title"])}'
+    content = render_blocks(rel["blocks"], images)
+    link = f"{PAGE}#v1.0.0"
+    return f'''  <entry>
+    <title>{xml_escape.escape(title)}</title>
+    <link href="{xml_escape.escape(link)}"/>
+    <id>{xml_escape.escape(link)}</id>
+    <updated>{xml_escape.escape(updated)}</updated>
+    <content type="html">{xml_escape.escape(content)}</content>
+  </entry>'''
+
+
+def toc_html(entries, coming=False):
+    links = []
+    if coming:
+        links.append('<a href="#v1.0.0">v1.0.0</a>')
+    links.extend(
         f'<a href="#{html.escape(e["head"]["anchor"])}">{html.escape(e["head"]["label"])}</a>'
         for e in entries
     )
-    return f'<nav class="toc" aria-label="Versions">\n<p>Versions</p>\n{links}\n</nav>'
+    return f'<nav class="toc" aria-label="Versions">\n<p>Versions</p>\n{chr(10).join(links)}\n</nav>'
 
 
-def page_html(entries, images):
+def page_html(entries, images, coming=None):
     # theme-color matches --bg in tokens.css (near-black, and the light paper
     # on this page). Browser chrome only; the page itself uses the variables.
     timeline = "\n".join(entry_html(e, images) for e in entries)
     count = sum(1 + len(e["fixes"]) for e in entries)
+    if coming:
+        timeline = upcoming_html(coming, images) + "\n" + timeline
+        count += 1
     return f'''<!doctype html>
 <html lang="en" data-page="updates">
 <head>
@@ -550,7 +611,7 @@ def page_html(entries, images):
 
 <main class="wrap page has-toc updates-page">
   <nav class="crumbs" aria-label="Breadcrumb"><a href="/">Omacus</a> <span>/</span> Updates</nav>
-  {toc_html(entries)}
+  {toc_html(entries, coming=bool(coming))}
   <article class="page-body">
     <header class="updates-hero">
       <span class="kicker">// updates</span>
@@ -573,9 +634,11 @@ def page_html(entries, images):
 '''
 
 
-def atom(releases, images):
+def atom(releases, images, coming=None):
     updated = releases[0]["published"] if releases else "1970-01-01T00:00:00Z"
     entries = []
+    if coming:
+        entries.append(upcoming_feed(coming, images, updated))
     for rel in releases:
         title = f'{rel["label"]} — {plain_title(rel)}'
         content = feed_html(rel, images)
@@ -604,17 +667,20 @@ def atom(releases, images):
 '''
 
 
-def build(raw_releases, out: Path, fetch=None):
+def build(raw_releases, out: Path, fetch=None, upcoming=False):
     raw_releases = [r for r in raw_releases if not r.get("draft")]
     raw_releases.sort(key=lambda r: (r.get("published_at") or "", version_tuple(r.get("tag_name")) or ()), reverse=True)
     prepared = [prepare(r) for r in raw_releases]
     media = out / "updates" / "media"
     images = Images(fetch, media)
     entries = group(prepared)
+    coming = None
+    if upcoming and not any(rel["label"] == "v1.0.0" for rel in prepared):
+        coming = upcoming_notes()
     dest = out / "updates"
     dest.mkdir(parents=True, exist_ok=True)
-    page = page_html(entries, images)
-    feed = atom(prepared, images)
+    page = page_html(entries, images, coming=coming)
+    feed = atom(prepared, images, coming=coming)
     (dest / "index.html").write_text(page)
     (dest / "feed.xml").write_text(feed)
     if media.exists():
@@ -717,7 +783,7 @@ def main():
     args = parser.parse_args()
     if args.input:
         raw = json.loads(args.input.read_text())
-        build(raw, args.out, fetch=fetch_image)
+        build(raw, args.out, fetch=fetch_image, upcoming=True)
     else:
         expect = os.environ.get("OMACUS_EXPECT_VERSION", "")
         try:
@@ -728,7 +794,7 @@ def main():
                 raise
             print("updates: kept the checked-in page; GitHub releases were unavailable", file=sys.stderr)
             return
-        build(raw, args.out, fetch=fetch_image)
+        build(raw, args.out, fetch=fetch_image, upcoming=True)
     print(f"updates: {len(raw)} releases")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:

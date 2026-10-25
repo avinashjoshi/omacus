@@ -92,6 +92,7 @@
         <a href="/docs/">Docs</a>
         <a href="/updates/">Updates</a>
         <a href="/story/">Story</a>
+        <a href="/sync/">Sync</a>
         <a href="https://app.omacus.com">Web app</a>
         <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
       </div>
@@ -118,7 +119,7 @@
     <p class="lead">Omacus has no ads and no analytics. Desktop pages stay on this computer. The web app keeps pages in the browser until you turn on sync. This page lists what is sent, and why.</p>
 <h2 id="desktop">The desktop app</h2>
     <ul>
-      <li><strong>Your pages</strong> are plain text files in a folder on your computer (see <a href="/docs/#files">where files live</a>). They are not uploaded. Turn on sync in the sidebar explains sync and continues in the web app. This site does not collect an email.</li>
+      <li><strong>Your pages</strong> are plain text files in a folder on your computer (see <a href="/docs/#files">where files live</a>). They are not uploaded. The <strong>Turn on sync</strong> button in the sidebar explains sync, then continues in the web app. This site does not collect an email.</li>
       <li><strong>Exchange rates.</strong> Omacus downloads the latest rates from <a href="https://www.exchangerate-api.com/docs/free">open.er-api.com</a> at most every 12 hours while you use it, and keeps them on disk so currency math works offline. The request carries nothing from your pages.</li>
       <li><strong>Checking for updates.</strong> Omacus asks GitHub for the latest version number when it starts (at most once an hour) and every 4 hours while it's open. Put <code>check_for_updates = false</code> in <code>settings.toml</code> to turn that off. A new version is downloaded, from GitHub, only when you choose <em>Update now</em> or run <code>omacus update</code>.</li>
       <li><strong>Nothing else.</strong> No telemetry, no crash reports, no usage statistics.</li>

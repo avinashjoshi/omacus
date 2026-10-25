@@ -13,14 +13,15 @@
   <meta property="og:url" content="https://omacus.com/sync/">
   <meta property="og:title" content="Sync">
   <meta property="og:description" content="Pages are encrypted on your device. The server cannot read them. Twelve recovery words open them again.">
-  <meta property="og:image" content="https://omacus.com/img/og.png?v=2">
+  <meta property="og:image" content="https://omacus.com/img/og-sync.png?v=1">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
+  <meta property="og:image:alt" content="Omacus Sync: pages encrypted on your device, with twelve recovery words">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Sync">
   <meta name="twitter:description" content="Pages are encrypted on your device. The server cannot read them. Twelve recovery words open them again.">
-  <meta name="twitter:image" content="https://omacus.com/img/og.png?v=2">
+  <meta name="twitter:image" content="https://omacus.com/img/og-sync.png?v=1">
+  <meta name="twitter:image:alt" content="Omacus Sync: pages encrypted on your device, with twelve recovery words">
   <link rel="manifest" href="/site.webmanifest">
   <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
   <link rel="icon" href="/img/favicon-32.png" sizes="32x32">
@@ -40,6 +41,8 @@
         <a href="/guides/">Guides</a>
         <a href="/docs/">Docs</a>
         <a href="/updates/">Updates</a>
+        <a href="/story/">Story</a>
+        <a href="/sync/" aria-current="page">Sync</a>
         <a href="https://app.omacus.com">Web app</a>
         <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
       </div>
@@ -59,22 +62,16 @@
     <a href="#devices">Linking</a>
     <a href="#offline">Offline</a>
     <a href="#nights">Nightly copies</a>
-    <a href="#video">Video</a>
   </nav>
   <article class="prose page-body">
     <span class="kicker">// sync</span>
     <h1>Sync</h1>
     <p class="lead">Pages can open on your other phones and computers. They are encrypted on your device before they leave, and the server cannot read them. There is no sign-up on this page.</p>
 
-    <figure class="sync-video">
-      <div class="sync-video-slot">A short video</div>
-      <figcaption>A short video of sync will play here.</figcaption>
-    </figure>
-
     <h2 id="encrypted">Nobody else can read them</h2>
-    <p>Turn on sync in the <a href="https://app.omacus.com">web app</a>. It is in the sidebar, and on a wide window it is also in the top bar. A short explanation comes first. Then you start fresh, or you join pages that are already on another phone.</p>
+    <p><a href="https://app.omacus.com">Turn on sync in the web app</a>. It is in the sidebar, and on a wide window it is also in the top bar. A short explanation comes first. Then you start fresh, or you join pages that are already on another phone.</p>
     <p>Each page is encrypted on that phone or computer before it is sent. The server stores the sealed copy. Omacus cannot read the pages. The company that hosts the server cannot read them either. A share link is a different thing: that page travels inside the link, and only the people you give it to can open it.</p>
-    <p>The desktop app keeps pages in a folder on this computer. Turn on sync there uses the same explanation, then continues in the web app. Those desktop pages are not uploaded.</p>
+    <p>The desktop app keeps pages in a folder on this computer. The <strong>Turn on sync</strong> button in the sidebar explains sync, then continues in the web app. Those desktop pages are not uploaded.</p>
 
     <h2 id="server">What the server can see</h2>
     <p>The server can see that a sealed copy exists, how large it is, when it was saved, and how many phones and computers are linked. It can see the sealed bytes.</p>
@@ -97,9 +94,6 @@
 
     <h2 id="nights">A sealed copy each night</h2>
     <p>Each night the server saves another sealed copy, and keeps those copies for about 30 days. The nightly copy is the same sealed bytes. It is not opened. If a copy has to be put back, what returns is still sealed, and only your phones can read it.</p>
-
-    <h2 id="video">Video</h2>
-    <p>The space at the top of this page is reserved for a short video. Nothing plays there yet.</p>
 
     <p>One set of pages syncs in this version. You can name it. It starts as My pages. <a href="/privacy/">Privacy</a> lists what is sent.</p>
   </article>

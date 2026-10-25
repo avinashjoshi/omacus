@@ -181,6 +181,7 @@ def llms_full():
 
 NAV = [("/#features", "Features"), ("/use-cases/", "Use cases"), ("/guides/", "Guides"),
        ("/docs/", "Docs"), ("/updates/", "Updates"), ("/story/", "Story"),
+       ("/sync/", "Sync"),
        ("https://app.omacus.com", "Web app"),
        ("https://github.com/avinashjoshi/omacus", "GitHub")]
 FOOTER = [("/docs/", "Docs"), ("/guides/", "Guides"), ("/use-cases/", "Use cases"),

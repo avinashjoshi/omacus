@@ -8,6 +8,13 @@
   <updated>2026-10-23T19:20:18Z</updated>
   <author><name>Avinash Joshi</name></author>
   <entry>
+    <title>v1.0.0 — Sync is in the web app</title>
+    <link href="https://omacus.com/updates/#v1.0.0"/>
+    <id>https://omacus.com/updates/#v1.0.0</id>
+    <updated>2026-10-23T19:20:18Z</updated>
+    <content type="html">&lt;p&gt;Your pages can open on your other phones and computers. They are encrypted on your device, and the server cannot read them. &lt;a href="/sync/"&gt;Sync&lt;/a&gt; explains how it works. &lt;a href="/privacy/"&gt;Privacy&lt;/a&gt; lists what is sent. This is the upcoming 1.0 release.&lt;/p&gt;</content>
+  </entry>
+  <entry>
     <title>v0.2.15 — Keep a copy of everything</title>
     <link href="https://omacus.com/updates/#v0.2.15"/>
     <id>https://omacus.com/updates/#v0.2.15</id>

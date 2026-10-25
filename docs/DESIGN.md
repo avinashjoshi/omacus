@@ -337,10 +337,10 @@ Don't: hardcode a count or a date in the page, point the page at `--app-*`, or p
 
 ### Sync page
 
-`omacus.com/sync` and the band on the homepage. The page explains how sync works now: pages are encrypted on the device, the server cannot read them, 12 recovery words, linking a phone with a code, offline edits, and a nightly sealed copy kept for about 30 days. It says what the server can see (that a sealed copy exists, its size, when it was saved, how many phones are linked, and the sealed bytes) and what it cannot see (page text, page names, recovery words, and keys). A slot at the top is reserved for a short video. Nothing plays there yet. The published web app shows Turn on sync in the sidebar. The desktop app shows the same entry, and setup continues in the web app. This version syncs one named set of pages. The page does not offer a form, a sign-up, or a waitlist. The words shown on the page are an example, labeled as one.
+`omacus.com/sync` and the band on the homepage. The page explains how sync works now: pages are encrypted on the device, the server cannot read them, 12 recovery words, linking a phone with a code, offline edits, and a nightly sealed copy kept for about 30 days. It says what the server can see (that a sealed copy exists, its size, when it was saved, how many phones are linked, and the sealed bytes) and what it cannot see (page text, page names, recovery words, and keys). A video stays off the page until there is one to play. The Turn on sync button in the sidebar explains sync, then continues in the web app. This version syncs one named set of pages. The page does not offer a form, a sign-up, or a waitlist. The words shown on the page are an example, labeled as one. The page has its own share image, `site/img/og-sync.png`.
 
-Do: use the marketing tokens. One accent. Say the recovery phrase is 12 words. Paragraphs on the sync page and in this band use `--prose-gap`. Don't give them a margin of their own. The video slot uses the raised surface, the line, and the medium radius.
-Don't: collect an email, call the phrase 24 words, or say sync is coming soon. Don't embed a third-party player until there is a video. The launch video may show sync as a feature.
+Do: use the marketing tokens. One accent. Say the recovery phrase is 12 words. Paragraphs on the sync page and in this band use `--prose-gap`. Don't give them a margin of their own. When a video is added, the slot uses the raised surface, the line, and the medium radius.
+Don't: collect an email, call the phrase 24 words, or say sync is coming soon. Don't show an empty video slot, and don't embed a third-party player until there is a video. The launch video may show sync as a feature.
 
 ### Sync test
 
