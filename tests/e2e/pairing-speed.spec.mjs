@@ -1,6 +1,6 @@
 // The phone that shows an invite code notices a join within a few seconds.
 // Screenshots cover the setup screens in light and dark, on a desk and a phone.
-// Recovery words and their picture are covered before a shot.
+// Recovery words are covered before a shot. The words screen has no picture.
 import { mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { expect, test } from "@playwright/test";
@@ -66,12 +66,8 @@ async function theme(page, name) {
 }
 
 async function maskSecrets(page) {
-  await page.locator(".sync-word, .sync-key svg").evaluateAll((nodes) => {
+  await page.locator(".sync-word").evaluateAll((nodes) => {
     for (const node of nodes) {
-      if (node.tagName.toLowerCase() === "svg") {
-        node.style.visibility = "hidden";
-        continue;
-      }
       for (const kid of [...node.childNodes]) {
         if (kid.nodeType === Node.TEXT_NODE && kid.textContent.trim()) kid.textContent = "••••";
       }
@@ -151,7 +147,16 @@ test("an invite notices a join within 5 seconds", async ({ browser }) => {
 
     await phoneA.locator("[data-access-code]").fill(access);
     await phoneA.getByRole("button", { name: "Continue" }).click();
-    await expect(phoneA.locator(".sync-word").first()).toBeVisible();
+    await expect(phoneA.locator(".sync-word")).toHaveCount(12);
+    await expect(phoneA.getByText("Or scan this to recover")).toHaveCount(0);
+    await expect(phoneA.getByText("This picture is as secret as the words.")).toHaveCount(0);
+    await expect(phoneA.locator(".sync-panel svg")).toHaveCount(0);
+    await expect(phoneA.getByRole("checkbox", { name: "I wrote these down" })).toBeVisible();
+    await expect(phoneA.getByRole("button", { name: "Print" })).toBeVisible();
+    await expect(phoneA.getByRole("button", { name: "Copy" })).toBeVisible();
+    const deskGrid = await phoneA.locator(".sync-words-grid").boundingBox();
+    const deskPanel = await phoneA.locator(".sync-panel").boundingBox();
+    expect(deskGrid.width).toBeGreaterThan(deskPanel.width * 0.9);
     const words = await phoneA.locator(".sync-word").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-word")));
     await shot(phoneA, "sync-words-desktop-light");
     await theme(phoneA, "dark");
@@ -160,6 +165,10 @@ test("an invite notices a join within 5 seconds", async ({ browser }) => {
 
     await phoneA.setViewportSize({ width: 390, height: 844 });
     await expect(phoneA.getByRole("heading", { name: "Save your recovery words" })).toBeVisible();
+    await expect(phoneA.locator(".sync-panel svg")).toHaveCount(0);
+    const phoneGrid = await phoneA.locator(".sync-words-grid").boundingBox();
+    const phonePanel = await phoneA.locator(".sync-panel").boundingBox();
+    expect(phoneGrid.width).toBeGreaterThan(phonePanel.width * 0.9);
     await shot(phoneA, "sync-words-phone-light");
     await theme(phoneA, "dark");
     await shot(phoneA, "sync-words-phone-dark");
@@ -192,6 +201,8 @@ test("an invite notices a join within 5 seconds", async ({ browser }) => {
 
     await phoneA.getByRole("button", { name: "Add a phone or computer" }).click();
     const code = (await phoneA.locator(".sync-invite-code").innerText()).trim();
+    await expect(phoneA.getByText("Or scan this picture")).toBeVisible();
+    await expect(phoneA.locator(".sync-qr svg")).toBeVisible();
     await shot(phoneA, "sync-invite-desktop-light");
     await theme(phoneA, "dark");
     await shot(phoneA, "sync-invite-desktop-dark");

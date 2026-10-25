@@ -102,7 +102,7 @@ check(html.includes("data-build-hash"), "settings shows the build hash");
 check(js.includes("Add to Home Screen"), "iPhone gets an Add to Home Screen prompt");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-26"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('const CACHE = "omacus-app-27"'), "the app cache name moved past the cache-first shell");
 check(html.includes("data-pick"), "a same-line conflict can ask which line to keep");
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
@@ -133,12 +133,19 @@ check(syncJs.includes('return ["intro", "access", "save", "confirm"].includes(st
   check(off.includes("sync.removeDevice") && off.includes("hideChip()") && !off.includes('setChip("Sync paused"'), "turning sync off removes this phone and leaves the status quiet");
   check(syncJs.includes("If this is the last one, that is fine.") && syncJs.includes("Just turn off here") && syncJs.includes("Another phone or computer can still remove this one."), "turning sync off says the words still open the pages");
 }
-check(syncJs.includes("parseRecovery") && syncJs.includes("pageOrigin()") && !syncJs.includes("captureSyncLink") && !syncJs.includes("console."), "the sync screen reads a recovery link and does not record it");
+check(syncJs.includes("takeSyncLink") && syncJs.includes('found.kind === "recover"') && syncJs.includes("pageOrigin()") && !syncJs.includes("captureSyncLink") && !syncJs.includes("console."), "the sync screen reads a recovery link and does not record it");
 check(js.includes("captureSyncLink") && js.includes("history.replaceState"), "a recovery link is taken out of the address bar before a share link");
 check(syncJs.includes("How sync works") && syncJs.includes("Set up sync") && syncJs.includes("showTurnOnSync"), "Turn on sync opens a short explanation before setup");
 check(syncJs.includes("This is my first device") && syncJs.includes("My pages already sync on another device") && syncJs.includes("← Back"), "setup offers two choices and a back link");
 check(syncJs.includes("Code you were given") && syncJs.includes("K7QM-4R2P") && syncJs.includes("Not the code from another device."), "the invite code and the join code show their real shapes");
-check(syncJs.includes("I wrote these down") && syncJs.includes("data-saved-words") && syncJs.includes("!state.wroteWords") && syncJs.includes("Or scan this to recover") && syncJs.includes("This picture is as secret as the words."), "saving the words waits until they are written down");
+check(syncJs.includes("I wrote these down") && syncJs.includes("data-saved-words") && syncJs.includes("!state.wroteWords") && !syncJs.includes("Or scan this to recover") && !syncJs.includes("This picture is as secret as the words.") && !syncJs.includes("Scan the paper instead"), "saving the words waits until they are written down, with no recovery picture");
+{
+  const save = syncJs.slice(syncJs.indexOf("function drawSave"), syncJs.indexOf("function drawConfirm"));
+  check(save.includes("sync-words-grid") && save.includes("I saved them") && save.includes('"Print"') && save.includes('"Copy"') && !save.includes("qrNode") && !save.includes("sync-qr"), "the words screen is the grid, the checkbox, and print and copy");
+  const printed = syncJs.slice(syncJs.indexOf("function printWords"), syncJs.indexOf("function frame"));
+  check(printed.includes('heading.textContent = "Recovery words"') && printed.includes('createElement("ol")') && !printed.includes("svg") && !printed.includes("qr"), "print is the words only");
+}
+check(syncJs.includes("Or scan this picture") && syncJs.includes('qrNode(state.invite?.qr, "Join code")'), "linking a phone still shows the join picture");
 check(syncJs.includes("Scan QR code instead") && syncJs.includes("Use recovery words") && syncJs.includes("✓ Sync is on") && syncJs.includes("Step ${step} of 4"), "join and the first device use the new screens");
 check(css.includes(".sync-card") && css.includes(".sync-progress") && css.includes(".sync-sheet") && css.includes(".sync-words-grid"), "the setup screens use cards, a progress bar, and a phone sheet");
 check(html.includes('data-turn-on-sync') && html.includes(">Turn on sync<"), "the sidebar offers Turn on sync before setup");

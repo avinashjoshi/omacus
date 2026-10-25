@@ -3,7 +3,7 @@ import { SYNC_URL } from "./sync-config.js";
 import { beginSave, finishSave, noteLocalEdit, pagesDiffer, pollWait, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
-import { pageOrigin, parseJoinPayload, parseRecovery, takeSyncLink } from "./sync-link.mjs";
+import { pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
 import {
   activeVault,
   bookJson,
@@ -76,7 +76,6 @@ export async function mountSync(api) {
     screen: "off",
     desk: null,
     words: [],
-    qr: "",
     asks: [],
     picks: {},
     choices: {},
@@ -1149,70 +1148,6 @@ export async function mountSync(api) {
     state.video = false;
   }
 
-  async function scan() {
-    state.error = "";
-    if ("BarcodeDetector" in window && navigator.mediaDevices) {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        state.video = true;
-        draw();
-        const video = panel.querySelector("video");
-        if (video) video.srcObject = stream;
-        const detector = new BarcodeDetector({ formats: ["qr_code"] });
-        const step = async () => {
-          if (!state.video || !video) return;
-          try {
-            const codes = await detector.detect(video);
-            if (codes[0]?.rawValue) {
-              stopScan();
-              fillPhrase(codes[0].rawValue);
-              return;
-            }
-          } catch {
-            // Keep looking. A still photo is the other way.
-          }
-          loop = requestAnimationFrame(() => step());
-        };
-        await video?.play?.();
-        step();
-        return;
-      } catch {
-        stopScan();
-      }
-    }
-    panel.querySelector("[data-sync-file]")?.click();
-  }
-
-  async function scanFile(file) {
-    if (!file || !("BarcodeDetector" in window)) {
-      state.error = "This browser can't read that picture. Type the words.";
-      draw();
-      return;
-    }
-    const bitmap = await createImageBitmap(file);
-    const codes = await new BarcodeDetector({ formats: ["qr_code"] }).detect(bitmap);
-    bitmap.close?.();
-    if (!codes[0]?.rawValue) {
-      state.error = "That picture has no recovery words.";
-      draw();
-      return;
-    }
-    fillPhrase(codes[0].rawValue);
-  }
-
-  function fillPhrase(raw) {
-    const phrase = parseRecovery(raw);
-    if (phrase == null) {
-      state.error = "That picture is not recovery words.";
-      draw();
-      return;
-    }
-    state.phrase = phrase;
-    state.error = "";
-    onPhrase();
-    draw();
-  }
-
   function onPhrase() {
     state.phrase = panel.querySelector("textarea")?.value ?? state.phrase;
     const check = JSON.parse(sync.checkPhrase(state.phrase));
@@ -1240,7 +1175,6 @@ export async function mountSync(api) {
     }
     state.desk = started.id;
     state.words = started.words;
-    state.qr = started.qr;
     state.wroteWords = false;
     state.screen = "save";
     draw();
@@ -1320,7 +1254,6 @@ export async function mountSync(api) {
   function leaveFresh() {
     state.desk = null;
     state.words = [];
-    state.qr = "";
     state.error = "";
     state.screen = "off";
     draw();
@@ -1439,7 +1372,6 @@ export async function mountSync(api) {
       state.invite = null;
       state.pending = null;
       state.words = [];
-      state.qr = "";
       state.requestId = "";
       state.joinProof = "";
       state.dirty = false;
@@ -2308,12 +2240,6 @@ export async function mountSync(api) {
       ]));
     });
     words.classList.add("sync-words-grid");
-    const qr = el("div", { class: "sync-qr" });
-    const picture = qrNode(state.qr, "Recovery words");
-    if (picture) qr.append(picture);
-    qr.append(el("b", {}, ["Or scan this to recover"]));
-    qr.append(el("span", {}, ["This picture is as secret as the words."]));
-    const row = el("div", { class: "sync-key" }, [words, qr]);
     const wrote = el("input", { type: "checkbox", "data-wrote-words": "" });
     wrote.checked = !!state.wroteWords;
     const check = el("label", { class: "sync-check" }, [wrote, "I wrote these down or printed them somewhere safe."]);
@@ -2327,7 +2253,7 @@ export async function mountSync(api) {
       backLink(() => { state.wroteWords = false; leaveFresh(); }),
       el("h2", {}, ["Save your recovery words"]),
       el("p", { class: "setting-help" }, ["These 12 words are the only way back in if you lose every device. Omacus never keeps a copy, and you won't see them again."]),
-      row,
+      words,
       check,
       actionButton("I saved them", "primary", async () => {
         if (!state.wroteWords) return;
@@ -2534,8 +2460,6 @@ export async function mountSync(api) {
     });
     phrase.value = state.phrase;
     phrase.addEventListener("input", onPhrase);
-    const file = el("input", { type: "file", accept: "image/*", hidden: "", "data-sync-file": "" });
-    file.addEventListener("change", () => scanFile(file.files?.[0]));
     const bits = [el("h2", {}, ["Use your recovery words"])];
     if (state.error) {
       bits.push(el("p", { class: "sync-note", role: "alert", "data-sync-note": "" }, [plainError(state.error)]));
@@ -2557,12 +2481,9 @@ export async function mountSync(api) {
     const merged = mergeLine();
     if (merged) bits.push(el("p", { class: "setting-help" }, [merged]));
     bits.push(phrase, el("p", { class: "sync-msg", "data-sync-phrase": "", "data-ok": state.phraseOk ? "1" : "0" }, [state.phraseMsg]));
-    if (state.video) bits.push(el("video", { class: "sync-video", autoplay: "", playsinline: "" }));
     bits.unshift(backLink(() => { stopScan(); state.screen = "join-type"; draw(); }, state.busy));
     bits.push(
-      file,
       actionButton(state.busy ? "Checking the words…" : "Open my pages", "primary", () => startRecovery(), state.busy),
-      quietLinks([["Scan the paper instead", () => scan(), state.busy]]),
     );
     panel.append(...bits);
     phrase.focus();
