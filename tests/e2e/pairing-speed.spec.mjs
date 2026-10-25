@@ -205,9 +205,12 @@ test("an invite notices a join within 5 seconds", async ({ browser }) => {
     await expect(phoneA.getByRole("checkbox", { name: "I wrote these down" })).toBeVisible();
     await expect(phoneA.getByRole("button", { name: "Print" })).toBeVisible();
     await expect(phoneA.getByRole("button", { name: "Copy" })).toBeVisible();
-    const deskGrid = await phoneA.locator(".sync-words-grid").boundingBox();
-    const deskPanel = await phoneA.locator(".sync-panel").boundingBox();
-    expect(deskGrid.width).toBeGreaterThan(deskPanel.width * 0.9);
+    await expect(phoneA.locator(".sync-words-grid")).toBeVisible();
+    const deskWidths = await phoneA.locator(".sync-words-grid").evaluate((grid) => {
+      const panel = grid.closest(".sync-panel").getBoundingClientRect();
+      return { grid: grid.getBoundingClientRect().width, panel: panel.width };
+    });
+    expect(deskWidths.grid).toBeGreaterThan(deskWidths.panel * 0.9);
     const words = await phoneA.locator(".sync-word").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-word")));
     await shot(phoneA, "sync-words-desktop-light");
     await theme(phoneA, "dark");
@@ -216,10 +219,13 @@ test("an invite notices a join within 5 seconds", async ({ browser }) => {
 
     await phoneA.setViewportSize({ width: 390, height: 844 });
     await expect(phoneA.getByRole("heading", { name: "Save your recovery words" })).toBeVisible();
+    await expect(phoneA.locator(".sync-words-grid")).toBeVisible();
     await expect(phoneA.locator(".sync-panel svg")).toHaveCount(0);
-    const phoneGrid = await phoneA.locator(".sync-words-grid").boundingBox();
-    const phonePanel = await phoneA.locator(".sync-panel").boundingBox();
-    expect(phoneGrid.width).toBeGreaterThan(phonePanel.width * 0.9);
+    const phoneWidths = await phoneA.locator(".sync-words-grid").evaluate((grid) => {
+      const panel = grid.closest(".sync-panel").getBoundingClientRect();
+      return { grid: grid.getBoundingClientRect().width, panel: panel.width };
+    });
+    expect(phoneWidths.grid).toBeGreaterThan(phoneWidths.panel * 0.9);
     await shot(phoneA, "sync-words-phone-light");
     await theme(phoneA, "dark");
     await shot(phoneA, "sync-words-phone-dark");
