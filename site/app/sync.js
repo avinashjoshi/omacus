@@ -1834,38 +1834,26 @@ export async function mountSync(api) {
         }
         draw();
       }),
-      el("label", { class: "sync-field" }, [`Name this ${onPhone() ? "phone" : "computer"}`]),
-      nameField("Name this phone or computer", state.selfName, (name) => {
-        const next = name || guessDeviceName();
-        if (next === state.selfName) return;
-        state.selfName = next;
-        state.selfRev += 1;
-        saveNames();
-        if (state.member) {
-          noteLocalEdit(state);
-          armSaving();
-          schedule();
-        }
-        draw();
-      }),
     );
     const list = el("div", { class: "sync-devices" });
     if (!state.devices.length) list.append(el("p", { class: "setting-help" }, [hereCap()]));
     for (const device of state.devices) {
       const row = el("div", { class: "sync-device" });
+      if (device.self) row.setAttribute("data-self", "1");
       row.append(el("div", {}, [
         el("b", {}, [deviceTitle(device)]),
         el("span", {}, [device.self ? hereCap() : device.code]),
       ]));
+      const actions = el("div", { class: "sync-device-actions" });
+      const rename = button("Rename", { type: "button", class: "btn small" });
+      rename.addEventListener("click", () => beginRename(row, device));
+      actions.append(rename);
       if (!device.self) {
-        const actions = el("div", { class: "sync-device-actions" });
-        const rename = button("Rename", { type: "button", class: "btn small" });
-        rename.addEventListener("click", () => beginRename(row, device));
         const remove = button("Remove", { type: "button", class: "btn small" });
         remove.addEventListener("click", () => askRemove(device));
-        actions.append(rename, remove);
-        row.append(actions);
+        actions.append(remove);
       }
+      row.append(actions);
       list.append(row);
     }
     if (others) {

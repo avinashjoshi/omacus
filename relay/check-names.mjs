@@ -200,6 +200,12 @@ try {
   await pageA.locator("[data-sync-set]").waitFor({ timeout: 60000 });
   await pageA.waitForFunction(() => document.querySelector(".sync-devices")?.innerText.includes("Harbor phone"), null, { timeout: 20000 });
   await pageB.waitForFunction(() => document.querySelector(".sync-devices")?.innerText.includes("Desk"), null, { timeout: 20000 });
+  const selfRow = pageA.locator(".sync-device[data-self='1']");
+  if (await selfRow.getByRole("button", { name: "Rename" }).count() !== 1) throw new Error("this computer has no Rename");
+  if (await selfRow.getByRole("button", { name: "Remove" }).count() !== 0) throw new Error("this computer offers Remove");
+  if (await pageA.getByRole("textbox", { name: "Name this phone or computer" }).count() !== 0) {
+    throw new Error("the home screen still has its own name field");
+  }
   if (!(await pageB.locator("[data-sync-section='vault']").innerText()).includes("Trip notes")) {
     throw new Error("the other phone did not show Trip notes");
   }
@@ -212,16 +218,16 @@ try {
   await waitPuts(beforeDevice);
   await pageA.waitForFunction(() => document.querySelector(".sync-devices")?.innerText.includes("Cabin phone"), null, { timeout: 10000 });
   await pageB.waitForFunction(() => {
-    const field = document.querySelector("[aria-label='Name this phone or computer']");
-    return field?.value === "Cabin phone";
+    const row = document.querySelector(".sync-device[data-self='1']");
+    return row?.innerText.includes("Cabin phone");
   }, null, { timeout: 20000 });
   const beforeDesk = puts;
   await pageB.locator(".sync-device").filter({ hasText: "Desk" }).getByRole("button", { name: "Rename" }).click();
   await commitField(pageB, "Name for this phone or computer", "Window desk");
   await pageB.waitForFunction(() => document.querySelector(".sync-devices")?.innerText.includes("Window desk"), null, { timeout: 10000 });
   await pageA.waitForFunction(() => {
-    const field = document.querySelector("[aria-label='Name this phone or computer']");
-    return field?.value === "Window desk";
+    const row = document.querySelector(".sync-device[data-self='1']");
+    return row?.innerText.includes("Window desk");
   }, null, { timeout: 20000 });
   if (puts <= beforeDesk) throw new Error("renaming the other computer did not publish");
   if ((await titles(pageA)).length < before.length) throw new Error("renaming a phone dropped a page");

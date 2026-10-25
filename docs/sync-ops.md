@@ -90,6 +90,14 @@ npx wrangler secret put ACCESS_AUD --env production
 
 For the command line, create a service token in Access and export `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. The admin command sends those headers. It does not print them. Access adds the assertion before the request reaches the worker.
 
+## Desktop test
+
+omacus Test is a separate Mac app for trying sync at `https://sync-test.omacus.com`. It is not a release of Omacus, and it does not replace the installed app. Desktop sync in Omacus itself stays a later version.
+
+The app is named omacus Test. Its id is `dev.omacus.OmacusTest`. It does not register the `omacus://` link. Pages stay in this app's own WebKit store. They are not the pages in Omacus.
+
+The build is unsigned. On a Mac, download `omacus-test-mac.zip` from the `omacus-test-desktop` prerelease, unzip it, then right-click omacus Test, choose Open, and choose Open again. A double-click is blocked. The window opens the sync test.
+
 ## Invite codes
 
 The admin command defaults to the test host. Set `SYNC_URL` to `https://sync.omacus.com` only when you mean to change production.
