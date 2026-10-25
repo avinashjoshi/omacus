@@ -55,7 +55,28 @@ Production does not have Access yet. Create a matching Access application on `sy
 
 ## Nightly copies
 
-The buckets already exist and are bound as `BACKUPS`. The test worker uses `omacus-sync-test-backups`. The production worker uses `omacus-sync-backups`. A deploy picks up that binding. The worker copies every sealed account at 07:15 UTC and keeps 14 nights. The admin page and `admin.mjs restore` write a night back. They do not open a page.
+Point-in-time recovery on the Durable Object is the first copy. In the Cloudflare dashboard, open the `Mailboxes` namespace for the worker and turn on point-in-time recovery. Do that for the test worker and for the production worker before you rely on a night's copy.
+
+The buckets already exist and are bound as `BACKUPS`. The test worker uses `omacus-sync-test-backups`. The production worker uses `omacus-sync-backups`. A deploy picks up that binding. The worker copies every sealed account at 07:15 UTC. The copy is the sealed record, the sealed page objects, and the signed device list inside that record. It is not decrypted. The worker does not delete old nights.
+
+Keep 30 days with an R2 lifecycle rule on each bucket. Prefix `nights/`. Delete objects after 30 days.
+
+```json
+{
+  "rules": [
+    {
+      "id": "nightly-copies",
+      "enabled": true,
+      "conditions": { "prefix": "nights/" },
+      "deleteObjectsTransition": { "condition": { "maxAge": 2592000 } }
+    }
+  ]
+}
+```
+
+Add that rule on `omacus-sync-test-backups` and on `omacus-sync-backups` (R2, the bucket, Settings, Object lifecycle rules). `2592000` is 30 days in seconds.
+
+The admin page and `admin.mjs restore` write a night back through the same revision a phone uses when it saves. A phone then merges that copy with the pages it already has. One account, or every account from that day. They do not open a page.
 
 ## Cloudflare Access
 
@@ -87,6 +108,7 @@ node relay/worker/admin.mjs limits --max-accounts 10000
 node relay/worker/admin.mjs backups
 node relay/worker/admin.mjs backup
 node relay/worker/admin.mjs restore <account> --date 2026-10-25 --confirm <account>
+node relay/worker/admin.mjs restore --all --date 2026-10-25 --confirm 2026-10-25
 node relay/worker/admin.mjs delete <account> --confirm <account>
 ```
 

@@ -195,6 +195,22 @@ A PUT names the mailbox `revision` it read. Each object write names `base`:
 
 HTTP 409 means the client should read again, merge, and send only the pages that still differ. The client merges one page by merging that page's library bytes with the other copy of the same page. Two devices editing different pages do not rewrite each other's objects. Two devices editing the same page both keep their lines.
 
+A save uploads the sealed objects whose pages changed. An unchanged page keeps its object id, its content key, and its body, and is not sent again.
+
+## Members
+
+The signed device list is the member list. Each entry is a phone or computer that may open the set. A save that adds or removes a phone changes that list and keeps the same record shape. A later collaboration change adds a person by adding an entry. It does not need a new envelope.
+
+## Attachments
+
+Not in this version. An attachment will be a sealed blob in R2. The account's Durable Object is the only writer. It checks the same signature as a page write, then stores the blob under an object id. The manifest will name that id the way it names a page. The server still cannot read the blob. The nightly copy will include it once that write exists. Nothing in this version stores an attachment.
+
+## Nightly copies
+
+Point-in-time recovery on the account's Durable Object is the first copy. The nightly copy is the second. A backup store is `put`, `get`, and `list`. R2 is one store. The test uses an in-memory store of the same shape. The worker writes each sealed account under `nights/YYYY-MM-DD/accounts/{account}/`. That is the sealed record (the manifest and the signed member list) and one file per sealed page object. The index for the night is counts, sizes, and which accounts did not save. It does not hold a record or a page. The bucket lifecycle rule deletes a night after 30 days. The worker does not.
+
+Restore reads that night and writes it back through the same compare-and-swap as a PUT. The mailbox revision increases by 1. Each object from the night is created or updated. An object that was not in the night is dropped in that same commit. A phone that still has a page the night did not include sends that page on its next save, and the merge keeps one copy of each page. A page that was only in the night comes back. The restore is not a way to open a page.
+
 A device keeps a local slot per page: object id, content hash, content key, server revision, and the page's library bytes. Those slots are not uploaded. They are how the next save knows which objects to skip.
 
 ## Migration
@@ -231,4 +247,4 @@ The server cannot see recovery words, the root, a vault key, a content key, a pa
 
 The mailbox does not require Durable Objects. A `Kv` stores opaque values by string key: get, put, delete, and list by prefix. The in-memory map and a directory of files both implement it. The file layout is a mailbox header at `box/{account}` and one object file at `obj/{account}/{id}` (revision as 8 bytes, then the raw body). A second process opening that directory reads the same bytes. The worker keeps the same shape inside an account's object: the mailbox key `m:{account}`, and one key `o:{account}:{id}` per object. Tests pass an in-memory store or a file store in place of the Durable Object storage. The worker source does not import the file adapter.
 
-The worker places each account in its own object. A directory object stores invite hashes, access-code hashes, and one row per account (sizes and device counts, not page text). A config object named `index` stores the account cap, the storage cap, the device cap, and the rate limits. Production starts at 10,000 accounts, 256 MiB per account, 64 devices, and the rate numbers in the table above. The test worker starts lower. The admin page and `admin.mjs limits` can change the saved numbers. The reference server keeps the production numbers and does not read that object. Once a night the worker copies each sealed account into object storage and keeps 14 nights. Restoring writes those sealed bytes back. The copy is not a way to open a page. A join reads the invite hash and opens that account. It does not list the other accounts. There is no fixed cap of 32 accounts. An account still on the older shared object is copied into its own object the first time it is used, then removed from the shared object. The reference server keeps every account in one process and uses the same invite index.
+The worker places each account in its own object. A directory object stores invite hashes, access-code hashes, and one row per account (sizes and device counts, not page text). A config object named `index` stores the account cap, the storage cap, the device cap, and the rate limits. Production starts at 10,000 accounts, 256 MiB per account, 64 devices, and the rate numbers in the table above. The test worker starts lower. The admin page and `admin.mjs limits` can change the saved numbers. The reference server keeps the production numbers and does not read that object. Once a night the worker copies each sealed account into the backup store. Point-in-time recovery on the Durable Object is the first copy. The bucket keeps a night for 30 days. Restoring writes that night back through the same revision a phone uses when it saves. The copy is not a way to open a page. A join reads the invite hash and opens that account. It does not list the other accounts. There is no fixed cap of 32 accounts. An account still on the older shared object is copied into its own object the first time it is used, then removed from the shared object. The reference server keeps every account in one process and uses the same invite index.

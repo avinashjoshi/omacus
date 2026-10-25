@@ -1,4 +1,4 @@
-// Private sync test relay (1.0.0-beta.21) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.22) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
 // Each account lives in its own object. A directory object maps an invite
 // hash to that account, so a join does not list every account.
@@ -21,9 +21,9 @@ import {
   normalizeLimits,
   rejectSignup,
 } from "./limits.js";
-import { KEEP_NIGHTS, dayFromKey, nightOf, nightPrefix, nightsToDrop } from "./backup.js";
+import { nightOf, nightPrefix, openBackupStore } from "./backup.js";
 
-const LABEL = "1.0.0-beta.21";
+const LABEL = "1.0.0-beta.22";
 const MAX_RECORD = 256 * 1024, MAX_MANIFEST = 1024 * 1024, MAX_OBJECT = 4 * 1024 * 1024 + 64;
 const MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024, MAX_BODY = 8 * 1024 * 1024;
 const MAX_REQUESTS = 8, MAX_USES = 20;
@@ -625,6 +625,8 @@ export class Mailboxes extends DurableObject {
       }
       return [200, { accounts: [...ids].sort() }];
     }
+    const revising = /^\/v1\/internal\/revise\/([0-9a-f]{64})$/.exec(path);
+    if (method === "POST" && revising) return this.revise(revising[1], value);
     const replacing = /^\/v1\/internal\/replace\/([0-9a-f]{64})$/.exec(path);
     if (method === "POST" && replacing) {
       const account = replacing[1];
@@ -642,6 +644,60 @@ export class Mailboxes extends DurableObject {
       return [200, { ok: true }];
     }
     fail("Unknown");
+  }
+
+  // The same compare-and-swap a phone uses when it saves. The revision
+  // moves forward. Objects in the night are written. Objects that are not
+  // in the night are dropped in that same commit.
+  async revise(account, value) {
+    const record = sealed(value.record);
+    const incoming = Array.isArray(value.objects) ? value.objects : fail("Unreadable");
+    if (incoming.length > 2000) fail("Unreadable");
+    let revision = 0;
+    let written = 0;
+    await this.store.transaction(async (txn) => {
+      const current = await txn.get("m:" + account);
+      const listed = await txn.list({ prefix: `o:${account}:` });
+      const have = new Map();
+      for (const [key, row] of listed) have.set(key.slice(`o:${account}:`.length), row);
+      const writes = [];
+      const keep = new Set();
+      for (const item of incoming) {
+        const id = objectId(item && item.id);
+        if (keep.has(id)) fail("Unreadable");
+        keep.add(id);
+        const raw = fromB64(item.body);
+        if (!raw || raw.length < 40 || raw.length > MAX_OBJECT) fail("Unreadable");
+        const existing = have.get(id);
+        writes.push({
+          id,
+          base: existing ? existing.revision : 0,
+          body: String(item.body).trim(),
+          bytes: raw.length,
+        });
+      }
+      const dropping = [...have.keys()].filter((id) => !keep.has(id));
+      await applyObjects(txn, account, writes, dropping);
+      written = keep.size;
+      const invite = value.invite && typeof value.invite === "object" ? value.invite : null;
+      if (!current) {
+        const created = { revision: 1, record, requests: {}, created: Date.now() };
+        if (invite && /^[0-9a-f]{64}$/.test(invite.hash || "")) {
+          created.invite = { hash: invite.hash, expires: Number(invite.expires) || 0, used: invite.used === true };
+        }
+        await txn.put("m:" + account, created);
+        revision = 1;
+        return;
+      }
+      current.revision += 1;
+      current.record = record;
+      if (invite && /^[0-9a-f]{64}$/.test(invite.hash || "")) {
+        current.invite = { hash: invite.hash, expires: Number(invite.expires) || 0, used: invite.used === true };
+      }
+      await txn.put("m:" + account, current);
+      revision = current.revision;
+    });
+    return [200, { ok: true, revision, objects: written }];
   }
 }
 
@@ -781,17 +837,6 @@ function internalJson(path, method = "GET", body) {
   });
 }
 
-async function listKeys(bucket, prefix) {
-  const keys = [];
-  let cursor = "";
-  do {
-    const page = await bucket.list(cursor ? { prefix, cursor } : { prefix });
-    for (const object of page.objects || []) keys.push(object.key);
-    cursor = page.truncated ? page.cursor || "" : "";
-  } while (cursor);
-  return keys;
-}
-
 async function sealedAccounts(env) {
   const ids = new Set();
   for (const name of [DIRECTORY, LEGACY]) {
@@ -838,69 +883,84 @@ function snapshotBytes(mailbox, objects) {
 }
 
 export async function runBackup(env, when = Date.now()) {
-  if (!env.BACKUPS || typeof env.BACKUPS.put !== "function") return null;
+  const store = openBackupStore(env);
+  if (!store) return null;
   const day = nightOf(when);
   const prefix = nightPrefix(day);
   const accounts = [];
+  const errors = [];
   let failed = 0;
   for (const account of await sealedAccounts(env)) {
     const shot = await snapshotAccount(env, account);
     if (!shot) {
       failed += 1;
+      errors.push({ account, message: "That copy didn't save." });
+      accounts.push({ account, objects: 0, bytes: 0, ok: false });
       continue;
     }
-    await env.BACKUPS.put(`${prefix}accounts/${account}/mailbox.json`, JSON.stringify(shot.mailbox));
+    await store.put(`${prefix}accounts/${account}/mailbox.json`, JSON.stringify({
+      record: shot.mailbox.record,
+      invite: shot.mailbox.invite || null,
+    }));
     for (const object of shot.objects) {
-      await env.BACKUPS.put(
+      await store.put(
         `${prefix}accounts/${account}/objects/${object.id}.json`,
         JSON.stringify(object.row),
       );
     }
-    accounts.push({ account, objects: shot.objects.length, bytes: snapshotBytes(shot.mailbox, shot.objects) });
+    accounts.push({
+      account,
+      objects: shot.objects.length,
+      bytes: snapshotBytes(shot.mailbox, shot.objects),
+      ok: true,
+    });
   }
-  const index = { day, accounts, failed };
-  await env.BACKUPS.put(`${prefix}index.json`, JSON.stringify(index));
-  const keys = await listKeys(env.BACKUPS, "nights/");
-  const drop = new Set(nightsToDrop(keys.map(dayFromKey), KEEP_NIGHTS));
-  for (const key of keys) {
-    if (drop.has(dayFromKey(key))) await env.BACKUPS.delete(key);
-  }
+  const index = {
+    day,
+    at: when,
+    accounts,
+    failed,
+    errors,
+    status: failed === 0 ? "saved" : "incomplete",
+  };
+  await store.put(`${prefix}index.json`, JSON.stringify(index));
   return index;
 }
 
-async function readBackup(env, account, day) {
+async function readBackup(store, account, day) {
   const prefix = `${nightPrefix(day)}accounts/${account}/`;
-  const mailboxGot = await env.BACKUPS.get(`${prefix}mailbox.json`);
-  if (!mailboxGot) return null;
-  const mailbox = JSON.parse(await mailboxGot.text());
-  const keys = (await listKeys(env.BACKUPS, `${prefix}objects/`)).sort();
+  const mailboxText = await store.get(`${prefix}mailbox.json`);
+  if (!mailboxText) return null;
+  const mailbox = JSON.parse(mailboxText);
+  const keys = (await store.list(`${prefix}objects/`)).sort();
   const objects = [];
   for (const key of keys) {
     const id = key.slice(key.lastIndexOf("/") + 1).replace(/\.json$/, "");
     if (!/^[0-9a-f]{32}$/.test(id)) continue;
-    const got = await env.BACKUPS.get(key);
-    if (!got) continue;
-    objects.push({ id, row: JSON.parse(await got.text()) });
+    const text = await store.get(key);
+    if (!text) continue;
+    objects.push({ id, row: JSON.parse(text) });
   }
   return { mailbox, objects };
 }
 
 async function restoreSealed(env, account, day) {
-  const shot = await readBackup(env, account, day);
+  const store = openBackupStore(env);
+  if (!store) return null;
+  const shot = await readBackup(store, account, day);
   if (!shot || !shot.mailbox || typeof shot.mailbox.record !== "string") return null;
   const home = box(env, accountObject(account));
-  const replaced = await home.fetch(internalJson(`/v1/internal/replace/${account}`, "POST", {
-    mailbox: shot.mailbox,
-    keep: shot.objects.map((object) => object.id),
+  const revised = await home.fetch(internalJson(`/v1/internal/revise/${account}`, "POST", {
+    record: shot.mailbox.record,
+    invite: shot.mailbox.invite,
+    objects: shot.objects.map((object) => ({
+      id: object.id,
+      body: object.row && object.row.body,
+      bytes: object.row && object.row.bytes,
+    })),
   }));
-  if (!replaced.ok) return null;
-  for (const object of shot.objects) {
-    const saved = await home.fetch(internalJson(`/v1/internal/object/${account}/${object.id}`, "PUT", {
-      ...object.row,
-      replace: true,
-    }));
-    if (!saved.ok) return null;
-  }
+  if (!revised.ok) return null;
+  const body = await revised.json().catch(() => ({}));
   await box(env, LEGACY).fetch(internalJson(`/v1/internal/drop/${account}`, "POST", {}));
   const invite = shot.mailbox.invite;
   if (invite && /^[0-9a-f]{64}$/.test(invite.hash || "") && !invite.used) {
@@ -919,26 +979,65 @@ async function restoreSealed(env, account, day) {
     }));
   }
   homed.add(account);
-  return { objects: shot.objects.length };
+  return { objects: shot.objects.length, revision: body.revision };
+}
+
+function nightSummary(row) {
+  const accounts = Array.isArray(row.accounts) ? row.accounts : [];
+  const failed = Number.isInteger(row.failed) ? row.failed : accounts.filter((item) => item && item.ok === false).length;
+  return {
+    day: row.day,
+    at: Number.isInteger(row.at) ? row.at : 0,
+    accounts: accounts.length,
+    failed,
+    status: row.status === "incomplete" || failed > 0 ? "incomplete" : "saved",
+    rows: accounts.filter((item) => item && /^[0-9a-f]{64}$/.test(item.account || "")).map((item) => ({
+      account: item.account,
+      objects: item.objects || 0,
+      bytes: item.bytes || 0,
+      ok: item.ok !== false,
+    })),
+    errors: Array.isArray(row.errors) ? row.errors.filter((item) => item && /^[0-9a-f]{64}$/.test(item.account)).map((item) => ({
+      account: item.account,
+      message: "That copy didn't save.",
+    })) : [],
+  };
 }
 
 async function listBackups(env) {
-  if (!env.BACKUPS || typeof env.BACKUPS.list !== "function") return { ready: false, backups: [] };
-  const keys = (await listKeys(env.BACKUPS, "nights/")).filter((key) => key.endsWith("/index.json"));
+  const store = openBackupStore(env);
+  if (!store) return { ready: false, backups: [], last: null };
+  const keys = (await store.list("nights/")).filter((key) => key.endsWith("/index.json"));
   const backups = [];
   for (const key of keys) {
-    const got = await env.BACKUPS.get(key);
-    if (!got) continue;
-    const row = JSON.parse(await got.text());
+    const text = await store.get(key);
+    if (!text) continue;
+    let row;
+    try { row = JSON.parse(text); } catch { continue; }
     if (!row || typeof row.day !== "string") continue;
-    backups.push({
-      day: row.day,
-      accounts: Array.isArray(row.accounts) ? row.accounts.length : 0,
-      failed: Number.isInteger(row.failed) ? row.failed : 0,
-    });
+    backups.push(nightSummary(row));
   }
   backups.sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0));
-  return { ready: true, backups };
+  const newest = backups[0];
+  const last = newest ? {
+    day: newest.day,
+    at: newest.at,
+    accounts: newest.rows,
+    failed: newest.failed,
+    status: newest.status,
+    errors: newest.errors,
+  } : null;
+  return {
+    ready: true,
+    last,
+    backups: backups.map((row) => ({
+      day: row.day,
+      at: row.at,
+      accounts: row.accounts,
+      failed: row.failed,
+      status: row.status,
+    })),
+  };
 }
 
 async function adminBackups(env, method, payload) {
@@ -957,19 +1056,35 @@ async function adminBackups(env, method, payload) {
 
 async function adminRestore(env, payload) {
   const value = payload && typeof payload === "object" ? payload : {};
-  const account = String(value.account || "").trim().toLowerCase();
-  const confirm = String(value.confirm || "").trim().toLowerCase();
   const date = String(value.date || "");
+  const confirm = String(value.confirm || "").trim().toLowerCase();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json(400, { message: "That day didn't work." });
+  if (!openBackupStore(env)) return json(400, { message: "Backups are not set up." });
+  if (value.all === true) {
+    if (confirm !== date) return json(400, { message: "Type the day to confirm." });
+    const store = openBackupStore(env);
+    const text = await store.get(`${nightPrefix(date)}index.json`);
+    if (!text) return json(404, { message: "No backup from that day." });
+    let index;
+    try { index = JSON.parse(text); } catch { return json(404, { message: "No backup from that day." }); }
+    const ids = (Array.isArray(index.accounts) ? index.accounts : [])
+      .filter((row) => row && row.ok !== false && /^[0-9a-f]{64}$/.test(row.account || ""))
+      .map((row) => row.account);
+    let restored = 0;
+    let failed = 0;
+    for (const account of ids) {
+      if (await restoreSealed(env, account, date)) restored += 1;
+      else failed += 1;
+    }
+    return json(200, { ok: true, restored, failed });
+  }
+  const account = String(value.account || "").trim().toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(account) || confirm !== account) {
     return json(400, { message: "Type the account id to confirm." });
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json(400, { message: "That day didn't work." });
-  if (!env.BACKUPS || typeof env.BACKUPS.get !== "function") {
-    return json(400, { message: "Backups are not set up." });
-  }
   const restored = await restoreSealed(env, account, date);
   if (!restored) return json(404, { message: "No backup from that day." });
-  return json(200, { ok: true, objects: restored.objects });
+  return json(200, { ok: true, objects: restored.objects, revision: restored.revision });
 }
 
 function internalHeaders() {

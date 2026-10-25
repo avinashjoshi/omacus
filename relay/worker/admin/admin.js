@@ -15,7 +15,13 @@ const limitsNote = document.querySelector("[data-limits-note]");
 const backupsReady = document.querySelector("[data-backups-ready]");
 const backupButton = document.querySelector("[data-backup]");
 const backups = document.querySelector("[data-backups]");
+const backupAccounts = document.querySelector("[data-backup-accounts]");
+const backupErrors = document.querySelector("[data-backup-errors]");
 const restore = document.querySelector("[data-restore]");
+const restoreConfirm = document.querySelector("[data-restore-confirm]");
+const restoreAsk = document.querySelector("[data-restore-ask]");
+const restoreYes = document.querySelector("[data-restore-yes]");
+const restoreNo = document.querySelector("[data-restore-no]");
 const restoreNote = document.querySelector("[data-restore-note]");
 const remove = document.querySelector("[data-remove]");
 const removeNote = document.querySelector("[data-remove-note]");
@@ -156,32 +162,67 @@ function fillLimits(row) {
   }
 }
 
+function backupWhen(item) {
+  return item && item.at ? utc(item.at) : (item && item.day) || "—";
+}
+
 function renderBackups(row) {
   clear(backups);
+  clear(backupAccounts);
+  clear(backupErrors);
+  restoreConfirm.hidden = true;
   if (!row || row.ready === false) {
     backupsReady.textContent = "Backups are not set up.";
     backupButton.disabled = true;
     return;
   }
-  backupsReady.textContent = "A nightly copy of each sealed account. Restoring puts that copy back.";
   backupButton.disabled = false;
-  const list = row.backups || [];
-  if (!list.length) {
+  const last = row.last;
+  if (!last) {
+    backupsReady.textContent = "No nightly copies yet.";
     backups.append(el("p", { class: "muted" }, ["No nightly copies yet."]));
     return;
   }
+  const outcome = last.status === "saved" ? "Every account saved." : `${last.failed} didn't save.`;
+  backupsReady.textContent = `Last copy ${backupWhen(last)}. ${outcome}`;
+  const list = row.backups || [];
   const table = el("table", {}, [
-    el("thead", {}, [el("tr", {}, ["Day", "Accounts"].map((name) => el("th", {}, [name])))]),
+    el("thead", {}, [el("tr", {}, ["When", "Accounts", "Status"].map((name) => el("th", {}, [name])))]),
   ]);
   const body = el("tbody");
   for (const item of list) {
     body.append(el("tr", {}, [
-      el("td", {}, [item.day]),
+      el("td", {}, [backupWhen(item)]),
       el("td", {}, [String(item.accounts)]),
+      el("td", {}, [item.status === "saved" ? "Saved" : "Didn't save"]),
     ]));
   }
   table.append(body);
   backups.append(table);
+  const accounts = last.accounts || [];
+  if (accounts.length) {
+    const accountTable = el("table", {}, [
+      el("thead", {}, [el("tr", {}, ["Account", "Objects", "Status"].map((name) => el("th", {}, [name])))]),
+    ]);
+    const accountBody = el("tbody");
+    for (const item of accounts) {
+      accountBody.append(el("tr", {}, [
+        el("td", { class: "id" }, [item.account]),
+        el("td", {}, [String(item.objects || 0)]),
+        el("td", {}, [item.ok === false ? "Didn't save" : "Saved"]),
+      ]));
+    }
+    accountTable.append(accountBody);
+    backupAccounts.append(accountTable);
+  }
+  const problems = last.errors || [];
+  if (!problems.length) {
+    backupErrors.append(el("p", { class: "muted" }, ["No copy errors."]));
+    return;
+  }
+  const listNode = el("ul");
+  for (const item of problems) listNode.append(el("li", {}, [`${item.account} ${item.message || "That copy didn't save."}`]));
+  backupErrors.append(listNode);
 }
 
 async function refresh() {
@@ -288,22 +329,46 @@ backupButton.addEventListener("click", async () => {
   }
 });
 
-restore.addEventListener("submit", async (event) => {
+let pendingRestore = null;
+
+restore.addEventListener("submit", (event) => {
   event.preventDefault();
   const form = new FormData(restore);
   const account = String(form.get("account") || "").trim();
+  const date = String(form.get("date") || "");
+  restoreNote.textContent = "";
+  if (!date) return;
+  pendingRestore = account
+    ? { account, confirm: account, date }
+    : { all: true, confirm: date, date };
+  restoreAsk.textContent = account
+    ? `Restore the sealed copy of this account from ${date}? Phones merge it with the pages they already have.`
+    : `Restore every sealed copy from ${date}? Phones merge it with the pages they already have.`;
+  restoreConfirm.hidden = false;
+});
+
+restoreNo.addEventListener("click", () => {
+  pendingRestore = null;
+  restoreConfirm.hidden = true;
+});
+
+restoreYes.addEventListener("click", async () => {
+  if (!pendingRestore) return;
+  restoreYes.disabled = true;
   restoreNote.textContent = "";
   try {
-    await api("POST", "/v1/admin/restore", {
-      account,
-      confirm: account,
-      date: String(form.get("date") || ""),
-    });
-    restoreNote.textContent = "Sealed copy restored.";
+    const result = await api("POST", "/v1/admin/restore", pendingRestore);
+    restoreNote.textContent = pendingRestore.all
+      ? `Sealed copies restored. ${result.restored} saved.`
+      : "Sealed copy restored.";
+    pendingRestore = null;
+    restoreConfirm.hidden = true;
     restore.reset();
     await refresh();
   } catch (error) {
     restoreNote.textContent = error.message;
+  } finally {
+    restoreYes.disabled = false;
   }
 });
 

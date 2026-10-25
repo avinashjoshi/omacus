@@ -15,6 +15,7 @@
 //   node relay/worker/admin.mjs backups
 //   node relay/worker/admin.mjs backup
 //   node relay/worker/admin.mjs restore <account> --date 2026-10-25 --confirm <account>
+//   node relay/worker/admin.mjs restore --all --date 2026-10-25 --confirm 2026-10-25
 //   node relay/worker/admin.mjs delete <account> --confirm <account>
 import { fileURLToPath } from "node:url";
 import { LIMIT_FLAGS } from "./limits.js";
@@ -132,16 +133,24 @@ async function main() {
     path = "/v1/admin/backups";
     body = {};
   } else if (command === "restore") {
-    const account = argv[1] || "";
-    const confirm = flag(argv, "--confirm") || "";
     const date = flag(argv, "--date") || "";
-    if (confirm !== account || !/^[0-9a-f]{64}$/.test(account)) {
-      console.error("Type the account id to confirm.");
-      process.exit(1);
-    }
+    const confirm = flag(argv, "--confirm") || "";
     method = "POST";
     path = "/v1/admin/restore";
-    body = { account, confirm, date };
+    if (argv.includes("--all")) {
+      if (confirm !== date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        console.error("Type the day to confirm.");
+        process.exit(1);
+      }
+      body = { all: true, confirm, date };
+    } else {
+      const account = argv[1] || "";
+      if (confirm !== account || !/^[0-9a-f]{64}$/.test(account)) {
+        console.error("Type the account id to confirm.");
+        process.exit(1);
+      }
+      body = { account, confirm, date };
+    }
   } else if (command === "delete") {
     const account = argv[1] || "";
     const confirm = flag(argv, "--confirm") || "";
@@ -233,7 +242,19 @@ async function main() {
       console.log("No nightly copies yet.");
       return;
     }
-    for (const row of data.backups) console.log(`${row.day}  ${row.accounts} accounts`);
+    if (data.last) {
+      const when = data.last.at ? utc(data.last.at) : data.last.day;
+      const outcome = data.last.status === "saved" ? "Saved." : `${data.last.failed} didn't save.`;
+      console.log(`Last copy ${when}. ${outcome}`);
+      for (const row of data.last.accounts || []) {
+        console.log(`${row.account}  ${row.objects} objects  ${row.ok === false ? "Didn't save" : "Saved"}`);
+      }
+      for (const row of data.last.errors || []) console.log(`${row.account}  ${row.message}`);
+    }
+    for (const row of data.backups) {
+      const when = row.at ? utc(row.at) : row.day;
+      console.log(`${when}  ${row.accounts} accounts  ${row.status === "saved" ? "Saved" : "Didn't save"}`);
+    }
     return;
   }
   if (command === "backup") {

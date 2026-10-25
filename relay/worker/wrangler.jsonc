@@ -22,6 +22,7 @@
   "vars": { "SERVE_APP": "1", "ACCESS_TEAM_DOMAIN": "omacus.cloudflareaccess.com" },
   "triggers": { "crons": ["15 7 * * *"] },
   "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "omacus-sync-test-backups" }],
+  // Nights stay until the bucket lifecycle rule deletes them (30 days, prefix nights/).
   "durable_objects": {
     "bindings": [
       { "name": "MAILBOXES", "class_name": "Mailboxes" },

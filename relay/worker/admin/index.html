@@ -10,7 +10,7 @@
   <body>
     <main class="admin">
       <h1>Sync</h1>
-      <p class="lede">This page can pause new signups, set the limits, mint an invite code, and remove a sealed copy. It cannot open a page.</p>
+      <p class="lede">This page can pause new signups, set the limits, mint an invite code, copy a sealed account, and restore one. It cannot open a page.</p>
 
       <form class="key" data-key>
         <label>Admin key <input name="key" type="password" autocomplete="current-password" required></label>
@@ -70,15 +70,21 @@
 
         <section class="block">
           <h2>Nightly copies</h2>
-          <p data-backups-ready>A nightly copy of each sealed account. Restoring puts that copy back.</p>
+          <p data-backups-ready>A nightly copy of each sealed account. A phone merges that copy with the pages it already has.</p>
           <button class="quiet" type="button" data-backup>Copy now</button>
           <div data-backups></div>
+          <div data-backup-accounts></div>
+          <div data-backup-errors></div>
           <form class="remove" data-restore>
-            <label>Account id <input name="account" autocomplete="off" spellcheck="false" required></label>
+            <label>Account id <input name="account" autocomplete="off" spellcheck="false"> <span class="hint">Leave this empty to restore every account.</span></label>
             <label>Day <input name="date" type="date" required></label>
-            <p>Type the account id to confirm.</p>
-            <button class="danger" type="submit">Restore sealed copy</button>
+            <button class="danger" type="submit">Restore</button>
           </form>
+          <div data-restore-confirm hidden>
+            <p data-restore-ask></p>
+            <button class="danger" type="button" data-restore-yes>Restore sealed copy</button>
+            <button class="quiet" type="button" data-restore-no>Cancel</button>
+          </div>
           <p class="alert" data-restore-note role="status"></p>
         </section>
 
