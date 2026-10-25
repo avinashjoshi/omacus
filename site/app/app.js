@@ -25,6 +25,7 @@ import {
   drained as storeDrained, keys as storeKeys, persistGranted, selfTab, PREFIX, CHANNEL,
 } from "./store.js";
 import { mountSync } from "./sync.js";
+import { captureSyncLink } from "./sync-link.mjs";
 import { allocateHandle, freshLibrary, seedAction } from "./seed.js";
 import { backupEntries, mergeBackup, parseBackup, unzipNamed, zipBytes } from "./backup.js";
 
@@ -3342,6 +3343,10 @@ async function share() {
 }
 
 async function openShared() {
+  if (captureSyncLink()) {
+    if (typeof globalThis.omacusOpenSyncLink === "function") await globalThis.omacusOpenSyncLink();
+    return;
+  }
   const hash = decodeURIComponent(location.hash.slice(1));
   if (!hash) return;
   const text = shareDecode(hash);

@@ -3,6 +3,7 @@ import { SYNC_URL } from "./sync-config.js";
 import { beginSave, finishSave, noteLocalEdit, pagesDiffer, pollWait, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
+import { pageOrigin, parseJoinPayload, parseRecovery, takeSyncLink } from "./sync-link.mjs";
 import {
   activeVault,
   bookJson,
@@ -12,7 +13,7 @@ import {
   upsertVault,
 } from "./sync-vaults.mjs";
 
-const LABEL = "omacus 1.0.0-beta.41";
+const LABEL = "omacus 1.0.0-beta.42";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 const APPROVAL_POLL_MS = 4000;
@@ -204,10 +205,18 @@ export async function mountSync(api) {
     return state.screen === "approve" && !!state.pending;
   }
 
+  function freshSetup() {
+    return ["intro", "access", "save", "confirm"].includes(state.screen);
+  }
+
   function setChip(text, mode) {
     if (deviceWaiting() && mode !== "ask") {
       text = "Device waiting";
       mode = "ask";
+    }
+    if (text === "Sync paused" && freshSetup()) {
+      hideChip();
+      return;
     }
     const next = mode || "off";
     const word = text || "Synced";
@@ -1106,12 +1115,13 @@ export async function mountSync(api) {
   }
 
   function fillPhrase(raw) {
-    if (!String(raw).startsWith("omacus-recovery")) {
+    const phrase = parseRecovery(raw);
+    if (phrase == null) {
       state.error = "That picture is not recovery words.";
       draw();
       return;
     }
-    state.phrase = String(raw).replace(/^omacus-recovery\s*/, "");
+    state.phrase = phrase;
     state.error = "";
     onPhrase();
     draw();
@@ -1134,7 +1144,7 @@ export async function mountSync(api) {
     state.error = "";
     draw();
     await frame();
-    const started = JSON.parse(sync.startNew());
+    const started = JSON.parse(sync.startNew(pageOrigin()));
     state.busy = false;
     if (!started.ok) {
       state.error = plainError(started.message);
@@ -1239,6 +1249,29 @@ export async function mountSync(api) {
     draw();
   }
 
+  async function applySyncLink(link) {
+    const found = link || takeSyncLink();
+    if (!found) return;
+    api.openSettings("sync");
+    if (found.kind === "recover") {
+      state.phrase = found.secret;
+      state.error = "";
+      await openRecover();
+      onPhrase();
+      return;
+    }
+    if (found.kind === "join") {
+      const parsed = parseJoin(found.secret);
+      if (!parsed) {
+        state.screen = "join-start";
+        state.error = "That code didn't work. Check it on the other phone or computer.";
+        draw();
+        return;
+      }
+      await submitJoin(parsed.code, parsed.origin);
+    }
+  }
+
   async function openRecover() {
     stopScan();
     state.error = "";
@@ -1286,7 +1319,7 @@ export async function mountSync(api) {
     draw();
     const raw = crypto.getRandomValues(new Uint8Array(5));
     const secret = btoa(String.fromCharCode(...raw));
-    const made = JSON.parse(sync.makeInvite(state.account, syncOrigin(), secret));
+    const made = JSON.parse(sync.makeInvite(state.account, syncOrigin(), pageOrigin(), secret));
     if (!made.ok) {
       state.busy = false;
       state.error = plainError(made.message);
@@ -1357,13 +1390,10 @@ export async function mountSync(api) {
   }
 
   function parseJoin(raw) {
-    const lines = String(raw || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    if (lines[0] !== "omacus-join" || lines.length < 4) return null;
-    const origin = lines[1];
-    const account = lines[2];
-    const code = lines[3];
-    if (!/^[0-9a-f]{64}$/i.test(account) || !allowedOrigin(origin)) return null;
-    return { origin, account, code };
+    const parsed = parseJoinPayload(raw);
+    if (!parsed) return null;
+    if (!/^[0-9a-f]{64}$/i.test(parsed.account) || !allowedOrigin(parsed.origin)) return null;
+    return parsed;
   }
 
   function allowedOrigin(origin) {
@@ -1989,6 +2019,7 @@ export async function mountSync(api) {
     else if (state.screen === "off-ask") drawOffAsk();
     else if (state.screen === "ready") drawReady();
     else drawLinked();
+    if (freshSetup()) hideChip();
     refreshCue();
   }
 
@@ -2581,15 +2612,18 @@ export async function mountSync(api) {
   } finally {
     chip.dataset.ready = "1";
   }
+  globalThis.omacusOpenSyncLink = () => applySyncLink();
+  const opened = takeSyncLink();
   const wanted = new URLSearchParams(location.search).get("sync");
-  if (!state.account && wanted === "1") state.screen = "intro";
-  draw();
-  if (!state.account && (wanted === "1" || wanted === "setup")) {
+  if (!opened && !state.account && wanted === "1") state.screen = "intro";
+  if (!opened) draw();
+  if (!opened && !state.account && (wanted === "1" || wanted === "setup")) {
     api.openSettings("sync");
     const url = new URL(location.href);
     url.searchParams.delete("sync");
     history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }
+  if (opened) await applySyncLink(opened);
   runPoll();
   window.addEventListener("online", () => tick());
   window.addEventListener("offline", () => {

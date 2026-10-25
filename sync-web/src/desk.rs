@@ -234,13 +234,10 @@ impl Desk {
         self.recovery.as_ref().map(RecoveryKey::words)
     }
 
-    pub fn sheet_svg(&self) -> Result<String, SyncKeyError> {
+    pub fn sheet_svg(&self, page: &str) -> Result<String, SyncKeyError> {
         let words = self.words().ok_or(SyncKeyError::NotAKey)?;
-        let mut payload = String::from("omacus-recovery\n");
-        for (index, word) in words.iter().enumerate() {
-            payload.push_str(&format!("{}. {word}\n", index + 1));
-        }
-        qr_svg(&payload, "Recovery sheet")
+        let link = recovery_link(page, &words)?;
+        qr_svg(&link, "Recovery sheet")
     }
 
     pub fn confirm_saved(&mut self, picks: &[(u8, &str)]) -> Result<Vec<u8>, SyncKeyError> {
@@ -1628,6 +1625,41 @@ pub fn hex(bytes: &[u8]) -> String {
     out
 }
 
+pub(crate) fn recovery_link(page: &str, words: &[&str; 12]) -> Result<String, SyncKeyError> {
+    fragment_link(page, "recover", &words.join(" "))
+}
+
+pub(crate) fn join_link(
+    page: &str,
+    relay: &str,
+    account: &str,
+    code: &str,
+) -> Result<String, SyncKeyError> {
+    if relay.contains(['\n', '\r', '#'])
+        || account.contains(['\n', '\r'])
+        || code.contains(['\n', '\r'])
+    {
+        return Err(SyncKeyError::Unavailable);
+    }
+    fragment_link(
+        page,
+        "join",
+        &format!("omacus-join\n{relay}\n{account}\n{code}\n"),
+    )
+}
+
+fn fragment_link(page: &str, key: &str, secret: &str) -> Result<String, SyncKeyError> {
+    let page = page.trim().trim_end_matches('/');
+    if page.is_empty()
+        || !(page.starts_with("https://") || page.starts_with("http://"))
+        || page.contains(['#', '?', ' ', '\n', '\r'])
+    {
+        return Err(SyncKeyError::Unavailable);
+    }
+    let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(secret.as_bytes());
+    Ok(format!("{page}/#{key}={encoded}"))
+}
+
 pub(crate) fn qr_svg(payload: &str, label: &str) -> Result<String, SyncKeyError> {
     let code = QrCode::new(payload.as_bytes()).map_err(|_| SyncKeyError::Unavailable)?;
     let modules = code.width();
@@ -1662,11 +1694,81 @@ pub(crate) fn qr_svg(payload: &str, label: &str) -> Result<String, SyncKeyError>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
 
     fn start_join_confirmed() -> Desk {
         let mut desk = Desk::start_join().unwrap();
         desk.confirm_link();
         desk
+    }
+
+    #[test]
+    fn the_recovery_picture_keeps_the_words_after_the_hash() {
+        let desk = Desk::start_new().unwrap();
+        let words = desk.words().unwrap();
+        let phrase = words.join(" ");
+        let known =
+            "other contact online these service state email music product system policy number";
+        let known_token = "b3RoZXIgY29udGFjdCBvbmxpbmUgdGhlc2Ugc2VydmljZSBzdGF0ZSBlbWFpbCBtdXNpYyBwcm9kdWN0IHN5c3RlbSBwb2xpY3kgbnVtYmVy";
+        let known_words: [&str; 12] = known
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let known_link = recovery_link("https://app.omacus.com", &known_words).unwrap();
+        assert!(known_link.ends_with(known_token));
+        for page in ["https://app.omacus.com", "https://sync-test.omacus.com"] {
+            let link = recovery_link(page, &words).unwrap();
+            let (before, after) = link.split_once('#').unwrap();
+            assert_eq!(before, format!("{page}/"));
+            assert!(after.starts_with("recover="));
+            assert!(!link.contains('?'));
+            for word in words {
+                assert!(!before.contains(word));
+            }
+            let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(after.trim_start_matches("recover="))
+                .unwrap();
+            assert_eq!(String::from_utf8(decoded).unwrap(), phrase);
+            let svg = desk.sheet_svg(page).unwrap();
+            assert_eq!(svg, qr_svg(&link, "Recovery sheet").unwrap());
+            for word in words {
+                assert!(!svg.contains(word));
+            }
+            assert!(!svg.contains("omacus-recovery"));
+        }
+        assert!(desk.sheet_svg("").is_err());
+        assert!(
+            desk.sheet_svg("https://app.omacus.com/?recover=words")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn the_join_picture_keeps_the_code_after_the_hash() {
+        let account = "ab".repeat(32);
+        let code = "K7QM-4R2P";
+        let relay = "https://sync.omacus.com";
+        for page in ["https://app.omacus.com", "https://sync-test.omacus.com"] {
+            let link = join_link(page, relay, &account, code).unwrap();
+            let (before, after) = link.split_once('#').unwrap();
+            assert_eq!(before, format!("{page}/"));
+            assert!(after.starts_with("join="));
+            assert!(!before.contains(code));
+            assert!(!before.contains(&account));
+            assert!(!link.contains('?'));
+            let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(after.trim_start_matches("join="))
+                .unwrap();
+            assert_eq!(
+                String::from_utf8(decoded).unwrap(),
+                format!("omacus-join\n{relay}\n{account}\n{code}\n")
+            );
+            let svg = qr_svg(&link, "Join code").unwrap();
+            assert!(!svg.contains(code));
+            assert!(!svg.contains(&account));
+            assert!(!svg.contains("omacus-join"));
+        }
     }
 
     fn confirmed_desk() -> (Desk, Vec<u8>) {

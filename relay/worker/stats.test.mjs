@@ -186,7 +186,7 @@ function shape(stats) {
 }
 
 {
-  const started = parse(startNew());
+  const started = parse(startNew("https://sync-test.omacus.com"));
   const words = started.words;
   const saved = parse(confirmSaved(started.id, JSON.stringify([[3, words[2]], [7, words[6]], [11, words[10]]])));
   const alone = parse(deviceList(started.id));

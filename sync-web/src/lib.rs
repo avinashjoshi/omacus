@@ -79,11 +79,11 @@ pub fn check_phrase(text: &str) -> String {
 }
 
 #[wasm_bindgen(js_name = startNew)]
-pub fn start_new() -> String {
+pub fn start_new(page: &str) -> String {
     call(|| {
         let desk = Desk::start_new()?;
         let words = desk.words().ok_or(SyncKeyError::NotAKey)?;
-        let qr = desk.sheet_svg()?;
+        let qr = desk.sheet_svg(page)?;
         let id = store(desk);
         Ok(json!({
             "ok": true,
@@ -114,7 +114,7 @@ pub fn confirm_saved(id: u32, picks_json: &str) -> String {
 }
 
 #[wasm_bindgen(js_name = makeInvite)]
-pub fn make_invite(account: &str, origin: &str, secret_b64: &str) -> String {
+pub fn make_invite(account: &str, origin: &str, page: &str, secret_b64: &str) -> String {
     let account = account.trim().to_ascii_lowercase();
     let origin = origin.trim();
     if account.len() != 64
@@ -138,7 +138,9 @@ pub fn make_invite(account: &str, origin: &str, secret_b64: &str) -> String {
     let mut secret = [0u8; 5];
     secret.copy_from_slice(&secret_bytes);
     let code = invite::encode_code(&secret);
-    let payload = format!("omacus-join\n{origin}\n{account}\n{code}\n");
+    let Ok(payload) = desk::join_link(page, origin, &account, &code) else {
+        return json!({ "ok": false, "message": "Try again in a moment." }).to_string();
+    };
     let Ok(qr) = desk::qr_svg(&payload, "Join code") else {
         return json!({ "ok": false, "message": "Try again in a moment." }).to_string();
     };
@@ -798,4 +800,37 @@ fn meta_value(meta: &omacus_engine::sync_keys::SyncMeta) -> Value {
             "inVault": member.in_vault,
         })).collect::<Vec<_>>(),
     })
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::*;
+
+    #[test]
+    fn the_invite_picture_is_the_fragment_link() {
+        let account = "ab".repeat(32);
+        let secret = b64_encode(&[7, 7, 7, 7, 7]);
+        let page = "https://app.omacus.com";
+        let relay = "https://sync.omacus.com";
+        let made: serde_json::Value =
+            serde_json::from_str(&make_invite(&account, relay, page, &secret)).unwrap();
+        assert_eq!(made["ok"], true);
+        let code = made["code"].as_str().unwrap();
+        let link = desk::join_link(page, relay, &account, code).unwrap();
+        let qr = made["qr"].as_str().unwrap();
+        assert_eq!(qr, desk::qr_svg(&link, "Join code").unwrap());
+        let before = link.split_once('#').unwrap().0;
+        assert_eq!(before, "https://app.omacus.com/");
+        assert!(!before.contains(code));
+        assert!(!qr.contains(code));
+        assert!(!qr.contains(&account));
+        let test_page = "https://sync-test.omacus.com";
+        let test_made: serde_json::Value =
+            serde_json::from_str(&make_invite(&account, relay, test_page, &secret)).unwrap();
+        let test_link = desk::join_link(test_page, relay, &account, code).unwrap();
+        assert_eq!(
+            test_made["qr"].as_str().unwrap(),
+            desk::qr_svg(&test_link, "Join code").unwrap()
+        );
+    }
 }

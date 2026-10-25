@@ -56,12 +56,16 @@ if "approvalPlan" in wait:
     errors.append("the waiting screen accepts the list before the numbers are checked")
 if "confirmLink" not in accept or "approvalPlan" not in accept or "These match" not in sync:
     errors.append("These match does not check the numbers before opening")
-if '"device-name.js"' not in sw or "omacus-sync-test-14" not in sw:
+if '"device-name.js"' not in sw or "omacus-sync-test-15" not in sw:
     errors.append("the sync test cache missed the name helper")
 if "site/app/device-name.js" not in build or "./device-name.js?v=" not in build:
     errors.append("the published app missed the name helper")
-if 'const CACHE = "omacus-app-23"' not in sw:
+if 'const CACHE = "omacus-app-24"' not in sw:
     errors.append("the published app cache changed")
+if '"sync-link.mjs"' not in sw:
+    errors.append("the recovery link is not in the offline shell")
+if "site/app/sync-link.mjs" not in build or "./sync-link.mjs?v=" not in build:
+    errors.append("the published app missed the recovery link")
 if "omacus-sync-web" not in build or "omacus_sync_web.js" not in build or "omacus_sync_web_bg.wasm" not in build:
     errors.append("the published build does not ship the sync engine")
 if 'test -s "$dest/omacus_sync_web.js"' not in build or 'test -s "$dest/omacus_sync_web_bg.wasm"' not in build:

@@ -1,5 +1,43 @@
 import init, * as sync from "./pkg/omacus_sync_web.js";
 
+function decodeFragment(text) {
+  const cleaned = String(text || "").replaceAll("-", "+").replaceAll("_", "/");
+  const pad = cleaned.length % 4 === 0 ? "" : "=".repeat((4 - (cleaned.length % 4)) % 4);
+  const bin = atob(cleaned + pad);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+function recoveryPhrase(raw) {
+  const text = String(raw || "").trim();
+  if (text.startsWith("omacus-recovery")) return text.replace(/^omacus-recovery\s*/, "");
+  try {
+    const url = new URL(text);
+    if (url.search.includes("recover=")) return "";
+    if (!url.hash.startsWith("#recover=")) return "";
+    return decodeFragment(decodeURIComponent(url.hash.slice("#recover=".length).split("&")[0]));
+  } catch {
+    return "";
+  }
+}
+
+function takePageLink() {
+  const hash = location.hash || "";
+  const kind = hash.startsWith("#recover=") ? "recover" : hash.startsWith("#join=") ? "join" : "";
+  if (!kind) return null;
+  const encoded = hash.slice(kind.length + 2).split("&")[0];
+  history.replaceState(null, "", location.pathname + location.search);
+  try {
+    const secret = decodeFragment(decodeURIComponent(encoded));
+    return secret ? { kind, secret } : null;
+  } catch {
+    return null;
+  }
+}
+
+const openedLink = takePageLink();
+
 const stage = document.getElementById("stage");
 const title = document.getElementById("page-title");
 const params = new URLSearchParams(location.search);
@@ -373,7 +411,7 @@ async function makeKey() {
   state.error = "";
   render();
   await waitFrame();
-  const result = JSON.parse(sync.startNew());
+  const result = JSON.parse(sync.startNew(location.origin));
   state.busy = false;
   if (!result.ok) {
     state.error = result.message;
@@ -500,7 +538,7 @@ async function startInvite() {
   render();
   const raw = crypto.getRandomValues(new Uint8Array(5));
   const secret = btoa(String.fromCharCode(...raw));
-  const made = JSON.parse(sync.makeInvite(state.account, location.origin, secret));
+  const made = JSON.parse(sync.makeInvite(state.account, location.origin, location.origin, secret));
   if (!made.ok) {
     state.busy = false;
     state.error = made.message;
@@ -750,13 +788,14 @@ async function scan() {
 }
 
 function fillFromScan(raw) {
-  if (!raw.startsWith("omacus-recovery")) {
+  const phrase = recoveryPhrase(raw);
+  if (!phrase) {
     state.error = "That is not a recovery sheet.";
     state.screen = "recover";
     render();
     return;
   }
-  state.phrase = raw.replace(/^omacus-recovery\s*/, "");
+  state.phrase = phrase;
   state.screen = "recover";
   state.video = false;
   render();
@@ -872,6 +911,21 @@ stage.innerHTML = sheet("<h1>Loading the test…</h1>", false);
 
 Promise.all([init(), loadWordlist()])
   .then(() => {
+    if (openedLink?.kind === "recover") {
+      state.phrase = openedLink.secret;
+      show("recover");
+      onPhrase();
+      return;
+    }
+    if (openedLink?.kind === "join") {
+      const lines = openedLink.secret.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      if (lines[0] === "omacus-join" && lines[3]) {
+        state.server = lines[1] || state.server;
+        state.joinCode = lines[3];
+        show("join-type");
+        return;
+      }
+    }
     show("start");
   })
   .catch(() => {
