@@ -17,12 +17,17 @@ async function openApp(context) {
   const page = await context.newPage();
   await page.goto(base + "/?sw=1", { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForSelector(".cm-content", { timeout: 60000 });
-  await page.waitForSelector(".sync-chip", { timeout: 60000 });
+  await page.waitForFunction(() => document.querySelector(".sync-chip")?.dataset.ready === "1", null, { timeout: 60000 });
   return page;
 }
 
 async function openSync(page) {
-  await page.locator(".sync-chip").click();
+  const chip = page.locator(".sync-chip");
+  if (await chip.isVisible()) await chip.click();
+  else {
+    await page.keyboard.press("Control+,");
+    await page.locator("[data-settings-tab='sync']").click();
+  }
   await page.waitForSelector("[data-settings-panel='sync']:not([hidden])", { timeout: 10000 });
 }
 

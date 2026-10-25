@@ -122,6 +122,10 @@ check(!syncJs.includes("innerHTML") && !syncJs.includes("insertAdjacentHTML"), "
   check(chipCss.includes("width: auto") && !chipCss.includes("7.5rem") && !chipCss.includes("::before"), "the sync status sizes to its words and has no dot");
 }
 check(/@media \(max-width: 760px\) \{[\s\S]*?\.sync-chip-word \{\s*display: none;/.test(css), "a narrow phone keeps the cloud and hides the word");
+check(!html.includes("private-chip") && !html.includes('data-action="privacy"'), "the top bar has no Private pill");
+check(html.includes("Private by design") && html.includes("on this device"), "About says pages stay on this device");
+check(syncJs.includes("function hideChip") && syncJs.includes('storeGet("sync-paused")') && syncJs.includes('dataset.ready = "1"'), "a fresh copy hides sync until it is on or paused");
+check(css.includes(".sync-chip[hidden]"), "a hidden sync status stays off the bar");
 check(buildWeb.includes("site/app/layer.js"), "the published app includes the row menu placement");
 
 {
@@ -243,7 +247,7 @@ check(/\.drawer-scrim \{[^}]*z-index: 35/.test(css) && /\.bar \{[^}]*z-index: 50
 check(css.includes("clip-path: inset(50%)"), "the screen reader line stays off the page");
 check(!html.includes("Saved in this browser"), "the sidebar footer does not repeat where pages are saved");
 check(!html.includes("side-note"), "the sidebar has no privacy paragraph");
-check(html.includes("Pages stay in this browser. Nothing is uploaded."), "About says pages stay in this browser");
+check(html.includes("Pages stay in this browser, on this device. Nothing is uploaded."), "About says pages stay in this browser");
 check(html.includes("Home Screen so Safari keeps them."), "About mentions the Home Screen");
 check(html.indexOf("data-persist-note") > html.indexOf('data-settings-panel="about"'), "a refused save is explained in About");
 check(/<div class="side-foot">\s*<a class="side-version"/.test(html), "the sidebar footer is the version");
@@ -1492,6 +1496,20 @@ if (pkg) {
   });
   await navigate(`http://127.0.0.1:${port}/app/?sw=1`);
   await waitFor(`document.querySelector(".cm-content")`, 20000);
+  await waitFor(`[...document.querySelectorAll(".side-row .side-name span")].some((node) => node.textContent === "Welcome to Omacus")`, 20000);
+  const freshBar = await evalJson(`(() => {
+    const names = [...document.querySelectorAll(".side-row")].slice(0, 2).map((row) => row.querySelector(".side-name span")?.textContent || "");
+    const open = document.querySelector(".side-row[aria-current='true'] .side-name span")?.textContent || "";
+    return {
+      names,
+      open,
+      editor: document.querySelector(".cm-content")?.textContent || "",
+      privateChip: !!document.querySelector(".private-chip"),
+    };
+  })()`);
+  check(freshBar.names[0] === "Welcome to Omacus" && freshBar.names[1] === "Examples", `fresh sidebar was ${freshBar.names.join(" | ")}`);
+  check(freshBar.open === "Welcome to Omacus" && freshBar.editor.includes("Welcome to Omacus"), `welcome was not the open page (${freshBar.open})`);
+  check(freshBar.privateChip === false, "the Private pill is still in the top bar");
   await waitForAppCache();
   stopServer();
   await navigate(`http://127.0.0.1:${port}/app/?sw=1`);

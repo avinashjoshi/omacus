@@ -16,7 +16,7 @@ if (words.length !== 12) throw new Error(`fixture words ${words.length}`);
 
 const health = await fetch(relay + "/v1/health");
 const label = (await health.json()).label;
-if (label !== "1.0.0-beta.26") throw new Error(`relay label ${label}`);
+if (label !== "1.0.0-beta.27") throw new Error(`relay label ${label}`);
 
 const code = await mint("omacus-access-test-secret", 1);
 const created = await fetch(relay + "/v1/mailboxes", {
@@ -51,7 +51,7 @@ async function openApp(context) {
   watch(page);
   await page.goto(base + "/?sw=1", { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForSelector(".cm-content", { timeout: 60000 });
-  await page.waitForSelector(".sync-chip", { timeout: 60000 });
+  await page.waitForFunction(() => document.querySelector(".sync-chip")?.dataset.ready === "1", null, { timeout: 60000 });
   return page;
 }
 
@@ -61,7 +61,12 @@ async function openNamed(page, name) {
 }
 
 async function openSync(page) {
-  await page.locator(".sync-chip").click();
+  const chip = page.locator(".sync-chip");
+  if (await chip.isVisible()) await chip.click();
+  else {
+    await page.keyboard.press("Control+,");
+    await page.locator("[data-settings-tab='sync']").click();
+  }
   await page.waitForSelector("[data-settings-panel='sync']:not([hidden])", { timeout: 10000 });
 }
 

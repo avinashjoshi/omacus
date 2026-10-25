@@ -167,36 +167,6 @@ html.standalone body.app-page {
   color: var(--app-dim);
 }
 
-/* "Private": a reminder that sheets never leave this browser; a tap explains. */
-.private-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px 5px 8px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--app-dim);
-  font: 500 12.5px var(--sans);
-  cursor: pointer;
-  transition: color 0.2s, border-color 0.2s;
-}
-
-.private-chip:hover {
-  color: var(--text);
-  border-color: var(--line-2);
-}
-
-.private-chip svg {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
 .bar-actions {
   display: flex;
   align-items: center;
@@ -2360,11 +2330,6 @@ body.answers-inline .md .pill {
     outline: none;
   }
 
-  /* The top bar keeps the sheet's name; Private moves into the ⋯ menu. */
-  .private-chip {
-    display: none;
-  }
-
   .menu-list .phone-only {
     display: block;
   }
@@ -2372,14 +2337,6 @@ body.answers-inline .md .pill {
   .shared-banner {
     flex-wrap: wrap;
     gap: 8px;
-  }
-
-  .private-chip {
-    padding: 7px;
-  }
-
-  .private-chip span {
-    display: none;
   }
 
   .install-banner {
@@ -2440,6 +2397,10 @@ body.answers-inline .md .pill {
   white-space: nowrap;
   cursor: pointer;
   transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+
+.sync-chip[hidden] {
+  display: none;
 }
 
 .sync-chip svg {

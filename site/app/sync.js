@@ -4,7 +4,7 @@ import { SYNC_URL } from "./sync-config.js";
 import { beginSave, finishSave, noteLocalEdit } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 
-const LABEL = "omacus 1.0.0-beta.26";
+const LABEL = "omacus 1.0.0-beta.27";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 
@@ -38,9 +38,11 @@ export async function mountSync(api) {
     type: "button",
     class: "sync-chip",
     "data-sync-status": "",
-    "data-state": "off",
-    "aria-label": "Sync paused",
-  }, [cloudIcon("off"), el("span", { class: "sync-chip-word" }, ["Sync paused"])]);
+    "data-state": "none",
+    "data-ready": "0",
+    hidden: "",
+    "aria-label": "Set up sync",
+  });
   chip.addEventListener("click", () => api.openSettings("sync"));
   const beta = el("span", { class: "sync-beta" }, [LABEL]);
   const bar = document.querySelector(".bar");
@@ -115,10 +117,23 @@ export async function mountSync(api) {
   let saveTimer = null;
   let naming = false;
 
+  function pausedFlag() {
+    return api.storeGet("sync-paused") === "1";
+  }
+
+  function markPaused() {
+    if (api.storeSet) return api.storeSet("sync-paused", "1");
+  }
+
+  function clearPaused() {
+    if (api.storeRemove) api.storeRemove("sync-paused");
+  }
+
   function setChip(text, mode) {
     const next = mode || "off";
     const word = text || "Synced";
     const label = next === "offline" ? "Offline. Edits saved here." : word;
+    chip.hidden = false;
     if (chip.dataset.state !== next) {
       chip.replaceChildren(cloudIcon(next), el("span", { class: "sync-chip-word" }, [word]));
     } else {
@@ -131,12 +146,26 @@ export async function mountSync(api) {
     else chip.removeAttribute("title");
   }
 
+  function hideChip() {
+    chip.hidden = true;
+    chip.dataset.state = "none";
+    chip.replaceChildren();
+    chip.setAttribute("aria-label", "Set up sync");
+    chip.removeAttribute("title");
+  }
+
   function calm() {
     saveWanted = false;
     clearTimeout(saveTimer);
     saveTimer = null;
-    if (!state.member || state.removed || !state.account) setChip("Sync paused", "off");
-    else setChip("Synced", "on");
+    if (state.member && state.account) {
+      clearPaused();
+      setChip("Synced", "on");
+    } else if (!state.member || state.removed || pausedFlag()) {
+      setChip("Sync paused", "off");
+    } else {
+      hideChip();
+    }
   }
 
   function armSaving() {
@@ -735,6 +764,7 @@ export async function mountSync(api) {
     showPlaces();
     const stay = ["off", "access", "save", "confirm", "recover", "join", "join-start", "join-type", "join-scan", "approve", "remove-ask", "off-ask", "removed"];
     if (!stay.includes(state.screen)) state.screen = "removed";
+    markPaused();
     setChip("Sync paused", "off");
     if (state.screen === "removed") draw();
   }
@@ -1021,6 +1051,7 @@ export async function mountSync(api) {
     state.error = "";
     draw();
     try {
+      await markPaused();
       const gone = api.storeRemove || (() => {});
       await gone("device-file");
       await gone("sync-account");
@@ -1951,26 +1982,42 @@ export async function mountSync(api) {
   loadNames();
   showPlaces();
 
-  const stored = api.storeGet("device-file");
-  if (stored) {
-    const imported = JSON.parse(sync.importLocal(stored));
-    if (imported.ok) {
-      state.desk = imported.id;
-      state.account = imported.account;
-      state.revision = Number(api.storeGet("sync-revision") || 0);
-      state.slots = api.storeGet("sync-slots") || "[]";
-      state.screen = "linked";
-      state.member = false;
-      await refreshDevices().catch(() => {});
-      if (state.removed) {
-        state.screen = "removed";
+  try {
+    const stored = api.storeGet("device-file");
+    if (stored) {
+      const imported = JSON.parse(sync.importLocal(stored));
+      if (imported.ok) {
+        state.desk = imported.id;
+        state.account = imported.account;
+        state.revision = Number(api.storeGet("sync-revision") || 0);
+        state.slots = api.storeGet("sync-slots") || "[]";
+        state.screen = "linked";
+        state.member = false;
+        await refreshDevices().catch(() => {});
+        if (state.removed) {
+          state.screen = "removed";
+          markPaused();
+          setChip("Sync paused", "off");
+        } else if (state.member) {
+          calm();
+        } else {
+          markPaused();
+          setChip("Sync paused", "off");
+        }
+      } else if (pausedFlag()) {
+        state.member = false;
         setChip("Sync paused", "off");
-      } else if (state.member) {
-        calm();
       } else {
-        setChip("Sync paused", "off");
+        hideChip();
       }
+    } else if (pausedFlag()) {
+      state.member = false;
+      setChip("Sync paused", "off");
+    } else {
+      hideChip();
     }
+  } finally {
+    chip.dataset.ready = "1";
   }
   draw();
   if (state.account) tick();

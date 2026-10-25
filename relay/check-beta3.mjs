@@ -18,12 +18,17 @@ async function openApp(context) {
   const page = await context.newPage();
   await page.goto(base + "/?sw=1", { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForSelector(".cm-content", { timeout: 60000 });
-  await page.waitForSelector(".sync-chip", { timeout: 60000 });
+  await page.waitForFunction(() => document.querySelector(".sync-chip")?.dataset.ready === "1", null, { timeout: 60000 });
   return page;
 }
 
 async function openSync(page) {
-  await page.locator(".sync-chip").click();
+  const chip = page.locator(".sync-chip");
+  if (await chip.isVisible()) await chip.click();
+  else {
+    await page.keyboard.press("Control+,");
+    await page.locator("[data-settings-tab='sync']").click();
+  }
   await page.waitForSelector("[data-settings-panel='sync']:not([hidden])", { timeout: 10000 });
 }
 
@@ -309,11 +314,11 @@ try {
   await frame(pageA, "dark", 390, 844);
   await pageA.locator(".side-name").first().waitFor();
   const version = (await pageA.locator(".side-version").innerText()).trim();
-  if (version !== "omacus 1.0.0-beta.26") throw new Error(`version line ${version}`);
+  if (version !== "omacus 1.0.0-beta.27") throw new Error(`version line ${version}`);
   const beta = await pageA.locator(".sync-beta").innerText();
-  if (!beta.includes("1.0.0-beta.26")) throw new Error(`phone label ${beta}`);
+  if (!beta.includes("1.0.0-beta.27")) throw new Error(`phone label ${beta}`);
   const panelLabel = await removedPage.locator(".sync-label").innerText();
-  if (!panelLabel.includes("1.0.0-beta.26")) throw new Error(`panel label ${panelLabel}`);
+  if (!panelLabel.includes("1.0.0-beta.27")) throw new Error(`panel label ${panelLabel}`);
 
   console.log("sync stays on after close, a removed phone can join again, and the device list stays clear of the buttons");
 } catch (error) {

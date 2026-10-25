@@ -4,7 +4,7 @@
 
 const CACHE = "omacus-app-12";
 const SYNC_TEST = self.location.hostname === "sync-test.omacus.com";
-const CACHE_NAME = SYNC_TEST ? "omacus-sync-test-1" : CACHE;
+const CACHE_NAME = SYNC_TEST ? "omacus-sync-test-2" : CACHE;
 
 const APP_FILES = [
   "./",

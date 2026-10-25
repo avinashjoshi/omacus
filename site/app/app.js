@@ -3497,8 +3497,6 @@ async function action(name) {
     openSettings("about");
   } else if (name === "close-settings") {
     closeSettings();
-  } else if (name === "privacy") {
-    toast(privacyNote(), null, 7000);
   }
 }
 
@@ -4788,20 +4786,6 @@ function desktopMissing() {
   const small = document.createElement("small");
   small.textContent = " (0.1.10 or newer opens links)";
   span.append(small);
-  return span;
-}
-
-function privacyNote() {
-  const span = document.createElement("span");
-  const title = document.createElement("b");
-  title.textContent = "Private. ";
-  span.append(title, "Pages are saved in this browser, on this device, and never uploaded. A share link carries the page after the #, which browsers don't send to any server. ");
-  const link = document.createElement("a");
-  link.href = "https://omacus.com/privacy/";
-  link.target = "_blank";
-  link.rel = "noopener";
-  link.textContent = "Privacy";
-  span.append(link);
   return span;
 }
 

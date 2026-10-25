@@ -37,7 +37,7 @@ async function openApp(context) {
   const page = await context.newPage();
   await page.goto(base + "/?sw=1", { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForSelector(".cm-content", { timeout: 60000 });
-  await page.waitForSelector(".sync-chip", { timeout: 60000 });
+  await page.waitForFunction(() => document.querySelector(".sync-chip")?.dataset.ready === "1", null, { timeout: 60000 });
   return page;
 }
 
@@ -54,7 +54,12 @@ async function openNamed(page, name) {
 }
 
 async function openSync(page) {
-  await page.locator(".sync-chip").click();
+  const chip = page.locator(".sync-chip");
+  if (await chip.isVisible()) await chip.click();
+  else {
+    await page.keyboard.press("Control+,");
+    await page.locator("[data-settings-tab='sync']").click();
+  }
   await page.waitForSelector("[data-settings-panel='sync']:not([hidden])", { timeout: 10000 });
 }
 
@@ -359,9 +364,9 @@ await shot(pageB, "page-b-desktop-light");
 await pageA.setViewportSize({ width: 390, height: 844 });
 await pageB.setViewportSize({ width: 390, height: 844 });
 const version = (await pageA.locator(".side-version").innerText()).trim();
-if (version !== "omacus 1.0.0-beta.26") throw new Error(`version line ${version}`);
+if (version !== "omacus 1.0.0-beta.27") throw new Error(`version line ${version}`);
 const beta = await pageA.locator(".sync-beta").innerText();
-if (!beta.includes("1.0.0-beta.26")) throw new Error(`phone label ${beta}`);
+if (!beta.includes("1.0.0-beta.27")) throw new Error(`phone label ${beta}`);
 await pageA.waitForFunction(() => document.querySelector(".side")?.getBoundingClientRect().right <= 0, null, { timeout: 2000 });
 const edge = await pageA.locator(".side").evaluate((node) => {
   const style = getComputedStyle(node);

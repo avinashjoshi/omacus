@@ -43,8 +43,9 @@ export function seedAction({ pages, seeded, trash }) {
   return "examples";
 }
 
-/// The library a first launch writes. Welcome stays at the root and is the open
-/// page. Example pages sit in Examples, in the order they're read.
+/// The library a first launch writes. Welcome stays at the root, first in the
+/// sidebar, and is the open page. Example pages sit in Examples, under it,
+/// in the order they're read.
 export function freshLibrary(welcome) {
   const texts = {};
   const handles = {};
@@ -61,8 +62,8 @@ export function freshLibrary(welcome) {
   texts[welcomeId] = welcome;
   handles[welcomeId] = allocateHandle(welcome.split("\n")[0].replace(/^#\s*/, ""), taken);
   const tree = [
-    { type: "folder", id: "ex-folder", name: "Examples", collapsed: false, children },
     { type: "page", id: welcomeId },
+    { type: "folder", id: "ex-folder", name: "Examples", collapsed: false, children },
   ];
   return { tree, texts, handles, active: welcomeId, seeded: true };
 }
