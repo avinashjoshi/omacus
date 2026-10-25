@@ -2426,36 +2426,48 @@ body.answers-inline .md .pill {
 .sync-chip {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
+  flex: none;
+  gap: 6px;
   box-sizing: border-box;
-  width: 7.5rem;
+  width: auto;
   min-height: var(--hit);
-  padding: var(--space-1) var(--space-3);
+  padding: 5px 10px 5px 8px;
   border: 1px solid var(--app-line);
-  border-radius: var(--radius-pill);
+  border-radius: 999px;
   background: transparent;
   color: var(--app-dim);
   font: 500 var(--type-caption) / 1 var(--sans);
   white-space: nowrap;
   cursor: pointer;
+  transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
 }
 
-.sync-chip::before {
-  content: "";
+.sync-chip svg {
+  width: 14px;
+  height: 14px;
   flex: none;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: var(--radius-pill);
-  background: var(--app-line-strong);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.sync-chip[data-state="on"]::before {
-  background: var(--app-accent);
+.sync-chip[data-state="on"] {
+  color: var(--app-fg);
 }
 
-.sync-chip[data-state="wait"]::before {
-  background: var(--app-dim);
+.sync-chip[data-state="on"] .sync-mark {
+  stroke: var(--app-accent);
+}
+
+.sync-chip[data-state="wait"] {
+  color: var(--app-dim);
+}
+
+.sync-chip[data-state="error"] {
+  color: var(--app-danger);
+  border-color: color-mix(in srgb, var(--app-danger) 45%, var(--app-line));
 }
 
 .sync-chip:hover {
@@ -2463,9 +2475,8 @@ body.answers-inline .md .pill {
   border-color: var(--app-line-strong);
 }
 
-.sync-chip[data-state="on"] {
-  color: var(--app-fg);
-  border-color: var(--app-accent);
+.sync-chip[data-state="error"]:hover {
+  color: var(--app-danger);
 }
 
 .sync-beta {
@@ -2479,6 +2490,17 @@ body.answers-inline .md .pill {
 @media (max-width: 760px) {
   .sync-beta {
     display: block;
+  }
+
+  .sync-chip {
+    justify-content: center;
+    gap: 0;
+    min-width: var(--hit);
+    padding: var(--space-1);
+  }
+
+  .sync-chip-word {
+    display: none;
   }
 }
 

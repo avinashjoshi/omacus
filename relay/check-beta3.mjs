@@ -243,9 +243,9 @@ try {
   await pageA.locator("[data-sync-set]").waitFor({ timeout: 20000 });
 
   const removedPage = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("neither phone showed Sync off")), 22000);
+    const timer = setTimeout(() => reject(new Error("neither phone showed Sync paused")), 22000);
     for (const page of [pageB, pageC]) {
-      page.locator(".sync-chip").filter({ hasText: "Sync off" }).waitFor({ timeout: 20000 }).then(() => {
+      page.locator(".sync-chip").filter({ hasText: "Sync paused" }).waitFor({ timeout: 20000 }).then(() => {
         clearTimeout(timer);
         resolve(page);
       }, () => {});
@@ -280,7 +280,7 @@ try {
 
   await removedPage.reload({ waitUntil: "domcontentloaded" });
   await removedPage.waitForSelector(".sync-chip", { timeout: 60000 });
-  await removedPage.locator(".sync-chip").filter({ hasText: "Sync off" }).waitFor({ timeout: 20000 });
+  await removedPage.locator(".sync-chip").filter({ hasText: "Sync paused" }).waitFor({ timeout: 20000 });
   await openSync(removedPage);
   await removedPage.locator("[data-sync-removed]").waitFor({ timeout: 20000 });
 
@@ -309,11 +309,11 @@ try {
   await frame(pageA, "dark", 390, 844);
   await pageA.locator(".side-name").first().waitFor();
   const version = (await pageA.locator(".side-version").innerText()).trim();
-  if (version !== "omacus 1.0.0-beta.24") throw new Error(`version line ${version}`);
+  if (version !== "omacus 1.0.0-beta.25") throw new Error(`version line ${version}`);
   const beta = await pageA.locator(".sync-beta").innerText();
-  if (!beta.includes("1.0.0-beta.24")) throw new Error(`phone label ${beta}`);
+  if (!beta.includes("1.0.0-beta.25")) throw new Error(`phone label ${beta}`);
   const panelLabel = await removedPage.locator(".sync-label").innerText();
-  if (!panelLabel.includes("1.0.0-beta.24")) throw new Error(`panel label ${panelLabel}`);
+  if (!panelLabel.includes("1.0.0-beta.25")) throw new Error(`panel label ${panelLabel}`);
 
   console.log("sync stays on after close, a removed phone can join again, and the device list stays clear of the buttons");
 } catch (error) {

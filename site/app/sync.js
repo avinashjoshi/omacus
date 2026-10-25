@@ -4,7 +4,7 @@ import { SYNC_URL } from "./sync-config.js";
 import { beginSave, finishSave, noteLocalEdit } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 
-const LABEL = "omacus 1.0.0-beta.24";
+const LABEL = "omacus 1.0.0-beta.25";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 
@@ -34,7 +34,13 @@ export async function mountSync(api) {
   panel.className = "sync-panel";
   root.append(panel);
 
-  const chip = button("Sync off", { type: "button", class: "sync-chip", "data-sync-status": "", "data-state": "off" });
+  const chip = el("button", {
+    type: "button",
+    class: "sync-chip",
+    "data-sync-status": "",
+    "data-state": "off",
+    "aria-label": "Sync paused",
+  }, [cloudIcon("off"), el("span", { class: "sync-chip-word" }, ["Sync paused"])]);
   chip.addEventListener("click", () => api.openSettings("sync"));
   const beta = el("span", { class: "sync-beta" }, [LABEL]);
   const bar = document.querySelector(".bar");
@@ -110,25 +116,45 @@ export async function mountSync(api) {
   let naming = false;
 
   function setChip(text, mode) {
-    chip.textContent = text;
-    chip.dataset.state = mode || "off";
-    chip.setAttribute("aria-label", text || "Synced");
+    const next = mode || "off";
+    const word = text || "Synced";
+    const label = next === "offline" ? "Offline. Edits saved here." : word;
+    if (chip.dataset.state !== next) {
+      chip.replaceChildren(cloudIcon(next), el("span", { class: "sync-chip-word" }, [word]));
+    } else {
+      const span = chip.querySelector(".sync-chip-word");
+      if (span && span.textContent !== word) span.textContent = word;
+    }
+    chip.dataset.state = next;
+    chip.setAttribute("aria-label", label);
+    if (next === "offline") chip.title = "Edits saved here.";
+    else chip.removeAttribute("title");
   }
 
   function calm() {
     saveWanted = false;
     clearTimeout(saveTimer);
     saveTimer = null;
-    if (!state.member || state.removed || !state.account) setChip("Sync off", "off");
-    else setChip("", "on");
+    if (!state.member || state.removed || !state.account) setChip("Sync paused", "off");
+    else setChip("Synced", "on");
   }
 
   function armSaving() {
     if (saveWanted) return;
+    if (navigator.onLine === false) {
+      setChip("Offline", "offline");
+      return;
+    }
     saveWanted = true;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      if (saveWanted) setChip("Saving…", "wait");
+      if (!saveWanted) return;
+      if (navigator.onLine === false) {
+        saveWanted = false;
+        setChip("Offline", "offline");
+        return;
+      }
+      setChip("Syncing", "wait");
     }, 1000);
   }
 
@@ -640,7 +666,7 @@ export async function mountSync(api) {
 
   async function push() {
     if (!state.member) {
-      setChip("Sync off", "off");
+      setChip("Sync paused", "off");
       return;
     }
     const started = beginSave(state);
@@ -709,7 +735,7 @@ export async function mountSync(api) {
     showPlaces();
     const stay = ["off", "access", "save", "confirm", "recover", "join", "join-start", "join-type", "join-scan", "approve", "remove-ask", "off-ask", "removed"];
     if (!stay.includes(state.screen)) state.screen = "removed";
-    setChip("Sync off", "off");
+    setChip("Sync paused", "off");
     if (state.screen === "removed") draw();
   }
 
@@ -730,7 +756,7 @@ export async function mountSync(api) {
       if (navigator.onLine === false) {
         saveWanted = false;
         clearTimeout(saveTimer);
-        setChip("Offline", "off");
+        setChip("Offline", "offline");
       }
       const mailbox = await readMailbox();
       if (mailbox && mailbox.revision !== state.revision) {
@@ -741,7 +767,7 @@ export async function mountSync(api) {
         armSaving();
         await push();
       } else if (state.member && navigator.onLine !== false) calm();
-      else if (!state.member) setChip("Sync off", "off");
+      else if (!state.member) setChip("Sync paused", "off");
       if (state.screen === "linked" || state.screen === "invite") {
         const found = await findRequest();
         if (found) {
@@ -753,7 +779,8 @@ export async function mountSync(api) {
       saveWanted = false;
       clearTimeout(saveTimer);
       saveTimer = null;
-      setChip(error.offline || navigator.onLine === false ? "Offline" : "Not saved", "off");
+      if (error.offline || navigator.onLine === false) setChip("Offline", "offline");
+      else setChip("Not saved", "error");
     } finally {
       leading = false;
     }
@@ -1019,7 +1046,7 @@ export async function mountSync(api) {
     state.dirty = false;
     state.screen = "off";
     state.busy = false;
-    setChip("Sync off", "off");
+    setChip("Sync paused", "off");
     draw();
   }
 
@@ -1937,11 +1964,11 @@ export async function mountSync(api) {
       await refreshDevices().catch(() => {});
       if (state.removed) {
         state.screen = "removed";
-        setChip("Sync off", "off");
+        setChip("Sync paused", "off");
       } else if (state.member) {
         calm();
       } else {
-        setChip("Sync off", "off");
+        setChip("Sync paused", "off");
       }
     }
   }
@@ -1950,7 +1977,11 @@ export async function mountSync(api) {
   setInterval(() => tick(), 4000);
   window.addEventListener("online", () => tick());
   window.addEventListener("offline", () => {
-    if (state.account) setChip("Offline", "off");
+    if (!state.account) return;
+    saveWanted = false;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    setChip("Offline", "offline");
   });
   const settingsRoot = document.querySelector("[data-settings]");
   let syncShown = false;
@@ -1981,6 +2012,28 @@ export async function mountSync(api) {
     if (panel.hidden || state.screen === "join-scan" || state.video) return;
     draw();
   });
+}
+
+function cloudIcon(mode) {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const add = (d, mark) => {
+    const path = document.createElementNS(ns, "path");
+    path.setAttribute("d", d);
+    if (mark) path.setAttribute("class", "sync-mark");
+    svg.append(path);
+  };
+  add("M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z");
+  if (mode === "on") add("m9.2 13.1 1.9 1.9 3.9-4.1", true);
+  else if (mode === "offline") add("M5 19 19 5", true);
+  else if (mode === "off") add("M10.2 11.5v4M13.8 11.5v4", true);
+  else if (mode === "error") {
+    add("M12 10.4v3.4", true);
+    add("M12 16.6h.01", true);
+  }
+  return svg;
 }
 
 function el(tag, attrs = {}, kids = []) {

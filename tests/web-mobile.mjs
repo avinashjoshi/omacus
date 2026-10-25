@@ -21,6 +21,7 @@ const seed = readFileSync(join(site, "app/seed.js"), "utf8");
 const html = readFileSync(join(site, "app/index.html"), "utf8");
 const sw = readFileSync(join(site, "app/sw.js"), "utf8");
 const layerJs = readFileSync(join(site, "app/layer.js"), "utf8");
+const syncJs = readFileSync(join(site, "app/sync.js"), "utf8");
 const recover = readFileSync(join(site, "app/recover.js"), "utf8");
 const buildWeb = readFileSync(join(root, ".github/scripts/build-web.sh"), "utf8");
 const siteJs = readFileSync(join(site, "js/site.js"), "utf8");
@@ -106,6 +107,21 @@ check(html.includes("data-pick"), "a same-line conflict can ask which line to ke
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
 check(sw.includes('"layer.js"'), "the row menu placement is part of the offline shell");
+check(syncJs.includes('setChip("Synced", "on")') && !syncJs.includes('setChip("", "on")'), "a quiet sync says Synced, not an empty pill");
+check(syncJs.includes('setChip("Syncing", "wait")') && !syncJs.includes("Saving…"), "a long save says Syncing");
+{
+  const arm = syncJs.slice(syncJs.indexOf("function armSaving"), syncJs.indexOf("function guessDeviceName"));
+  check(arm.includes("1000") && arm.includes("Syncing") && arm.includes("navigator.onLine === false"), "Syncing waits about a second and stays off while offline");
+}
+check(syncJs.includes('setChip("Offline", "offline")') && syncJs.includes("Offline. Edits saved here."), "offline names the cloud and says the edits are saved here");
+check(syncJs.includes('setChip("Sync paused", "off")') && syncJs.includes('setChip("Not saved", "error")'), "paused sync and a failed save are different statuses");
+check(syncJs.includes('api.openSettings("sync")'), "tapping the status opens Sync");
+check(!syncJs.includes("innerHTML") && !syncJs.includes("insertAdjacentHTML"), "the sync status builds nodes without HTML strings");
+{
+  const chipCss = css.slice(css.indexOf(".sync-chip {"), css.indexOf(".sync-beta"));
+  check(chipCss.includes("width: auto") && !chipCss.includes("7.5rem") && !chipCss.includes("::before"), "the sync status sizes to its words and has no dot");
+}
+check(/@media \(max-width: 760px\) \{[\s\S]*?\.sync-chip-word \{\s*display: none;/.test(css), "a narrow phone keeps the cloud and hides the word");
 check(buildWeb.includes("site/app/layer.js"), "the published app includes the row menu placement");
 
 {

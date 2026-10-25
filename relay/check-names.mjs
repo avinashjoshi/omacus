@@ -111,7 +111,7 @@ async function commitField(page, label, value) {
 async function settled(page) {
   await page.waitForFunction(() => {
     const chip = document.querySelector(".sync-chip");
-    return chip?.dataset.state === "on" && chip.textContent !== "Saving…";
+    return chip?.dataset.state === "on" && chip.textContent === "Synced";
   }, null, { timeout: 20000 });
 }
 
@@ -153,7 +153,7 @@ const pageB = await openApp(contextB);
 
 try {
   const health = await (await fetch(relay + "/v1/health")).json();
-  if (health.label !== "1.0.0-beta.24") throw new Error(`relay label ${health.label}`);
+  if (health.label !== "1.0.0-beta.25") throw new Error(`relay label ${health.label}`);
 
   await openSync(pageA);
   const guessed = await pageA.getByRole("textbox", { name: "Name this phone or computer" }).inputValue();
@@ -367,7 +367,7 @@ try {
     widths.push(chip.width);
     await pageA.waitForTimeout(400);
   }
-  if (samples.some((sample) => sample.includes("Saving") || sample.includes("Saved"))) {
+  if (samples.some((sample) => sample !== "on:Synced")) {
     throw new Error(`chip flickered ${samples.join(" | ")}`);
   }
   if (new Set(widths).size !== 1) throw new Error(`chip width jumped ${widths.join(",")}`);

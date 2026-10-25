@@ -325,7 +325,7 @@ await contextA.setOffline(false);
 await contextB.setOffline(false);
 await pageA.waitForFunction(() => {
   const chip = document.querySelector(".sync-chip");
-  return chip?.dataset.state === "on" && chip.textContent !== "Saving…";
+  return chip?.dataset.state === "on" && chip.textContent === "Synced";
 }, null, { timeout: 20000 });
 await pageB.locator(".cm-content").getByText("museum = 12").waitFor({ timeout: 30000 });
 await pageA.locator(".cm-content").getByText("park = 2").waitFor({ timeout: 30000 });
@@ -340,7 +340,7 @@ await pageA.waitForFunction(() => document.querySelector(".sync-chip")?.textCont
 await contextA.setOffline(false);
 await pageA.waitForFunction(() => {
   const chip = document.querySelector(".sync-chip");
-  return chip?.dataset.state === "on" && chip.textContent !== "Saving…";
+  return chip?.dataset.state === "on" && chip.textContent === "Synced";
 }, null, { timeout: 20000 });
 
 await pageA.setViewportSize({ width: 1280, height: 800 });
@@ -359,9 +359,9 @@ await shot(pageB, "page-b-desktop-light");
 await pageA.setViewportSize({ width: 390, height: 844 });
 await pageB.setViewportSize({ width: 390, height: 844 });
 const version = (await pageA.locator(".side-version").innerText()).trim();
-if (version !== "omacus 1.0.0-beta.24") throw new Error(`version line ${version}`);
+if (version !== "omacus 1.0.0-beta.25") throw new Error(`version line ${version}`);
 const beta = await pageA.locator(".sync-beta").innerText();
-if (!beta.includes("1.0.0-beta.24")) throw new Error(`phone label ${beta}`);
+if (!beta.includes("1.0.0-beta.25")) throw new Error(`phone label ${beta}`);
 await pageA.waitForFunction(() => document.querySelector(".side")?.getBoundingClientRect().right <= 0, null, { timeout: 2000 });
 const edge = await pageA.locator(".side").evaluate((node) => {
   const style = getComputedStyle(node);
@@ -392,10 +392,10 @@ await pageA.getByRole("button", { name: "Turn sync off", exact: true }).click();
 await pageA.getByRole("heading", { name: "Turn on sync" }).waitFor();
 await both(pageA, "19-sync-off");
 await closeSettings(pageA);
-await pageA.waitForFunction(() => document.querySelector(".sync-chip")?.textContent === "Sync off");
+await pageA.waitForFunction(() => document.querySelector(".sync-chip")?.textContent === "Sync paused");
 await pageA.reload({ waitUntil: "domcontentloaded" });
 await pageA.waitForSelector(".sync-chip", { timeout: 60000 });
-await pageA.waitForFunction(() => document.querySelector(".sync-chip")?.textContent === "Sync off");
+await pageA.waitForFunction(() => document.querySelector(".sync-chip")?.textContent === "Sync paused");
 await openNamed(pageA, "Trip Budget");
 const kept = await pageA.locator(".cm-content").innerText();
 if (!kept.includes("museum = 12")) throw new Error("turning sync off removed the page");
