@@ -96,7 +96,7 @@ omacus Test is a separate Mac app for trying sync at `https://sync-test.omacus.c
 
 The app is named omacus Test. Its id is `dev.omacus.OmacusTest`. It does not register the `omacus://` link. Pages stay in this app's own WebKit store. They are not the pages in Omacus.
 
-The build is unsigned. On a Mac, download `omacus-test-mac.zip` from the `omacus-test-desktop` prerelease, unzip it, then right-click omacus Test, choose Open, and choose Open again. A double-click is blocked. The window opens the sync test.
+The build is unsigned. It runs on Apple silicon and Intel. On a Mac, download `omacus-test-mac.zip` from the `omacus-test-desktop` prerelease, unzip it, then right-click omacus Test, choose Open, and choose Open again. A double-click is blocked. The window opens the sync test.
 
 ## Invite codes
 
