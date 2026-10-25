@@ -59,6 +59,34 @@ async function syncReady(page) {
   await page.waitForFunction(() => typeof globalThis.omacusTurnOnSync === "function");
 }
 
+async function expectQuietChip(page) {
+  const chip = page.locator(".sync-chip");
+  await expect(chip).toBeHidden();
+  await expect(chip).not.toHaveText(/Sync paused/);
+}
+
+// A phone resize redraws the panel. WebKit's content quads are empty for that
+// frame, so boundingBox() is null even though the words grid is already on screen.
+async function expectWordsFill(page) {
+  await expect(page.locator(".sync-words-grid")).toBeVisible();
+  const box = await page.locator(".sync-words-grid").evaluate((grid) => {
+    const panel = grid.closest(".sync-panel").getBoundingClientRect();
+    const rect = grid.getBoundingClientRect();
+    return {
+      grid: rect.width,
+      panel: panel.width,
+      top: rect.top,
+      bottom: rect.bottom,
+      height: rect.height,
+      view: window.innerHeight,
+    };
+  });
+  expect(box.height).toBeGreaterThan(0);
+  expect(box.grid).toBeGreaterThan(box.panel * 0.9);
+  expect(box.top).toBeLessThan(box.view);
+  expect(box.bottom).toBeGreaterThan(0);
+}
+
 async function theme(page, name) {
   await page.evaluate((value) => {
     document.documentElement.dataset.appTheme = value;
@@ -162,10 +190,13 @@ test("an invite notices a join within 5 seconds", async ({ browser }) => {
     await phoneA.goto("/app/", { waitUntil: "domcontentloaded" });
     await phoneA.waitForSelector("[data-loading]", { state: "detached" });
     await syncReady(phoneA);
+    await expectQuietChip(phoneA);
     await phoneA.getByRole("button", { name: "Turn on sync" }).first().click();
     await expect(phoneA.getByRole("heading", { name: "How sync works" })).toBeVisible();
+    await expectQuietChip(phoneA);
     await phoneA.getByRole("button", { name: "Set up sync" }).click();
     await expect(phoneA.getByRole("heading", { name: "Turn on sync" })).toBeVisible();
+    await expectQuietChip(phoneA);
     await expect(phoneA.getByText("Start fresh and keep these pages in sync from here.")).toBeVisible();
     await expect(phoneA.getByRole("textbox", { name: "Name this phone or computer" })).toHaveCount(0);
     await shot(phoneA, "sync-choice-desktop-light");
@@ -205,12 +236,8 @@ test("an invite notices a join within 5 seconds", async ({ browser }) => {
     await expect(phoneA.getByRole("checkbox", { name: "I wrote these down" })).toBeVisible();
     await expect(phoneA.getByRole("button", { name: "Print" })).toBeVisible();
     await expect(phoneA.getByRole("button", { name: "Copy" })).toBeVisible();
-    await expect(phoneA.locator(".sync-words-grid")).toBeVisible();
-    const deskWidths = await phoneA.locator(".sync-words-grid").evaluate((grid) => {
-      const panel = grid.closest(".sync-panel").getBoundingClientRect();
-      return { grid: grid.getBoundingClientRect().width, panel: panel.width };
-    });
-    expect(deskWidths.grid).toBeGreaterThan(deskWidths.panel * 0.9);
+    await expectWordsFill(phoneA);
+    await expectQuietChip(phoneA);
     const words = await phoneA.locator(".sync-word").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-word")));
     await shot(phoneA, "sync-words-desktop-light");
     await theme(phoneA, "dark");
@@ -219,13 +246,9 @@ test("an invite notices a join within 5 seconds", async ({ browser }) => {
 
     await phoneA.setViewportSize({ width: 390, height: 844 });
     await expect(phoneA.getByRole("heading", { name: "Save your recovery words" })).toBeVisible();
-    await expect(phoneA.locator(".sync-words-grid")).toBeVisible();
     await expect(phoneA.locator(".sync-panel svg")).toHaveCount(0);
-    const phoneWidths = await phoneA.locator(".sync-words-grid").evaluate((grid) => {
-      const panel = grid.closest(".sync-panel").getBoundingClientRect();
-      return { grid: grid.getBoundingClientRect().width, panel: panel.width };
-    });
-    expect(phoneWidths.grid).toBeGreaterThan(phoneWidths.panel * 0.9);
+    await expectWordsFill(phoneA);
+    await expectQuietChip(phoneA);
     await shot(phoneA, "sync-words-phone-light");
     await theme(phoneA, "dark");
     await shot(phoneA, "sync-words-phone-dark");

@@ -157,6 +157,7 @@ test("turning sync off drops this phone from the other list within one poll", as
     await phoneB.getByRole("button", { name: "Turn sync off", exact: true }).click();
     await expect(phoneB.getByRole("heading", { name: "Turn on sync" })).toBeVisible({ timeout: 20000 });
     await expect(phoneB.locator(".sync-chip")).toBeHidden();
+    await expect(phoneB.locator(".sync-chip")).not.toHaveText(/Sync paused/);
     await expect(phoneB.locator("[data-turn-on-sync]").first()).toBeVisible();
     await expect(phoneB.locator(".cm-content")).toContainText("ferry = 40");
     await shot(phoneB, "turn-off-quiet-light");
