@@ -77,6 +77,8 @@ struct Request {
     created: u64,
     /// The last time the joining phone asked if it was approved.
     last_seen: u64,
+    /// The invite this request spent. A stale pending request gives that code back.
+    invite_hash: [u8; 32],
 }
 
 struct Invite {
@@ -714,7 +716,7 @@ impl Store {
                 .get(&account)
                 .and_then(|mailbox| mailbox.invite.as_ref())
             {
-                Some(invite) => invite.used || invite.hash != hash,
+                Some(invite) => invite.hash != hash,
                 None => true,
             };
             if drop_index {
@@ -750,10 +752,10 @@ impl Store {
                     proof: given.to_vec(),
                     created: now,
                     last_seen: now,
+                    invite_hash: hash,
                 },
             );
         }
-        self.invites.remove(&hash);
         Ok((account, id))
     }
 
@@ -985,6 +987,26 @@ impl Store {
         mailbox
             .requests
             .retain(|_, request| request.created.saturating_add(INVITE_MS) > now);
+        let Some(hash) = mailbox
+            .invite
+            .as_ref()
+            .filter(|invite| invite.used)
+            .map(|invite| invite.hash)
+        else {
+            return;
+        };
+        let live = mailbox.requests.values().any(|request| {
+            request.state == State::Pending && waiting(request, now) && request.invite_hash == hash
+        });
+        if live {
+            return;
+        }
+        let stale = mailbox.requests.values().any(|request| {
+            request.state == State::Pending && !waiting(request, now) && request.invite_hash == hash
+        });
+        if stale && let Some(invite) = mailbox.invite.as_mut() {
+            invite.used = false;
+        }
     }
 
     fn request_mut(&mut self, account: &str, id: &str) -> Result<&mut Request, StoreError> {
@@ -1227,6 +1249,7 @@ fn mailbox_bytes(mailbox: &Mailbox) -> Vec<u8> {
                 "proof": b64(&request.proof),
                 "created": request.created,
                 "last_seen": request.last_seen,
+                "invite_hash": hex_bytes(&request.invite_hash),
             })
         })
         .collect();
@@ -1271,6 +1294,11 @@ fn mailbox_from(bytes: &[u8]) -> Option<Mailbox> {
                 proof: from_b64(row.get("proof")?.as_str()?)?,
                 created: row.get("created")?.as_u64()?,
                 last_seen: row.get("last_seen").and_then(Value::as_u64).unwrap_or(0),
+                invite_hash: row
+                    .get("invite_hash")
+                    .and_then(Value::as_str)
+                    .and_then(|text| hex_array(text).ok())
+                    .unwrap_or([0u8; 32]),
             },
         );
     }
@@ -1406,7 +1434,10 @@ mod tests {
         store.invites.insert(hash, second.clone());
         let (found, _) = store.join(&code, device, "Kitchen", &mac).unwrap();
         assert_eq!(found, second);
-        assert!(!store.invites.contains_key(&hash));
+        assert!(
+            store.invites.contains_key(&hash),
+            "a join keeps the code findable until it expires"
+        );
     }
 
     #[test]
@@ -1659,6 +1690,44 @@ mod tests {
         let rows = store.pending(&account).unwrap();
         assert_eq!(rows[0].name, "Harbor phone");
         store.approve(&account, &id, chain, wrap).unwrap();
+    }
+
+    #[test]
+    fn a_code_works_again_after_the_phone_stops_waiting() {
+        let mut store = Store::new();
+        let account = account();
+        store.create(&account, record()).unwrap();
+        let device = vec![9u8; 80];
+        let secret = [9u8, 2, 2, 2, 2];
+        let id = arrive(
+            &mut store,
+            &account,
+            60_000,
+            secret,
+            &device,
+            "Harbor phone",
+        );
+        store.set_now(60_000 + super::HEARTBEAT_MS);
+        assert!(store.pending(&account).unwrap().is_empty());
+        let code = invite::encode_code(&secret);
+        let mac = invite::proof(&secret, &device);
+        let (found, again) = store
+            .join(&code, device, "Harbor phone", &mac)
+            .expect("the same code works after the phone stops waiting");
+        assert_eq!(found, account);
+        assert_ne!(again, id);
+        assert_eq!(
+            store
+                .approve(
+                    &account,
+                    &id,
+                    b"OMACUS-DEVICES/1old".to_vec(),
+                    b"wrap".to_vec(),
+                )
+                .unwrap_err(),
+            StoreError::Waiting
+        );
+        assert_eq!(store.pending(&account).unwrap()[0].id, again);
     }
 
     fn sample_object(id: &str, body: Vec<u8>) -> ObjectWrite {

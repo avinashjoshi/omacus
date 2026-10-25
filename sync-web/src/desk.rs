@@ -939,12 +939,22 @@ impl Desk {
     }
 
     fn adopt_view(&mut self, view: ServerView) {
+        self.note_opened_seal(&view.page);
         self.epoch = view.epoch;
         self.account = Some(view.account);
         self.phrase_wrap = view.phrase_wrap;
         self.wraps = view.device_wraps;
         self.sealed_page = view.page;
         self.chain = Some(view.chain);
+    }
+
+    /// The next seal continues from a manifest this phone has opened.
+    /// A new desk starts at zero, so without this the first save is older
+    /// than the copy it just read.
+    fn note_opened_seal(&mut self, stored: &[u8]) {
+        if let Some(generation) = sync_keys::manifest_seal_generation(stored) {
+            self.seen_gen = self.seen_gen.max(generation);
+        }
     }
 
     fn note_recovery(&mut self, public: Option<[u8; 32]>) {
@@ -1039,6 +1049,7 @@ impl Desk {
                 return Err(SyncKeyError::Sealed);
             }
         }
+        self.note_opened_seal(&view.page);
         self.epoch = view.epoch;
         self.account = Some(view.account);
         self.phrase_wrap = view.phrase_wrap;
@@ -1977,6 +1988,153 @@ mod tests {
                 .unwrap()
                 .0
         );
+    }
+
+    fn record_generation(record: &[u8]) -> u64 {
+        let view = ServerView::parse(record).unwrap();
+        sync_keys::manifest_seal_generation(&view.page).expect("a manifest generation")
+    }
+
+    fn push_objects(
+        into: &mut Vec<omacus_engine::sync_objects::Incoming>,
+        objects: &[omacus_engine::sync_objects::Outgoing],
+    ) {
+        for object in objects {
+            let revision = object.base.saturating_add(1);
+            if let Some(existing) = into.iter_mut().find(|item| item.id == object.id) {
+                existing.revision = revision;
+                existing.body = object.body.clone();
+            } else {
+                into.push(omacus_engine::sync_objects::Incoming {
+                    id: object.id,
+                    revision,
+                    body: object.body.clone(),
+                });
+            }
+        }
+    }
+
+    fn with_line(packed: &[u8], line: &str) -> Vec<u8> {
+        let mut set = omacus_engine::sync_keys::PageSet::from_bytes(packed).unwrap();
+        for page in &mut set.pages {
+            if !page.1.contains(line) {
+                page.1.push_str(line);
+            }
+        }
+        set.to_bytes().unwrap()
+    }
+
+    fn page_has(packed: &[u8], line: &str) -> bool {
+        omacus_engine::sync_keys::PageSet::from_bytes(packed)
+            .unwrap()
+            .pages
+            .iter()
+            .any(|(_, text)| text.contains(line))
+    }
+
+    /// Approve, then the new phone saves, then the first phone opens that save.
+    /// A reload of the new phone, and a later phone after a removal, do the same.
+    #[test]
+    fn a_new_phones_first_save_opens_on_the_approver() {
+        let (mut founder, _) = confirmed_desk();
+        let first = founder.seal_library(&trip_pages(), &[]).unwrap();
+        let mut joiner = start_join_confirmed();
+        let approval = founder.approve_new(&joiner.public_device()).unwrap();
+        let published_plan = founder.seal_library(&trip_pages(), &first.slots).unwrap();
+        let published = founder.library_record().unwrap();
+        let published_gen = record_generation(&published);
+        assert!(
+            published_gen >= 2,
+            "the approver was still on the first seal"
+        );
+        let mut bodies = Vec::new();
+        push_objects(&mut bodies, &first.objects);
+        push_objects(&mut bodies, &published_plan.objects);
+
+        joiner
+            .approval_plan(&approval.chain, &approval.wrap, &published)
+            .expect("the approved copy opens");
+        let (packed, slots) = joiner.approval_finish(&published, &bodies).unwrap();
+        let mut joiner = Desk::import_local(&joiner.export_local().unwrap()).unwrap();
+        let saved_plan = joiner
+            .seal_library(&with_line(&packed, "bread\n"), &slots)
+            .unwrap();
+        let saved = joiner.library_record().unwrap();
+        assert!(
+            record_generation(&saved) > published_gen,
+            "the new phone sealed an older copy"
+        );
+        let mut saved_bodies = Vec::new();
+        push_objects(&mut saved_bodies, &saved_plan.objects);
+        let opened = founder
+            .open_library(&saved, &saved_bodies, &published_plan.slots, &[])
+            .expect("the approver opens the new phone's first save");
+        assert!(page_has(&opened.packed, "bread"));
+
+        let joiner_id = *joiner.device().public().id();
+        founder.remove_listed(&joiner_id).unwrap();
+        let fresh = founder.seal_library(&opened.packed, &[]).unwrap();
+        let mut again = start_join_confirmed();
+        let approval = founder.approve_new(&again.public_device()).unwrap();
+        let republished = founder.seal_library(&opened.packed, &fresh.slots).unwrap();
+        let record = founder.library_record().unwrap();
+        let mut again_bodies = Vec::new();
+        push_objects(&mut again_bodies, &fresh.objects);
+        push_objects(&mut again_bodies, &republished.objects);
+        again
+            .approval_plan(&approval.chain, &approval.wrap, &record)
+            .expect("a phone that joins after a removal opens the copy");
+        let (packed, slots) = again.approval_finish(&record, &again_bodies).unwrap();
+        let later_plan = again
+            .seal_library(&with_line(&packed, "harbor\n"), &slots)
+            .unwrap();
+        let later = again.library_record().unwrap();
+        assert!(record_generation(&later) > record_generation(&record));
+        let mut later_bodies = Vec::new();
+        push_objects(&mut later_bodies, &later_plan.objects);
+        let seen = founder
+            .open_library(&later, &later_bodies, &republished.slots, &[])
+            .expect("the approver opens the save from the phone that joined again");
+        assert!(page_has(&seen.packed, "harbor"));
+    }
+
+    #[test]
+    fn a_recovery_phones_first_save_opens_on_the_other_phone() {
+        let mut founder = Desk::start_new().unwrap();
+        let words = founder.words().unwrap();
+        let phrase = words.join(" ");
+        let picks: Vec<(u8, &str)> = CONFIRM_AT
+            .into_iter()
+            .map(|n| (n, words[n as usize - 1]))
+            .collect();
+        founder.confirm_saved(&picks).unwrap();
+        let plan = founder.seal_library(&trip_pages(), &[]).unwrap();
+        let record = founder.library_record().unwrap();
+        let opened_gen = record_generation(&record);
+        let mut bodies = Vec::new();
+        push_objects(&mut bodies, &plan.objects);
+
+        let mut phone = Desk::start_recovery(&phrase).unwrap();
+        phone.accept_phrase().unwrap();
+        let peeked = phone.recovery_peek(&record).unwrap();
+        assert!(!peeked.partial, "the words did not open the newest copy");
+        assert!(!peeked.legacy);
+        let (packed, slots) = phone.recovery_apply(&record, &bodies).unwrap();
+        let mut phone = Desk::import_local(&phone.export_local().unwrap()).unwrap();
+        let saved_plan = phone
+            .seal_library(&with_line(&packed, "bread\n"), &slots)
+            .unwrap();
+        let saved = phone.library_record().unwrap();
+        assert!(
+            record_generation(&saved) > opened_gen,
+            "the recovery phone sealed an older copy"
+        );
+        let mut saved_bodies = Vec::new();
+        push_objects(&mut saved_bodies, &saved_plan.objects);
+        let opened = founder
+            .open_library(&saved, &saved_bodies, &plan.slots, &[])
+            .expect("the other phone opens the recovery phone's first save");
+        assert!(page_has(&opened.packed, "bread"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-// Private sync test relay (1.0.0-beta.36) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.37) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
 // Each account lives in its own object. A directory object maps an invite
 // hash to that account, so a join does not list every account.
@@ -35,7 +35,7 @@ import {
 } from "./limits.js";
 import { nightOf, nightPrefix, openBackupStore } from "./backup.js";
 
-const LABEL = "1.0.0-beta.36";
+const LABEL = "1.0.0-beta.37";
 const MAX_RECORD = 256 * 1024, MAX_MANIFEST = 1024 * 1024, MAX_OBJECT = 4 * 1024 * 1024 + 64;
 const MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024, MAX_BODY = 8 * 1024 * 1024;
 const MAX_REQUESTS = 8, MAX_USES = 20;
@@ -82,6 +82,13 @@ function dropExpired(m, now) {
     const created = Number.isInteger(request.created) ? request.created : 0;
     if (created + INVITE_MS <= now) delete m.requests[id];
   }
+  // A phone that stops waiting gives the code back. A phone that is still
+  // waiting, or one that was already approved, keeps the code spent.
+  const invite = m.invite;
+  if (!invite || !invite.used || typeof invite.hash !== "string") return;
+  const pending = Object.values(m.requests).filter((request) => request.state === "pending" && request.inviteHash === invite.hash);
+  const live = pending.some((request) => stillWaiting(request, now));
+  if (!live && pending.some((request) => !stillWaiting(request, now))) invite.used = false;
 }
 function seenAt(request) {
   if (Number.isInteger(request.lastSeen) && request.lastSeen > 0) return request.lastSeen;
@@ -571,12 +578,12 @@ export class Mailboxes extends DurableObject {
       const account = indexed && typeof indexed.account === "string" ? indexed.account : "";
       const mailbox = /^[0-9a-f]{64}$/.test(account) ? await txn.get("m:" + account) : null;
       const invite = mailbox && mailbox.invite;
-      if (!mailbox || !invite || invite.used || !(invite.expires > now) || invite.hash !== hash) fail("BadInvite");
+      if (!mailbox || !invite || !(invite.expires > now) || invite.hash !== hash) fail("BadInvite");
       dropExpired(mailbox, now);
+      if (mailbox.invite.used) fail("BadInvite");
       const pending = Object.values(mailbox.requests).filter((request) => request.state === "pending").length;
       if (pending >= MAX_REQUESTS) fail("Full");
       mailbox.invite.used = true;
-      await txn.delete("i:" + hash);
       mailbox.requests[id] = {
         device: btoa(String.fromCharCode(...device)),
         name: cleanName(typeof v.name === "string" ? v.name : ""),
@@ -584,6 +591,7 @@ export class Mailboxes extends DurableObject {
         chain: "",
         wrap: "",
         proof,
+        inviteHash: hash,
         created: now,
         lastSeen: now,
       };

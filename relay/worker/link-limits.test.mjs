@@ -210,6 +210,10 @@ const saved = await makeRecord(first.joiner, "bread", 2, liveChain);
 const put = await authed(first.joiner, "PUT", `/v1/mailboxes/${account}`, { revision, record: saved });
 assert(put.status === 200, `first save ${put.status} ${put.raw}`);
 revision = put.json.revision;
+const arrived = await authed(phones[0], "GET", `/v1/mailboxes/${account}`);
+assert(arrived.status === 200, `approver read ${arrived.status} ${arrived.raw}`);
+assert(arrived.json.record === saved, "the new phone's first save did not arrive");
+assert(arrived.json.revision === revision, `approver revision ${arrived.json.revision}`);
 await removeJoined(first.joiner);
 
 // A phone that stops polling cannot be approved, and the typed name stays stored.
@@ -227,6 +231,14 @@ assert(refused.json.message === "That phone or computer stopped waiting.", refus
 const kept = await storage.get("m:" + account);
 assert(kept.requests[parked.id].state === "pending", "the abandoned request was approved");
 assert(kept.requests[parked.id].name === "Harbor phone", "the typed name was dropped");
+const reused = await call("POST", "/v1/join", {
+  code: encodeCode(parked.secret),
+  device: b64(parked.rawDevice),
+  name: "Harbor phone",
+  proof: parked.proof,
+});
+assert(reused.status === 201, `abandoned code ${reused.status} ${reused.raw}`);
+assert(reused.json.id !== parked.id, "the abandoned request was reused");
 
 // Fill the read cap, then a later poll still reaches the approval.
 clock += 60_000;

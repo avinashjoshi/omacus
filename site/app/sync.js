@@ -12,7 +12,7 @@ import {
   upsertVault,
 } from "./sync-vaults.mjs";
 
-const LABEL = "omacus 1.0.0-beta.36";
+const LABEL = "omacus 1.0.0-beta.37";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 const APPROVAL_POLL_MS = 4000;
@@ -899,6 +899,15 @@ export async function mountSync(api) {
     }
   }
 
+  async function noticeJoin() {
+    if (state.screen !== "linked" && state.screen !== "invite") return;
+    const found = await findRequest();
+    if (found) {
+      state.screen = "approve";
+      draw();
+    }
+  }
+
   async function follow() {
     leading = true;
     try {
@@ -922,13 +931,7 @@ export async function mountSync(api) {
       } else if (state.member && navigator.onLine !== false) calm();
       else if (state.removed || pausedFlag()) setChip("Sync paused", "off");
       else if (navigator.onLine !== false) hideChip();
-      if (state.screen === "linked" || state.screen === "invite") {
-        const found = await findRequest();
-        if (found) {
-          state.screen = "approve";
-          draw();
-        }
-      }
+      await noticeJoin();
     } catch (error) {
       saveWanted = false;
       clearTimeout(saveTimer);
@@ -940,6 +943,11 @@ export async function mountSync(api) {
         state.saveError = plainError(error.message);
         setChip("Not saved", "error");
         if ((state.screen === "linked" || state.screen === "invite") && !panel.hidden) draw();
+      }
+      try {
+        await noticeJoin();
+      } catch {
+        // The save already failed. The next poll looks for a join again.
       }
     } finally {
       leading = false;

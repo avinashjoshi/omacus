@@ -56,11 +56,11 @@ if "approvalPlan" in wait:
     errors.append("the waiting screen accepts the list before the numbers are checked")
 if "confirmLink" not in accept or "approvalPlan" not in accept or "These match" not in sync:
     errors.append("These match does not check the numbers before opening")
-if '"device-name.js"' not in sw or "omacus-sync-test-9" not in sw:
+if '"device-name.js"' not in sw or "omacus-sync-test-10" not in sw:
     errors.append("the sync test cache missed the name helper")
 if "site/app/device-name.js" not in build or "./device-name.js?v=" not in build:
     errors.append("the published app missed the name helper")
-if 'const CACHE = "omacus-app-18"' not in sw:
+if 'const CACHE = "omacus-app-19"' not in sw:
     errors.append("the published app cache changed")
 if "omacus-sync-web" not in build or "omacus_sync_web.js" not in build or "omacus_sync_web_bg.wasm" not in build:
     errors.append("the published build does not ship the sync engine")
@@ -72,6 +72,11 @@ if "site/app/sync-vaults.mjs" not in build or "./sync-vaults.mjs?v=" not in buil
     errors.append("the published app missed the vault list")
 calm = sync[sync.index("function calm("):sync.index("function armSaving(")]
 follow = sync[sync.index("async function follow("):sync.index("function nextPoll(")]
+notice = sync[sync.index("async function noticeJoin("):sync.index("async function follow(")]
+if "findRequest()" not in notice:
+    errors.append("a waiting phone is not noticed")
+if "noticeJoin()" not in follow[follow.index("} catch"):]:
+    errors.append("a save error stops this phone from seeing a join")
 if "!state.member" in calm or "else if (!state.member)" in follow:
     errors.append("a phone that is not on the list says Sync paused")
 if "setInterval(() => tick(), 4000)" in sync or "pollWait" not in sync:

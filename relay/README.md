@@ -1,6 +1,6 @@
 # Private sync test
 
-This is a private test, labeled 1.0.0-beta.36. This repository does not deploy it. Hosting for the test and for production is in `docs/sync-ops.md`.
+This is a private test, labeled 1.0.0-beta.37. This repository does not deploy it. Hosting for the test and for production is in `docs/sync-ops.md`.
 
 The server keeps sealed copies of pages. It cannot open them. The words stay on the device.
 
