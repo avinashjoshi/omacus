@@ -82,6 +82,57 @@ async function shot(page, name) {
   await page.screenshot({ path: `${SHOTS}/${name}.png` });
 }
 
+async function expectJoinLayout(page) {
+  await expect(page.getByRole("heading", { name: "Join your synced pages" })).toBeVisible();
+  await expect(page.getByText("Scan the QR code it shows, or type the code.")).toBeVisible();
+  await expect(page.getByPlaceholder("K7QM-4R2P")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Scan QR code" })).toBeVisible();
+  await expect(page.getByText("8 characters · or tap the scan button to scan the QR code")).toBeVisible();
+  await expect(page.getByText("Lost your other devices?")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Use recovery words" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Join", exact: true })).toBeVisible();
+  await expect(page.locator(".sync-panel .sync-links")).toHaveCount(0);
+  const phone = await page.evaluate(() => matchMedia("(max-width: 760px)").matches);
+  await expect(page.getByText(phone
+    ? "Pages already on this phone will be combined with your synced pages. Nothing is deleted."
+    : "Pages already on this computer will be combined with your synced pages. Nothing is deleted.")).toBeVisible();
+  const layout = await page.evaluate(() => {
+    const rect = (node) => {
+      const box = node.getBoundingClientRect();
+      return { x: box.x, y: box.y, right: box.right, width: box.width, height: box.height };
+    };
+    return {
+      card: rect(document.querySelector(".settings-card")),
+      h2: getComputedStyle(document.querySelector(".sync-panel h2")).marginTop,
+      input: rect(document.querySelector(".sync-join-input")),
+      scan: rect(document.querySelector(".sync-scan")),
+      recover: rect(document.querySelector(".sync-recover")),
+      back: rect(document.querySelector(".sync-back")),
+      heading: rect(document.querySelector(".sync-panel h2")),
+      help: rect(document.querySelector(".sync-panel .setting-help")),
+      hint: rect(document.querySelector(".sync-hint")),
+      name: rect(document.querySelector(".sync-panel input.sync-name:not(.sync-join-input)")),
+      join: rect(document.querySelector(".sync-actions .btn.primary")),
+    };
+  });
+  expect(layout.h2).toBe("8px");
+  expect(layout.back.y).toBeLessThan(layout.heading.y);
+  expect(layout.heading.y).toBeLessThan(layout.help.y);
+  expect(layout.help.y).toBeLessThan(layout.input.y);
+  expect(layout.input.y).toBeLessThan(layout.hint.y);
+  expect(layout.hint.y).toBeLessThan(layout.recover.y);
+  expect(layout.recover.y).toBeLessThan(layout.name.y);
+  expect(layout.name.y).toBeLessThan(layout.join.y);
+  expect(layout.scan.x).toBeGreaterThan(layout.input.x + layout.input.width - 2);
+  expect(layout.scan.width).toBeGreaterThan(44);
+  expect(layout.scan.width).toBeLessThan(48);
+  expect(layout.scan.height).toBeGreaterThan(44);
+  expect(layout.scan.height).toBeLessThan(48);
+  expect(layout.scan.right).toBeLessThanOrEqual(layout.card.right + 1);
+  expect(layout.recover.right).toBeLessThanOrEqual(layout.card.right + 1);
+  expect(layout.recover.x).toBeGreaterThanOrEqual(layout.card.x - 1);
+}
+
 test("an invite notices a join within 5 seconds", async ({ browser }) => {
   test.setTimeout(240000);
   const box = startBox();
@@ -225,14 +276,14 @@ test("an invite notices a join within 5 seconds", async ({ browser }) => {
     await phoneB.getByRole("button", { name: "Settings" }).click();
     await phoneB.locator("[data-settings-tab='sync']").click();
     await phoneB.getByRole("button", { name: "My pages already sync on another device" }).click();
-    await expect(phoneB.getByRole("heading", { name: "Join your synced pages" })).toBeVisible();
-    await expect(phoneB.getByPlaceholder("K7QM-4R2P")).toBeVisible();
+    await expectJoinLayout(phoneB);
     await shot(phoneB, "sync-join-desktop-light");
     await theme(phoneB, "dark");
     await shot(phoneB, "sync-join-desktop-dark");
     await theme(phoneB, "light");
     await phoneB.setViewportSize({ width: 390, height: 844 });
     await expect(phoneB.getByRole("heading", { name: "Join your synced pages" })).toBeVisible();
+    await expectJoinLayout(phoneB);
     await shot(phoneB, "sync-join-phone-light");
     await theme(phoneB, "dark");
     await shot(phoneB, "sync-join-phone-dark");

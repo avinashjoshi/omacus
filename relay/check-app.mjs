@@ -212,7 +212,7 @@ if (await pageA.getByRole("heading", { name: "Is this your phone or computer?" }
   throw new Error("a bad code opened the approve prompt");
 }
 
-await pageB.getByRole("button", { name: "Scan QR code instead" }).click();
+await pageB.getByRole("button", { name: "Scan QR code" }).click();
 await pageB.getByRole("heading", { name: "Scan the code" }).waitFor({ timeout: 10000 });
 await both(pageB, "11-scan");
 await pageB.getByRole("button", { name: "Type the code instead" }).click();

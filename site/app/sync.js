@@ -2332,6 +2332,27 @@ export async function mountSync(api) {
     );
   }
 
+  function scanCodeButton() {
+    const node = el("button", {
+      type: "button",
+      class: "sync-scan",
+      "aria-label": "Scan QR code",
+    }, [qrIcon()]);
+    if (state.busy) node.disabled = true;
+    node.addEventListener("click", () => scanJoin());
+    return node;
+  }
+
+  function recoveryRow() {
+    const link = button("Use recovery words →", { type: "button", class: "sync-link" });
+    if (state.busy) link.disabled = true;
+    link.addEventListener("click", () => openRecover());
+    return el("div", { class: "sync-recover" }, [
+      el("span", {}, ["Lost your other devices?"]),
+      link,
+    ]);
+  }
+
   function drawJoinType() {
     const field = el("input", {
       class: "sync-name sync-join-input",
@@ -2346,28 +2367,22 @@ export async function mountSync(api) {
     field.addEventListener("input", () => {
       state.joinCode = field.value;
     });
-    const bits = [
+    panel.append(
       backLink(() => { stopScan(); state.screen = state.removed ? "removed" : "off"; state.error = ""; draw(); }, state.busy),
       el("h2", {}, ["Join your synced pages"]),
       el("p", { class: "setting-help" }, [
         "On a device that already syncs, open ",
         el("b", {}, ["Sync → Add a phone or computer"]),
-        ". Enter the code it shows.",
+        ". Scan the QR code it shows, or type the code.",
       ]),
       el("label", { class: "sync-field sync-code-label" }, ["Join code"]),
-      field,
-      el("p", { class: "sync-hint" }, ["From Sync → Add a phone or computer · expires in 5 minutes"]),
+      el("div", { class: "sync-code-row" }, [field, scanCodeButton()]),
+      el("p", { class: "sync-hint" }, ["8 characters · or tap the scan button to scan the QR code"]),
+      recoveryRow(),
       ...deviceNameControl(),
       el("p", { class: "sync-hint" }, [`Pages already on ${here()} will be combined with your synced pages. Nothing is deleted.`]),
-    ];
-    bits.push(
       actionButton(state.busy ? "Joining…" : "Join", "primary", () => submitJoin(state.joinCode), state.busy),
-      quietLinks([
-        ["Scan QR code instead", () => scanJoin(), state.busy],
-        ["Use recovery words", () => openRecover(), state.busy],
-      ]),
     );
-    panel.append(...bits);
     field.focus();
   }
 
@@ -2828,6 +2843,31 @@ function el(tag, attrs = {}, kids = []) {
 
 function button(text, attrs) {
   return el("button", attrs, [text]);
+}
+
+function qrIcon() {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  const add = (tag, attrs) => {
+    const node = document.createElementNS(ns, tag);
+    for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+    svg.append(node);
+  };
+  add("rect", { x: "3", y: "3", width: "7", height: "7", rx: "1" });
+  add("rect", { x: "14", y: "3", width: "7", height: "7", rx: "1" });
+  add("rect", { x: "3", y: "14", width: "7", height: "7", rx: "1" });
+  add("path", { d: "M14 14h3v3h-3z" });
+  add("path", { d: "M18 18h3v3h-3z" });
+  add("path", { d: "M14 21h.01" });
+  add("path", { d: "M21 14h.01" });
+  return svg;
 }
 
 function qrNode(svg, label) {

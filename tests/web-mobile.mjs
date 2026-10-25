@@ -102,7 +102,7 @@ check(html.includes("data-build-hash"), "settings shows the build hash");
 check(js.includes("Add to Home Screen"), "iPhone gets an Add to Home Screen prompt");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-27"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('const CACHE = "omacus-app-28"'), "the app cache name moved past the cache-first shell");
 check(html.includes("data-pick"), "a same-line conflict can ask which line to keep");
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
@@ -146,7 +146,11 @@ check(syncJs.includes("I wrote these down") && syncJs.includes("data-saved-words
   check(printed.includes('heading.textContent = "Recovery words"') && printed.includes('createElement("ol")') && !printed.includes("svg") && !printed.includes("qr"), "print is the words only");
 }
 check(syncJs.includes("Or scan this picture") && syncJs.includes('qrNode(state.invite?.qr, "Join code")'), "linking a phone still shows the join picture");
-check(syncJs.includes("Scan QR code instead") && syncJs.includes("Use recovery words") && syncJs.includes("✓ Sync is on") && syncJs.includes("Step ${step} of 4"), "join and the first device use the new screens");
+check(syncJs.includes("Use recovery words") && syncJs.includes("✓ Sync is on") && syncJs.includes("Step ${step} of 4"), "join and the first device use the new screens");
+{
+  const join = syncJs.slice(syncJs.indexOf("function scanCodeButton"), syncJs.indexOf("function drawJoinScan"));
+  check(join.includes("Scan the QR code it shows, or type the code.") && join.includes("8 characters · or tap the scan button to scan the QR code") && join.includes("Lost your other devices?") && join.includes("Use recovery words →") && join.includes('aria-label": "Scan QR code"') && join.includes("scanJoin()") && !join.includes("quietLinks") && !join.includes("Scan QR code instead"), "join puts the scan button beside the code and keeps recovery in the row");
+}
 check(css.includes(".sync-card") && css.includes(".sync-progress") && css.includes(".sync-sheet") && css.includes(".sync-words-grid"), "the setup screens use cards, a progress bar, and a phone sheet");
 check(html.includes('data-turn-on-sync') && html.includes(">Turn on sync<"), "the sidebar offers Turn on sync before setup");
 check(css.includes(".bar .sync-setup") && css.includes("display: none"), "a narrow phone keeps Turn on sync in the pages list");
