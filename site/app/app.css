@@ -2762,11 +2762,6 @@ body.answers-inline .md .pill {
   color: var(--app-dim);
 }
 
-.sync-beta-only {
-  color: var(--app-comment);
-  font-weight: 400;
-}
-
 .sync-hint {
   margin: 5px 0 12px;
   color: var(--app-comment);

@@ -12,9 +12,9 @@ import release_notes  # noqa: E402
 import updates  # noqa: E402
 
 SITE = ROOT / "site"
-ALT = "Omacus Sync: pages encrypted on your device, with twelve recovery words"
+ALT = "Omacus Sync: pages encrypted on your device. The notepad needs no sign-up. Sync is invite-only."
 SENTENCE = "The <strong>Turn on sync</strong> button in the sidebar explains sync, then continues in the web app."
-FAQ = "No sign-up, no email, no password, no ads and no tracking."
+FAQ = "The notepad needs no sign-up, no email, no password, no ads and no tracking. Sync is invite-only."
 
 
 class SitePages(unittest.TestCase):
@@ -35,7 +35,7 @@ class SitePages(unittest.TestCase):
         self.assertNotIn("Nothing plays there yet", text)
         self.assertIn('<a href="https://app.omacus.com">Turn on sync in the web app</a>', text)
         self.assertIn(SENTENCE, text)
-        self.assertIn(f'content="https://omacus.com/img/og-sync.png?v=1"', text)
+        self.assertIn(f'content="https://omacus.com/img/og-sync.png?v=2"', text)
         self.assertIn(f'content="{ALT}"', text)
         image = (SITE / "img" / "og-sync.png").read_bytes()
         self.assertTrue(image.startswith(b"\x89PNG"))

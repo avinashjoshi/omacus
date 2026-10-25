@@ -13,7 +13,7 @@ import {
   upsertVault,
 } from "./sync-vaults.mjs";
 
-const LABEL = "omacus 1.0.0-beta.42";
+const LABEL = "omacus 1.0.0";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 const APPROVAL_POLL_MS = 4000;
@@ -2211,10 +2211,7 @@ export async function mountSync(api) {
       state.accessCode = field.value;
     });
     field.placeholder = "Code you were given";
-    const inviteLabel = el("label", { class: "sync-field sync-code-label" }, [
-      "Invite code",
-      el("span", { class: "sync-beta-only" }, [" · beta only"]),
-    ]);
+    const inviteLabel = el("label", { class: "sync-field sync-code-label" }, ["Invite code"]);
     panel.append(
       progressBar(1),
       backLink(() => { state.screen = "off"; state.error = ""; draw(); }, state.busy),
@@ -2224,6 +2221,7 @@ export async function mountSync(api) {
       el("p", { class: "sync-hint" }, ["Shown on your other devices so you can tell them apart."]),
       inviteLabel,
       field,
+      el("p", { class: "sync-hint" }, ["omacus sync is invite-only for now."]),
       el("p", { class: "sync-hint" }, ["Not the code from another device."]),
       actionButton(state.busy ? "Working…" : "Continue", "primary", () => checkAccess(), state.busy),
     );
