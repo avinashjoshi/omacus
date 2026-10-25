@@ -141,6 +141,14 @@ button:focus-visible, input:focus-visible {
   letter-spacing: 0.04em;
 }
 
+.scroll {
+  overflow-x: auto;
+}
+
+.when {
+  white-space: nowrap;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

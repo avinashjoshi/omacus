@@ -1,3 +1,5 @@
+import { exactUtc, relativeWhen } from "./when.js";
+
 const STORE = "omacus-admin-key";
 const keyForm = document.querySelector("[data-key]");
 const keyError = document.querySelector("[data-key-error]");
@@ -8,6 +10,8 @@ const create = document.querySelector("[data-create]");
 const once = document.querySelector("[data-once]");
 const codes = document.querySelector("[data-codes]");
 const counts = document.querySelector("[data-counts]");
+const activity = document.querySelector("[data-activity]");
+const copyLine = document.querySelector("[data-copy]");
 const storage = document.querySelector("[data-storage]");
 const errors = document.querySelector("[data-errors]");
 const limitsForm = document.querySelector("[data-limits]");
@@ -43,10 +47,12 @@ function clear(node) {
 }
 
 function utc(ms) {
-  if (!ms) return "—";
-  const date = new Date(ms);
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())} UTC`;
+  return exactUtc(ms) || "—";
+}
+
+function timeNode(ms) {
+  if (!ms) return document.createTextNode("—");
+  return el("time", { datetime: new Date(ms).toISOString(), title: exactUtc(ms) }, [relativeWhen(ms)]);
 }
 
 function showLocked(message) {
@@ -122,18 +128,37 @@ function renderStorage(rows) {
     return;
   }
   const table = el("table", {}, [
-    el("thead", {}, [el("tr", {}, ["Account", "Size", "Devices"].map((name) => el("th", {}, [name])))]),
+    el("thead", {}, [el("tr", {}, ["Account", "Created", "Last used", "Last change", "Size", "Devices", "Requests"].map((name) => el("th", {}, [name])))]),
   ]);
   const body = el("tbody");
   for (const row of rows) {
     body.append(el("tr", {}, [
       el("td", { class: "id" }, [row.account]),
+      el("td", { class: "when" }, [timeNode(row.created)]),
+      el("td", { class: "when" }, [timeNode(row.used)]),
+      el("td", { class: "when" }, [timeNode(row.changed)]),
       el("td", {}, [`${row.bytes} bytes`]),
       el("td", {}, [String(row.devices)]),
+      el("td", {}, [String(Number.isInteger(row.requests) ? row.requests : 0)]),
     ]));
   }
   table.append(body);
   storage.append(table);
+}
+
+function renderCopy(copy) {
+  clear(copyLine);
+  if (!copy || !copy.at) {
+    copyLine.textContent = "No nightly copy yet.";
+    return;
+  }
+  const outcome = copy.status === "saved" ? "Saved" : "Didn't save";
+  const bytes = Number.isInteger(copy.bytes) ? copy.bytes : 0;
+  copyLine.append(
+    document.createTextNode("Last nightly copy "),
+    timeNode(copy.at),
+    document.createTextNode(`. ${outcome}. ${bytes} bytes.`),
+  );
 }
 
 function renderErrors(list) {
@@ -168,7 +193,8 @@ function fillLimits(row) {
 }
 
 function backupWhen(item) {
-  return item && item.at ? utc(item.at) : (item && item.day) || "—";
+  if (item && item.at) return timeNode(item.at);
+  return document.createTextNode((item && item.day) || "—");
 }
 
 function renderBackups(row) {
@@ -189,7 +215,8 @@ function renderBackups(row) {
     return;
   }
   const outcome = last.status === "saved" ? "Every account saved." : `${last.failed} didn't save.`;
-  backupsReady.textContent = `Last copy ${backupWhen(last)}. ${outcome}`;
+  clear(backupsReady);
+  backupsReady.append(document.createTextNode("Last copy "), backupWhen(last), document.createTextNode(`. ${outcome}`));
   const list = row.backups || [];
   const table = el("table", {}, [
     el("thead", {}, [el("tr", {}, ["When", "Accounts", "Status"].map((name) => el("th", {}, [name])))]),
@@ -239,7 +266,10 @@ async function refresh() {
   ]);
   signups.textContent = stats.paused ? "New signups are paused." : "New signups are on.";
   pause.textContent = stats.paused ? "Resume new signups" : "Pause new signups";
-  counts.textContent = `Accounts ${stats.accounts}. Devices ${stats.devices}.`;
+  const count = (value) => (Number.isInteger(value) ? value : 0);
+  counts.textContent = `Accounts ${count(stats.accounts)}. Devices ${count(stats.devices)}. Storage ${count(stats.bytes)} bytes.`;
+  activity.textContent = `Active in the last day ${count(stats.activeDay)}. Active in the last week ${count(stats.activeWeek)}. New accounts in the last week ${count(stats.signupsWeek)}.`;
+  renderCopy(stats.copy);
   renderCodes(listed.codes || []);
   renderStorage(stats.storage || []);
   renderErrors(stats.errors || []);

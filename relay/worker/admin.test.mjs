@@ -186,6 +186,53 @@ if (expiryMs("2026-13-40") !== null) throw new Error("bad date");
 const record = sealedRecord();
 assert(deviceCount(record) === 0, "the wrap count is not the device count");
 assert(linkedDevices(record) === 2, `devices ${linkedDevices(record)}`);
+
+function idBytes(n) {
+  const id = new Uint8Array(16);
+  id[0] = n;
+  return id;
+}
+
+function deviceBody(id) {
+  const body = new Uint8Array(80);
+  body.set(id.subarray(0, 16), 0);
+  return body;
+}
+
+function chainOf(lists) {
+  const parts = [text.encode("OMACUS-DEVICES/1"), u16(lists.length)];
+  for (const ids of lists) {
+    parts.push(new Uint8Array(8 + 32 + 16 + 64), u16(ids.length));
+    for (const id of ids) parts.push(deviceBody(id));
+  }
+  return concat(parts);
+}
+
+function recordWithChain(chain) {
+  return concat([
+    text.encode("OMACUS-SYNC/1\n"),
+    Uint8Array.of(8),
+    text.encode("personal"),
+    new Uint8Array(8 + 32 + 16),
+    chunk(chain),
+    chunk(new Uint8Array(0)),
+    u16(0),
+    chunk(new Uint8Array(0)),
+  ]);
+}
+
+const recoveryId = text.encode("recovery-signer\0");
+assert(recoveryId.length === 16, "recovery id length");
+const phoneA = idBytes(1);
+const phoneB = idBytes(2);
+const removedPhone = idBytes(3);
+const withRecovery = recordWithChain(chainOf([
+  [phoneA],
+  [phoneA, removedPhone],
+  [phoneA, phoneB, recoveryId],
+]));
+assert(linkedDevices(withRecovery) === 2, `recovery id counted ${linkedDevices(withRecovery)}`);
+assert(linkedDevices(recordWithChain(chainOf([[phoneA, phoneB]]))) === 2, "two real devices");
 const recordB64 = b64(record);
 const account = "ab".repeat(32);
 const other = "cd".repeat(32);
@@ -291,6 +338,10 @@ const other = "cd".repeat(32);
   assert(stats.json.accounts === 1 && stats.json.devices === 2, JSON.stringify(stats.json));
   assert(stats.json.storage[0].account === account && stats.json.storage[0].devices === 2, "storage row");
   assert(stats.json.storage[0].bytes === record.length, `bytes ${stats.json.storage[0].bytes}`);
+  assert(stats.json.bytes === record.length, "total bytes");
+  assert(stats.json.storage[0].created === 1 && stats.json.storage[0].requests === 0, "stored times");
+  assert(stats.json.activeDay === 0 && stats.json.signupsWeek === 0, "old stamp is quiet");
+  assert(stats.json.copy === null, "no nightly copy");
   assert(stats.json.errors.some((row) => row.name === "BadAccess" && row.count >= 1), JSON.stringify(stats.json.errors));
   const legacy = await call(env, "GET", "/v1/admin/codes");
   const old = legacy.json.codes.find((row) => row.hash === "12".repeat(32));
@@ -340,6 +391,8 @@ const other = "cd".repeat(32);
   assert(stats.json.accounts === 1 && stats.json.devices === 2, JSON.stringify(stats.json));
   assert(stats.json.storage[0].account === kept && stats.json.storage[0].devices === 2, "signed device list");
   assert(stats.json.storage[0].bytes === 42, "the registry size stayed");
+  assert(stats.json.storage[0].created === 1, "created came from the account");
+  assert(stats.json.bytes === 42, "total kept the registry size");
   noSecrets(stats.text, "no-code");
 }
 
@@ -378,7 +431,7 @@ const other = "cd".repeat(32);
   const served = await worker.fetch(new Request("https://sync-test.omacus.com/"), serving.env);
   assert(served.status === 200 && await served.text() === "/", "test worker redirected /");
   const health = await worker.fetch(new Request("https://sync-test.omacus.com/v1/health"), closed.env);
-  assert((await health.json()).label === "1.0.0-beta.28", "label");
+  assert((await health.json()).label === "1.0.0-beta.29", "label");
 }
 
 {

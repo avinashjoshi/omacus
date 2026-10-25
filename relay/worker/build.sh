@@ -21,7 +21,7 @@ cp public/pkg-web/* public/pkg-sync/* public/pkg/
 rm -rf public/pkg-web public/pkg-sync
 cp ../../site/app/*.js ../../site/app/*.mjs ../../site/app/*.css ../../site/app/*.html ../../site/app/*.webmanifest public/
 mkdir -p public/admin
-cp admin/index.html admin/admin.css admin/admin.js public/admin/
+cp admin/index.html admin/admin.css admin/admin.js admin/when.js public/admin/
 cp ../../site/css/tokens.css ../../site/css/site.css public/css/
 cp -r ../../site/fonts public/fonts
 cp -r ../../site/img public/img

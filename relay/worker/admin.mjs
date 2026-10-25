@@ -202,10 +202,29 @@ async function main() {
     return;
   }
   if (command === "stats") {
-    console.log(`Accounts ${data.accounts}. Devices ${data.devices}.`);
+    const count = (value) => (Number.isInteger(value) ? value : 0);
+    console.log(`Accounts ${count(data.accounts)}. Devices ${count(data.devices)}. Storage ${count(data.bytes)} bytes.`);
+    console.log(`Active in the last day ${count(data.activeDay)}. Active in the last week ${count(data.activeWeek)}. New accounts in the last week ${count(data.signupsWeek)}.`);
+    if (data.copy && data.copy.at) {
+      const outcome = data.copy.status === "saved" ? "Saved" : "Didn't save";
+      console.log(`Last nightly copy ${utc(data.copy.at)}. ${outcome}. ${count(data.copy.bytes)} bytes.`);
+    } else {
+      console.log("No nightly copy yet.");
+    }
     console.log(data.paused ? "New signups are paused." : "New signups are on.");
     if (!data.storage || !data.storage.length) console.log("No accounts yet.");
-    for (const row of data.storage || []) console.log(`${row.account}  ${row.bytes} bytes  ${row.devices} devices`);
+    for (const row of data.storage || []) {
+      const when = (ms) => (ms ? utc(ms) : "—");
+      console.log([
+        row.account,
+        `${row.bytes} bytes`,
+        `${row.devices} devices`,
+        `created ${when(row.created)}`,
+        `used ${when(row.used)}`,
+        `changed ${when(row.changed)}`,
+        `requests ${count(row.requests)}`,
+      ].join("  "));
+    }
     if (!data.errors || !data.errors.length) console.log("No recent errors.");
     for (const row of data.errors || []) console.log(`${row.name} ${row.count}`);
     return;

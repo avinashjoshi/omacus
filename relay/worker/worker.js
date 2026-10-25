@@ -1,4 +1,4 @@
-// Private sync test relay (1.0.0-beta.28) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.29) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
 // Each account lives in its own object. A directory object maps an invite
 // hash to that account, so a join does not list every account.
@@ -10,7 +10,17 @@
 // This worker holds no keys and cannot open a page.
 import { DurableObject } from "cloudflare:workers";
 import { mint, openCode, spend } from "./access.js";
-import { adminKeyOk, adminPageAllowed, handleAdmin, isolateAllow, linkedDevices, noteError } from "./admin.js";
+import {
+  activityOf,
+  adminKeyOk,
+  adminPageAllowed,
+  handleAdmin,
+  isolateAllow,
+  linkedDevices,
+  noteActivity,
+  noteError,
+  summarize,
+} from "./admin.js";
 import { allowPut, authorize } from "./auth.js";
 import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
 import {
@@ -23,7 +33,7 @@ import {
 } from "./limits.js";
 import { nightOf, nightPrefix, openBackupStore } from "./backup.js";
 
-const LABEL = "1.0.0-beta.28";
+const LABEL = "1.0.0-beta.29";
 const MAX_RECORD = 256 * 1024, MAX_MANIFEST = 1024 * 1024, MAX_OBJECT = 4 * 1024 * 1024 + 64;
 const MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024, MAX_BODY = 8 * 1024 * 1024;
 const MAX_REQUESTS = 8, MAX_USES = 20;
@@ -222,6 +232,7 @@ export class Mailboxes extends DurableObject {
   async guard(method, path, raw, headers, mailbox) {
     const auth = await authorize(method, path, raw, headers, mailbox.record, Date.now(), mailbox);
     if (!auth) fail("Unknown");
+    noteActivity(mailbox);
     return auth;
   }
   async fetch(request) {
@@ -331,7 +342,16 @@ export class Mailboxes extends DurableObject {
       let written = [];
       await this.store.transaction(async (txn) => {
         if (await txn.get("m:" + account)) fail("Conflict");
-        await txn.put("m:" + account, { revision: 1, record, requests: {}, created: Date.now() });
+        const now = Date.now();
+        await txn.put("m:" + account, {
+          revision: 1,
+          record,
+          requests: {},
+          created: now,
+          changed: now,
+          used: 0,
+          hours: [],
+        });
         written = await applyObjects(txn, account, writes, []);
       });
       return [201, { revision: 1, objects: written }];
@@ -389,6 +409,7 @@ export class Mailboxes extends DurableObject {
         const written = await applyObjects(txn, account, writes, dropping);
         m.revision += 1;
         m.record = record;
+        m.changed = Date.now();
         return [200, { revision: m.revision, objects: written }];
       });
     }
@@ -681,7 +702,8 @@ export class Mailboxes extends DurableObject {
       written = keep.size;
       const invite = value.invite && typeof value.invite === "object" ? value.invite : null;
       if (!current) {
-        const created = { revision: 1, record, requests: {}, created: Date.now() };
+        const now = Date.now();
+        const created = { revision: 1, record, requests: {}, created: now, changed: now, used: 0, hours: [] };
         if (invite && /^[0-9a-f]{64}$/.test(invite.hash || "")) {
           created.invite = { hash: invite.hash, expires: Number(invite.expires) || 0, used: invite.used === true };
         }
@@ -691,6 +713,7 @@ export class Mailboxes extends DurableObject {
       }
       current.revision += 1;
       current.record = record;
+      current.changed = Date.now();
       if (invite && /^[0-9a-f]{64}$/.test(invite.hash || "")) {
         current.invite = { hash: invite.hash, expires: Number(invite.expires) || 0, used: invite.used === true };
       }
@@ -1004,6 +1027,46 @@ function nightSummary(row) {
   };
 }
 
+function copySummary(row) {
+  const accounts = Array.isArray(row.accounts) ? row.accounts : [];
+  let bytes = 0;
+  for (const item of accounts) {
+    if (item && Number.isInteger(item.bytes) && item.bytes > 0) bytes += item.bytes;
+  }
+  const failed = Number.isInteger(row.failed) ? row.failed : accounts.filter((item) => item && item.ok === false).length;
+  return {
+    at: Number.isInteger(row.at) ? row.at : 0,
+    status: row.status === "incomplete" || failed > 0 ? "incomplete" : "saved",
+    bytes,
+  };
+}
+
+async function latestCopy(env) {
+  try {
+    const store = openBackupStore(env);
+    if (!store) return null;
+    const keys = (await store.list("nights/")).filter((key) => key.endsWith("/index.json"));
+    let best = null;
+    let bestDay = "";
+    for (const key of keys) {
+      const text = await store.get(key);
+      if (!text) continue;
+      let row;
+      try { row = JSON.parse(text); } catch { continue; }
+      if (!row || typeof row.day !== "string") continue;
+      if (!best || row.day > bestDay) {
+        best = row;
+        bestDay = row.day;
+      }
+    }
+    if (!best) return null;
+    const summary = copySummary(best);
+    return summary.at ? summary : null;
+  } catch {
+    return null;
+  }
+}
+
 async function listBackups(env) {
   const store = openBackupStore(env);
   if (!store) return { ready: false, backups: [], last: null };
@@ -1098,28 +1161,31 @@ function mailbox(env) {
   return box(env, DIRECTORY);
 }
 
-async function listedDevices(env, request, account) {
+async function accountFoot(env, request, account) {
   const size = await box(env, accountObject(account)).fetch(new Request(
     new URL(`/v1/internal/size/${account}`, request.url),
     { headers: internalHeaders() },
   ));
   if (!size.ok) return null;
   const foot = await size.json().catch(() => null);
-  return foot && Number.isInteger(foot.devices) ? foot.devices : null;
+  if (!foot || !Number.isInteger(foot.devices)) return null;
+  return foot;
 }
 
 async function fillDeviceCounts(env, request, body) {
   const rows = Array.isArray(body.storage) ? body.storage : [];
-  let devices = 0;
   for (const row of rows) {
     const account = row && typeof row.account === "string" ? row.account : "";
-    if (/^[0-9a-f]{64}$/.test(account)) {
-      const counted = await listedDevices(env, request, account);
-      if (counted !== null) row.devices = counted;
-    }
-    devices += row && Number.isInteger(row.devices) ? row.devices : 0;
+    if (!/^[0-9a-f]{64}$/.test(account)) continue;
+    const foot = await accountFoot(env, request, account);
+    if (!foot) continue;
+    row.devices = foot.devices;
+    row.created = Number.isInteger(foot.created) ? foot.created : 0;
+    row.used = Number.isInteger(foot.used) ? foot.used : 0;
+    row.changed = Number.isInteger(foot.changed) ? foot.changed : 0;
+    row.requests = Number.isInteger(foot.requests) ? foot.requests : 0;
   }
-  body.devices = devices;
+  summarize(body);
 }
 
 async function footprint(store, account) {
@@ -1129,7 +1195,7 @@ async function footprint(store, account) {
   let bytes = record.length;
   const objects = await store.list({ prefix: `o:${account}:` });
   for (const [, row] of objects) bytes += row && Number.isInteger(row.bytes) ? row.bytes : 0;
-  return { bytes, devices: linkedDevices(record) };
+  return { bytes, devices: linkedDevices(record), ...activityOf(mailbox) };
 }
 
 async function indexedAccount(store, hash) {
@@ -1442,6 +1508,7 @@ async function adminApi(request, env, url) {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) return json(response.status, body);
     await fillDeviceCounts(env, request, body);
+    body.copy = await latestCopy(env);
     return json(200, body);
   }
   const response = await mailbox(env).fetch(forward);

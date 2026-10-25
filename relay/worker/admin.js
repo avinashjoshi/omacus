@@ -4,8 +4,13 @@
 const enc = new TextEncoder();
 const RECORD_MAGIC = enc.encode("OMACUS-SYNC/1\n");
 const RECORD_MAGIC_V2 = enc.encode("OMACUS-SYNC/2\n");
+const RECOVERY_ID = enc.encode("recovery-signer\0");
 const WINDOW_MS = 60_000;
+const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
+const WINDOW_HOURS = 24;
+const REQUEST_CAP = 100_000;
 const MAX_USES = 20;
 const LOG_CAP = 100;
 const RATE_CAP = 30;
@@ -108,6 +113,17 @@ export function linkedDevices(bytes) {
   return chainDevices(chain.bytes);
 }
 
+function isRecovery(bytes, start) {
+  if (start + RECOVERY_ID.length > bytes.length) return false;
+  for (let i = 0; i < RECOVERY_ID.length; i += 1) {
+    if (bytes[start + i] !== RECOVERY_ID[i]) return false;
+  }
+  return true;
+}
+
+// The newest list also carries the recovery signer. That id is not a phone
+// or a computer, so the count a person sees leaves it out. Older lists stay
+// in the chain after a phone is removed; only the newest list is counted.
 function chainDevices(bytes) {
   const magic = enc.encode("OMACUS-DEVICES/1");
   if (bytes.length < 18 || !magic.every((byte, i) => bytes[i] === byte)) return 0;
@@ -116,16 +132,89 @@ function chainDevices(bytes) {
   at += 2;
   if (count < 1 || count > 64) return 0;
   let devices = 0;
+  let idsAt = 0;
   for (let place = 0; place < count; place += 1) {
     at += 8 + 32 + 16 + 64;
     if (at + 2 > bytes.length) return 0;
     devices = (bytes[at] << 8) | bytes[at + 1];
     at += 2;
     if (devices < 1 || devices > 64) return 0;
+    idsAt = at;
     at += devices * 80;
     if (at > bytes.length) return 0;
   }
-  return devices;
+  let linked = 0;
+  for (let i = 0; i < devices; i += 1) {
+    if (!isRecovery(bytes, idsAt + i * 80)) linked += 1;
+  }
+  return linked;
+}
+
+// `hours` is hour index plus a count. The join map is already called requests.
+export function noteActivity(mailbox, now = Date.now(), wrote = false) {
+  if (!mailbox || typeof mailbox !== "object") return;
+  const stamp = Number.isFinite(now) ? Math.trunc(now) : Date.now();
+  mailbox.used = stamp;
+  if (wrote) mailbox.changed = stamp;
+  const hour = Math.floor(stamp / HOUR_MS);
+  const prior = Array.isArray(mailbox.hours) ? mailbox.hours : [];
+  const kept = [];
+  for (const row of prior) {
+    if (!row || !Number.isInteger(row.h) || !Number.isInteger(row.n) || row.n < 1) continue;
+    if (hour - row.h < 0 || hour - row.h >= WINDOW_HOURS) continue;
+    kept.push({ h: row.h, n: Math.min(row.n, REQUEST_CAP) });
+  }
+  const current = kept.find((row) => row.h === hour);
+  if (current) current.n = Math.min(REQUEST_CAP, current.n + 1);
+  else kept.push({ h: hour, n: 1 });
+  mailbox.hours = kept;
+}
+
+export function activityOf(mailbox, now = Date.now()) {
+  const stamp = (value) => (Number.isInteger(value) && value > 0 ? value : 0);
+  const hour = Math.floor((Number.isFinite(now) ? now : Date.now()) / HOUR_MS);
+  const hours = mailbox && Array.isArray(mailbox.hours) ? mailbox.hours : [];
+  let requests = 0;
+  for (const row of hours) {
+    if (!row || !Number.isInteger(row.h) || !Number.isInteger(row.n) || row.n < 1) continue;
+    if (hour - row.h < 0 || hour - row.h >= WINDOW_HOURS) continue;
+    requests += Math.min(row.n, REQUEST_CAP);
+  }
+  return {
+    created: stamp(mailbox && mailbox.created),
+    used: stamp(mailbox && mailbox.used),
+    changed: stamp(mailbox && mailbox.changed),
+    requests: Math.min(requests, WINDOW_HOURS * REQUEST_CAP),
+  };
+}
+
+function within(stamp, now, span) {
+  return Number.isInteger(stamp) && stamp > 0 && stamp <= now && now - stamp < span;
+}
+
+export function summarize(body, now = Date.now()) {
+  const rows = Array.isArray(body.storage) ? body.storage : [];
+  let devices = 0;
+  let bytes = 0;
+  let activeDay = 0;
+  let activeWeek = 0;
+  let signupsWeek = 0;
+  for (const row of rows) {
+    devices += row && Number.isInteger(row.devices) ? row.devices : 0;
+    bytes += row && Number.isInteger(row.bytes) ? row.bytes : 0;
+    const used = row && row.used;
+    const created = row && row.created;
+    if (within(used, now, DAY_MS)) activeDay += 1;
+    if (within(used, now, WEEK_MS)) activeWeek += 1;
+    if (within(created, now, WEEK_MS)) signupsWeek += 1;
+  }
+  body.accounts = rows.length;
+  body.devices = devices;
+  body.bytes = bytes;
+  body.activeDay = activeDay;
+  body.activeWeek = activeWeek;
+  body.signupsWeek = signupsWeek;
+  return body;
 }
 
 export async function adminPageAllowed(request, env) {
@@ -235,40 +324,44 @@ async function collectStats(storage) {
   const signups = await storage.get("admin:signups");
   const storageRows = [];
   const seen = new Set();
-  let devices = 0;
   for (const [key, mailbox] of mailboxes) {
     const account = key.slice(2);
     if (!/^[0-9a-f]{64}$/.test(account)) continue;
     seen.add(account);
     const bytes = decodeRecord(mailbox && mailbox.record);
     const count = bytes ? linkedDevices(bytes) : 0;
-    devices += count;
     let objectBytes = 0;
     const objects = await storage.list({ prefix: `o:${account}:` });
     for (const [, value] of objects) {
       objectBytes += value && Number.isInteger(value.bytes) ? value.bytes : 0;
     }
-    storageRows.push({ account, bytes: (bytes ? bytes.length : 0) + objectBytes, devices: count });
+    storageRows.push({
+      account,
+      bytes: (bytes ? bytes.length : 0) + objectBytes,
+      devices: count,
+      ...activityOf(mailbox),
+    });
   }
   for (const [key, row] of registered) {
     const account = key.slice(2);
     if (!/^[0-9a-f]{64}$/.test(account) || seen.has(account) || !row || row.pending) continue;
     const count = Number.isInteger(row.devices) ? row.devices : 0;
-    devices += count;
     storageRows.push({
       account,
       bytes: Number.isInteger(row.bytes) ? row.bytes : 0,
       devices: count,
+      created: 0,
+      used: 0,
+      changed: 0,
+      requests: 0,
     });
   }
   storageRows.sort((a, b) => a.account.localeCompare(b.account));
-  return {
-    accounts: storageRows.length,
-    devices,
+  return summarize({
     paused: Boolean(signups && signups.paused),
     storage: storageRows,
     errors: await recentErrors(storage),
-  };
+  });
 }
 
 async function recentErrors(storage) {
