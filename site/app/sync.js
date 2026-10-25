@@ -12,7 +12,7 @@ import {
   upsertVault,
 } from "./sync-vaults.mjs";
 
-const LABEL = "omacus 1.0.0-beta.37";
+const LABEL = "omacus 1.0.0-beta.38";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 const APPROVAL_POLL_MS = 4000;
@@ -540,7 +540,6 @@ export async function mountSync(api) {
 
   function plainError(message) {
     let text = String(message || "");
-    if (/no pages/i.test(text)) return "That code didn't work. Check it on the other phone or computer.";
     text = text.replaceAll("other device", "other phone or computer");
     text = text.replaceAll("That device", "That phone or computer");
     text = text.replaceAll("This device", "This phone or computer");
@@ -549,6 +548,12 @@ export async function mountSync(api) {
     text = text.replaceAll("new device", "phone or computer");
     if (text === "Tap the three words first.") return "Pick the three words first.";
     return text;
+  }
+
+  function joinError(message) {
+    const text = String(message || "");
+    if (/no pages/i.test(text)) return "That code didn't work. Check it on the other phone or computer.";
+    return plainError(text);
   }
 
   async function noteLocalPages() {
@@ -939,6 +944,8 @@ export async function mountSync(api) {
       if (error.offline || navigator.onLine === false) setChip("Offline", "offline");
       else if (error.status === 429 && /sync is busy/i.test(error.message || "")) {
         schedule();
+      } else if (/that code didn't work/i.test(error.message || "")) {
+        // The phone that typed the code hears about it. This phone keeps its pages.
       } else {
         state.saveError = plainError(error.message);
         setChip("Not saved", "error");
@@ -1275,14 +1282,14 @@ export async function mountSync(api) {
     const started = JSON.parse(sync.startJoin());
     if (!started.ok) {
       state.busy = false;
-      state.error = plainError(started.message || "That code didn't work. Check it on the other phone or computer.");
+      state.error = joinError(started.message || "That code didn't work. Check it on the other phone or computer.");
       draw();
       return;
     }
     const proof = JSON.parse(sync.joinProof(started.device, code || ""));
     if (!proof.ok) {
       state.busy = false;
-      state.error = plainError(proof.message || "That code didn't work. Check it on the other phone or computer.");
+      state.error = joinError(proof.message || "That code didn't work. Check it on the other phone or computer.");
       draw();
       return;
     }
@@ -1304,7 +1311,7 @@ export async function mountSync(api) {
       state.joinWaits = 0;
     } catch (error) {
       state.busy = false;
-      state.error = plainError(error.message || "That code didn't work. Check it on the other phone or computer.");
+      state.error = joinError(error.message || "That code didn't work. Check it on the other phone or computer.");
       draw();
       return;
     }

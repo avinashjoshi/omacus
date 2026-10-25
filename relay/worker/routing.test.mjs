@@ -2,7 +2,8 @@
 // It does not list every account. The 33rd account is not "full".
 import worker, { Mailboxes, clearPlacement } from "./worker.js";
 import { MemoryStorage } from "./storage.js";
-import { authHeaders, makeDevice, makeRecord } from "./auth.js";
+import { HEARTBEAT_MS } from "./heartbeat.js";
+import { appendDevice, authHeaders, deviceChain, makeDevice, makeRecord } from "./auth.js";
 import { encodeCode, hashHex, hmacBytes } from "./invite.js";
 
 const SECRET = "omacus-access-test-secret";
@@ -152,6 +153,7 @@ const joined = await call(env, "POST", "/v1/join", {
 assert(joined.status === 201 && joined.json.account === account, `join ${joined.status} ${joined.text}`);
 assert(directory.scans === 0, `join listed accounts on the directory (${directory.scans})`);
 assert(storages.get(`acct-${account}`).scans === 0, "join listed accounts on the mailbox");
+assert(directory.rows.has(`i:${hash}`), "a waiting join removed the code");
 const again = await call(env, "POST", "/v1/join", {
   code: encodeCode(secret),
   device: b64(phone),
@@ -159,6 +161,113 @@ const again = await call(env, "POST", "/v1/join", {
   name: "Kitchen",
 });
 assert(again.status === 400, `used code worked ${again.status}`);
+assert(directory.rows.has(`i:${hash}`), "a second try while waiting removed the code");
+
+function deviceBytes(owner) {
+  const out = new Uint8Array(80);
+  out.set(owner.id, 0);
+  out.set(owner.pub, 16);
+  out.set(owner.receive, 48);
+  return out;
+}
+
+async function postInvite(owner, acct, inviteSecret) {
+  const inviteHash = await hashHex(inviteSecret);
+  const invitePath = `/v1/mailboxes/${acct}/invites`;
+  const inviteBody = { hash: inviteHash };
+  const postedInvite = await call(
+    env,
+    "POST",
+    invitePath,
+    inviteBody,
+    await authHeaders(owner, "POST", invitePath, JSON.stringify(inviteBody)),
+  );
+  assert(postedInvite.status === 200, `invite ${postedInvite.status} ${postedInvite.text}`);
+  return inviteHash;
+}
+
+async function joinWith(inviteSecret, rawDevice, name) {
+  return call(env, "POST", "/v1/join", {
+    code: encodeCode(inviteSecret),
+    device: b64(rawDevice),
+    proof: b64(await hmacBytes(inviteSecret, rawDevice)),
+    name,
+  });
+}
+
+// The same code works again after the first phone stops waiting.
+// A used code, an expired code, and a finished approval still fail.
+const reuse = "12".repeat(32);
+const owner = await makeDevice(reuse);
+const chain = await deviceChain(owner);
+const sealed = await makeRecord(owner, "bread", 2, chain);
+const openedReuse = await call(env, "POST", "/v1/mailboxes", { account: reuse, record: sealed, code: secondCode });
+assert(openedReuse.status === 201, `reuse create ${openedReuse.status} ${openedReuse.text}`);
+const reuseSecret = new Uint8Array([3, 3, 3, 3, 3]);
+const reuseHash = await postInvite(owner, reuse, reuseSecret);
+const harbor = await makeDevice(reuse);
+const harborBytes = deviceBytes(harbor);
+const harborJoin = await joinWith(reuseSecret, harborBytes, "Harbor phone");
+assert(harborJoin.status === 201 && harborJoin.json.account === reuse, `harbor ${harborJoin.status} ${harborJoin.text}`);
+assert(directory.rows.has(`i:${reuseHash}`), "the first join deleted the lookup");
+const ferry = await makeDevice(reuse);
+const ferryWhileWaiting = await joinWith(reuseSecret, deviceBytes(ferry), "Ferry phone");
+assert(ferryWhileWaiting.status === 400, `a live code was reused ${ferryWhileWaiting.status} ${ferryWhileWaiting.text}`);
+assert(/didn't work/i.test(ferryWhileWaiting.json.message || ""), ferryWhileWaiting.text);
+const home = storages.get(`acct-${reuse}`);
+const waiting = await home.get(`m:${reuse}`);
+for (const request of Object.values(waiting.requests)) {
+  if (request.state === "pending") request.lastSeen = Date.now() - HEARTBEAT_MS - 1000;
+}
+await home.put(`m:${reuse}`, waiting);
+const ferryJoin = await joinWith(reuseSecret, deviceBytes(ferry), "Ferry phone");
+assert(ferryJoin.status === 201 && ferryJoin.json.account === reuse, `abandoned code ${ferryJoin.status} ${ferryJoin.text}`);
+assert(ferryJoin.json.id !== harborJoin.json.id, "the abandoned request was reused");
+assert(directory.rows.has(`i:${reuseHash}`), "the second join deleted the lookup");
+const stillUsed = await joinWith(reuseSecret, deviceBytes(await makeDevice(reuse)), "Pantry phone");
+assert(stillUsed.status === 400, `a code in use worked ${stillUsed.status}`);
+
+const nextChain = await appendDevice(owner, chain, ferry);
+assert(nextChain, "the list could not add Ferry phone");
+const approvedRecord = await makeRecord(owner, "bread", 2, nextChain);
+const approvePath = `/v1/mailboxes/${reuse}/requests/${ferryJoin.json.id}`;
+const approveBody = {
+  chain: b64(nextChain),
+  wrap: b64(text.encode("wrap")),
+  record: approvedRecord,
+  revision: 1,
+};
+const approved = await call(env, "POST", approvePath, approveBody, {
+  ...(await authHeaders(owner, "POST", approvePath, JSON.stringify(approveBody))),
+  "if-match": '"1"',
+});
+assert(approved.status === 200, `approve ${approved.status} ${approved.text}`);
+const donePath = approvePath;
+const doneBody = { done: true };
+const finished = await call(env, "POST", donePath, doneBody, await authHeaders(ferry, "POST", donePath, JSON.stringify(doneBody)));
+assert(finished.status === 200, `done ${finished.status} ${finished.text}`);
+assert(!directory.rows.has(`i:${reuseHash}`), "a finished code stayed findable");
+assert(!home.rows.has(`i:${reuseHash}`), "a finished code stayed on the account");
+const afterDone = await joinWith(reuseSecret, deviceBytes(await makeDevice(reuse)), "Harbor phone");
+assert(afterDone.status === 400, `a finished code worked ${afterDone.status} ${afterDone.text}`);
+
+const agedSecret = new Uint8Array([9, 9, 9, 9, 1]);
+const agedHash = await postInvite(owner, reuse, agedSecret);
+const agedRow = await directory.get(`i:${agedHash}`);
+agedRow.expires = Date.now() - 1000;
+await directory.put(`i:${agedHash}`, agedRow);
+const expired = await joinWith(agedSecret, deviceBytes(await makeDevice(reuse)), "Harbor phone");
+assert(expired.status === 400, `an expired code worked ${expired.status} ${expired.text}`);
+assert(/didn't work/i.test(expired.json.message || ""), expired.text);
+
+const spentSecret = new Uint8Array([9, 9, 9, 9, 2]);
+const spentHash = await postInvite(owner, reuse, spentSecret);
+const spentBox = await home.get(`m:${reuse}`);
+spentBox.invite.expires = Date.now() - 1000;
+await home.put(`m:${reuse}`, spentBox);
+const spent = await joinWith(spentSecret, deviceBytes(await makeDevice(reuse)), "Harbor phone");
+assert(spent.status === 400, `an expired account code worked ${spent.status} ${spent.text}`);
+assert(directory.rows.has(`i:${spentHash}`), "an expired code was deleted before the account saw it");
 
 const old = "cd".repeat(32);
 const oldDevice = await makeDevice(old);

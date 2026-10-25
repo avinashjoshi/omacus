@@ -1,4 +1,4 @@
-// Private sync test relay (1.0.0-beta.37) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.38) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
 // Each account lives in its own object. A directory object maps an invite
 // hash to that account, so a join does not list every account.
@@ -35,7 +35,7 @@ import {
 } from "./limits.js";
 import { nightOf, nightPrefix, openBackupStore } from "./backup.js";
 
-const LABEL = "1.0.0-beta.37";
+const LABEL = "1.0.0-beta.38";
 const MAX_RECORD = 256 * 1024, MAX_MANIFEST = 1024 * 1024, MAX_OBJECT = 4 * 1024 * 1024 + 64;
 const MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024, MAX_BODY = 8 * 1024 * 1024;
 const MAX_REQUESTS = 8, MAX_USES = 20;
@@ -532,6 +532,7 @@ export class Mailboxes extends DurableObject {
           const signer = header("x-omacus-device").trim().toLowerCase();
           if (!signer || signer !== deviceIdHex(r.device)) fail("Unknown");
           delete m.requests[id];
+          if (m.invite && typeof m.invite.hash === "string") await txn.delete("i:" + m.invite.hash);
           return [200, { ok: true }];
         }
         const chain = fromB64(v.chain), wrap = fromB64(v.wrap);
@@ -695,6 +696,13 @@ export class Mailboxes extends DurableObject {
         invite: typeof prev.invite === "string" ? prev.invite : "",
       });
       return [200, { ok: true }];
+    }
+    const inviteHash = /^\/v1\/internal\/invite-hash\/([0-9a-f]{64})$/.exec(path);
+    if (method === "GET" && inviteHash) {
+      const mailbox = await this.store.get("m:" + inviteHash[1]);
+      const hash = mailbox && mailbox.invite && typeof mailbox.invite.hash === "string" ? mailbox.invite.hash : "";
+      if (!/^[0-9a-f]{64}$/.test(hash)) fail("Unknown");
+      return [200, { hash }];
     }
     const invite = /^\/v1\/internal\/invite\/([0-9a-f]{64})$/.exec(path);
     if (invite && method === "PUT") {
@@ -1469,17 +1477,36 @@ async function joinAccount(env, request, raw, headers) {
   const found = await lookupInvite(env, request, hash);
   if (!found) return json(400, { message: ERR.BadInvite[1] });
   await migrateIfAbsent(env, request, found.account);
-  const response = await box(env, accountObject(found.account)).fetch(new Request(request.url, {
+  // The lookup stays while a phone is still joining. It comes off when the
+  // approval finishes, so a phone that stops waiting can use the same code.
+  return box(env, accountObject(found.account)).fetch(new Request(request.url, {
     method: "POST",
     headers,
     body: raw,
   }));
-  if (response.ok) {
-    const drop = new URL(`/v1/internal/invite/${hash}`, request.url);
-    await box(env, DIRECTORY).fetch(new Request(drop, { method: "DELETE", headers: internalHeaders() }));
-    await box(env, LEGACY).fetch(new Request(drop, { method: "DELETE", headers: internalHeaders() }));
+}
+
+function finishedJoin(raw) {
+  try {
+    const body = JSON.parse(raw);
+    return !!(body && body.done === true);
+  } catch {
+    return false;
   }
-  return response;
+}
+
+async function retireInvite(env, request, account) {
+  const looked = await box(env, accountObject(account)).fetch(new Request(
+    new URL(`/v1/internal/invite-hash/${account}`, request.url),
+    { headers: internalHeaders() },
+  ));
+  if (!looked.ok) return;
+  const payload = await looked.json().catch(() => ({}));
+  const hash = String(payload.hash || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(hash)) return;
+  const drop = new URL(`/v1/internal/invite/${hash}`, request.url);
+  await box(env, DIRECTORY).fetch(new Request(drop, { method: "DELETE", headers: internalHeaders() }));
+  await box(env, LEGACY).fetch(new Request(drop, { method: "DELETE", headers: internalHeaders() }));
 }
 
 async function routeClient(env, request) {
@@ -1510,6 +1537,9 @@ async function routeClient(env, request) {
     const response = await box(env, accountObject(account)).fetch(forward());
     if (response.ok && method === "POST" && mailboxPath[2] === "/invites") await publishInvite(env, request, account, raw);
     if (response.ok && method === "PUT" && !mailboxPath[2]) await remember(env, request, account);
+    if (response.ok && method === "POST" && /^\/requests\/[^/]+$/.test(mailboxPath[2] || "") && finishedJoin(raw)) {
+      await retireInvite(env, request, account);
+    }
     return response;
   }
   return box(env, DIRECTORY).fetch(forward());

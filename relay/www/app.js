@@ -36,9 +36,9 @@ const state = {
   accessCode: "",
 };
 
-function quiet(message) {
+function quiet(message, path) {
   const text = String(message || "");
-  if (/no pages/i.test(text)) return "That code didn't work. Check it on the other phone or computer.";
+  if (path === "/v1/join" && /no pages/i.test(text)) return "That code didn't work. Check it on the other phone or computer.";
   return text.replaceAll("other device", "other phone or computer").replaceAll("That device", "That phone or computer");
 }
 
@@ -68,7 +68,7 @@ async function api(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(quiet(data.message || "Try again in a moment."));
+  if (!response.ok) throw new Error(quiet(data.message || "Try again in a moment.", path));
   return data;
 }
 

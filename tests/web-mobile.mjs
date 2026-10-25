@@ -102,7 +102,7 @@ check(html.includes("data-build-hash"), "settings shows the build hash");
 check(js.includes("Add to Home Screen"), "iPhone gets an Add to Home Screen prompt");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-19"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('const CACHE = "omacus-app-20"'), "the app cache name moved past the cache-first shell");
 check(html.includes("data-pick"), "a same-line conflict can ask which line to keep");
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
@@ -155,7 +155,7 @@ check(buildWeb.includes("omacus-sync-web") && buildWeb.includes("omacus_sync_web
   check(swallowDrawerTap(hit(""), { drawer: false, narrow: true }) === false, "a closed drawer does not swallow taps");
   check(swallowDrawerTap(hit(""), { drawer: true, narrow: false }) === false, "a wide window does not swallow taps");
 }
-check(!sw.includes("omacus-app-2"), "the old app cache name is gone");
+check(!/omacus-app-2(?!\d)/.test(sw), "the old app cache name is gone");
 check(sw.includes("!res.ok") && sw.includes("function honest") && sw.includes("cache.put"), "only a successful response is stored for offline");
 check(sw.includes("e.waitUntil(fetched"), "the shell is refreshed in the background");
 check(sw.includes('"pkg/omacus_web_bg.wasm"'), "the engine is precached for offline");
