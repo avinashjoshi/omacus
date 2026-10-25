@@ -16,8 +16,43 @@ fn holds(hay: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty() && hay.windows(needle.len()).any(|window| window == needle)
 }
 
-/// A word on its own. The label `recovery-signer` is one name, and a word in
-/// the middle of a sealed or base64 blob is not the word itself.
+/// Phrases the protocol says on purpose. A recovery word inside one of these
+/// is the protocol talking, not a word from someone's sheet.
+const PROTOCOL_PHRASES: &[&[u8]] = &[
+    b"recovery-signer",
+    b"\"state\"",
+    b"\"account\"",
+    b"the other device",
+];
+
+fn without_protocol(hay: &[u8]) -> Vec<u8> {
+    let mut out = hay.to_vec();
+    for phrase in PROTOCOL_PHRASES {
+        let mut from = 0;
+        while from < out.len() {
+            let Some(offset) = out[from..]
+                .windows(phrase.len())
+                .position(|window| window == *phrase)
+            else {
+                break;
+            };
+            let at = from + offset;
+            out[at..at + phrase.len()].fill(b' ');
+            from = at + phrase.len();
+        }
+    }
+    out
+}
+
+/// A word on its own, after the protocol's own phrases are set aside.
+/// The label `recovery-signer` is one name, and a word in the middle of a
+/// sealed or base64 blob is not the word itself.
+fn leaked_word(hay: &[u8], word: &[u8]) -> bool {
+    holds_word(&without_protocol(hay), word)
+}
+
+/// A word on its own. A hyphenated label is one name, and a word in the middle
+/// of a sealed or base64 blob is not the word itself.
 fn holds_word(hay: &[u8], needle: &[u8]) -> bool {
     if needle.is_empty() {
         return false;
@@ -444,14 +479,16 @@ fn the_relay_holds_no_key_and_no_page() {
     for word in words {
         secrets.push(word.as_bytes().to_vec());
     }
-    // The device list always names the recovery signer. That label is not a word.
-    if !words.contains(&"recovery") {
-        secrets.push(b"recovery".to_vec());
+    // These words are also protocol text. Every run checks that they do not count.
+    for word in ["recovery", "state", "account", "other"] {
+        if !words.contains(&word) {
+            secrets.push(word.as_bytes().to_vec());
+        }
     }
     for secret in &secrets {
         let present = |hay: &[u8]| {
             if secret.iter().all(|byte| byte.is_ascii_alphabetic()) {
-                holds_word(hay, secret)
+                leaked_word(hay, secret)
             } else {
                 holds(hay, secret)
             }
@@ -473,18 +510,20 @@ fn the_relay_holds_no_key_and_no_page() {
     assert_eq!(status, 400);
     let kept = store.lock().unwrap().stored_bytes();
     for word in words {
-        assert!(!holds_word(&kept, word.as_bytes()));
+        assert!(!leaked_word(&kept, word.as_bytes()));
     }
 }
 
 #[test]
 fn a_protocol_label_is_not_a_recovery_word() {
-    let label = b"recovery-signer\0";
-    assert!(!holds_word(label, b"recovery"));
-    assert!(holds(label, b"recovery"));
-    assert!(holds_word(b" recovery ", b"recovery"));
-    assert!(holds_word(b"\0recovery\0", b"recovery"));
-    assert!(!holds_word(b"xxrecoveryyy", b"recovery"));
+    assert!(!leaked_word(b"recovery-signer\0", b"recovery"));
+    assert!(holds(b"recovery-signer\0", b"recovery"));
+    assert!(!leaked_word(b"{\"state\":\"pending\"}", b"state"));
+    assert!(!leaked_word(b"{\"account\":\"ab\"}", b"account"));
+    assert!(!leaked_word(b"Check it on the other device.", b"other"));
+    assert!(leaked_word(b" recovery ", b"recovery"));
+    assert!(leaked_word(b"\0state\0", b"state"));
+    assert!(!leaked_word(b"xxrecoveryyy", b"recovery"));
 }
 
 #[test]
