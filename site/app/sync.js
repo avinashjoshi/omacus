@@ -17,6 +17,9 @@ const LABEL = "omacus 1.0.0-beta.42";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 const APPROVAL_POLL_MS = 4000;
+const INVITE_POLL_MS = 2000;
+const INVITE_POLL_HIDDEN_MS = 3000;
+const JOIN_WAIT_MS = 2000;
 const MAILBOX_TRIES = 4;
 const JOIN_FINISH_MS = 30 * 1000;
 
@@ -120,7 +123,17 @@ export async function mountSync(api) {
   let wordlist = [];
   let timer = null;
   let approveWatch = 0;
+  let inviteWatch = 0;
+  let inviteBackoff = 0;
+  let inviteLooking = false;
   let requestsChecked = 0;
+  let inviteChecked = 0;
+  let inviteChannel = null;
+  try {
+    if (typeof BroadcastChannel === "function") inviteChannel = new BroadcastChannel("omacus-sync-invite");
+  } catch {
+    inviteChannel = null;
+  }
   let hurry = false;
   let loop = null;
   let stream = null;
@@ -1035,13 +1048,16 @@ export async function mountSync(api) {
     return mailbox;
   }
 
-  async function findRequest() {
+  async function findRequest(gate = APPROVAL_POLL_MS) {
     if (!state.invite || Date.now() >= state.invite.expires) {
       state.pending = null;
       return false;
     }
-    if (Date.now() - requestsChecked < APPROVAL_POLL_MS) return false;
-    requestsChecked = Date.now();
+    const fast = gate <= INVITE_POLL_MS;
+    const checked = fast ? inviteChecked : requestsChecked;
+    if (Date.now() - checked < gate) return false;
+    if (fast) inviteChecked = Date.now();
+    else requestsChecked = Date.now();
     const data = await callServer("GET", `/v1/mailboxes/${state.account}/requests`);
     for (const request of data.requests || []) {
       if (request.state && request.state !== "pending") continue;
@@ -1049,10 +1065,80 @@ export async function mountSync(api) {
       if (!check.ok) continue;
       const coded = JSON.parse(sync.codeFor(request.device));
       state.pending = { id: request.id, name: request.name, device: request.device, code: coded.code || "", created: request.created || 0 };
+      publishPending();
       return true;
     }
     state.pending = null;
     return false;
+  }
+
+  function publishPending() {
+    if (!inviteChannel || !state.pending || !state.account) return;
+    inviteChannel.postMessage({
+      kind: "join-request",
+      account: state.account,
+      pending: {
+        id: state.pending.id,
+        name: state.pending.name,
+        device: state.pending.device,
+        code: state.pending.code,
+        created: state.pending.created,
+      },
+    });
+  }
+
+  function inviteLive() {
+    return !!(state.invite && Date.now() < state.invite.expires && (state.screen === "invite" || state.screen === "linked"));
+  }
+
+  function queueInviteWatch() {
+    if (inviteWatch || inviteLooking || !inviteLive()) return;
+    const delay = inviteBackoff || (document.hidden ? INVITE_POLL_HIDDEN_MS : INVITE_POLL_MS);
+    inviteWatch = setTimeout(runInviteWatch, delay);
+  }
+
+  function restartInviteWatch() {
+    clearTimeout(inviteWatch);
+    inviteWatch = 0;
+    queueInviteWatch();
+  }
+
+  async function runInviteWatch() {
+    inviteWatch = 0;
+    if (!inviteLive() || inviteLooking) return;
+    inviteLooking = true;
+    let found = false;
+    try {
+      found = await findRequest(INVITE_POLL_MS);
+      inviteBackoff = 0;
+    } catch (error) {
+      if (error.status === 429) inviteBackoff = inviteBackoff >= 4000 ? 8000 : 4000;
+    } finally {
+      inviteLooking = false;
+    }
+    if (found && (state.screen === "invite" || state.screen === "linked" || state.screen === "ready")) {
+      state.screen = "approve";
+      draw();
+      return;
+    }
+    queueInviteWatch();
+  }
+
+  function applySharedRequest(data) {
+    if (!data || data.kind !== "join-request" || !state.member || data.account !== state.account) return;
+    if (state.screen === "approve" && state.pending) return;
+    if (!["linked", "invite", "ready"].includes(state.screen)) return;
+    const pending = data.pending || {};
+    if (!pending.id || !pending.device) return;
+    state.pending = {
+      id: pending.id,
+      name: pending.name,
+      device: pending.device,
+      code: pending.code || "",
+      created: pending.created || 0,
+    };
+    state.screen = "approve";
+    draw();
   }
 
   function stopScan() {
@@ -1391,7 +1477,11 @@ export async function mountSync(api) {
     state.invite = { code: made.code, qr: made.qr, expires: Date.now() + INVITE_MS };
     state.screen = "invite";
     state.busy = false;
+    requestsChecked = 0;
+    inviteChecked = 0;
+    inviteBackoff = 0;
     draw();
+    schedule();
   }
 
   async function submitJoin(code, origin) {
@@ -1561,7 +1651,7 @@ export async function mountSync(api) {
       const decision = await callServer("GET", `/v1/mailboxes/${state.account}/requests/${state.requestId}`, undefined, undefined, { proof: state.joinProof });
       if (decision.state === "pending") {
         state.joinWaits = 0;
-        setTimeout(waitForApproval, APPROVAL_POLL_MS);
+        setTimeout(waitForApproval, JOIN_WAIT_MS);
         return;
       }
       if (decision.state !== "approved") {
@@ -2075,6 +2165,11 @@ export async function mountSync(api) {
     else drawLinked();
     if (freshSetup()) hideChip();
     refreshCue();
+    if (inviteLive()) queueInviteWatch();
+    else {
+      clearTimeout(inviteWatch);
+      inviteWatch = 0;
+    }
   }
 
   function backLink(run, disabled) {
@@ -2094,10 +2189,14 @@ export async function mountSync(api) {
     return bar;
   }
 
-  function choiceCard(title, detail, run, disabled) {
+  function choiceCard(glyph, title, detail, run, disabled) {
     const node = el("button", { type: "button", class: "sync-card" }, [
-      el("b", {}, [title]),
-      el("span", { "aria-hidden": "true" }, [detail]),
+      el("span", { class: "sync-card-icon", "aria-hidden": "true" }, [glyph]),
+      el("span", { class: "sync-card-copy" }, [
+        el("b", {}, [title]),
+        el("span", {}, [detail]),
+      ]),
+      el("span", { class: "sync-card-chev", "aria-hidden": "true" }, ["›"]),
     ]);
     if (disabled) node.disabled = true;
     node.addEventListener("click", run);
@@ -2115,9 +2214,9 @@ export async function mountSync(api) {
 
   function quietLinks(rows) {
     const wrap = el("p", { class: "sync-links" });
-    rows.forEach(([label, run, disabled], index) => {
-      if (index) wrap.append(el("span", { "aria-hidden": "true" }, ["·"]));
-      const node = button(label, { type: "button", class: "sync-link" });
+    rows.forEach(([label, run, disabled]) => {
+      const dim = label === "Turn sync off";
+      const node = button(label, { type: "button", class: dim ? "sync-link sync-off" : "sync-link" });
       if (disabled) node.disabled = true;
       node.addEventListener("click", run);
       wrap.append(node);
@@ -2152,18 +2251,17 @@ export async function mountSync(api) {
 
   function drawOff() {
     panel.append(
-      backLink(() => api.openSettings("settings"), state.busy),
       el("h2", {}, ["Turn on sync"]),
-      el("p", { class: "setting-help" }, ["Your pages can open on your other phones and computers, and they stay there."]),
-      ...deviceNameControl(),
+      el("p", { class: "setting-help" }, ["End-to-end encrypted. Only your devices can read your pages — not even our server."]),
       el("div", { class: "sync-cards" }, [
-        choiceCard("This is my first device", "Start fresh", () => {
+        choiceCard("✦", "This is my first device", "Start fresh and keep these pages in sync from here.", () => {
           state.error = "";
           state.screen = "access";
           draw();
         }, state.busy),
-        choiceCard("My pages already sync on another device", "Join", () => addDevice(), state.busy),
+        choiceCard("⇄", "My pages already sync on another device", "Join with a code from that phone or computer.", () => addDevice(), state.busy),
       ]),
+      backLink(() => api.openSettings("settings"), state.busy),
     );
   }
 
@@ -2180,17 +2278,21 @@ export async function mountSync(api) {
     field.addEventListener("input", () => {
       state.accessCode = field.value;
     });
-    field.placeholder = "0410-6105-0R0N-S1ZK-97T3-78B1";
-    field.classList.add("sync-access-input");
+    field.placeholder = "Code you were given";
+    const inviteLabel = el("label", { class: "sync-field sync-code-label" }, [
+      "Invite code",
+      el("span", { class: "sync-beta-only" }, [" · beta only"]),
+    ]);
     panel.append(
-      backLink(() => { state.screen = "off"; state.error = ""; draw(); }, state.busy),
       progressBar(1),
-      el("h2", {}, ["Start fresh"]),
-      el("p", { class: "setting-help" }, ["This invite code starts a new set of pages here. It is not the code from another device."]),
+      backLink(() => { state.screen = "off"; state.error = ""; draw(); }, state.busy),
+      el("h2", {}, [`Start fresh on ${onPhone() ? "this phone" : "this computer"}`]),
+      el("p", { class: "setting-help" }, ["Your pages get encrypted here before they leave. The server stores them but can't read them."]),
       ...deviceNameControl(),
-      el("label", { class: "sync-field sync-code-label" }, ["Invite code"]),
+      el("p", { class: "sync-hint" }, ["Shown on your other devices so you can tell them apart."]),
+      inviteLabel,
       field,
-      el("p", { class: "sync-hint" }, ["It looks like 0410-6105-0R0N-S1ZK-97T3-78B1."]),
+      el("p", { class: "sync-hint" }, ["Not the code from another device."]),
       actionButton(state.busy ? "Working…" : "Continue", "primary", () => checkAccess(), state.busy),
     );
     field.focus();
@@ -2214,17 +2316,17 @@ export async function mountSync(api) {
     const row = el("div", { class: "sync-key" }, [words, qr]);
     const wrote = el("input", { type: "checkbox", "data-wrote-words": "" });
     wrote.checked = !!state.wroteWords;
-    const check = el("label", { class: "sync-check" }, [wrote, "I wrote these down"]);
+    const check = el("label", { class: "sync-check" }, [wrote, "I wrote these down or printed them somewhere safe."]);
     wrote.addEventListener("change", () => {
       state.wroteWords = wrote.checked;
       const saved = panel.querySelector("[data-saved-words]");
       if (saved) saved.disabled = !wrote.checked;
     });
     panel.append(
-      backLink(() => { state.wroteWords = false; leaveFresh(); }),
       progressBar(2),
+      backLink(() => { state.wroteWords = false; leaveFresh(); }),
       el("h2", {}, ["Save your recovery words"]),
-      el("p", { class: "setting-help" }, ["Write them down. They are the only way back in if you lose every phone and computer. You will not see them again."]),
+      el("p", { class: "setting-help" }, ["These 12 words are the only way back in if you lose every device. Omacus never keeps a copy, and you won't see them again."]),
       row,
       check,
       actionButton("I saved them", "primary", async () => {
@@ -2245,13 +2347,13 @@ export async function mountSync(api) {
   function drawConfirm() {
     const [a, b, c] = state.asks;
     panel.append(
+      progressBar(3),
       backLink(() => {
         state.screen = "save";
         state.wrong = 0;
         state.error = "";
         draw();
       }, state.busy),
-      progressBar(3),
       el("h2", {}, ["Do these match your paper?"]),
       el("p", { class: "setting-help" }, [`Pick word ${a}, word ${b}, and word ${c}.`]),
     );
@@ -2320,15 +2422,18 @@ export async function mountSync(api) {
     });
     const bits = [
       backLink(() => { stopScan(); state.screen = state.removed ? "removed" : "off"; state.error = ""; draw(); }, state.busy),
-      el("h2", {}, ["Join my existing pages"]),
-      el("p", { class: "setting-help" }, ["On a phone or computer that already has your pages, open Sync and tap Add a phone or computer. Type the code you see there."]),
+      el("h2", {}, ["Join your synced pages"]),
+      el("p", { class: "setting-help" }, [
+        "On a device that already syncs, open ",
+        el("b", {}, ["Sync → Add a phone or computer"]),
+        ". Enter the code it shows.",
+      ]),
       el("label", { class: "sync-field sync-code-label" }, ["Join code"]),
       field,
-      el("p", { class: "sync-hint" }, ["It looks like K7QM-4R2P."]),
+      el("p", { class: "sync-hint" }, ["From Sync → Add a phone or computer · expires in 5 minutes"]),
       ...deviceNameControl(),
+      el("p", { class: "sync-hint" }, [`Pages already on ${here()} will be combined with your synced pages. Nothing is deleted.`]),
     ];
-    const merged = mergeLine();
-    if (merged) bits.push(el("p", { class: "setting-help" }, [merged]));
     bits.push(
       actionButton(state.busy ? "Joining…" : "Join", "primary", () => submitJoin(state.joinCode), state.busy),
       quietLinks([
@@ -2483,18 +2588,47 @@ export async function mountSync(api) {
     );
   }
 
+  function deviceLine(device, right) {
+    const row = el("div", { class: "sync-device" });
+    if (device.self) row.setAttribute("data-self", "1");
+    const name = el("div", { class: "sync-device-name" });
+    if (device.self) name.append(el("span", { class: "sync-dot", "aria-hidden": "true" }, ["●"]));
+    name.append(el("b", {}, [deviceTitle(device)]));
+    if (device.self) name.append(el("span", { class: "sync-quiet" }, [` · this ${onPhone() ? "phone" : "computer"}`]));
+    row.append(name);
+    if (right) row.append(right);
+    return row;
+  }
+
+  function renameControl(row, device) {
+    const actions = el("div", { class: "sync-device-actions" });
+    const rename = button("Rename", { type: "button", class: "btn small" });
+    rename.addEventListener("click", () => beginRename(row, device));
+    actions.append(rename);
+    if (!device.self) {
+      const remove = button("Remove", { type: "button", class: "btn small" });
+      remove.addEventListener("click", () => askRemove(device));
+      actions.append(remove);
+    }
+    return actions;
+  }
+
   function drawReady() {
-    const self = state.devices.find((device) => device.self) || { self: true, name: state.selfName };
-    const row = el("div", { class: "sync-device", "data-self": "1" });
-    row.append(el("div", {}, [
-      el("b", {}, [deviceTitle(self)]),
-      el("span", {}, ["Synced"]),
-    ]));
-    const list = el("div", { class: "sync-devices" }, [row]);
+    const devices = state.devices.length
+      ? [...state.devices].sort((a, b) => Number(!!b.self) - Number(!!a.self))
+      : [{ self: true, name: state.selfName }];
+    const list = el("div", { class: "sync-devices" });
+    for (const device of devices) {
+      const row = deviceLine(device, device.self
+        ? el("span", { class: "sync-when" }, ["Synced just now"])
+        : null);
+      if (!device.self) row.append(renameControl(row, device));
+      list.append(row);
+    }
     panel.append(
       progressBar(4),
       el("h2", {}, ["✓ Sync is on"]),
-      el("p", { class: "setting-help", "data-sync-linked": "" }, [`${hereCap()} is synced.`]),
+      el("p", { class: "setting-help", "data-sync-linked": "" }, ["Your pages are encrypted and saved. Add another phone or computer to keep them in step."]),
       el("div", { "data-sync-set": "" }, [list]),
       actionButton(state.busy ? "Working…" : "Add a phone or computer", "primary", () => startInvite(), state.busy),
       quietLinks([
@@ -2552,21 +2686,8 @@ export async function mountSync(api) {
     const devices = [...state.devices].sort((a, b) => Number(!!b.self) - Number(!!a.self));
     if (!devices.length) list.append(el("p", { class: "setting-help" }, [hereCap()]));
     for (const device of devices) {
-      const row = el("div", { class: "sync-device" });
-      if (device.self) row.setAttribute("data-self", "1");
-      const title = el("div", {}, [el("b", {}, [deviceTitle(device)])]);
-      if (device.self) title.append(el("span", {}, [hereCap()]));
-      row.append(title);
-      const actions = el("div", { class: "sync-device-actions" });
-      const rename = button("Rename", { type: "button", class: "btn small" });
-      rename.addEventListener("click", () => beginRename(row, device));
-      actions.append(rename);
-      if (!device.self) {
-        const remove = button("Remove", { type: "button", class: "btn small" });
-        remove.addEventListener("click", () => askRemove(device));
-        actions.append(remove);
-      }
-      row.append(actions);
+      const row = deviceLine(device, null);
+      row.append(renameControl(row, device));
       list.append(row);
     }
     if (others) {
@@ -2697,10 +2818,26 @@ export async function mountSync(api) {
     saveTimer = null;
     setChip("Offline", "offline");
   });
+  if (inviteChannel) inviteChannel.onmessage = (event) => applySharedRequest(event.data);
   document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      if (inviteLive()) restartInviteWatch();
+      if (!state.account || ticking) return;
+      nextPoll(pollWait({ hidden: true }));
+      return;
+    }
+    if (inviteLive()) {
+      requestsChecked = 0;
+      inviteChecked = 0;
+      inviteBackoff = 0;
+      clearTimeout(inviteWatch);
+      inviteWatch = 0;
+      runInviteWatch();
+      if (!ticking) schedule();
+      return;
+    }
     if (!state.account || ticking) return;
-    if (document.hidden) nextPoll(pollWait({ hidden: true }));
-    else schedule();
+    schedule();
   });
   const settingsRoot = document.querySelector("[data-settings]");
   let syncShown = false;

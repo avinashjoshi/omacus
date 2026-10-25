@@ -280,7 +280,7 @@ try {
   if (laptopHeading !== "This computer was removed from sync") throw new Error(`laptop heading ${laptopHeading}`);
 
   await removedPage.getByRole("button", { name: "Join again", exact: true }).click();
-  await removedPage.getByRole("heading", { name: "Join my existing pages" }).waitFor();
+  await removedPage.getByRole("heading", { name: "Join your synced pages" }).waitFor();
   const joinText = await removedPage.locator("[data-settings-panel='sync']").innerText();
   if (joinText.includes("Turn sync off")) throw new Error("Join again asked to turn sync off");
   await removedPage.getByRole("button", { name: "Back", exact: true }).click();

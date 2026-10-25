@@ -142,7 +142,7 @@ await openSync(pageA);
 await pageA.getByRole("heading", { name: "Turn on sync" }).waitFor();
 await both(pageA, "01-choice");
 await pageA.getByRole("button", { name: "This is my first device" }).click();
-await pageA.getByRole("heading", { name: "Start fresh" }).waitFor();
+await pageA.getByRole("heading", { name: "Start fresh on this computer" }).waitFor();
 await both(pageA, "02-access");
 await pageA.locator("[data-access-code]").fill("nope");
 await pageA.getByRole("button", { name: "Continue" }).click();

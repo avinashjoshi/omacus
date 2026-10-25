@@ -26,19 +26,23 @@ if "state.member = false" not in former or "else if (!state.removed && !state.me
 recover = sync[sync.index("async function startRecovery("):sync.index("function draw(")]
 if "could not be added." not in recover or "await push()" not in recover:
     errors.append("opening with the words does not add this computer")
-if 'row.setAttribute("data-self", "1")' not in home:
+line = sync[sync.index("function deviceLine("):sync.index("function renameControl(")]
+rename = sync[sync.index("function renameControl("):sync.index("function drawReady(")]
+if 'setAttribute("data-self", "1")' not in line:
     errors.append("this phone is not marked")
-if "beginRename(row, device)" not in home:
+if "renameControl(row, device)" not in home:
     errors.append("Rename does not cover every row")
-if "if (!device.self)" not in home or "Remove" not in home:
+if "beginRename(row, device)" not in rename:
+    errors.append("Rename does not cover every row")
+if "if (!device.self)" not in rename or "Remove" not in rename:
     errors.append("Remove is not limited to the other phones")
 marker = '.sync-device[data-self="1"]'
 if marker not in css:
     errors.append("this phone's row is not styled")
 else:
-    rule = css[css.index(marker):css.index(marker) + 400]
-    if "var(--app-accent-soft)" not in rule or "var(--app-accent)" not in rule:
-        errors.append("this phone's row does not use the accent")
+    rule = css[css.index(marker):css.index(marker) + 500]
+    if "var(--app-def)" not in rule:
+        errors.append("this phone's row does not use the green dot")
 
 off = sync.index("function deviceNameControl()")
 join = sync.index("function drawJoinType()")
@@ -56,11 +60,11 @@ if "approvalPlan" in wait:
     errors.append("the waiting screen accepts the list before the numbers are checked")
 if "confirmLink" not in accept or "approvalPlan" not in accept or "These match" not in sync:
     errors.append("These match does not check the numbers before opening")
-if '"device-name.js"' not in sw or "omacus-sync-test-16" not in sw:
+if '"device-name.js"' not in sw or "omacus-sync-test-17" not in sw:
     errors.append("the sync test cache missed the name helper")
 if "site/app/device-name.js" not in build or "./device-name.js?v=" not in build:
     errors.append("the published app missed the name helper")
-if 'const CACHE = "omacus-app-25"' not in sw:
+if 'const CACHE = "omacus-app-26"' not in sw:
     errors.append("the published app cache changed")
 if '"sync-link.mjs"' not in sw:
     errors.append("the recovery link is not in the offline shell")
@@ -101,6 +105,16 @@ if "joinError(" not in join_src:
     errors.append("the join screen can say there are no pages")
 if "const APPROVAL_POLL_MS = 4000" not in sync or "setTimeout(waitForApproval, 1000)" in wait:
     errors.append("approval still polls every second")
+if "const JOIN_WAIT_MS = 2000" not in sync or "setTimeout(waitForApproval, JOIN_WAIT_MS)" not in wait:
+    errors.append("the joining phone does not check every 2 seconds")
+invite = sync[sync.index("async function startInvite("):sync.index("async function submitJoin(")]
+watch_invite = sync[sync.index("async function runInviteWatch("):sync.index("function applySharedRequest(")]
+if "schedule()" not in invite or "const INVITE_POLL_MS = 2000" not in sync:
+    errors.append("a new invite waits for the quiet poll")
+if "findRequest(INVITE_POLL_MS)" not in watch_invite or "ifTabLeader" in watch_invite or "readMailbox" in watch_invite:
+    errors.append("the invite check is stuck on the leader or reads the whole mailbox")
+if "INVITE_POLL_HIDDEN_MS = 3000" not in sync or "inviteBackoff >= 4000" not in watch_invite:
+    errors.append("a hidden invite or a busy server does not slow the join check")
 if "joinWaits || 0) < 6" in wait or "joinStillOpen" not in wait:
     errors.append("approval gives up before the code expires")
 if "adoptAskedName(askedCode, askedName)" not in sync:

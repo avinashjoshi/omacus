@@ -1262,7 +1262,7 @@ body.answers-inline .res {
   position: absolute;
   inset: 0;
   border: 0;
-  background: color-mix(in srgb, var(--black) 45%, transparent);
+  background: color-mix(in srgb, var(--black) 53%, transparent);
   cursor: pointer;
 }
 
@@ -1270,50 +1270,57 @@ body.answers-inline .res {
   position: absolute;
   z-index: 1;
   left: 50%;
-  top: max(8vh, var(--space-6));
-  transform: translateX(-50%);
-  width: min(560px, calc(100vw - var(--space-6)));
-  max-height: min(640px, calc(100vh - var(--space-6) * 2));
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(436px, 100%);
+  max-height: calc(100vh - var(--space-6));
   overflow: auto;
-  padding: var(--space-5) var(--space-5) var(--space-4);
+  padding: 18px 20px 16px;
   border: 1px solid var(--app-line);
   border-radius: var(--radius-md);
   background: var(--app-bg);
   color: var(--app-fg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 20px 60px color-mix(in srgb, var(--black) 60%, transparent);
+}
+
+.settings-card > header .icon-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--app-line);
+  border-radius: 7px;
 }
 
 .settings-card header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--space-4);
+  margin-bottom: 0;
 }
 
 .settings-card h2 {
   margin: 0;
-  font: 600 var(--type-display) / 1.2 var(--sans);
-  letter-spacing: -0.02em;
+  font: 600 19px / 1.2 var(--sans);
 }
 
 .settings-tabs {
   display: flex;
-  gap: var(--space-1);
-  margin: 0 0 var(--space-4);
-  padding: 3px;
+  gap: 0;
+  margin: 12px 0 10px;
+  padding: 2px;
+  border: 1px solid var(--app-line);
   border-radius: var(--radius-sm);
-  background: var(--app-hover);
+  background: var(--app-side);
 }
 
 .settings-tabs button {
   flex: 1;
-  min-height: var(--hit);
+  min-height: 0;
   border: 0;
   border-radius: var(--radius-xs);
   background: transparent;
   color: var(--app-dim);
-  font: 600 var(--type-body) / 1 var(--sans);
-  padding: var(--space-2) var(--space-3);
+  font: 400 13px / 1.2 var(--sans);
+  padding: 6px;
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
@@ -1321,7 +1328,7 @@ body.answers-inline .res {
 .settings-tabs button[aria-selected="true"] {
   background: var(--app-bg);
   color: var(--app-fg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
 }
 
 .settings-group {
@@ -2526,35 +2533,54 @@ body.answers-inline .md .pill {
 }
 
 .sync-label {
-  margin: 0 0 var(--space-3);
+  margin: 0 0 8px;
   color: var(--app-comment);
-  font: 500 var(--type-caption) / 1.2 var(--sans);
+  font: 400 11px / 1.3 var(--sans);
 }
 
 .sync-panel h2,
 .sync-panel h3 {
-  margin: 0 0 var(--space-2);
+  margin: 4px 0 4px;
   color: var(--app-fg);
-  font: 600 var(--type-body) / 1.3 var(--sans);
+  font: 700 15px / 1.3 var(--sans);
+}
+
+.sync-panel .sync-back + h2 {
+  margin-top: 8px;
 }
 
 .sync-panel .setting-help {
-  margin: 0 0 var(--space-3);
+  margin: 0 0 12px;
+  color: var(--app-dim);
+  font: 400 12.5px / 1.5 var(--sans);
+}
+
+.sync-panel .setting-help b {
+  font-weight: 600;
 }
 
 .sync-actions {
   display: flex;
   flex-direction: column;
   flex: none;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--app-line);
-  background: var(--app-bg);
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .sync-actions .btn {
   width: 100%;
+  justify-content: center;
+  text-align: center;
+}
+
+.sync-panel .sync-actions .btn.primary {
+  min-height: 38px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  font: 600 13.5px / 1.2 var(--sans);
 }
 
 .sync-actions .btn:disabled {
@@ -2584,15 +2610,15 @@ body.answers-inline .md .pill {
 .sync-progress {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-1);
-  margin: 0 0 var(--space-4);
+  gap: 6px;
+  margin: 0 0 10px;
   padding: 0;
   list-style: none;
 }
 
 .sync-progress li {
-  height: var(--space-1);
-  border-radius: var(--radius-pill);
+  height: 3px;
+  border-radius: 2px;
   background: var(--app-line);
 }
 
@@ -2604,39 +2630,67 @@ body.answers-inline .md .pill {
 .sync-cards {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
+  gap: 0;
+  margin: 0;
 }
 
 .sync-card {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: flex-start;
-  gap: var(--space-1);
+  gap: 12px;
   width: 100%;
-  min-height: var(--hit);
-  padding: var(--space-3) var(--space-4);
+  margin: 0 0 8px;
+  padding: 12px;
   border: 1px solid var(--app-line);
-  border-radius: var(--radius-md);
-  background: var(--app-side);
+  border-radius: 10px;
+  background: var(--app-bg);
   color: var(--app-fg);
-  font: 400 var(--type-body) / 1.4 var(--sans);
+  font: 400 13.5px / 1.3 var(--sans);
   text-align: left;
   cursor: pointer;
 }
 
-.sync-card b {
-  font: 600 var(--type-body) / 1.3 var(--sans);
-}
-
-.sync-card span {
-  color: var(--app-dim);
-  font: 400 var(--type-caption) / 1.4 var(--sans);
-}
-
-.sync-card:hover {
-  border-color: var(--app-line-strong);
+.sync-card-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
   background: var(--app-hover);
+  color: var(--app-fg);
+  font: 400 17px / 1 var(--sans);
+}
+
+.sync-card-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.sync-card-copy b {
+  display: block;
+  margin: 0 0 2px;
+  font: 700 13.5px / 1.3 var(--sans);
+}
+
+.sync-card-copy span {
+  color: var(--app-dim);
+  font: 400 12px / 1.4 var(--sans);
+}
+
+.sync-card-chev {
+  align-self: center;
+  flex: none;
+  color: var(--app-comment);
+  font: 400 16px / 1 var(--sans);
+}
+
+.sync-card:hover,
+.sync-card:focus,
+.sync-card:focus-visible {
+  border-color: var(--app-accent);
+  background: color-mix(in srgb, var(--app-accent) 12%, var(--app-bg));
 }
 
 .sync-links {
@@ -2644,22 +2698,22 @@ body.answers-inline .md .pill {
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2);
-  margin: var(--space-3) 0 0;
-  color: var(--app-dim);
-  font: 400 var(--type-caption) / 1.4 var(--sans);
+  gap: 18px;
+  margin: 12px 0 0;
+  color: var(--app-accent);
+  font: 400 12.5px / 1.4 var(--sans);
 }
 
 .sync-actions .sync-links {
-  margin-top: var(--space-2);
+  margin-top: 12px;
 }
 
 .sync-link {
-  min-height: var(--hit);
+  min-height: 0;
   padding: 0;
   border: 0;
   background: none;
-  color: var(--app-dim);
+  color: var(--app-accent);
   font: inherit;
   cursor: pointer;
 }
@@ -2668,53 +2722,62 @@ body.answers-inline .md .pill {
   color: var(--app-fg);
 }
 
+.sync-link.sync-off,
+.sync-link.sync-off:hover {
+  color: var(--app-dim);
+}
+
 .sync-check {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--hit);
-  margin: var(--space-3) 0 0;
-  color: var(--app-fg);
-  font: 400 var(--type-body) / 1.4 var(--sans);
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 12px;
+  color: var(--app-dim);
+  font: 400 12.5px / 1.4 var(--sans);
   cursor: pointer;
 }
 
 .sync-check input {
-  width: var(--space-4);
-  height: var(--space-4);
-  margin: 0;
-  accent-color: var(--app-accent);
+  appearance: none;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  border: 1px solid var(--app-line);
+  border-radius: 4px;
+  background: var(--app-bg);
+}
+
+.sync-check input:checked {
+  border-color: var(--app-accent);
+  background:
+    linear-gradient(var(--app-on-accent), var(--app-on-accent)) 3px 8px / 5px 2px no-repeat,
+    linear-gradient(var(--app-on-accent), var(--app-on-accent)) 7px 5px / 2px 6px no-repeat,
+    var(--app-accent);
+  transform: none;
 }
 
 .sync-code-label {
-  text-align: center;
-  color: var(--app-fg);
+  text-align: left;
+  color: var(--app-dim);
+}
+
+.sync-beta-only {
+  color: var(--app-comment);
+  font-weight: 400;
 }
 
 .sync-hint {
-  margin: 0 0 var(--space-3);
+  margin: 5px 0 12px;
   color: var(--app-comment);
-  font: 400 var(--type-caption) / 1.4 var(--sans);
-  text-align: center;
-}
-
-.sync-join-input,
-.sync-access-input {
-  text-align: center;
-  font-family: var(--mono);
-}
-
-.sync-join-input {
-  min-height: calc(var(--hit) + var(--space-4));
-  font-size: var(--type-display);
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font: 400 11.5px / 1.4 var(--sans);
+  text-align: left;
 }
 
 .sync-words {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-2);
+  gap: 6px;
   margin: 0 0 var(--space-3);
 }
 
@@ -2725,27 +2788,29 @@ body.answers-inline .md .pill {
 
 .sync-word {
   display: flex;
-  gap: var(--space-2);
+  gap: 0;
   align-items: baseline;
-  min-height: var(--hit);
-  padding: var(--space-2);
+  min-height: 0;
+  padding: 6px 8px;
   border: 1px solid var(--app-line);
-  border-radius: var(--radius-sm);
-  background: var(--app-side);
+  border-radius: 7px;
+  background: var(--app-bg);
   color: var(--app-fg);
-  font: 500 var(--type-body) / 1.3 var(--sans);
+  font: 400 13px / 1.3 var(--mono);
 }
 
 .sync-word b {
+  margin-right: 6px;
   color: var(--app-comment);
-  font: 500 var(--type-caption) / 1 var(--mono);
+  font: 400 11px / 1 var(--mono);
 }
 
 .sync-key {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-3);
+  gap: 12px;
   align-items: flex-start;
+  margin: 0 0 12px;
 }
 
 .sync-qr {
@@ -2768,7 +2833,23 @@ body.answers-inline .md .pill {
 }
 
 .sync-key > .sync-qr {
-  flex: 0 0 calc(var(--space-6) * 5);
+  flex: 0 0 96px;
+  box-sizing: border-box;
+  width: 96px;
+  padding: 6px;
+  border: 1px solid var(--app-line);
+  border-radius: var(--radius-sm);
+}
+
+.sync-key > .sync-qr svg {
+  width: 100%;
+  height: auto;
+}
+
+.sync-key > .sync-qr b,
+.sync-key > .sync-qr span {
+  color: var(--app-comment);
+  font: 400 11px / 1.3 var(--sans);
 }
 
 .sync-qr b {
@@ -2790,9 +2871,9 @@ body.answers-inline .md .pill {
 }
 
 .sync-choices {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: var(--space-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   margin: 0;
   padding: 0;
   border: 0;
@@ -2805,13 +2886,14 @@ body.answers-inline .md .pill {
 }
 
 .sync-choice {
-  min-height: var(--hit);
-  padding: var(--space-3);
+  flex: 1 1 calc(33% - 6px);
+  min-height: 0;
+  padding: 7px;
   border: 1px solid var(--app-line);
-  border-radius: var(--radius-md);
-  background: var(--app-side);
+  border-radius: 7px;
+  background: var(--app-bg);
   color: var(--app-fg);
-  font: 500 var(--type-body) / 1.3 var(--sans);
+  font: 400 13px / 1.2 var(--mono);
   cursor: pointer;
 }
 
@@ -2822,28 +2904,46 @@ body.answers-inline .md .pill {
 
 .sync-choice[aria-pressed="true"] {
   border-color: var(--app-accent);
-  background: var(--app-sel);
+  background: color-mix(in srgb, var(--app-accent) 12%, var(--app-bg));
 }
 
 .sync-code,
 .sync-invite-code {
-  margin: var(--space-3) 0;
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--app-accent);
+  border-radius: var(--radius-sm);
   color: var(--app-fg);
-  font: 600 var(--type-display) / 1.2 var(--mono);
+  font: 600 18px / 1.2 var(--mono);
+  letter-spacing: 0.12em;
   text-align: center;
 }
 
 .sync-phrase,
 .sync-name {
+  box-sizing: border-box;
   width: 100%;
-  min-height: var(--hit);
-  margin: 0 0 var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--app-line-strong);
+  min-height: 0;
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--app-line);
   border-radius: var(--radius-sm);
   background: var(--app-bg);
   color: var(--app-fg);
-  font: 400 var(--type-body) / 1.4 var(--sans);
+  font: 400 13.5px / 1.4 var(--sans);
+}
+
+.sync-name.sync-join-input {
+  min-height: 42px;
+  border-color: var(--app-accent);
+  font: 600 18px / 1 var(--mono);
+  letter-spacing: 0.12em;
+  text-align: center;
+}
+
+.sync-name.sync-join-input::placeholder {
+  color: var(--app-line-strong);
+  opacity: 1;
 }
 
 .sync-phrase {
@@ -2880,9 +2980,11 @@ body.answers-inline .md .pill {
 }
 
 .sync-field {
-  margin: var(--space-3) 0 var(--space-1);
+  display: block;
+  margin: 0 0 5px;
   color: var(--app-dim);
-  font: 600 var(--type-caption) / 1.3 var(--sans);
+  font: 500 12px / 1.3 var(--sans);
+  text-align: left;
 }
 
 .side-sync-label {
@@ -2973,36 +3075,67 @@ body.answers-inline .md .pill {
   gap: var(--space-2);
 }
 
+.sync-devices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .sync-device {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
-  min-height: var(--hit);
-  padding: var(--space-2) 0;
-  border-top: 1px solid var(--app-line);
+  gap: 12px;
+  min-height: 0;
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--app-line);
+  border-radius: var(--radius-sm);
+  background: var(--app-bg);
+  color: var(--app-fg);
+  font: 400 13px / 1.3 var(--sans);
+}
+
+.sync-device-name {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
 }
 
 .sync-device b {
-  display: block;
+  display: inline;
   color: var(--app-fg);
-  font: 550 var(--type-body) / 1.3 var(--sans);
+  font: 600 13px / 1.3 var(--sans);
 }
 
-.sync-device span {
+.sync-dot {
+  margin-right: 6px;
+  color: var(--app-def);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.sync-quiet {
   color: var(--app-comment);
-  font: 400 var(--type-caption) / 1.3 var(--mono);
+  font: 400 13px / 1.3 var(--sans);
+}
+
+.sync-when {
+  flex: none;
+  color: var(--app-comment);
+  font: 400 12px / 1.3 var(--sans);
 }
 
 .sync-device[data-self="1"] {
-  margin-inline: calc(var(--space-2) * -1);
-  padding-inline: var(--space-2);
-  background: var(--app-accent-soft);
-  border-radius: var(--radius-sm);
+  background: var(--app-bg);
+}
+
+.sync-device[data-self="1"] .sync-dot {
+  color: var(--app-def);
 }
 
 .sync-device[data-self="1"] b {
-  color: var(--app-accent);
+  color: var(--app-fg);
 }
 
 .sync-video {
@@ -3018,66 +3151,45 @@ body.answers-inline .md .pill {
     grid-template-columns: 1fr 1fr;
   }
 
-  /* The recovery words sit in a sheet under the bar. The picture is under the grid. */
+  /* Every sync screen is a sheet. The editor stays dimmed behind it. */
+  .settings-card:has(.sync-panel:not([hidden])),
   .settings-card:has(.sync-panel.sync-sheet) {
     top: auto;
+    right: 0;
     bottom: 0;
+    left: 0;
+    width: 100%;
     height: auto;
     max-height: calc(100% - var(--bar) - var(--safe-top) - var(--space-3));
+    transform: none;
     overflow: auto;
-    padding-top: var(--space-3);
-    padding-bottom: calc(var(--space-3) + var(--safe-bottom));
-    border-top: 1px solid var(--app-line);
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-    box-shadow: var(--shadow-lg);
+    padding-bottom: calc(16px + var(--safe-bottom));
+    border-width: 1px 0 0;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 20px 60px color-mix(in srgb, var(--black) 60%, transparent);
   }
 
-  .settings-card:has(.sync-panel.sync-sheet) header,
-  .settings-card:has(.sync-panel.sync-sheet) .settings-tabs {
-    margin-bottom: var(--space-2);
+  .sync-panel .sync-words-grid {
+    width: 100%;
   }
 
-  .sync-panel.sync-sheet .sync-label,
-  .sync-panel.sync-sheet .setting-help {
-    margin-bottom: var(--space-1);
-  }
-
-  .sync-panel.sync-sheet .sync-back {
-    min-height: var(--space-5);
-    margin-bottom: var(--space-1);
-  }
-
-  .sync-panel.sync-sheet .sync-progress {
-    margin-bottom: var(--space-2);
-  }
-
-  .sync-panel.sync-sheet .sync-word {
-    box-sizing: border-box;
-    min-height: 0;
-    padding: var(--space-1) var(--space-2);
-    gap: var(--space-1);
-  }
-
-  .sync-panel.sync-sheet .sync-qr svg {
-    width: 96px;
-    height: 96px;
-  }
-
-  .sync-panel.sync-sheet .sync-check {
-    margin-top: var(--space-2);
-  }
-
-  .sync-panel.sync-sheet .sync-actions {
-    margin-top: var(--space-2);
-  }
-
-  .sync-panel.sync-sheet .sync-key {
+  .sync-panel .sync-key {
     flex-direction: column;
   }
 
-  .sync-panel.sync-sheet .sync-key > .sync-qr {
+  .sync-panel .sync-key > .sync-qr {
     flex-basis: auto;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
     width: 100%;
+    gap: 8px;
+  }
+
+  .sync-panel .sync-key > .sync-qr svg {
+    width: 44px;
+    height: 44px;
+    flex: none;
   }
 
   /* The device list scrolls. Add and Turn sync off stay under it. */
@@ -3116,9 +3228,13 @@ body.answers-inline .md .pill {
 }
 
 @media (pointer: coarse), (max-width: 760px) {
-  .sync-phrase,
-  .sync-name {
-    font-size: max(16px, 1em);
+  .sync-panel {
+    font-size: var(--type-body);
+  }
+
+  .sync-phrase:focus,
+  .sync-name:focus:not(.sync-join-input) {
+    font-size: 16px;
   }
 }
 

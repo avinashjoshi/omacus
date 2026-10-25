@@ -10,8 +10,9 @@ import { encodeCode, hashHex, hmacBytes } from "./invite.js";
 
 const HOME = "198.51.100.20";
 const POLL_MS = 4000;
-// Three mailbox reads, the request list, and the joining phone, every 4 seconds.
-const LINK_READS = 15 * 3 + 15 + 15;
+// A live invite checks the request list about every 2 seconds (30 a minute),
+// and the joining phone does the same. Quiet mailbox reads stay on the slow poll.
+const LINK_READS = 30 + 30 + 15;
 
 function assert(cond, message) {
   if (!cond) throw new Error(message || "assertion failed");
@@ -25,8 +26,11 @@ assert(TEST.readAccountRate === 100 && TEST.readIpRate === 140, "test read limit
 
 const syncJs = await readFile(new URL("../../site/app/sync.js", import.meta.url), "utf8");
 const workerSrc = await readFile(new URL("./worker.js", import.meta.url), "utf8");
-assert(syncJs.includes("const APPROVAL_POLL_MS = 4000"), "the joining phone does not poll every 4 seconds");
+assert(syncJs.includes("const APPROVAL_POLL_MS = 4000"), "the approve screen still waits 4 seconds between checks");
+assert(syncJs.includes("const JOIN_WAIT_MS = 2000"), "the joining phone does not check every 2 seconds");
+assert(syncJs.includes("const INVITE_POLL_MS = 2000"), "an invite does not look for a join every 2 seconds");
 assert(!syncJs.includes("setTimeout(waitForApproval, 1000)"), "the joining phone still polls every second");
+assert(syncJs.includes("setTimeout(waitForApproval, JOIN_WAIT_MS)"), "the joining phone still waits 4 seconds");
 assert(!syncJs.includes("joinWaits || 0) < 6"), "a few waits still end the join");
 const joinSrc = syncJs.slice(syncJs.indexOf("async function submitJoin("), syncJs.indexOf("function parseJoin("));
 assert(joinSrc.includes("typedJoinName()") && !joinSrc.includes('name: ""'), "the typed name is not sent");

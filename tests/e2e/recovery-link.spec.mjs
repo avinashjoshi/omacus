@@ -105,7 +105,7 @@ test("setup does not say Sync paused after a stored pause", async ({ page }) => 
     await expect(chip).toHaveText("Sync paused");
 
     await page.getByRole("button", { name: "This is my first device" }).click();
-    await expect(page.getByRole("heading", { name: "Start fresh" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Start fresh on this computer" })).toBeVisible();
     await expect(chip).toBeHidden();
 
     await page.locator("[data-access-code]").fill(access);
