@@ -38,6 +38,7 @@ const approveSrc = syncJs.slice(syncJs.indexOf("async function approvePending(")
 assert(approveSrc.includes("record: sealed.record") && approveSrc.includes("releaseJoin("), "approval does not publish the list");
 const watchSrc = syncJs.slice(syncJs.indexOf("function watchApproval("), syncJs.indexOf("function draw("));
 assert(watchSrc.includes('state.screen = "linked"'), "the approve prompt stays after the phone stops waiting");
+assert(!watchSrc.includes("state.invite = null"), "a phone that stops waiting takes the code with it");
 assert(!workerSrc.includes("export const HEARTBEAT_MS"), "the worker exports a plain number");
 
 function b64(bytes) {

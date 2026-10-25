@@ -12,7 +12,7 @@ import {
   upsertVault,
 } from "./sync-vaults.mjs";
 
-const LABEL = "omacus 1.0.0-beta.38";
+const LABEL = "omacus 1.0.0-beta.39";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 const APPROVAL_POLL_MS = 4000;
@@ -1911,8 +1911,8 @@ export async function mountSync(api) {
         const data = await callServer("GET", `/v1/mailboxes/${state.account}/requests`);
         const still = (data.requests || []).some((request) => request.id === id && (!request.state || request.state === "pending"));
         if (!still && state.screen === "approve" && state.pending && state.pending.id === id && !state.busy) {
+          // The code stays until it expires, so the next phone is asked about.
           state.pending = null;
-          state.invite = null;
           state.error = "";
           state.screen = "linked";
           draw();
