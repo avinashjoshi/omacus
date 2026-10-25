@@ -1003,6 +1003,53 @@ pub fn approve(
     Ok((approved, wrap))
 }
 
+/// The recovery signer adds the phone that just opened the pages with the words.
+/// The vault key stays the one the other phones already have.
+pub fn admit_with_recovery(
+    root: &Root,
+    chain: &DeviceChain,
+    newcomer: &DevicePublic,
+    vault: &VaultKey,
+    epoch: u64,
+    recovery_public: Option<&[u8; KEY_LEN]>,
+) -> Result<(DeviceChain, Vec<u8>), SyncKeyError> {
+    chain.verify()?;
+    let latest = chain.latest()?;
+    if !latest.devices.iter().any(|device| device.id == RECOVERY_ID) {
+        return Err(SyncKeyError::NotApproved(NOT_ON_LIST));
+    }
+    if latest.devices.iter().any(|device| device.id == newcomer.id) {
+        return Err(SyncKeyError::NotApproved(ALREADY_ON_LIST));
+    }
+    let mut secret = root.account_signing_secret()?;
+    let signer = DeviceKeys {
+        id: RECOVERY_ID,
+        sign: secret,
+        receive: [0u8; KEY_LEN],
+    };
+    secret.zeroize();
+    let mut devices = latest.devices.clone();
+    devices.push(*newcomer);
+    let mut next = SignedDevices {
+        version: latest.version + 1,
+        prev: {
+            let mut hash = [0u8; KEY_LEN];
+            hash.copy_from_slice(&Sha256::digest(latest.message()));
+            hash
+        },
+        signer: RECOVERY_ID,
+        devices,
+        signature: [0u8; 64],
+    };
+    next.signature = sign_list(&signer, &next)?;
+    let mut lists = chain.lists.clone();
+    lists.push(next);
+    let admitted = DeviceChain { lists };
+    admitted.verify()?;
+    let wrap = wrap_vault_for_device(newcomer, vault, epoch, recovery_public)?;
+    Ok((admitted, wrap))
+}
+
 /// An approved device adds the recovery signing key. There is no device wrap.
 /// The public key is the account id, which every linked device already has.
 pub fn admit_recovery(

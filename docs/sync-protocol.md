@@ -118,7 +118,7 @@ The list is a chain of signed snapshots. Each snapshot covers:
 
 The signature is Ed25519, 64 bytes, by the device named `signer`. `prev` is the hash of the previous snapshot. Version 1 has an empty `prev`. Each later version is exactly one device added or removed, and the signer is on the previous list. The signature does not cover the vault key. The stored chain is `OMACUS-DEVICES/1`, a `u16` count, then each snapshot as version, prev, signer, signature, device count, and the public keys. At most 64 devices.
 
-One list entry has the 16-byte id `recovery-signer` followed by a zero byte. Its verify key is the account public key. It is not a phone. A linked device adds it when publishing, so recovery can sign later requests. Removing a phone does not remove this entry.
+One list entry has the 16-byte id `recovery-signer` followed by a zero byte. Its verify key is the account public key. It is not a phone. A linked device adds it when publishing, so recovery can sign later requests. Removing a phone does not remove this entry. When the words open the latest pages, that signer adds the phone that typed them. The vault key stays the same, and the other phones see the longer list.
 
 ## Invite and join
 

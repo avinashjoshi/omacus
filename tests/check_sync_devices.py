@@ -19,6 +19,13 @@ if "Name this" in home:
     errors.append("the device list still has its own name field")
 if "for (const device of state.devices)" not in home:
     errors.append("the list skips a device")
+refresh = sync[sync.index("async function refreshDevices("):sync.index("function showRemoved(")]
+former = refresh.split("list.former", 1)[1]
+if "state.member = false" not in former or "else if (!state.removed && !state.member)" in refresh:
+    errors.append("a phone that is not on the list can still say sync is on")
+recover = sync[sync.index("async function startRecovery("):sync.index("function draw(")]
+if "could not be added." not in recover or "await push()" not in recover:
+    errors.append("opening with the words does not add this computer")
 if 'row.setAttribute("data-self", "1")' not in home:
     errors.append("this phone is not marked")
 if "beginRename(row, device)" not in home:

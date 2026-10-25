@@ -312,6 +312,34 @@ impl Desk {
         })
     }
 
+    /// Put this phone on the list the words just opened. The recovery signer
+    /// adds it. The vault key does not change, so the other phones keep opening
+    /// the same pages and then see this phone on the longer list.
+    pub fn claim_listed(&mut self) -> Result<(), SyncKeyError> {
+        if self.member() {
+            return Ok(());
+        }
+        let root = self.root.as_ref().ok_or(SyncKeyError::NotConfirmed)?;
+        let chain = self
+            .chain
+            .clone()
+            .ok_or(SyncKeyError::NotApproved(sync_keys::NO_LIST))?;
+        let vault = self.vault.as_ref().ok_or(SyncKeyError::Sealed)?;
+        let (chain, wrap) = sync_keys::admit_with_recovery(
+            root,
+            &chain,
+            &self.device.public(),
+            vault,
+            self.epoch,
+            self.recovery_public.as_ref(),
+        )?;
+        self.chain = Some(chain);
+        self.wraps.push(wrap);
+        self.ensure_recovery()?;
+        self.signed_seen = true;
+        Ok(())
+    }
+
     pub fn open_approval(
         &mut self,
         chain: &[u8],
@@ -632,8 +660,17 @@ impl Desk {
             .is_some_and(|devices| devices.iter().any(|device| *device.id() == mine))
     }
 
-    /// This phone was on the list and then dropped. A phone that only opened
-    /// the pages with the recovery words was never on it.
+    fn require_self(&self, chain: &DeviceChain) -> Result<(), SyncKeyError> {
+        let mine = *self.device.public().id();
+        if chain.devices()?.iter().any(|device| *device.id() == mine) {
+            Ok(())
+        } else {
+            Err(SyncKeyError::NotApproved(sync_keys::NOT_ON_LIST))
+        }
+    }
+
+    /// This phone was on the list and then dropped. Opening the latest pages
+    /// with the words adds this phone, so that path is on the list.
     pub fn formerly_listed(&self) -> bool {
         if self.member() {
             return false;
@@ -701,6 +738,7 @@ impl Desk {
         chain
             .verify()
             .map_err(|error| sync_keys::scope_list_error(error, false))?;
+        self.require_self(&chain)?;
         let view = ServerView::parse(record)?;
         view.chain
             .verify()
@@ -776,6 +814,9 @@ impl Desk {
             }
         };
         self.root = Some(root);
+        if !opened.partial {
+            let _ = self.claim_listed();
+        }
         Ok(opened)
     }
 
@@ -1192,6 +1233,7 @@ impl Desk {
         let chain = view.chain.clone();
         self.keep_opened(view, vault, chain);
         self.root = Some(root);
+        let _ = self.claim_listed();
         Ok(RecoveryPeeked {
             packed: Vec::new(),
             partial: false,
@@ -1229,6 +1271,7 @@ impl Desk {
         chain
             .verify()
             .map_err(|error| sync_keys::scope_list_error(error, false))?;
+        self.require_self(&chain)?;
         let view = ServerView::parse(record)?;
         view.chain
             .verify()
@@ -1597,6 +1640,236 @@ mod tests {
         assert_eq!(left.iter().filter(|(_, _, mine)| *mine).count(), 1);
     }
 
+    fn trip_pages() -> Vec<u8> {
+        omacus_engine::sync_keys::PageSet {
+            doc: Vec::new(),
+            pages: vec![("trip".into(), "ferry = 40\n".into())],
+            meta: omacus_engine::sync_keys::SyncMeta::default(),
+        }
+        .to_bytes()
+        .unwrap()
+    }
+
+    fn listed_ids(desk: &Desk) -> Vec<(String, bool)> {
+        desk.listed_devices()
+            .unwrap()
+            .into_iter()
+            .map(|(id, _, mine)| (id, mine))
+            .collect()
+    }
+
+    /// Linking shows this computer and the other one, on both sides, including
+    /// after the joiner opens the copy that was saved before the approval and
+    /// after both phones reload.
+    #[test]
+    fn linking_a_second_device_lists_it_on_both_sides() {
+        let (mut founder, _) = confirmed_desk();
+        let before_plan = founder.seal_library(&trip_pages(), &[]).unwrap();
+        let before = founder.library_record().unwrap();
+        let before_objects: Vec<_> = before_plan
+            .objects
+            .iter()
+            .map(|object| omacus_engine::sync_objects::Incoming {
+                id: object.id,
+                revision: 1,
+                body: object.body.clone(),
+            })
+            .collect();
+        let founder_id = listed_ids(&founder)[0].0.clone();
+        assert!(listed_ids(&founder)[0].1);
+
+        let mut joiner = Desk::start_join().unwrap();
+        let approval = founder.approve_new(&joiner.public_device()).unwrap();
+        let published_plan = founder
+            .seal_library(&trip_pages(), &before_plan.slots)
+            .unwrap();
+        let published = founder.library_record().unwrap();
+        let published_chain = sync_keys::ServerView::parse(&published)
+            .unwrap()
+            .chain
+            .to_bytes();
+        assert_eq!(
+            published_chain,
+            approval.chain,
+            "the saved copy's list is not the approval list ({} vs {} bytes)",
+            published_chain.len(),
+            approval.chain.len()
+        );
+        let published_objects: Vec<_> = published_plan
+            .objects
+            .iter()
+            .map(|object| omacus_engine::sync_objects::Incoming {
+                id: object.id,
+                revision: object.base.saturating_add(1),
+                body: object.body.clone(),
+            })
+            .collect();
+        assert_eq!(listed_ids(&founder).len(), 2, "the approver lost a phone");
+        assert_eq!(
+            listed_ids(&founder)
+                .iter()
+                .filter(|(_, mine)| *mine)
+                .count(),
+            1
+        );
+
+        let mut skipped = Desk::start_join().unwrap();
+        let stale = sync_keys::ServerView::parse(&before)
+            .unwrap()
+            .chain
+            .to_bytes();
+        match skipped.approval_plan(&stale, &approval.wrap, &before) {
+            Err(error) => assert_eq!(error.message(), sync_keys::NOT_ON_LIST),
+            Ok(_) => panic!("an approval that leaves this phone off the list still opened"),
+        }
+        assert!(!skipped.member());
+
+        joiner
+            .approval_plan(&approval.chain, &approval.wrap, &before)
+            .expect("the copy from before approval still opens");
+        let joiner_rows = listed_ids(&joiner);
+        assert_eq!(
+            joiner_rows.len(),
+            2,
+            "the new phone's list after approval: {joiner_rows:?}"
+        );
+        assert_eq!(
+            joiner_rows.iter().filter(|(_, mine)| *mine).count(),
+            1,
+            "the new phone is not on its own list: {joiner_rows:?}"
+        );
+        assert!(
+            joiner_rows.iter().any(|(id, _)| id == &founder_id),
+            "the first computer is missing on the new phone"
+        );
+
+        // A later sync still has the older copy. It must not drop this phone.
+        joiner
+            .open_library(&before, &before_objects, &[], &[])
+            .expect("the older copy opens");
+        let after_old = listed_ids(&joiner);
+        assert_eq!(
+            after_old.len(),
+            2,
+            "an older copy dropped a phone: {after_old:?}"
+        );
+        assert_eq!(after_old.iter().filter(|(_, mine)| *mine).count(), 1);
+
+        founder
+            .open_library(&published, &published_objects, &before_plan.slots, &[])
+            .expect("the approver reopens the saved copy");
+        assert_eq!(listed_ids(&founder).len(), 2);
+        assert_eq!(listed_ids(&joiner).len(), 2);
+
+        let founder = Desk::import_local(&founder.export_local().unwrap()).unwrap();
+        let joiner = Desk::import_local(&joiner.export_local().unwrap()).unwrap();
+        assert_eq!(
+            listed_ids(&founder).len(),
+            2,
+            "reload dropped the approver's list"
+        );
+        assert_eq!(
+            listed_ids(&joiner).len(),
+            2,
+            "reload dropped the new phone's list"
+        );
+        assert_eq!(
+            listed_ids(&founder)
+                .iter()
+                .filter(|(_, mine)| *mine)
+                .count(),
+            1
+        );
+        assert_eq!(
+            listed_ids(&joiner).iter().filter(|(_, mine)| *mine).count(),
+            1
+        );
+        assert_ne!(
+            listed_ids(&founder)
+                .iter()
+                .find(|(_, mine)| *mine)
+                .unwrap()
+                .0,
+            listed_ids(&joiner)
+                .iter()
+                .find(|(_, mine)| *mine)
+                .unwrap()
+                .0
+        );
+    }
+
+    #[test]
+    fn opening_with_the_words_lists_this_computer_on_both_sides() {
+        let mut founder = Desk::start_new().unwrap();
+        let words = founder.words().unwrap();
+        let phrase = words.join(" ");
+        let picks: Vec<(u8, &str)> = CONFIRM_AT
+            .into_iter()
+            .map(|n| (n, words[n as usize - 1]))
+            .collect();
+        founder.confirm_saved(&picks).unwrap();
+        let record = founder.seal_pages(b"ferry = 40\n").unwrap();
+        let founder_id = listed_ids(&founder)[0].0.clone();
+        assert_eq!(listed_ids(&founder).len(), 1);
+        assert!(listed_ids(&founder)[0].1);
+
+        let mut phone = Desk::start_recovery(&phrase).unwrap();
+        phone.accept_phrase().unwrap();
+        let opened = phone.recovery_open_pages(&record).unwrap();
+        assert!(!opened.partial);
+        assert_eq!(opened.pages, b"ferry = 40\n");
+        let phone_rows = listed_ids(&phone);
+        assert_eq!(
+            phone_rows.len(),
+            2,
+            "the words left this computer off: {phone_rows:?}"
+        );
+        assert_eq!(phone_rows.iter().filter(|(_, mine)| *mine).count(), 1);
+        assert!(
+            phone_rows
+                .iter()
+                .any(|(id, mine)| id == &founder_id && !mine)
+        );
+        let phone_id = phone_rows.iter().find(|(_, mine)| *mine).unwrap().0.clone();
+
+        let published = phone.seal_pages(b"ferry = 40\n").unwrap();
+        founder.absorb_record(&published).unwrap();
+        let founder_rows = listed_ids(&founder);
+        assert_eq!(
+            founder_rows.len(),
+            2,
+            "the first computer never saw the new one: {founder_rows:?}"
+        );
+        assert_eq!(founder_rows.iter().filter(|(_, mine)| *mine).count(), 1);
+        assert!(
+            founder_rows
+                .iter()
+                .any(|(id, mine)| id == &phone_id && !mine)
+        );
+        assert_ne!(
+            founder_rows.iter().find(|(_, mine)| *mine).unwrap().0,
+            phone_id
+        );
+
+        let plan = founder.seal_library(&trip_pages(), &[]).unwrap();
+        let library = founder.library_record().unwrap();
+        let mut second = Desk::start_recovery(&phrase).unwrap();
+        second.accept_phrase().unwrap();
+        let peeked = second.recovery_peek(&library).unwrap();
+        assert!(!peeked.partial);
+        assert!(!peeked.legacy);
+        let second_rows = listed_ids(&second);
+        assert_eq!(
+            second_rows.len(),
+            3,
+            "a current copy left this computer off: {second_rows:?}"
+        );
+        assert_eq!(second_rows.iter().filter(|(_, mine)| *mine).count(), 1);
+        assert!(second_rows.iter().any(|(id, _)| id == &founder_id));
+        assert!(second_rows.iter().any(|(id, _)| id == &phone_id));
+        let _ = plan;
+    }
+
     fn other_id(desk: &Desk) -> [u8; 16] {
         let listed = desk.listed_devices().unwrap();
         let (id, _, mine) = listed.iter().find(|(_, _, mine)| !mine).unwrap();
@@ -1653,8 +1926,15 @@ mod tests {
         let opened = recovered.recovery_open_pages(&later).unwrap();
         assert!(!opened.partial);
         assert_eq!(opened.pages, b"bread $2\n");
-        assert!(!recovered.member());
+        assert!(recovered.member());
         assert!(!recovered.formerly_listed());
+        assert!(
+            recovered
+                .listed_devices()
+                .unwrap()
+                .iter()
+                .any(|(_, _, mine)| *mine)
+        );
     }
 
     #[test]

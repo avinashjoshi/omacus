@@ -5,7 +5,7 @@ import { beginSave, finishSave, noteLocalEdit } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 
-const LABEL = "omacus 1.0.0-beta.29";
+const LABEL = "omacus 1.0.0-beta.30";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 
@@ -739,8 +739,9 @@ export async function mountSync(api) {
     } else if (list.former) {
       state.member = false;
       state.removed = true;
-    } else if (!state.removed && !state.member) {
+    } else {
       state.member = false;
+      state.removed = false;
     }
     showPlaces();
     if (changed && state.screen === "linked" && !panel.hidden) draw();
@@ -1518,23 +1519,25 @@ export async function mountSync(api) {
         if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
         const unpacked = JSON.parse(sync.unpackPages(merged.packed));
         if (!unpacked.ok) throw new Error(unpacked.message || "Those pages could not be opened.");
-        // Combined lines stay on the copy the words just opened. A fresh library
-        // must not be published over that copy.
+        // The pages stay the copy the words just opened. Publishing adds this
+        // computer to that list, so the other phones and computers can see it.
         const doc = remote.doc ? api.b64ToBytes(remote.doc) : new Uint8Array();
         const packed = await pack(doc, unpacked.pages || []);
         await installMerged({ packed });
         state.revision = mailbox.revision;
-        state.member = true;
         state.removed = false;
-        state.dirty = false;
         state.error = "";
         state.notice = "";
         state.screen = "linked";
         await saveFile();
         await refreshDevices();
-        if (peeked.legacy || peeked.resign) {
-          state.dirty = true;
+        if (!state.member) throw new Error(`${hereCap()} could not be added.`);
+        state.dirty = true;
+        try {
           await push();
+        } catch (error) {
+          state.dirty = true;
+          state.error = plainError(error.message);
         }
         calm();
       }
