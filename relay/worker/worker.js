@@ -1322,8 +1322,29 @@ async function routeClient(env, request) {
   return box(env, DIRECTORY).fetch(forward());
 }
 
+const DEFAULT_APP_URL = "https://app.omacus.com/";
+
+function appUrl(env) {
+  const configured = String((env && env.APP_URL) || "").trim();
+  if (!configured) return DEFAULT_APP_URL;
+  try {
+    const url = new URL(configured);
+    if (url.protocol !== "https:") return DEFAULT_APP_URL;
+    return url.toString();
+  } catch {
+    return DEFAULT_APP_URL;
+  }
+}
+
 function notFound() {
   return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
+}
+
+function redirectHome(env) {
+  return new Response(null, {
+    status: 302,
+    headers: { location: appUrl(env), "cache-control": "no-store" },
+  });
 }
 
 async function adminAsset(request, env, pathname) {
@@ -1422,6 +1443,9 @@ export default {
       const forwarded = await gate(request, env, url);
       if (forwarded instanceof Response) return forwarded;
       return routeClient(env, forwarded);
+    }
+    if (url.pathname === "/" && (request.method === "GET" || request.method === "HEAD") && String(env.SERVE_APP) !== "1") {
+      return redirectHome(env);
     }
     if (String(env.SERVE_APP) === "1" && env.ASSETS) return env.ASSETS.fetch(request);
     return notFound();

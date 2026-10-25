@@ -34,7 +34,7 @@ Until `ACCESS_AUD` is set, the admin key is enough. Once it is set, a missing or
 
 ## Production
 
-The production worker is named `omacus-sync`. It has its own stored data and its own secrets. It serves the sync API at `sync.omacus.com` and the admin at `sync.omacus.com/admin`. It does not serve the app.
+The production worker is named `omacus-sync`. It has its own stored data and its own secrets. It serves the sync API at `sync.omacus.com` and the admin at `sync.omacus.com/admin`. It does not serve the app. A GET or HEAD of exactly `https://sync.omacus.com/` redirects to the app. `APP_URL` is that address, and it defaults to `https://app.omacus.com/`. The production config already sets it. Any other unknown path is a plain not-found. The test worker (`SERVE_APP` is `1`) still serves the app at `/`.
 
 Deploy it only when you mean to:
 

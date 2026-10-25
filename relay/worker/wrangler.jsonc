@@ -38,7 +38,7 @@
       "name": "omacus-sync",
       "workers_dev": false,
       "routes": [{ "pattern": "sync.omacus.com", "custom_domain": true }],
-      "vars": { "SERVE_APP": "0", "ACCESS_TEAM_DOMAIN": "omacus.cloudflareaccess.com" },
+      "vars": { "SERVE_APP": "0", "ACCESS_TEAM_DOMAIN": "omacus.cloudflareaccess.com", "APP_URL": "https://app.omacus.com/" },
       "triggers": { "crons": ["15 7 * * *"] },
       "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "omacus-sync-backups" }],
       "durable_objects": {
