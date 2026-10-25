@@ -94,11 +94,30 @@ For the command line, create a service token in Access and export `CF_ACCESS_CLI
 
 ## Desktop test
 
-omacus Test is a separate Mac app for trying sync at `https://sync-test.omacus.com`. It is not a release of Omacus, and it does not replace the installed app. Desktop sync in Omacus itself stays a later version.
+omacus Test is a separate app for trying sync at `https://sync-test.omacus.com`. It is not a release of Omacus, and it does not replace the installed app. Desktop sync in Omacus itself stays a later version.
 
-The app is named omacus Test. Its id is `dev.omacus.OmacusTest`. It does not register the `omacus://` link. Pages stay in this app's own WebKit store. They are not the pages in Omacus.
+The app is named omacus Test. Its id is `dev.omacus.OmacusTest`. It does not register the `omacus://` link, and it does not write `~/.local/share/applications/omacus.desktop`. Pages stay in this app's own WebKit store. On Linux that is `~/.local/share/omacus-test` and `~/.cache/omacus-test`. They are not the pages in Omacus (`~/.local/share/omacus`, `~/.config/omacus`).
 
-The build is unsigned. It runs on Apple silicon and Intel. On a Mac, download `omacus-test-mac.zip` from the `omacus-test-desktop` prerelease, unzip it, then right-click omacus Test, choose Open, and choose Open again. A double-click is blocked. The window opens the sync test.
+On a Mac, the build is unsigned. It runs on Apple silicon and Intel. Download `omacus-test-mac.zip` from the `omacus-test-desktop` prerelease, unzip it, then right-click omacus Test, choose Open, and choose Open again. A double-click is blocked. The window opens the sync test.
+
+On Linux (x86_64, including Arch with Wayland), the build is `omacus-test-linux-x86_64.tar.gz` on that same prerelease. It uses the system WebKit. `webkit2gtk-4.1` pulls in gtk3. Install that, then download and run:
+
+```
+sudo pacman -S --needed webkit2gtk-4.1 && curl -fsSL -o /tmp/omacus-test-linux-x86_64.tar.gz https://github.com/avinashjoshi/omacus/releases/download/omacus-test-desktop/omacus-test-linux-x86_64.tar.gz && mkdir -p "$HOME/omacus-test-linux" && tar -xzf /tmp/omacus-test-linux-x86_64.tar.gz -C "$HOME/omacus-test-linux" && "$HOME/omacus-test-linux/omacus-test"
+```
+
+The window uses Wayland on its own. If it stays blank on Hyprland, quit and run `WEBKIT_DISABLE_DMABUF_RENDERER=1 "$HOME/omacus-test-linux/omacus-test"`.
+
+The tarball includes `dev.omacus.OmacusTest.desktop`. That file has no `omacus://` handler. Copying it to `~/.local/share/applications/dev.omacus.OmacusTest.desktop` does not replace the Omacus entry. Set `Exec` to the full path of `omacus-test` if you want a launcher.
+
+Remove the test app, its pages, and that launcher:
+
+```
+rm -rf "$HOME/omacus-test-linux" "$HOME/.local/share/omacus-test" "$HOME/.cache/omacus-test"
+rm -f "$HOME/.local/share/applications/dev.omacus.OmacusTest.desktop"
+```
+
+That leaves the installed Omacus app, its settings, and its `omacus://` handler in place.
 
 ## Invite codes
 

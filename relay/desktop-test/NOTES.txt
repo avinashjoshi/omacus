@@ -1,10 +1,23 @@
-omacus Test is a separate Mac app for trying sync at https://sync-test.omacus.com/. It is not a release of Omacus. Desktop sync in the real app is still a later version.
+omacus Test is a separate app for trying sync at https://sync-test.omacus.com/. It is not a release of Omacus. Desktop sync in the real app is still a later version.
 
 The app is named omacus Test. Its id is dev.omacus.OmacusTest. Pages stay in this app's own WebKit store. They are not the pages in Omacus.
 
-The build is unsigned. It runs on Apple silicon and Intel.
-
-On a Mac:
+On a Mac, the build is unsigned. It runs on Apple silicon and Intel.
 1. Download omacus-test-mac.zip and unzip it.
 2. Right-click omacus Test, choose Open, then Open. A double-click is blocked because the app is unsigned.
 3. The window opens the sync test. The Omacus app you already have stays as it is.
+
+On Linux (x86_64, including Arch with Wayland), download omacus-test-linux-x86_64.tar.gz. webkit2gtk-4.1 pulls in gtk3.
+
+sudo pacman -S --needed webkit2gtk-4.1 && curl -fsSL -o /tmp/omacus-test-linux-x86_64.tar.gz https://github.com/avinashjoshi/omacus/releases/download/omacus-test-desktop/omacus-test-linux-x86_64.tar.gz && mkdir -p "$HOME/omacus-test-linux" && tar -xzf /tmp/omacus-test-linux-x86_64.tar.gz -C "$HOME/omacus-test-linux" && "$HOME/omacus-test-linux/omacus-test"
+
+The window uses Wayland on its own. If it stays blank on Hyprland, quit and run WEBKIT_DISABLE_DMABUF_RENDERER=1 "$HOME/omacus-test-linux/omacus-test".
+
+Pages stay in ~/.local/share/omacus-test and ~/.cache/omacus-test. The tarball's dev.omacus.OmacusTest.desktop file has no omacus:// handler. Copying it to ~/.local/share/applications/ does not replace the Omacus entry. Set Exec to the full path of omacus-test if you want a launcher.
+
+Remove the test app, its pages, and that launcher:
+
+rm -rf "$HOME/omacus-test-linux" "$HOME/.local/share/omacus-test" "$HOME/.cache/omacus-test"
+rm -f "$HOME/.local/share/applications/dev.omacus.OmacusTest.desktop"
+
+That leaves the installed Omacus app, its settings, and its omacus:// handler in place.
