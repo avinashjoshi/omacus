@@ -3525,6 +3525,9 @@ async function action(name) {
     setDrawer(false);
   } else if (name === "expand-side") {
     setSide(true);
+  } else if (name === "turn-on-sync") {
+    setDrawer(false);
+    globalThis.omacusTurnOnSync?.();
   } else if (name === "settings") {
     openSettings("settings");
   } else if (name === "about") {
@@ -5148,6 +5151,7 @@ async function start() {
     await mountSync({
       syncTest,
       openSettings: (tab) => openSettings(tab),
+      closeSettings: () => closeSettings(),
       snapshot: takeSyncSnapshot,
       apply: applyRemoteLibrary,
       bytesToB64,

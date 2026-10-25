@@ -203,7 +203,7 @@
      "name": "Where are my pages stored?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "As plain text files on your own disk, so you can search them or back them up. Nothing is uploaded. This version does not sync. Encrypted sync is described at omacus.com/sync and is not built yet."
+      "text": "On the desktop, as plain text files on your own disk. In the web app, in that browser until you turn on sync. The sealed copy is described at omacus.com/sync. The server cannot read it."
      }
     }
    ]
@@ -532,7 +532,7 @@
       <div class="section-head center reveal">
         <span class="kicker">// private by design</span>
         <h2>Your pages stay <em class="serif">yours</em>.</h2>
-        <p>No account, and no tracking in the app. This version keeps every page on your device. What you write never leaves unless you send it.</p>
+        <p>No tracking in the app. Pages stay on your device until you turn on sync. A sealed copy can then be stored, and the server cannot read it.</p>
       </div>
       <div class="privacy reveal">
         <article>
@@ -543,7 +543,7 @@
         <article>
           <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></svg>
           <h3>In your browser</h3>
-          <p>The web app saves pages in that browser, on that device. Nothing is uploaded, and there's no server that could see them.</p>
+          <p>The web app saves pages in that browser. Turn on sync to open them on your other phones and computers. The server stores a sealed copy and cannot read it.</p>
         </article>
         <article>
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>
@@ -554,15 +554,14 @@
       <p class="privacy-note reveal">The only things Omacus fetches are exchange rates, and on the desktop, a check for new versions. Neither carries anything you've written. <a href="/privacy/">All of it, in plain words</a></p>
       <div class="soon reveal">
         <div>
-          <span class="soon-mark">Coming soon</span>
           <h3>Your pages, on every device you link.</h3>
-          <p>End-to-end encrypted sync is on the way. Named vaults such as Personal, Family, and Work. A 24-word recovery phrase restores them on a new device. Nobody, including Omacus, can read the pages or the keys. It is not in this version.</p>
-          <p><a class="btn" href="/sync/">Read how sync will work <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a></p>
+          <p>Turn on sync in the web app. Pages are encrypted on your device before they leave. The server cannot read them. Twelve recovery words are the way back in. A sealed copy is saved each night.</p>
+          <p><a class="btn" href="/sync/">Read how sync works <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a></p>
         </div>
         <div class="vaults" aria-hidden="true">
-          <article class="vault"><b>Personal</b><span>Trip Budget · Groceries</span></article>
-          <article class="vault"><b>Family</b><span>Cooking · Time zones</span></article>
-          <article class="vault"><b>Work</b><span>Monthly budget</span></article>
+          <article class="vault"><b>Encrypted</b><span>The server cannot read a page</span></article>
+          <article class="vault"><b>12 words</b><span>The way back in, on paper</span></article>
+          <article class="vault"><b>Each night</b><span>A sealed copy, still unreadable</span></article>
         </div>
       </div>
     </div>
@@ -606,7 +605,7 @@
         </div>
         <div>
           <h3>Where are my pages stored?</h3>
-          <p>As plain text files on your own disk, so you can search them or back them up. Nothing is uploaded. This version does not sync. <a href="/sync/">Encrypted sync</a> is described separately, and it is not built yet.</p>
+          <p>On the desktop, as plain text files on your own disk. In the web app, in that browser until you turn on sync. The sealed copy is described on <a href="/sync/">Sync</a>. The server cannot read it.</p>
         </div>
       </div>
       <p class="faq-more reveal">More in the <a href="/guides/">guides</a> and <a href="/docs/">docs</a>, real pages in <a href="/use-cases/">use cases</a>, or <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">ask on GitHub</a>.</p>

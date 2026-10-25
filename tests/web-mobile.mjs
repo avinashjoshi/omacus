@@ -102,7 +102,7 @@ check(html.includes("data-build-hash"), "settings shows the build hash");
 check(js.includes("Add to Home Screen"), "iPhone gets an Add to Home Screen prompt");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-12"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('const CACHE = "omacus-app-13"'), "the app cache name moved past the cache-first shell");
 check(html.includes("data-pick"), "a same-line conflict can ask which line to keep");
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
@@ -124,7 +124,10 @@ check(!syncJs.includes("innerHTML") && !syncJs.includes("insertAdjacentHTML"), "
 check(/@media \(max-width: 760px\) \{[\s\S]*?\.sync-chip-word \{\s*display: none;/.test(css), "a narrow phone keeps the cloud and hides the word");
 check(!html.includes("private-chip") && !html.includes('data-action="privacy"'), "the top bar has no Private pill");
 check(html.includes("Private by design") && html.includes("on this device"), "About says pages stay on this device");
-check(syncJs.includes("function hideChip") && syncJs.includes('storeGet("sync-paused")') && syncJs.includes('dataset.ready = "1"'), "a fresh copy hides sync until it is on or paused");
+check(syncJs.includes("function hideChip") && syncJs.includes('storeGet("sync-paused")') && syncJs.includes('dataset.ready = "1"'), "a fresh copy hides the status cloud until sync is on or paused");
+check(syncJs.includes("How sync works") && syncJs.includes("Set up sync") && syncJs.includes("showTurnOnSync"), "Turn on sync opens a short explanation before setup");
+check(html.includes('data-turn-on-sync') && html.includes(">Turn on sync<"), "the sidebar offers Turn on sync before setup");
+check(css.includes(".bar .sync-setup") && css.includes("display: none"), "a narrow phone keeps Turn on sync in the pages list");
 check(css.includes(".sync-chip[hidden]"), "a hidden sync status stays off the bar");
 check(buildWeb.includes("site/app/layer.js"), "the published app includes the row menu placement");
 
@@ -733,7 +736,7 @@ check(railHits.blurred.length === 0, `backdrop-filter is set on ${railHits.blurr
 check(Math.abs(railHits.sideLeft) <= 1, `landscape sidebar starts at ${railHits.sideLeft}`);
 check(Math.abs(railHits.sideBottom - railHits.innerHeight) <= 1, `landscape sidebar bottom ${railHits.sideBottom} != ${railHits.innerHeight}`);
 check(Math.abs(railHits.editorBottom - railHits.innerHeight) <= 1, `landscape editor bottom ${railHits.editorBottom} != ${railHits.innerHeight}`);
-check(railHits.hits.length === 4, `landscape rail has ${railHits.hits.length} buttons`);
+check(railHits.hits.length === 5, `landscape rail has ${railHits.hits.length} buttons`);
 for (const hit of railHits.hits) {
   check(hit.hit, `landscape ${hit.label} at ${hit.x},${hit.y} hit ${hit.hitName}`);
   check(hit.left >= 59 - 1, `landscape ${hit.label} starts at ${hit.left}, inside the notch`);

@@ -1,6 +1,6 @@
 // Sync. A device file stays in this browser. The server receives a sealed record.
 import { SYNC_URL } from "./sync-config.js";
-import { beginSave, finishSave, noteLocalEdit, pagesDiffer } from "./sync-save.mjs";
+import { beginSave, finishSave, noteLocalEdit, pagesDiffer, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 
@@ -148,6 +148,7 @@ export async function mountSync(api) {
     chip.setAttribute("aria-label", label);
     if (next === "offline") chip.title = "Edits saved here.";
     else chip.removeAttribute("title");
+    paintEntry();
   }
 
   function hideChip() {
@@ -156,7 +157,27 @@ export async function mountSync(api) {
     chip.replaceChildren();
     chip.setAttribute("aria-label", "Set up sync");
     chip.removeAttribute("title");
+    paintEntry();
   }
+
+  function paintEntry() {
+    const show = showTurnOnSync({
+      account: state.account,
+      removed: state.removed,
+      paused: pausedFlag(),
+    });
+    for (const node of document.querySelectorAll("[data-turn-on-sync]")) node.hidden = !show;
+  }
+
+  function openIntro() {
+    if (!state.account) {
+      state.screen = "intro";
+      state.error = "";
+    }
+    api.openSettings("sync");
+    draw();
+  }
+  globalThis.omacusTurnOnSync = openIntro;
 
   function calm() {
     saveWanted = false;
@@ -1663,7 +1684,8 @@ export async function mountSync(api) {
     if (state.error && state.screen !== "recover") {
       panel.append(el("p", { class: "sync-err", role: "alert" }, [plainError(state.error)]));
     }
-    if (state.screen === "off") drawOff();
+    if (state.screen === "intro") drawIntro();
+    else if (state.screen === "off") drawOff();
     else if (state.screen === "access") drawAccess();
     else if (state.screen === "save") drawSave();
     else if (state.screen === "confirm") drawConfirm();
@@ -1678,6 +1700,20 @@ export async function mountSync(api) {
     else if (state.screen === "recover") drawRecover();
     else if (state.screen === "off-ask") drawOffAsk();
     else drawLinked();
+  }
+
+  function drawIntro() {
+    const here = onPhone() ? "phone" : "computer";
+    panel.append(
+      el("h2", {}, ["How sync works"]),
+      el("p", { class: "setting-help" }, [`Pages are encrypted on this ${here} before they leave. The server keeps them, and it cannot read them.`]),
+      el("p", { class: "setting-help" }, ["You get 12 recovery words. They are the only way back in if you lose every phone and computer. Write them down. Omacus does not keep a copy."]),
+      el("p", { class: "setting-help" }, ["You link another phone or computer with a code. After that, your pages stay in step, even when one of them is offline."]),
+      addActions([
+        ["Set up sync", "primary", () => { state.error = ""; state.screen = "off"; draw(); }],
+        ["Not now", "", () => { if (api.closeSettings) api.closeSettings(); else api.openSettings("settings"); }],
+      ]),
+    );
   }
 
   function drawOff() {
@@ -2170,7 +2206,15 @@ export async function mountSync(api) {
   } finally {
     chip.dataset.ready = "1";
   }
+  const wanted = new URLSearchParams(location.search).get("sync");
+  if (!state.account && wanted === "1") state.screen = "intro";
   draw();
+  if (!state.account && (wanted === "1" || wanted === "setup")) {
+    api.openSettings("sync");
+    const url = new URL(location.href);
+    url.searchParams.delete("sync");
+    history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }
   if (state.account) tick();
   setInterval(() => tick(), 4000);
   window.addEventListener("online", () => tick());

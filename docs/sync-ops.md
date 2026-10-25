@@ -102,7 +102,7 @@ For the command line, create a service token in Access and export `CF_ACCESS_CLI
 
 ## Desktop test
 
-omacus Test is a separate app for trying sync at `https://sync-test.omacus.com`. It is not a release of Omacus, and it does not replace the installed app. Desktop sync in Omacus itself stays a later version.
+omacus Test is a separate app for trying sync at `https://sync-test.omacus.com`. It is not a release of Omacus, and it does not replace the installed app. The desktop app shows Turn on sync, which explains sync and continues in the web app. The desktop window does not seal pages yet.
 
 The app is named omacus Test. Its id is `dev.omacus.OmacusTest`. On Mac its sync name is omacus Test on Mac. On Linux it is omacus Test on Linux. A browser on the same computer keeps its own name, such as Chrome on Linux. It does not register the `omacus://` link, and it does not write `~/.local/share/applications/omacus.desktop`. Pages stay in this app's own WebKit store. On Linux that is `~/.local/share/omacus-test` and `~/.cache/omacus-test`. They are not the pages in Omacus (`~/.local/share/omacus`, `~/.config/omacus`).
 

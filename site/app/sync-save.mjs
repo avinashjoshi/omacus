@@ -26,6 +26,13 @@ function pageMap(pages) {
   return map;
 }
 
+// Turn on sync is the entry before setup. A paused cloud is only for a phone
+// that already turned sync off, or was removed.
+export function showTurnOnSync(status) {
+  const row = status || {};
+  return !row.account && !row.removed && !row.paused;
+}
+
 // `baseline` is null until a copy has synced. Any page then counts as a local change.
 export function pagesDiffer(baseline, local) {
   const here = pageMap(local);

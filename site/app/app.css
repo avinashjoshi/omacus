@@ -639,6 +639,11 @@ body.dragging-side .sheet-list {
   background: var(--app-hover);
 }
 
+.side-foot-row[hidden],
+.side-btn[hidden] {
+  display: none;
+}
+
 .side-foot {
   padding: var(--space-2) var(--space-4) var(--space-3);
   color: var(--app-dim);
@@ -2403,6 +2408,31 @@ body.answers-inline .md .pill {
   display: none;
 }
 
+.sync-setup {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  box-sizing: border-box;
+  min-height: var(--hit);
+  margin-right: var(--space-2);
+  padding: 5px var(--space-3);
+  border: 1px solid var(--app-line);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--app-fg);
+  font: 500 var(--type-caption) / 1 var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sync-setup[hidden] {
+  display: none;
+}
+
+.sync-setup:hover {
+  border-color: var(--app-line-strong);
+}
+
 .sync-chip svg {
   width: 14px;
   height: 14px;
@@ -2449,6 +2479,10 @@ body.answers-inline .md .pill {
 }
 
 @media (max-width: 760px) {
+  .bar .sync-setup {
+    display: none;
+  }
+
   .sync-chip {
     justify-content: center;
     gap: 0;

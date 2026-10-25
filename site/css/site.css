@@ -3700,7 +3700,7 @@ html[data-page="updates"] .nav a:hover {
   }
 }
 
-/* Coming soon: the homepage band and omacus.com/sync. No form. */
+/* Sync: the homepage band and omacus.com/sync. No form. */
 .soon {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
@@ -3778,6 +3778,27 @@ html[data-page="updates"] .nav a:hover {
 }
 
 .sync-note {
+  color: var(--muted);
+  font-size: var(--type-caption);
+}
+
+.sync-video {
+  margin: var(--space-5) 0;
+}
+
+.sync-video-slot {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  background: var(--bg-raise);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--muted);
+  font-size: var(--type-body);
+}
+
+.sync-video figcaption {
+  margin-top: var(--space-2);
   color: var(--muted);
   font-size: var(--type-caption);
 }

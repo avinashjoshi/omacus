@@ -264,11 +264,12 @@ def select_milestones(raw, tag_days_map):
     chosen.append({
         "id": "sync",
         "title": "Sync",
-        "blurb": "Coming soon. Pages that stay in step across computers. Not shipped yet.",
+        "blurb": "The web app can keep pages in step. They are encrypted on your device. The server cannot read them.",
         "tag": "",
-        "label": "Soon",
+        "label": "Web app",
         "day": "",
-        "soon": True,
+        "soon": False,
+        "web": True,
     })
     return chosen
 
@@ -308,6 +309,14 @@ def facts_html(facts):
 def milestone_html(item):
     title = html.escape(item["title"])
     blurb = html.escape(item["blurb"])
+    if item.get("web"):
+        return f'''<li class="entry" id="sync">
+<div class="entry-meta"><a class="version-pill" href="/sync/">Web app</a></div>
+<div class="entry-body">
+<h2>{title}</h2>
+<div class="notes"><p>{blurb}</p></div>
+</div>
+</li>'''
     if item["soon"]:
         return f'''<li class="entry story-soon" id="sync">
 <div class="entry-meta"><span class="version-pill">Soon</span></div>

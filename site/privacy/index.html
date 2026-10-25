@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Privacy: what Omacus does with your data (nothing)</title>
-  <meta name="description" content="Omacus keeps your pages on your device. No account, no analytics in the app; the only requests are exchange rates and a check for new versions. Here is all of it, in plain words.">
+  <meta name="description" content="What Omacus sends. Desktop pages stay on this computer. The web app can store a sealed copy when you turn on sync. The server cannot read it.">
   <meta name="author" content="Avinash Joshi">
   <link rel="canonical" href="https://omacus.com/privacy/">
   <meta name="theme-color" content="#090909">
@@ -115,10 +115,10 @@
   <article class="prose page-body">
     <span class="kicker">// privacy</span>
     <h1>Privacy</h1>
-    <p class="lead">Omacus has no account, no ads and no analytics, and your pages never leave your device unless you share them. This page lists everything Omacus sends over the network, and why.</p>
+    <p class="lead">Omacus has no ads and no analytics. Desktop pages stay on this computer. The web app keeps pages in the browser until you turn on sync. This page lists what is sent, and why.</p>
 <h2 id="desktop">The desktop app</h2>
     <ul>
-      <li><strong>Your pages</strong> are plain text files in a folder on your computer (see <a href="/docs/#files">where files live</a>). They are never uploaded. This version does not sync. <a href="/sync/">Sync</a> describes a later, end-to-end encrypted way to keep named vaults across devices. It is not built yet, and this site does not collect an email for it.</li>
+      <li><strong>Your pages</strong> are plain text files in a folder on your computer (see <a href="/docs/#files">where files live</a>). They are not uploaded. Turn on sync in the sidebar explains sync and continues in the web app. This site does not collect an email.</li>
       <li><strong>Exchange rates.</strong> Omacus downloads the latest rates from <a href="https://www.exchangerate-api.com/docs/free">open.er-api.com</a> at most every 12 hours while you use it, and keeps them on disk so currency math works offline. The request carries nothing from your pages.</li>
       <li><strong>Checking for updates.</strong> Omacus asks GitHub for the latest version number when it starts (at most once an hour) and every 4 hours while it's open. Put <code>check_for_updates = false</code> in <code>settings.toml</code> to turn that off. A new version is downloaded, from GitHub, only when you choose <em>Update now</em> or run <code>omacus update</code>.</li>
       <li><strong>Nothing else.</strong> No telemetry, no crash reports, no usage statistics.</li>
@@ -126,7 +126,7 @@
 
     <h2 id="web-app">The web app</h2>
     <ul>
-      <li><strong>Your pages</strong> are saved in your browser's storage, on that device. They are never sent to omacus.com or anywhere else. Clearing the site's data in your browser deletes them, so export a copy (⋯ menu) if they matter.</li>
+      <li><strong>Your pages</strong> are saved in your browser until you turn on sync. Sync sends a sealed copy. The server cannot read the pages, the names, or the recovery words. A sealed copy is also saved each night and kept for about 30 days. That copy is not opened. Clearing the site's data in your browser deletes the local copy, so export a copy (⋯ menu) if the pages matter.</li>
       <li><strong>Exchange rates</strong> come from the same source as the desktop app, kept in the browser for 12 hours.</li>
       <li><strong>The app itself</strong> is downloaded from omacus.com and cached so it works offline.</li>
     </ul>

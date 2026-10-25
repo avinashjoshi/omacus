@@ -87,7 +87,12 @@ test("an offline edit is merged with the other phone", async ({ browser }) => {
   const phoneA = await first.newPage();
   const phoneB = await second.newPage();
 
-  await openSync(phoneA);
+  await phoneA.goto("/app/", { waitUntil: "domcontentloaded" });
+  await phoneA.waitForSelector("[data-loading]", { state: "detached" });
+  await expect(phoneA.locator(".sync-chip")).toBeHidden();
+  await phoneA.getByRole("button", { name: "Turn on sync" }).first().click();
+  await expect(phoneA.getByRole("heading", { name: "How sync works" })).toBeVisible();
+  await phoneA.getByRole("button", { name: "Set up sync" }).click();
   await phoneA.getByRole("button", { name: "Start fresh" }).click();
   await phoneA.locator("[data-access-code]").fill("FERRY-40");
   await phoneA.getByRole("button", { name: "Start fresh" }).click();

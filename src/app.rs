@@ -492,6 +492,8 @@ pub struct OmacusApp {
     help: Option<help::Tab>,
     updates: Updates,
     update_open: bool,
+    /// How sync works, then the web app's setup. This window does not seal pages.
+    sync_intro: bool,
     /// The app icon, small (sidebar, help rail) and large (About).
     logo: help::Logo,
     /// Developer option for the website: `OMACUS_SCREENSHOT=out.png` saves the window's
@@ -613,6 +615,7 @@ impl OmacusApp {
             },
             // With OMACUS_SCREENSHOT, "update" opens the update window instead of help.
             update_open: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "update"),
+            sync_intro: false,
             switcher: std::env::var("OMACUS_SCREENSHOT_HELP")
                 .is_ok_and(|t| t == "switcher")
                 .then(|| Switcher {
@@ -2180,6 +2183,53 @@ rental = rent + 50
         ctx.request_repaint();
     }
 
+    /// How sync works. Set up continues in the web app. This window keeps pages in a folder.
+    fn show_sync_intro(&mut self, ctx: &egui::Context) {
+        if !self.sync_intro {
+            return;
+        }
+        let theme = self.theme.clone();
+        let mut setup = false;
+        let mut close = false;
+        let frame = design::dialog(&theme);
+        let modal = egui::Modal::new(egui::Id::unique("omacus-sync-intro"))
+            .frame(frame)
+            .backdrop_color(design::backdrop(&theme))
+            .show(ctx, |ui| {
+                ui.set_width(380.0);
+                ui.label(
+                    egui::RichText::new("How sync works")
+                        .size(theme::token::TYPE_TITLE)
+                        .color(theme.foreground),
+                );
+                ui.add_space(8.0);
+                for line in sync_intro_lines() {
+                    ui.label(
+                        egui::RichText::new(*line)
+                            .size(theme::token::TYPE_BODY)
+                            .color(theme.dim),
+                    );
+                    ui.add_space(8.0);
+                }
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    setup = design::primary(ui, &theme, "Set up sync").clicked();
+                    close = design::quiet(ui, &theme, "Not now").clicked();
+                });
+            });
+        if modal.should_close() {
+            close = true;
+        }
+        if setup {
+            self.sync_intro = false;
+            ctx.open_url(egui::OpenUrl::new_tab(sync_setup_url()));
+            self.focus_editor = true;
+        } else if close {
+            self.sync_intro = false;
+            self.focus_editor = true;
+        }
+    }
+
     /// The update window: what's new, and installing it.
     fn show_update(&mut self, ctx: &egui::Context) {
         if !self.update_open {
@@ -2503,7 +2553,7 @@ rental = rent + 50
         let mut expand_id: Option<String> = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
-            .max_height(ui.available_height() - 38.0)
+            .max_height((ui.available_height() - 38.0 - theme::token::HIT - 8.0).max(0.0))
             .show(ui, |ui| {
                 for entry in &entries {
                     let indent = entry.depth as f32 * 14.0;
@@ -2723,6 +2773,22 @@ rental = rent + 50
             self.place_page(&id, spot);
         }
 
+        ui.add_space(6.0);
+        let turn_on = ui.add_sized(
+            [ui.available_width(), theme::token::HIT],
+            egui::Button::new(
+                egui::RichText::new("Turn on sync")
+                    .size(theme::token::TYPE_BODY)
+                    .color(theme.text()),
+            )
+            .fill(theme.background)
+            .stroke(egui::Stroke::new(1.0, theme.border()))
+            .corner_radius(design::radius_row())
+            .min_size(vec2(ui.available_width(), theme::token::HIT)),
+        );
+        if turn_on.on_hover_text("How sync works").clicked() {
+            self.sync_intro = true;
+        }
         ui.add_space(6.0);
         self.sidebar_footer(ui, &theme);
 
@@ -4084,6 +4150,11 @@ rental = rent + 50
             pos2(x, logo.center().y - (ICON_BOX + 8.0)),
             Vec2::splat(ICON_BOX),
         );
+        let sync_rect = Rect::from_center_size(
+            pos2(x, gear_rect.center().y - (ICON_BOX + 8.0)),
+            Vec2::splat(ICON_BOX),
+        );
+        let turn_on = icon_button(ui, sync_rect, id.with("rail-sync"), &theme, Icon::Cloud);
         let gear = icon_button(ui, gear_rect, id.with("rail-settings"), &theme, Icon::Gear);
         let plus = icon_button(
             ui,
@@ -4116,6 +4187,8 @@ rental = rent + 50
             .clicked()
         {
             self.apply(SheetAction::New);
+        } else if turn_on.on_hover_text("Turn on sync").clicked() {
+            self.sync_intro = true;
         } else if gear
             .on_hover_text(format!("Settings ({})", help::keys("Ctrl+,")))
             .clicked()
@@ -4933,6 +5006,7 @@ impl eframe::App for OmacusApp {
         self.popup(&ctx);
         self.show_help(&ctx);
         self.show_update(&ctx);
+        self.show_sync_intro(&ctx);
         self.show_delete(&ctx);
         self.show_pick(&ctx);
         self.show_move(&ctx);
@@ -5126,6 +5200,21 @@ enum Icon {
     Help,
     Gear,
     Folder,
+    Cloud,
+}
+
+/// The short explanation before setup. The desktop app does not seal pages.
+fn sync_intro_lines() -> &'static [&'static str] {
+    &[
+        "Pages are encrypted on your phone or computer before they leave. The server keeps them, and it cannot read them.",
+        "You get 12 recovery words. They are the only way back in if you lose every phone and computer. Write them down. Omacus does not keep a copy.",
+        "You link another phone or computer with a code. After that, your pages stay in step, even when one of them is offline.",
+        "Set up sync continues in the web app. Pages in this window stay in a folder on this computer.",
+    ]
+}
+
+fn sync_setup_url() -> &'static str {
+    "https://app.omacus.com/?sync=setup"
 }
 
 /// Drawn rather than typed, so they match each other, Share and ⋯ in any font.
@@ -5183,6 +5272,11 @@ fn paint_icon(painter: &egui::Painter, icon: Icon, c: Pos2, color: Color32) {
                 stroke,
             );
             painter.rect_stroke(r, CornerRadius::same(2), stroke, egui::StrokeKind::Middle);
+        }
+        Icon::Cloud => {
+            painter.circle_stroke(c + vec2(-2.6, 0.6), 3.1, stroke);
+            painter.circle_stroke(c + vec2(2.4, -0.6), 3.8, stroke);
+            painter.line_segment([c + vec2(-5.6, 3.2), c + vec2(6.0, 3.2)], stroke);
         }
     }
 }
@@ -5984,8 +6078,8 @@ mod tests {
         apply_switcher_query, empty_sheet_hint, hover_from_line, hover_tip_rect, icon_slot,
         line_at, move_folder_command, name_hint_visible, new_folder_command, owns_key,
         rename_command, settings_command, sheet_event_filter, shortcut_for, shown_pop,
-        sidebar_accent, sidebar_label_job, switcher_takes_focus, take_chords, take_name_field_key,
-        take_switcher_edits,
+        sidebar_accent, sidebar_label_job, switcher_takes_focus, sync_intro_lines, sync_setup_url,
+        take_chords, take_name_field_key, take_switcher_edits,
     };
     use eframe::egui::{Color32, Event, FontId, ImeEvent, Key, Modifiers, Rect, pos2, vec2};
     use std::time::Duration;
@@ -6283,6 +6377,18 @@ mod tests {
         );
         assert!(tip.width() + 0.1 >= card.x + 24.0);
         assert!(tip.height() > value.y + 16.0);
+    }
+
+    #[test]
+    fn turn_on_sync_explains_the_idea_before_setup() {
+        let text = sync_intro_lines().join(" ");
+        assert!(text.contains("cannot read them"));
+        assert!(text.contains("12 recovery words"));
+        assert!(text.contains("link another phone"));
+        assert!(text.contains("Pages in this window stay in a folder"));
+        assert!(!text.to_lowercase().contains("paused"));
+        assert!(!text.contains("coming soon"));
+        assert_eq!(sync_setup_url(), "https://app.omacus.com/?sync=setup");
     }
 
     #[test]
