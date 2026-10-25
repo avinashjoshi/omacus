@@ -110,6 +110,49 @@ async function shot(page, name) {
   await page.screenshot({ path: `${SHOTS}/${name}.png` });
 }
 
+async function expectHomeGaps(page) {
+  const phone = await page.evaluate(() => matchMedia("(max-width: 760px)").matches);
+  await expect(page.locator(".sync-quiet")).toHaveText(phone ? " · this phone" : " · this computer");
+  const gaps = await page.evaluate(() => {
+    const box = (node) => node.getBoundingClientRect();
+    const name = document.querySelector("[data-sync-set] > input.sync-name");
+    const devices = [...document.querySelectorAll(".sync-device")];
+    const add = document.querySelector("[data-sync-set] > .sync-actions .btn");
+    const off = document.querySelector("[data-sync-set] .sync-link.sync-off");
+    const quiet = document.querySelector(".sync-quiet");
+    const title = document.querySelector(".sync-device-name b");
+    const text = quiet.firstChild;
+    const dotAt = text.textContent.indexOf("·");
+    const glyph = (start, end) => {
+      const range = document.createRange();
+      range.setStart(text, start);
+      range.setEnd(text, end);
+      return range.getBoundingClientRect();
+    };
+    const dot = glyph(dotAt, dotAt + 1);
+    const rest = glyph(dotAt + 2, dotAt + 6);
+    return {
+      nameToList: box(devices[0]).top - box(name).bottom,
+      listToAdd: box(add).top - box(devices.at(-1)).bottom,
+      addToOff: box(off).top - box(add).bottom,
+      beforeDot: dot.left - box(title).right,
+      afterDot: rest.left - dot.right,
+      quiet: quiet.textContent,
+      whiteSpace: getComputedStyle(quiet).whiteSpace,
+    };
+  });
+  expect(gaps.nameToList).toBeGreaterThan(14);
+  expect(gaps.nameToList).toBeLessThan(18);
+  expect(gaps.listToAdd).toBeGreaterThan(14);
+  expect(gaps.listToAdd).toBeLessThan(18);
+  expect(gaps.addToOff).toBeGreaterThan(14);
+  expect(gaps.addToOff).toBeLessThan(18);
+  expect(gaps.beforeDot).toBeGreaterThan(2);
+  expect(gaps.afterDot).toBeGreaterThan(2);
+  expect(gaps.quiet).toBe(phone ? " · this phone" : " · this computer");
+  expect(gaps.whiteSpace).toBe("pre-wrap");
+}
+
 async function expectJoinLayout(page) {
   await expect(page.getByRole("heading", { name: "Join your synced pages" })).toBeVisible();
   await expect(page.getByText("Scan the QR code it shows, or type the code.")).toBeVisible();
@@ -277,6 +320,14 @@ test("an invite notices a join within 5 seconds", async ({ browser }) => {
     await theme(phoneA, "dark");
     await shot(phoneA, "sync-ready-phone-dark");
     await theme(phoneA, "light");
+    await phoneA.setViewportSize({ width: 1280, height: 800 });
+
+    await phoneA.getByRole("button", { name: "Done" }).click();
+    await expect(phoneA.getByRole("heading", { name: "Sync is on", exact: true })).toBeVisible();
+    await expectHomeGaps(phoneA);
+    await phoneA.setViewportSize({ width: 390, height: 844 });
+    await expect(phoneA.getByRole("heading", { name: "Sync is on", exact: true })).toBeVisible();
+    await expectHomeGaps(phoneA);
     await phoneA.setViewportSize({ width: 1280, height: 800 });
 
     await phoneA.getByRole("button", { name: "Add a phone or computer" }).click();

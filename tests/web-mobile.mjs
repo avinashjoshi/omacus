@@ -152,6 +152,12 @@ check(syncJs.includes("Use recovery words") && syncJs.includes("✓ Sync is on")
   check(join.includes("Scan the QR code it shows, or type the code.") && join.includes("8 characters · or tap the scan button to scan the QR code") && join.includes("Lost your other devices?") && join.includes("Use recovery words →") && join.includes('aria-label": "Scan QR code"') && join.includes("scanJoin()") && !join.includes("quietLinks") && !join.includes("Scan QR code instead"), "join puts the scan button beside the code and keeps recovery in the row");
 }
 check(css.includes(".sync-card") && css.includes(".sync-progress") && css.includes(".sync-sheet") && css.includes(".sync-words-grid"), "the setup screens use cards, a progress bar, and a phone sheet");
+check(css.includes(".sync-panel [data-sync-set] > .sync-name") && css.includes(".sync-panel [data-sync-set] > .sync-actions") && /\.sync-actions \.sync-links \{[^}]*margin-top:\s*var\(--space-4\)/.test(css), "the sync home screen leaves 16px around the device list and above Turn sync off");
+{
+  const quiet = css.slice(css.indexOf(".sync-quiet {"), css.indexOf(".sync-quiet {") + 240);
+  check(quiet.includes("white-space: pre-wrap"), "the device row keeps the spaces around the dot");
+}
+check(syncJs.includes("` · this ${onPhone() ? \"phone\" : \"computer\"}`"), "the device row writes a space on each side of the dot");
 check(html.includes('data-turn-on-sync') && html.includes(">Turn on sync<"), "the sidebar offers Turn on sync before setup");
 check(css.includes(".bar .sync-setup") && css.includes("display: none"), "a narrow phone keeps Turn on sync in the pages list");
 check(css.includes(".sync-chip[hidden]"), "a hidden sync status stays off the bar");
