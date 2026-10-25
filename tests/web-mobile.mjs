@@ -102,7 +102,7 @@ check(html.includes("data-build-hash"), "settings shows the build hash");
 check(js.includes("Add to Home Screen"), "iPhone gets an Add to Home Screen prompt");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-21"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('const CACHE = "omacus-app-22"'), "the app cache name moved past the cache-first shell");
 check(html.includes("data-pick"), "a same-line conflict can ask which line to keep");
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
@@ -116,6 +116,8 @@ check(syncJs.includes('setChip("Syncing", "wait")') && !syncJs.includes("Savingâ
 check(syncJs.includes('setChip("Offline", "offline")') && syncJs.includes("Offline. Edits saved here."), "offline names the cloud and says the edits are saved here");
 check(syncJs.includes('setChip("Sync paused", "off")') && syncJs.includes('setChip("Not saved", "error")'), "paused sync and a failed save are different statuses");
 check(syncJs.includes('api.openSettings("sync")'), "tapping the status opens Sync");
+check(syncJs.includes('setChip("Device waiting", "ask")') && html.includes("data-device-waiting") && html.includes(">Device waiting<"), "a waiting phone shows on the status and in the sidebar");
+check(css.includes('.sync-chip[data-state="ask"] .sync-chip-word') && css.includes("display: inline"), "Device waiting stays readable on a phone");
 check(!syncJs.includes("innerHTML") && !syncJs.includes("insertAdjacentHTML"), "the sync status builds nodes without HTML strings");
 {
   const chipCss = css.slice(css.indexOf(".sync-chip {"), css.indexOf(".sync-beta"));
@@ -704,7 +706,7 @@ const railHits = await evalJson(`(() => {
   document.body.style.setProperty("--sab", "21px");
   const workspace = document.querySelector(".workspace");
   workspace.classList.add("collapsed");
-  const buttons = [...document.querySelectorAll(".rail .side-btn")];
+  const buttons = [...document.querySelectorAll(".rail .side-btn")].filter((button) => !button.hidden);
   const hits = buttons.map((button) => {
     const r = button.getBoundingClientRect();
     const x = r.left + r.width / 2;

@@ -2473,6 +2473,23 @@ body.answers-inline .md .pill {
   color: var(--app-danger);
 }
 
+.sync-chip[data-state="ask"] {
+  color: var(--app-fg);
+  border-color: var(--app-line-strong);
+}
+
+.sync-chip[data-state="ask"] .sync-mark {
+  stroke: var(--app-accent);
+}
+
+.side-btn[data-device-waiting] {
+  color: var(--app-accent);
+}
+
+.side-foot-row[data-device-waiting] svg {
+  stroke: var(--app-accent);
+}
+
 .sync-beta {
   display: none;
   flex: none;
@@ -2495,6 +2512,16 @@ body.answers-inline .md .pill {
 
   .sync-chip-word {
     display: none;
+  }
+
+  .sync-chip[data-state="ask"] {
+    gap: 6px;
+    width: auto;
+    padding: 5px 10px 5px 8px;
+  }
+
+  .sync-chip[data-state="ask"] .sync-chip-word {
+    display: inline;
   }
 }
 

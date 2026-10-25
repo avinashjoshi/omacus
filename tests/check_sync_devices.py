@@ -56,11 +56,11 @@ if "approvalPlan" in wait:
     errors.append("the waiting screen accepts the list before the numbers are checked")
 if "confirmLink" not in accept or "approvalPlan" not in accept or "These match" not in sync:
     errors.append("These match does not check the numbers before opening")
-if '"device-name.js"' not in sw or "omacus-sync-test-12" not in sw:
+if '"device-name.js"' not in sw or "omacus-sync-test-13" not in sw:
     errors.append("the sync test cache missed the name helper")
 if "site/app/device-name.js" not in build or "./device-name.js?v=" not in build:
     errors.append("the published app missed the name helper")
-if 'const CACHE = "omacus-app-21"' not in sw:
+if 'const CACHE = "omacus-app-22"' not in sw:
     errors.append("the published app cache changed")
 if "omacus-sync-web" not in build or "omacus_sync_web.js" not in build or "omacus_sync_web_bg.wasm" not in build:
     errors.append("the published build does not ship the sync engine")
@@ -113,6 +113,8 @@ if 'state.screen = "linked"' not in watch:
     errors.append("the approve prompt stays after the phone stops waiting")
 if "state.invite = null" in watch:
     errors.append("a phone that stops waiting takes the code with it")
+if 'setChip("Device waiting", "ask")' not in sync or "omacusShowJoin" not in sync:
+    errors.append("a waiting phone stays inside Sync")
 
 if errors:
     raise SystemExit("\n".join(errors))

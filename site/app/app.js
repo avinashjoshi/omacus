@@ -3541,6 +3541,9 @@ async function action(name) {
   } else if (name === "turn-on-sync") {
     setDrawer(false);
     globalThis.omacusTurnOnSync?.();
+  } else if (name === "device-waiting") {
+    setDrawer(false);
+    globalThis.omacusShowJoin?.();
   } else if (name === "settings") {
     openSettings("settings");
   } else if (name === "about") {

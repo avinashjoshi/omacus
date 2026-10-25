@@ -12,7 +12,7 @@ import {
   upsertVault,
 } from "./sync-vaults.mjs";
 
-const LABEL = "omacus 1.0.0-beta.39";
+const LABEL = "omacus 1.0.0-beta.40";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 const APPROVAL_POLL_MS = 4000;
@@ -54,7 +54,10 @@ export async function mountSync(api) {
     hidden: "",
     "aria-label": "Set up sync",
   });
-  chip.addEventListener("click", () => api.openSettings("sync"));
+  chip.addEventListener("click", () => {
+    if (deviceWaiting()) openJoin();
+    else api.openSettings("sync");
+  });
   const beta = el("span", { class: "sync-beta" }, [LABEL]);
   const bar = document.querySelector(".bar");
   const barActions = document.querySelector(".bar-actions");
@@ -196,7 +199,15 @@ export async function mountSync(api) {
     if (api.storeRemove) api.storeRemove("sync-paused");
   }
 
+  function deviceWaiting() {
+    return state.screen === "approve" && !!state.pending;
+  }
+
   function setChip(text, mode) {
+    if (deviceWaiting() && mode !== "ask") {
+      text = "Device waiting";
+      mode = "ask";
+    }
     const next = mode || "off";
     const word = text || "Synced";
     const label = next === "offline" ? "Offline. Edits saved here." : word;
@@ -230,7 +241,29 @@ export async function mountSync(api) {
       paused: pausedFlag(),
     });
     for (const node of document.querySelectorAll("[data-turn-on-sync]")) node.hidden = !show;
+    const ask = deviceWaiting();
+    for (const node of document.querySelectorAll("[data-device-waiting]")) node.hidden = !ask;
   }
+
+  function refreshCue() {
+    paintEntry();
+    if (deviceWaiting()) {
+      if (chip.dataset.state !== "ask") setChip("Device waiting", "ask");
+      return;
+    }
+    if (chip.dataset.state !== "ask") return;
+    if (navigator.onLine === false && state.account) setChip("Offline", "offline");
+    else if (state.removed || pausedFlag()) setChip("Sync paused", "off");
+    else if (state.saveError) setChip("Not saved", "error");
+    else if (state.member && state.account) setChip("Synced", "on");
+    else hideChip();
+  }
+
+  function openJoin() {
+    api.openSettings("sync");
+    draw();
+  }
+  globalThis.omacusShowJoin = openJoin;
 
   function openIntro() {
     if (!state.account) {
@@ -1952,6 +1985,7 @@ export async function mountSync(api) {
     else if (state.screen === "recover") drawRecover();
     else if (state.screen === "off-ask") drawOffAsk();
     else drawLinked();
+    refreshCue();
   }
 
   function drawIntro() {
@@ -2536,6 +2570,7 @@ function cloudIcon(mode) {
   if (mode === "on") add("m9.2 13.1 1.9 1.9 3.9-4.1", true);
   else if (mode === "offline") add("M5 19 19 5", true);
   else if (mode === "off") add("M10.2 11.5v4M13.8 11.5v4", true);
+  else if (mode === "ask") add("M12 13.2h.01", true);
   else if (mode === "error") {
     add("M12 10.4v3.4", true);
     add("M12 16.6h.01", true);
