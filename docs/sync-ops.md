@@ -51,6 +51,8 @@ npx wrangler secret put ADMIN_KEY --env production
 npx wrangler secret put ACCESS_AUD --env production
 ```
 
+Production starts at 10,000 accounts, 50 MB (52,428,800 bytes) per account, and 10 devices. The test worker starts at 3 accounts, 65,536 bytes, and 4 devices. Those are the numbers before anyone saves a limit. The admin page can change them. Do not copy the test storage cap onto production.
+
 Production does not have Access yet. Create one Access application that includes both `sync.omacus.com/admin` and `sync.omacus.com/v1/admin`. The page loads from `/admin` and its calls go to `/v1/admin`. A path left out of the application does not get `Cf-Access-Jwt-Assertion`, and the page then says "Sign in again." Both workers set `ACCESS_TEAM_DOMAIN` to `omacus.cloudflareaccess.com`. Set that application's own audience tag as `ACCESS_AUD` on the production worker. Until that tag is set, the production admin key is enough.
 
 ## Nightly copies
@@ -122,6 +124,6 @@ node relay/worker/admin.mjs delete <account> --confirm <account>
 
 Mint prints the code once. The server stores a hash, a label, the uses left, and the times. It does not store the code. An optional expiry is the end of that UTC day.
 
-The same actions are on the admin page. List shows the label, uses left, created time, last-used time, and status. Revoke retires a code. Stats show the account count, the device count, the size of each sealed copy, and recent error counts. They do not show page text or names. Pause and resume apply to new signups. Phones that are already in keep syncing. Limits set how many accounts the server will take, how much storage one account can use, how many devices it can list, and the rate limits. A signup past the account limit is refused, and the invite code is not used. A nightly copy keeps each sealed account. Restoring writes that copy back and does not open a page. Removing a sealed copy asks for the account id to be typed again.
+The same actions are on the admin page. List shows the label, uses left, created time, last-used time, and status. Revoke retires a code. Stats show the account count, the device count from that account's signed device list, the size of each sealed copy, and recent error counts. They do not show page text or names. Pause and resume apply to new signups. Phones that are already in keep syncing. Limits set how many accounts the server will take, how much storage one account can use, how many devices it can list, and the rate limits. A signup past the account limit is refused, and the invite code is not used. A nightly copy keeps each sealed account. Restoring writes that copy back and does not open a page. Removing a sealed copy asks for the account id to be typed again.
 
 `node relay/worker/mint.mjs` does the same as `admin.mjs mint`.

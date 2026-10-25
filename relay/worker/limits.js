@@ -1,6 +1,6 @@
-// Server limits. Production starts at the numbers the relay already used.
-// The test worker starts lower. A saved config replaces either set.
-// The window for every rate is 60 seconds.
+// Server limits. Production starts at 10,000 accounts, 50 MB per account,
+// and 10 devices. The test worker starts lower. A saved config replaces
+// either set. The window for every rate is 60 seconds.
 
 export const LIMIT_HEADER = "x-omacus-limits";
 export const LIMIT_KEY = "limits";
@@ -19,8 +19,8 @@ export const FIELDS = [
 
 export const PRODUCTION = {
   maxAccounts: 10_000,
-  maxStorage: 256 * 1024 * 1024,
-  maxDevices: 64,
+  maxStorage: 50 * 1024 * 1024,
+  maxDevices: 10,
   accountRate: 240,
   ipRate: 800,
   guessRate: 10,

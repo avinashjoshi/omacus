@@ -71,6 +71,7 @@ export function codeStatus(row, now = Date.now()) {
   return left <= 0 ? "Used" : "Active";
 }
 
+// The u16 after the chain and the phrase is how many wraps follow, not how many devices.
 export function deviceCount(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length < RECORD_MAGIC.length) return 0;
   const v1 = RECORD_MAGIC.every((byte, i) => bytes[i] === byte);
@@ -240,7 +241,7 @@ async function collectStats(storage) {
     if (!/^[0-9a-f]{64}$/.test(account)) continue;
     seen.add(account);
     const bytes = decodeRecord(mailbox && mailbox.record);
-    const count = bytes ? deviceCount(bytes) : 0;
+    const count = bytes ? linkedDevices(bytes) : 0;
     devices += count;
     let objectBytes = 0;
     const objects = await storage.list({ prefix: `o:${account}:` });

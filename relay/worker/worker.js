@@ -1,4 +1,4 @@
-// Private sync test relay (1.0.0-beta.25) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.26) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
 // Each account lives in its own object. A directory object maps an invite
 // hash to that account, so a join does not list every account.
@@ -10,7 +10,7 @@
 // This worker holds no keys and cannot open a page.
 import { DurableObject } from "cloudflare:workers";
 import { mint, openCode, spend } from "./access.js";
-import { adminKeyOk, adminPageAllowed, deviceCount, handleAdmin, isolateAllow, linkedDevices, noteError } from "./admin.js";
+import { adminKeyOk, adminPageAllowed, handleAdmin, isolateAllow, linkedDevices, noteError } from "./admin.js";
 import { allowPut, authorize } from "./auth.js";
 import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
 import {
@@ -23,7 +23,7 @@ import {
 } from "./limits.js";
 import { nightOf, nightPrefix, openBackupStore } from "./backup.js";
 
-const LABEL = "1.0.0-beta.25";
+const LABEL = "1.0.0-beta.26";
 const MAX_RECORD = 256 * 1024, MAX_MANIFEST = 1024 * 1024, MAX_OBJECT = 4 * 1024 * 1024 + 64;
 const MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024, MAX_BODY = 8 * 1024 * 1024;
 const MAX_REQUESTS = 8, MAX_USES = 20;
@@ -1098,6 +1098,30 @@ function mailbox(env) {
   return box(env, DIRECTORY);
 }
 
+async function listedDevices(env, request, account) {
+  const size = await box(env, accountObject(account)).fetch(new Request(
+    new URL(`/v1/internal/size/${account}`, request.url),
+    { headers: internalHeaders() },
+  ));
+  if (!size.ok) return null;
+  const foot = await size.json().catch(() => null);
+  return foot && Number.isInteger(foot.devices) ? foot.devices : null;
+}
+
+async function fillDeviceCounts(env, request, body) {
+  const rows = Array.isArray(body.storage) ? body.storage : [];
+  let devices = 0;
+  for (const row of rows) {
+    const account = row && typeof row.account === "string" ? row.account : "";
+    if (/^[0-9a-f]{64}$/.test(account)) {
+      const counted = await listedDevices(env, request, account);
+      if (counted !== null) row.devices = counted;
+    }
+    devices += row && Number.isInteger(row.devices) ? row.devices : 0;
+  }
+  body.devices = devices;
+}
+
 async function footprint(store, account) {
   const mailbox = await store.get("m:" + account);
   if (!mailbox || typeof mailbox.record !== "string") return null;
@@ -1105,7 +1129,7 @@ async function footprint(store, account) {
   let bytes = record.length;
   const objects = await store.list({ prefix: `o:${account}:` });
   for (const [, row] of objects) bytes += row && Number.isInteger(row.bytes) ? row.bytes : 0;
-  return { bytes, devices: deviceCount(record) };
+  return { bytes, devices: linkedDevices(record) };
 }
 
 async function indexedAccount(store, hash) {
@@ -1413,6 +1437,13 @@ async function adminApi(request, env, url) {
     headers,
     body: request.method === "GET" || request.method === "HEAD" ? undefined : JSON.stringify(payload),
   });
+  if (allowed && request.method === "GET" && url.pathname === "/v1/admin/stats") {
+    const response = await mailbox(env).fetch(forward);
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) return json(response.status, body);
+    await fillDeviceCounts(env, request, body);
+    return json(200, body);
+  }
   const response = await mailbox(env).fetch(forward);
   if (request.method === "DELETE" && response.ok) {
     const remove = /^\/v1\/admin\/accounts\/([0-9a-f]{64})$/.exec(url.pathname);

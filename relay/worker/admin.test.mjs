@@ -2,7 +2,7 @@
 // The code is shown once. Storage keeps a hash. Stats keep sizes, not pages.
 import { readFile } from "node:fs/promises";
 import worker, { Mailboxes } from "./worker.js";
-import { clearAdminCaches, deviceCount, expiryMs, sameSecret } from "./admin.js";
+import { clearAdminCaches, deviceCount, expiryMs, linkedDevices, sameSecret } from "./admin.js";
 import { DEFAULT_SYNC_URL } from "./admin.mjs";
 
 const SECRET = "omacus-access-test-secret";
@@ -126,18 +126,32 @@ function concat(parts) {
   return out;
 }
 
+function u16(n) {
+  return Uint8Array.of((n >> 8) & 255, n & 255);
+}
+
 function sealedRecord() {
   const page = text.encode("Trip Budget\nHarbor phone");
+  // Two snapshots. The first lists one device. The newest lists two.
+  // The wrap count after the chain is 0, which is not the device count.
+  const chain = concat([
+    text.encode("OMACUS-DEVICES/1"),
+    u16(2),
+    new Uint8Array(8 + 32 + 16 + 64),
+    u16(1),
+    new Uint8Array(80),
+    new Uint8Array(8 + 32 + 16 + 64),
+    u16(2),
+    new Uint8Array(160),
+  ]);
   return concat([
     text.encode("OMACUS-SYNC/1\n"),
     Uint8Array.of(8),
     text.encode("personal"),
     new Uint8Array(8 + 32 + 16),
+    chunk(chain),
     chunk(new Uint8Array(0)),
-    chunk(new Uint8Array(0)),
-    Uint8Array.of(0, 2),
-    chunk(text.encode("wrap-one")),
-    chunk(text.encode("wrap-two")),
+    u16(0),
     chunk(page),
   ]);
 }
@@ -170,7 +184,8 @@ if (expiryMs("") !== 0) throw new Error("empty expiry");
 if (expiryMs("2026-13-40") !== null) throw new Error("bad date");
 
 const record = sealedRecord();
-assert(deviceCount(record) === 2, `devices ${deviceCount(record)}`);
+assert(deviceCount(record) === 0, "the wrap count is not the device count");
+assert(linkedDevices(record) === 2, `devices ${linkedDevices(record)}`);
 const recordB64 = b64(record);
 const account = "ab".repeat(32);
 const other = "cd".repeat(32);
@@ -294,6 +309,41 @@ const other = "cd".repeat(32);
 }
 
 {
+  const kept = "ef".repeat(32);
+  const storages = new Map();
+  const env = {
+    ACCESS_SECRET: SECRET,
+    ADMIN_KEY: ADMIN,
+    SERVE_APP: "0",
+    ACCESS_AUD: "",
+  };
+  const open = (name) => {
+    if (!storages.has(name)) {
+      const storage = new Storage();
+      storages.set(name, { storage, box: new Mailboxes({ storage }, env) });
+    }
+    return storages.get(name);
+  };
+  env.MAILBOXES = {
+    idFromName: (name) => String(name),
+    get: (name) => open(String(name)).box,
+  };
+  await open("directory").storage.put("r:" + kept, { pending: false, bytes: 42, devices: 0, invite: "" });
+  await open(`acct-${kept}`).storage.put("m:" + kept, {
+    revision: 3,
+    record: recordB64,
+    requests: {},
+    created: 1,
+  });
+  const stats = await call(env, "GET", "/v1/admin/stats");
+  assert(stats.status === 200, stats.text);
+  assert(stats.json.accounts === 1 && stats.json.devices === 2, JSON.stringify(stats.json));
+  assert(stats.json.storage[0].account === kept && stats.json.storage[0].devices === 2, "signed device list");
+  assert(stats.json.storage[0].bytes === 42, "the registry size stayed");
+  noSecrets(stats.text, "no-code");
+}
+
+{
   const { env } = harness();
   const missing = await call(env, "GET", "/v1/admin/stats", undefined, { authorization: "" });
   assert(missing.status === 401 && missing.json.message === "That key didn't work.", missing.text);
@@ -328,7 +378,7 @@ const other = "cd".repeat(32);
   const served = await worker.fetch(new Request("https://sync-test.omacus.com/"), serving.env);
   assert(served.status === 200 && await served.text() === "/", "test worker redirected /");
   const health = await worker.fetch(new Request("https://sync-test.omacus.com/v1/health"), closed.env);
-  assert((await health.json()).label === "1.0.0-beta.25", "label");
+  assert((await health.json()).label === "1.0.0-beta.26", "label");
 }
 
 {

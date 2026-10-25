@@ -169,7 +169,7 @@ assert(listed === 2, `linked devices ${listed}`);
   const opening = await call(env, "GET", "/v1/admin/limits", undefined, adminHeaders);
   assert(opening.status === 200 && opening.json.saved === false, opening.text);
   sameNumbers(opening.json, PRODUCTION);
-  assert(opening.json.maxAccounts === 10_000 && opening.json.guessRate === 10 && opening.json.maxDevices === 64, "production starts where the relay already was");
+  assert(opening.json.maxAccounts === 10_000 && opening.json.maxStorage === 50 * 1024 * 1024 && opening.json.maxDevices === 10, "production starts at 50 MB and 10 devices");
 }
 
 {
