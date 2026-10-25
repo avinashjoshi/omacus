@@ -17,11 +17,6 @@ release even when its title does not look like a fix. A `<!-- internal -->`
 marker folds a release that has nothing new in the app, including a .0.
 Without a marker, a release stays on the timeline when it has a title, is a
 .0 version, carries a screenshot, or is not just a fix.
-
-An optional list of private phrases can be supplied in the OMACUS_PRIVATE_TERMS
-environment variable, one phrase per line. When that variable is unset or
-blank, nothing is checked. A match stops the build and names the version. The
-phrase is not printed, and the page is not written.
 """
 
 import argparse
@@ -81,64 +76,6 @@ class Item:
     @property
     def text(self):
         return " ".join(self.parts)
-
-
-def private_terms():
-    """Phrases from OMACUS_PRIVATE_TERMS, one per line. Unset or blank skips the check."""
-    raw = os.environ.get("OMACUS_PRIVATE_TERMS", "")
-    terms = []
-    seen = set()
-    for line in raw.splitlines():
-        term = line.strip()
-        if not term:
-            continue
-        key = term.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        terms.append(key)
-    return terms
-
-
-def private(text):
-    terms = private_terms()
-    if not text or not terms:
-        return False
-    haystack = str(text).casefold()
-    return any(term in haystack for term in terms)
-
-
-def public_label(tag):
-    label = version_label(tag)
-    if private(label):
-        return "a release"
-    return label
-
-
-def gathered_text(value):
-    """The strings in a release, joined so a phrase cannot run from one field into the next."""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, dict):
-        parts = [gathered_text(item) for item in value.values()]
-    elif isinstance(value, (list, tuple)):
-        parts = [gathered_text(item) for item in value]
-    else:
-        return ""
-    return "\n".join(part for part in parts if part)
-
-
-def require_public(raw_releases):
-    """Stop before writing when a configured phrase appears. The phrase is not printed."""
-    if not private_terms():
-        return
-    hits = []
-    for raw in raw_releases:
-        if private(gathered_text(raw)):
-            hits.append(public_label(raw.get("tag_name")))
-    if hits:
-        listed = ", ".join(hits)
-        raise SystemExit(f"updates: private text in {listed}; the page was not written")
 
 
 def plain(text):
@@ -670,7 +607,6 @@ def atom(releases, images):
 def build(raw_releases, out: Path, fetch=None):
     raw_releases = [r for r in raw_releases if not r.get("draft")]
     raw_releases.sort(key=lambda r: (r.get("published_at") or "", version_tuple(r.get("tag_name")) or ()), reverse=True)
-    require_public(raw_releases)
     prepared = [prepare(r) for r in raw_releases]
     media = out / "updates" / "media"
     images = Images(fetch, media)
@@ -679,8 +615,6 @@ def build(raw_releases, out: Path, fetch=None):
     dest.mkdir(parents=True, exist_ok=True)
     page = page_html(entries, images)
     feed = atom(prepared, images)
-    if private(page) or private(feed):
-        raise SystemExit("updates: private text reached the generated page; not writing it")
     (dest / "index.html").write_text(page)
     (dest / "feed.xml").write_text(feed)
     if media.exists():

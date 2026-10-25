@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
-"""The updates page: grouping, the feed, and the private-notes filter."""
+"""The updates page: grouping and the feed."""
 
-import os
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import updates
-
-# A stand-in phrase. The real list lives outside the repo.
-TERM = "internal-codename"
 
 ATOM = "{http://www.w3.org/2005/Atom}"
 PNG = (
@@ -42,34 +38,7 @@ def build(releases, fetch=None):
     return page, feed, out
 
 
-class terms:
-    def __init__(self, value):
-        self.value = value
-
-    def __enter__(self):
-        self.saved = os.environ.get("OMACUS_PRIVATE_TERMS")
-        if self.value is None:
-            os.environ.pop("OMACUS_PRIVATE_TERMS", None)
-        else:
-            os.environ["OMACUS_PRIVATE_TERMS"] = self.value
-
-    def __exit__(self, *_exc):
-        if self.saved is None:
-            os.environ.pop("OMACUS_PRIVATE_TERMS", None)
-        else:
-            os.environ["OMACUS_PRIVATE_TERMS"] = self.saved
-
-
 class UpdatesPage(unittest.TestCase):
-    def setUp(self):
-        self._saved_terms = os.environ.pop("OMACUS_PRIVATE_TERMS", None)
-
-    def tearDown(self):
-        if self._saved_terms is None:
-            os.environ.pop("OMACUS_PRIVATE_TERMS", None)
-        else:
-            os.environ["OMACUS_PRIVATE_TERMS"] = self._saved_terms
-
     def test_smaller_fixes_fold_under_the_newer_entry(self):
         page, feed, _ = build([
             release("v0.3.2", "- Fix the cursor when a line wraps", "2026-10-23T03:00:00Z"),
@@ -94,106 +63,6 @@ class UpdatesPage(unittest.TestCase):
         entries = root.findall(f"{ATOM}entry")
         self.assertEqual(len(entries), 4)
         self.assertTrue(entries[0].find(f"{ATOM}link").attrib["href"].endswith("#v0.3.2"))
-
-    def test_terms_are_read_from_the_environment(self):
-        self.assertEqual(updates.private_terms(), [])
-        self.assertFalse(updates.private(TERM))
-        with terms(" \n\t"):
-            self.assertEqual(updates.private_terms(), [])
-            self.assertFalse(updates.private(TERM))
-        with terms(f"\n{TERM}\n{TERM.upper()}\n\n  other-phrase  \n"):
-            self.assertEqual(updates.private_terms(), [TERM, "other-phrase"])
-            self.assertTrue(updates.private(f"See {TERM.upper()} here"))
-            self.assertTrue(updates.private("other-phrase"))
-            self.assertFalse(updates.private("internal"))
-            self.assertFalse(updates.private("codename"))
-            self.assertFalse(updates.private("internal codename"))
-
-    def test_without_a_term_list_the_notes_are_published(self):
-        page, feed, _ = build([release("v9.9.9", f"- Secret {TERM} stays in the notes")])
-        self.assertIn(TERM, page)
-        self.assertIn(TERM, feed)
-
-    def test_a_blank_term_list_skips_the_check(self):
-        with terms(" \n"):
-            page, _, _ = build([release("v9.9.2", f"- {TERM}")])
-        self.assertIn(TERM, page)
-
-    def test_a_configured_term_stops_the_build_without_writing(self):
-        with terms(TERM):
-            out = Path(tempfile.mkdtemp())
-            with self.assertRaises(SystemExit) as caught:
-                updates.build([
-                    release("v9.9.9", f"- A public change\n- Secret {TERM} stays out"),
-                ], out)
-            message = str(caught.exception)
-            self.assertIn("v9.9.9", message)
-            self.assertNotIn(TERM, message.casefold())
-            self.assertNotIn("A public change", message)
-            self.assertFalse((out / "updates" / "index.html").exists())
-            self.assertFalse((out / "updates" / "feed.xml").exists())
-
-    def test_every_matching_version_is_named(self):
-        with terms(TERM):
-            with self.assertRaises(SystemExit) as caught:
-                updates.build([
-                    release("v9.9.9", f"- {TERM}", "2026-10-23T03:00:00Z"),
-                    release("v9.9.8", "- A public change", "2026-10-23T02:00:00Z"),
-                    release("v9.9.7", f"- also {TERM}", "2026-10-23T01:00:00Z"),
-                ], Path(tempfile.mkdtemp()))
-            message = str(caught.exception)
-            self.assertIn("v9.9.9", message)
-            self.assertIn("v9.9.7", message)
-            self.assertNotIn("v9.9.8", message)
-            self.assertNotIn(TERM, message.casefold())
-
-    def test_a_term_in_the_name_or_an_asset_stops_the_build(self):
-        named = release("v9.9.7", "- A public change")
-        named["name"] = f"Release {TERM}"
-        asset = release(
-            "v9.9.6",
-            "- A public change",
-            assets=[{"name": "shot.png", "browser_download_url": f"https://example.com/{TERM}.png"}],
-        )
-        with terms(TERM):
-            for rel in (named, asset):
-                with self.subTest(tag=rel["tag_name"]):
-                    out = Path(tempfile.mkdtemp())
-                    with self.assertRaises(SystemExit) as caught:
-                        updates.build([rel], out)
-                    self.assertIn(rel["tag_name"], str(caught.exception))
-                    self.assertNotIn(TERM, str(caught.exception).casefold())
-                    self.assertFalse((out / "updates" / "index.html").exists())
-
-    def test_a_private_version_label_is_not_printed(self):
-        rel = release(TERM, "- A public change")
-        with terms(TERM):
-            with self.assertRaises(SystemExit) as caught:
-                updates.build([rel], Path(tempfile.mkdtemp()))
-        message = str(caught.exception)
-        self.assertIn("a release", message)
-        self.assertNotIn(TERM, message.casefold())
-
-    def test_a_near_miss_is_published(self):
-        with terms(TERM):
-            page, feed, _ = build([
-                release("v9.9.3", "- internal\n- codename\n- internal codename"),
-            ])
-        self.assertIn("internal codename", page)
-        self.assertIn("internal codename", feed)
-        self.assertNotIn(TERM, page)
-
-    def test_a_draft_that_matches_does_not_block_the_page(self):
-        draft = release("v9.9.4", f"- {TERM}")
-        draft["draft"] = True
-        with terms(TERM):
-            page, feed, _ = build([
-                draft,
-                release("v9.9.5", "- A public change"),
-            ])
-        self.assertIn("A public change", page)
-        self.assertNotIn(TERM, page)
-        self.assertNotIn(TERM, feed)
 
     def test_no_inline_script_and_images_stay_on_the_site(self):
         def fetch(url):
