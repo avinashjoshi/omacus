@@ -2,9 +2,9 @@
 // so a reload — including one that bypasses the HTTP cache — still opens offline.
 // A new version waits. The page saves the open edit, then asks this worker to take over.
 
-const CACHE = "omacus-app-13";
+const CACHE = "omacus-app-14";
 const SYNC_TEST = self.location.hostname === "sync-test.omacus.com";
-const CACHE_NAME = SYNC_TEST ? "omacus-sync-test-4" : CACHE;
+const CACHE_NAME = SYNC_TEST ? "omacus-sync-test-5" : CACHE;
 
 const APP_FILES = [
   "./",
@@ -25,6 +25,7 @@ const APP_FILES = [
   "sync.js",
   "device-name.js",
   "sync-save.mjs",
+  "sync-vaults.mjs",
   "sync-leader.mjs",
   "migrate.js",
   "migrate-client.js",

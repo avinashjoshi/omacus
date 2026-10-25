@@ -3,8 +3,16 @@ import { SYNC_URL } from "./sync-config.js";
 import { beginSave, finishSave, noteLocalEdit, pagesDiffer, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
+import {
+  activeVault,
+  bookJson,
+  legacyMirror,
+  loadVaultBook,
+  normalizeVault,
+  upsertVault,
+} from "./sync-vaults.mjs";
 
-const LABEL = "omacus 1.0.0-beta.31";
+const LABEL = "omacus 1.0.0-beta.32";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 
@@ -121,15 +129,64 @@ export async function mountSync(api) {
   let saveTimer = null;
   let naming = false;
 
+  let vaultBook = { active: "", vaults: [] };
+
+  function currentVault() {
+    return activeVault(vaultBook);
+  }
+
+  function storeText(key) {
+    const value = api.storeGet(key);
+    return value == null ? "" : String(value);
+  }
+
+  async function persistVaultBook() {
+    await api.storeSet("sync-vaults", bookJson(vaultBook));
+    const mirror = legacyMirror(currentVault());
+    for (const [key, value] of Object.entries(mirror.set)) await api.storeSet(key, value);
+    for (const key of mirror.remove) if (api.storeRemove) await api.storeRemove(key);
+  }
+
+  function snapshotVault(extra) {
+    const prev = currentVault();
+    const base = Array.isArray(state.basePages) ? JSON.stringify(state.basePages) : (prev?.base || "[]");
+    return {
+      account: state.account || prev?.account || "",
+      deviceFile: prev?.deviceFile || "",
+      revision: String(state.revision || prev?.revision || 0),
+      slots: state.slots || prev?.slots || "[]",
+      base,
+      paused: prev?.paused === true,
+      name: state.vaultName || prev?.name || "My pages",
+      deviceName: state.selfName || prev?.deviceName || "",
+      deviceRev: String(state.selfRev || prev?.deviceRev || 1),
+      vaultRev: String(state.vaultRev || prev?.vaultRev || 1),
+      selfId: state.selfId || prev?.selfId || "",
+      names: JSON.stringify(state.deviceNames || []),
+      membership: JSON.stringify(state.membership || []),
+      ...extra,
+    };
+  }
+
+  async function writeVault(patch) {
+    const prev = currentVault() || normalizeVault({ account: state.account || "" });
+    vaultBook = upsertVault(vaultBook, { ...prev, ...patch });
+    await persistVaultBook();
+  }
+
   function pausedFlag() {
+    const vault = currentVault();
+    if (vault) return vault.paused === true;
     return api.storeGet("sync-paused") === "1";
   }
 
   function markPaused() {
+    if (currentVault() || state.account) return writeVault(snapshotVault({ paused: true }));
     if (api.storeSet) return api.storeSet("sync-paused", "1");
   }
 
   function clearPaused() {
+    if (currentVault()) return writeVault(snapshotVault({ paused: false }));
     if (api.storeRemove) api.storeRemove("sync-paused");
   }
 
@@ -222,13 +279,14 @@ export async function mountSync(api) {
   }
 
   function loadNames() {
-    state.selfName = cleanName(api.storeGet("sync-device-name")) || guessDeviceName();
-    state.selfRev = Number(api.storeGet("sync-device-rev") || 1) || 1;
-    state.vaultName = cleanName(api.storeGet("sync-vault-name")) || "My pages";
-    state.vaultRev = Number(api.storeGet("sync-vault-rev") || 1) || 1;
-    state.selfId = api.storeGet("sync-self-id") || "";
-    state.deviceNames = readJson(api.storeGet("sync-names"), []);
-    state.membership = readJson(api.storeGet("sync-membership"), []);
+    const vault = currentVault();
+    state.selfName = cleanName(vault?.deviceName || api.storeGet("sync-device-name")) || guessDeviceName();
+    state.selfRev = Number(vault?.deviceRev || api.storeGet("sync-device-rev") || 1) || 1;
+    state.vaultName = cleanName(vault?.name || api.storeGet("sync-vault-name")) || "My pages";
+    state.vaultRev = Number(vault?.vaultRev || api.storeGet("sync-vault-rev") || 1) || 1;
+    state.selfId = vault?.selfId || api.storeGet("sync-self-id") || "";
+    state.deviceNames = readJson(vault?.names || api.storeGet("sync-names"), []);
+    state.membership = readJson(vault?.membership || api.storeGet("sync-membership"), []);
   }
 
   function readJson(text, fallback) {
@@ -242,6 +300,17 @@ export async function mountSync(api) {
   }
 
   function saveNames() {
+    if (currentVault() || state.account) {
+      return writeVault(snapshotVault({
+        deviceName: state.selfName,
+        deviceRev: String(state.selfRev || 1),
+        name: state.vaultName || "My pages",
+        vaultRev: String(state.vaultRev || 1),
+        selfId: state.selfId || "",
+        names: JSON.stringify(state.deviceNames || []),
+        membership: JSON.stringify(state.membership || []),
+      }));
+    }
     api.storeSet("sync-device-name", state.selfName);
     api.storeSet("sync-device-rev", String(state.selfRev || 1));
     api.storeSet("sync-vault-name", state.vaultName);
@@ -609,16 +678,18 @@ export async function mountSync(api) {
 
   async function rememberBase(pages) {
     state.basePages = (pages || []).map((row) => [row[0], String(row[1] ?? "")]);
-    await api.storeSet("sync-base", JSON.stringify(state.basePages));
+    await writeVault(snapshotVault({ base: JSON.stringify(state.basePages) }));
   }
 
   async function saveFile() {
     const file = JSON.parse(sync.exportLocal(state.desk));
     if (!file.ok) return;
-    await api.storeSet("device-file", file.file);
-    await api.storeSet("sync-account", state.account);
-    await api.storeSet("sync-revision", String(state.revision || 0));
-    await api.storeSet("sync-slots", state.slots || "[]");
+    await writeVault(snapshotVault({
+      account: state.account,
+      deviceFile: file.file,
+      revision: String(state.revision || 0),
+      slots: state.slots || "[]",
+    }));
   }
 
   async function publish(record, objects, dropIds) {
@@ -662,7 +733,7 @@ export async function mountSync(api) {
       if (slot) slot.serverRev = row.revision;
     }
     state.slots = JSON.stringify(slots);
-    await api.storeSet("sync-slots", state.slots);
+    await writeVault(snapshotVault({ slots: state.slots, revision: String(state.revision || 0) }));
     return result;
   }
 
@@ -1102,11 +1173,7 @@ export async function mountSync(api) {
     state.error = "";
     draw();
     try {
-      await markPaused();
-      const gone = api.storeRemove || (() => {});
-      await gone("device-file");
-      await gone("sync-account");
-      await gone("sync-revision");
+      await writeVault(snapshotVault({ paused: true, deviceFile: "" }));
     } catch {
       state.busy = false;
       state.error = "Sync is still on. Try again.";
@@ -1432,7 +1499,7 @@ export async function mountSync(api) {
   }
 
   async function approvePending() {
-    const prior = api.storeGet("device-file");
+    const prior = currentVault()?.deviceFile || api.storeGet("device-file") || "";
     state.busy = true;
     state.error = "";
     draw();
@@ -1466,7 +1533,7 @@ export async function mountSync(api) {
       calm();
     } catch (error) {
       if (prior) {
-        await api.storeSet("device-file", prior);
+        await writeVault(snapshotVault({ deviceFile: prior }));
         const imported = JSON.parse(sync.importLocal(prior));
         if (imported.ok) {
           state.desk = imported.id;
@@ -2157,19 +2224,28 @@ export async function mountSync(api) {
     schedule();
   });
 
+  vaultBook = loadVaultBook(storeText);
+  if (vaultBook.migrated) {
+    try {
+      await persistVaultBook();
+    } catch {
+      // The list is already in memory. A failed write still opens this set.
+    }
+  }
   loadNames();
   showPlaces();
 
   try {
-    const stored = api.storeGet("device-file");
+    const vault = currentVault();
+    const stored = vault?.deviceFile || "";
     if (stored) {
       const imported = JSON.parse(sync.importLocal(stored));
       if (imported.ok) {
         state.desk = imported.id;
-        state.account = imported.account;
-        state.revision = Number(api.storeGet("sync-revision") || 0);
-        state.slots = api.storeGet("sync-slots") || "[]";
-        const storedBase = api.storeGet("sync-base");
+        state.account = imported.account || vault.account;
+        state.revision = Number(vault.revision || 0);
+        state.slots = vault.slots || "[]";
+        const storedBase = vault.base || "";
         if (storedBase) {
           try {
             const parsed = JSON.parse(storedBase);

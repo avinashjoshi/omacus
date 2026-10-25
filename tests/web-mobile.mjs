@@ -102,7 +102,7 @@ check(html.includes("data-build-hash"), "settings shows the build hash");
 check(js.includes("Add to Home Screen"), "iPhone gets an Add to Home Screen prompt");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-13"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('const CACHE = "omacus-app-14"'), "the app cache name moved past the cache-first shell");
 check(html.includes("data-pick"), "a same-line conflict can ask which line to keep");
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");

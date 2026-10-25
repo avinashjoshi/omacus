@@ -27,6 +27,8 @@ The associated-data prefix on wraps and on the manifest seal is:
 
 `kind` is `vault-key`, `phrase-key`, `recovery-key`, or `page`. `recipient` is present only for a device wrap.
 
+A phone stores one local entry per account: the device file, the revision, the last synced pages, whether sync is paused, and the name. An older phone that stored a single slot is copied into that list once. The account id is still derived with info `omacus/v1/account-sign`. The `personal` marker above is not a vault name, and it stays when another account is stored beside the first.
+
 ## Record
 
 Both versions share one envelope. `page` is the only field that changes meaning.
