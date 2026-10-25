@@ -51,7 +51,7 @@ npx wrangler secret put ADMIN_KEY --env production
 npx wrangler secret put ACCESS_AUD --env production
 ```
 
-Production starts at 10,000 accounts, 50 MB (52,428,800 bytes) per account, and 10 devices. The test worker starts at 3 accounts, 65,536 bytes, and 4 devices. Those are the numbers before anyone saves a limit. The admin page can change them. Do not copy the test storage cap onto production.
+Production starts at 10,000 accounts, 50 MB (52,428,800 bytes) per account, and 10 devices. The test worker starts at 3 accounts, 65,536 bytes, and 4 devices. Those are the numbers before anyone saves a limit. The admin page can change them. Do not copy the test storage cap onto production. The test worker also starts at 100 reads a minute per account and 140 per address, so three phones that are saving and one that is joining still fit. Production's 180 and 500 already do.
 
 Create one Access application that includes both `sync.omacus.com/admin` and `sync.omacus.com/v1/admin`. The page loads from `/admin` and its calls go to `/v1/admin`. A path left out of the application does not get `Cf-Access-Jwt-Assertion`, and the page then says "Sign in again." Both workers set `ACCESS_TEAM_DOMAIN` to `omacus.cloudflareaccess.com`. Set that application's own audience tag as `ACCESS_AUD` on the production worker. If either value is missing, admin is refused. Do not set `ALLOW_NO_ACCESS` on the production worker.
 

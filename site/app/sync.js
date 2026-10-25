@@ -12,9 +12,10 @@ import {
   upsertVault,
 } from "./sync-vaults.mjs";
 
-const LABEL = "omacus 1.0.0-beta.34";
+const LABEL = "omacus 1.0.0-beta.35";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
+const APPROVAL_POLL_MS = 4000;
 
 function syncOrigin() {
   const configured = String(SYNC_URL || "").trim().replace(/\/$/, "");
@@ -111,6 +112,7 @@ export async function mountSync(api) {
   };
   let wordlist = [];
   let timer = null;
+  let requestsChecked = 0;
   let hurry = false;
   let loop = null;
   let stream = null;
@@ -977,6 +979,8 @@ export async function mountSync(api) {
       state.pending = null;
       return false;
     }
+    if (Date.now() - requestsChecked < APPROVAL_POLL_MS) return false;
+    requestsChecked = Date.now();
     const data = await callServer("GET", `/v1/mailboxes/${state.account}/requests`);
     for (const request of data.requests || []) {
       if (request.state && request.state !== "pending") continue;
@@ -1271,11 +1275,12 @@ export async function mountSync(api) {
       draw();
       return;
     }
+    const name = typedJoinName();
     try {
       const created = await callServer("POST", "/v1/join", {
         code,
         device: started.device,
-        name: "",
+        name,
         proof: proof.proof,
       }, origin, "open");
       state.desk = started.id;
@@ -1284,6 +1289,8 @@ export async function mountSync(api) {
       state.account = created.account;
       state.requestId = created.id;
       state.joinProof = proof.proof;
+      state.joinUntil = Date.now() + INVITE_MS;
+      state.joinWaits = 0;
     } catch (error) {
       state.busy = false;
       state.error = plainError(error.message || "That code didn't work. Check it on the other phone or computer.");
@@ -1389,18 +1396,47 @@ export async function mountSync(api) {
     step();
   }
 
+  function typedJoinName() {
+    const field = panel.querySelector('[aria-label="Name this phone or computer"]');
+    const typed = cleanName(field && field.value);
+    const name = typed || cleanName(state.selfName) || guessDeviceName();
+    if (name !== state.selfName) {
+      state.selfName = name;
+      state.selfRev += 1;
+      saveNames();
+    }
+    return name;
+  }
+
+  function joinStillOpen() {
+    return Date.now() < (state.joinUntil || 0);
+  }
+
   async function waitForApproval() {
     if (state.screen !== "join" || !state.requestId) return;
+    if (!joinStillOpen()) {
+      state.error = "That code expired. Ask for a new one on the other phone or computer.";
+      state.busy = false;
+      draw();
+      return;
+    }
     try {
       const decision = await callServer("GET", `/v1/mailboxes/${state.account}/requests/${state.requestId}`, undefined, undefined, { proof: state.joinProof });
       if (decision.state === "pending") {
-        setTimeout(waitForApproval, 1000);
+        state.joinWaits = 0;
+        setTimeout(waitForApproval, APPROVAL_POLL_MS);
         return;
       }
       if (decision.state !== "approved") {
         state.error = "That phone or computer said no.";
         draw();
         return;
+      }
+      const arrived = cleanName(decision.name);
+      if (arrived && arrived !== state.selfName) {
+        state.selfName = arrived;
+        state.selfRev += 1;
+        saveNames();
       }
       state.approval = { chain: decision.chain, wrap: decision.wrap };
       const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
@@ -1412,8 +1448,8 @@ export async function mountSync(api) {
       state.busy = false;
       draw();
     } catch (error) {
-      if (error.status === 429 && (state.joinWaits || 0) < 6) {
-        state.joinWaits = (state.joinWaits || 0) + 1;
+      if (error.status === 429 && joinStillOpen()) {
+        state.joinWaits = Math.min((state.joinWaits || 0) + 1, 5);
         const wait = Math.min(8000, 500 * 2 ** (state.joinWaits - 1));
         setTimeout(waitForApproval, wait);
         return;
@@ -1430,21 +1466,21 @@ export async function mountSync(api) {
   }
 
   async function waitForJoin(id, deadline) {
-    let delay = 500;
+    let delay = APPROVAL_POLL_MS;
     while (Date.now() < deadline) {
       let data;
       try {
         data = await callServer("GET", `/v1/mailboxes/${state.account}/requests`);
       } catch (error) {
-        if (error.status !== 429) throw error;
+        if (error.status !== 429 || Date.now() >= deadline) throw error;
         await sleep(delay);
         delay = Math.min(delay * 2, 8000);
         continue;
       }
       const row = (data.requests || []).find((request) => request.id === id);
       if (!row) return true;
-      await sleep(Math.max(delay, 1000));
-      delay = Math.min(Math.max(delay, 1000) * 2, 8000);
+      await sleep(delay);
+      delay = Math.min(delay * 2, 8000);
     }
     return false;
   }
@@ -1522,8 +1558,26 @@ export async function mountSync(api) {
     });
   }
 
+  function adoptAskedName(code, name) {
+    const asked = cleanName(name);
+    if (!asked || !code || !state.desk) return;
+    const list = JSON.parse(sync.deviceList(state.desk));
+    if (!list.ok) return;
+    const added = (list.devices || []).find((device) => !device.self && device.code === code);
+    if (!added?.id) return;
+    const row = state.deviceNames.find((item) => item.id === added.id);
+    if (!row) state.deviceNames.push({ id: added.id, rev: 1, name: asked });
+    else if (row.name !== asked) {
+      row.name = asked;
+      row.rev = (row.rev || 0) + 1;
+    }
+    saveNames();
+  }
+
   async function approvePending() {
     const prior = currentVault()?.deviceFile || api.storeGet("device-file") || "";
+    const askedName = cleanName(state.pending?.name || "");
+    const askedCode = state.pending?.code || "";
     state.busy = true;
     state.error = "";
     draw();
@@ -1543,6 +1597,7 @@ export async function mountSync(api) {
       const created = Number(state.pending.created) || Date.now();
       const finished = await waitForJoin(requestId, created + INVITE_MS);
       if (!finished) throw new Error("That phone or computer didn't finish. Ask them to try again.");
+      adoptAskedName(askedCode, askedName);
       const snap = await api.snapshot();
       const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
       state.revision = mailbox.revision;

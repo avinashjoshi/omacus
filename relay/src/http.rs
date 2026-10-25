@@ -177,6 +177,12 @@ fn route(
     }
     store.charge_ip(ip)?;
     store.charge_account(account)?;
+    if method == "GET"
+        && sub == Some("requests")
+        && let (Some(id), Some(proof)) = (id, crate::auth::read_proof(headers))
+    {
+        store.note_waiting(account, id, &proof)?;
+    }
     if method == "GET" || (method == "POST" && sub == Some("objects") && id.is_none()) {
         store.charge_read(ip, account)?;
     }

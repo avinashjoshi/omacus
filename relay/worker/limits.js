@@ -33,12 +33,15 @@ export const TEST = {
   maxAccounts: 3,
   maxStorage: 64 * 1024,
   maxDevices: 4,
-  accountRate: 60,
-  ipRate: 80,
+  // Three phones saving, plus the request check, plus the phone that is
+  // joining, is about 75 reads a minute on one account and one address.
+  // These sit above that. Production's 180 and 500 already do.
+  accountRate: 160,
+  ipRate: 220,
   guessRate: 4,
   joinRate: 4,
-  readAccountRate: 30,
-  readIpRate: 40,
+  readAccountRate: 100,
+  readIpRate: 140,
 };
 
 export function defaultsFor(env) {

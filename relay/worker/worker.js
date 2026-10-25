@@ -1,4 +1,4 @@
-// Private sync test relay (1.0.0-beta.34) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.35) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
 // Each account lives in its own object. A directory object maps an invite
 // hash to that account, so a join does not list every account.
@@ -33,7 +33,7 @@ import {
 } from "./limits.js";
 import { nightOf, nightPrefix, openBackupStore } from "./backup.js";
 
-const LABEL = "1.0.0-beta.34";
+const LABEL = "1.0.0-beta.35";
 const MAX_RECORD = 256 * 1024, MAX_MANIFEST = 1024 * 1024, MAX_OBJECT = 4 * 1024 * 1024 + 64;
 const MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024, MAX_BODY = 8 * 1024 * 1024;
 const MAX_REQUESTS = 8, MAX_USES = 20;
@@ -58,7 +58,11 @@ const ERR = {
   Devices: [429, "That account has as many phones and computers as it can."],
   Limited: [429, "Try again in a moment."],
   Busy: [429, "Sync is busy. Try again in a moment."],
+  Waiting: [409, "That phone or computer stopped waiting."],
 };
+// A joining phone polls every few seconds. This is how long a missed poll
+// can last before that request is no longer waiting.
+export const HEARTBEAT_MS = 30 * 1000;
 // Sync hosts never set a cookie. A browser on any origin may call them.
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -79,6 +83,13 @@ function dropExpired(m, now) {
     const created = Number.isInteger(request.created) ? request.created : 0;
     if (created + INVITE_MS <= now) delete m.requests[id];
   }
+}
+function seenAt(request) {
+  if (Number.isInteger(request.lastSeen) && request.lastSeen > 0) return request.lastSeen;
+  return Number.isInteger(request.created) ? request.created : 0;
+}
+function stillWaiting(request, now) {
+  return !!request && request.state === "pending" && now - seenAt(request) < HEARTBEAT_MS;
 }
 const startsWith = (b, m) => b.length >= m.length && m.every((x, i) => b[i] === x);
 const fromB64 = (s) => {
@@ -206,9 +217,12 @@ export class Mailboxes extends DurableObject {
     this.readAccountHits = new Map();
     this.limits = defaultsFor(env);
   }
+  now() {
+    return typeof this.clock === "function" ? this.clock() : Date.now();
+  }
   bump(map, key, limit) {
     if (!key) return;
-    const now = Date.now();
+    const now = this.now();
     const row = map.get(key);
     if (!row || now - row.start >= 60_000) {
       map.set(key, { start: now, count: 1 });
@@ -230,6 +244,23 @@ export class Mailboxes extends DurableObject {
   chargeRead(ip, account) {
     this.bump(this.readIpHits, ip, this.limits.readIpRate);
     this.bump(this.readAccountHits, account, this.limits.readAccountRate);
+  }
+  // A poll that the read cap then refuses still counts as waiting.
+  async noteWaiting(account, id, proofText) {
+    const given = proofBytes(proofText);
+    if (!given) return;
+    try {
+      await this.change(account, (m) => {
+        const request = Object.hasOwn(m.requests, id) ? m.requests[id] : null;
+        const stored = request ? proofBytes(request.proof) : null;
+        if (!request || !stored || !sameBytes(given, stored)) return [200, null];
+        if (request.state === "pending") request.lastSeen = this.now();
+        return [200, null];
+      });
+    } catch (error) {
+      if (error === "Unknown") return;
+      throw error;
+    }
   }
   async guard(method, path, raw, headers, mailbox) {
     const auth = await authorize(method, path, raw, headers, mailbox.record, Date.now(), mailbox);
@@ -287,7 +318,7 @@ export class Mailboxes extends DurableObject {
     let out;
     await this.store.transaction(async (txn) => {
       const m = (await txn.get("m:" + account)) || fail("Unknown");
-      dropExpired(m, Date.now());
+      dropExpired(m, this.now());
       out = await update(m, txn);
       await txn.put("m:" + account, m);
     });
@@ -365,10 +396,13 @@ export class Mailboxes extends DurableObject {
     this.charge(ip);
     const account = accountId(rest[0]);
     this.charge(null, account);
+    const header = (name) => (headers && headers.get ? headers.get(name) : "") || "";
+    if (method === "GET" && sub === "requests" && id !== undefined) {
+      await this.noteWaiting(account, id, header("x-omacus-proof"));
+    }
     if (method === "GET" || (method === "POST" && sub === "objects" && id === undefined)) {
       this.chargeRead(ip, account);
     }
-    const header = (name) => (headers && headers.get ? headers.get(name) : "") || "";
     if (method === "GET" && sub === "requests" && id !== undefined) {
       const given = proofBytes(header("x-omacus-proof"));
       const [status, answer] = await this.change(account, (m) => {
@@ -376,7 +410,8 @@ export class Mailboxes extends DurableObject {
         const stored = r ? proofBytes(r.proof) : null;
         if (!r || !given || !stored || !sameBytes(given, stored)) return [404, null];
         const reply = { state: r.state, name: r.name, device: r.device, chain: r.chain, wrap: r.wrap };
-        if (r.state !== "pending") delete m.requests[id];
+        if (r.state === "pending") r.lastSeen = this.now();
+        else delete m.requests[id];
         return [200, reply];
       });
       if (status === 404) fail("Unknown");
@@ -450,7 +485,7 @@ export class Mailboxes extends DurableObject {
         await authed(m);
         return [200, {
           requests: Object.entries(m.requests)
-            .filter(([, r]) => r.state === "pending" || r.state === "approved")
+            .filter(([, r]) => r.state === "approved" || stillWaiting(r, this.now()))
             .map(([rid, r]) => ({
               id: rid,
               device: r.device,
@@ -467,6 +502,7 @@ export class Mailboxes extends DurableObject {
         await authed(m);
         const v = need();
         const r = Object.hasOwn(m.requests, id) ? m.requests[id] : fail("Unknown");
+        if (r.state === "pending" && !stillWaiting(r, this.now())) fail("Waiting");
         if (v.reject === true) {
           if (r.state !== "pending") fail("Conflict");
           r.state = "rejected";
@@ -490,7 +526,7 @@ export class Mailboxes extends DurableObject {
     const given = fromB64(v.proof);
     if (given.length !== 32) fail("Unreadable");
     const hash = await hashHex(secret);
-    const now = Date.now();
+    const now = this.now();
     const proofBytes = await hmacBytes(secret, device);
     if (!sameBytes(proofBytes, given)) fail("BadInvite");
     const id = freshId();
@@ -515,6 +551,7 @@ export class Mailboxes extends DurableObject {
         wrap: "",
         proof,
         created: now,
+        lastSeen: now,
       };
       await txn.put("m:" + account, mailbox);
       result = [201, { id, account }];

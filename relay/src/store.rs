@@ -20,6 +20,8 @@ const MAX_REQUESTS: usize = 8;
 const RECORD_MAGIC: &[u8] = b"OMACUS-SYNC/1\n";
 const RECORD_MAGIC_V2: &[u8] = b"OMACUS-SYNC/2\n";
 const CHAIN_MAGIC: &[u8] = b"OMACUS-DEVICES/1";
+/// A joining phone polls every few seconds. A longer gap means it stopped.
+const HEARTBEAT_MS: u64 = 30_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StoreError {
@@ -32,6 +34,7 @@ pub enum StoreError {
     BadAccess,
     Limited,
     Busy,
+    Waiting,
 }
 
 impl StoreError {
@@ -40,6 +43,7 @@ impl StoreError {
             StoreError::Unknown => 404,
             StoreError::Conflict | StoreError::Revision => 409,
             StoreError::Full | StoreError::Limited | StoreError::Busy => 429,
+            StoreError::Waiting => 409,
             StoreError::Unreadable | StoreError::BadInvite | StoreError::BadAccess => 400,
         }
     }
@@ -55,6 +59,7 @@ impl StoreError {
             StoreError::BadAccess => "That invite code didn't work. Check it and try again.",
             StoreError::Limited => "Try again in a moment.",
             StoreError::Busy => "Sync is busy. Try again in a moment.",
+            StoreError::Waiting => "That phone or computer stopped waiting.",
         }
     }
 }
@@ -70,6 +75,8 @@ struct Request {
     /// When the request arrived. A decision can be read once. After that,
     /// or once the invite window has passed, the request is removed.
     created: u64,
+    /// The last time the joining phone asked if it was approved.
+    last_seen: u64,
 }
 
 struct Invite {
@@ -307,6 +314,31 @@ impl Store {
         }
     }
 
+    /// The joining phone is still asking. A poll that is later refused for
+    /// reading too fast still counts, so a short wait does not look like it left.
+    pub fn note_waiting(
+        &mut self,
+        account: &str,
+        id: &str,
+        proof: &[u8],
+    ) -> Result<(), StoreError> {
+        let Ok(account_key) = account_id(account) else {
+            return Ok(());
+        };
+        self.drop_expired(&account_key);
+        let now = self.now();
+        let Some(mailbox) = self.mailboxes.get_mut(&account_key) else {
+            return Ok(());
+        };
+        let Some(request) = mailbox.requests.get_mut(id) else {
+            return Ok(());
+        };
+        if request.state == State::Pending && same_bytes(&request.proof, proof) {
+            request.last_seen = now;
+        }
+        Ok(())
+    }
+
     /// The joining device may read only its own request, and only with the
     /// same check value it used to create that request.
     pub fn request_with_proof(
@@ -317,14 +349,18 @@ impl Store {
     ) -> Result<RequestView, StoreError> {
         let account_key = account_id(account)?;
         self.drop_expired(&account_key);
-        let mailbox = self
-            .mailboxes
-            .get(&account_key)
-            .ok_or(StoreError::Unknown)?;
-        let request = mailbox.requests.get(id).ok_or(StoreError::Unknown)?;
-        if !same_bytes(&request.proof, proof) {
+        let matches = {
+            let mailbox = self
+                .mailboxes
+                .get(&account_key)
+                .ok_or(StoreError::Unknown)?;
+            let request = mailbox.requests.get(id).ok_or(StoreError::Unknown)?;
+            same_bytes(&request.proof, proof)
+        };
+        if !matches {
             return Err(StoreError::Unknown);
         }
+        self.note_waiting(&account_key, id, proof)?;
         self.request(&account_key, id)
     }
 
@@ -713,6 +749,7 @@ impl Store {
                     wrap: Vec::new(),
                     proof: given.to_vec(),
                     created: now,
+                    last_seen: now,
                 },
             );
         }
@@ -723,11 +760,12 @@ impl Store {
     pub fn pending(&mut self, account: &str) -> Result<Vec<Pending>, StoreError> {
         let account = account_id(account)?;
         self.drop_expired(&account);
+        let now = self.now();
         let mailbox = self.mailboxes.get(&account).ok_or(StoreError::Unknown)?;
         Ok(mailbox
             .requests
             .iter()
-            .filter(|(_, request)| request.state == State::Pending)
+            .filter(|(_, request)| request.state == State::Pending && waiting(request, now))
             .map(|(id, request)| Pending {
                 id: id.clone(),
                 device: request.device.clone(),
@@ -747,13 +785,15 @@ impl Store {
     ) -> Result<Vec<(Pending, &'static str, u64)>, StoreError> {
         let account = account_id(account)?;
         self.drop_expired(&account);
+        let now = self.now();
         let mailbox = self.mailboxes.get(&account).ok_or(StoreError::Unknown)?;
         Ok(mailbox
             .requests
             .iter()
             .filter_map(|(id, request)| {
                 let state = match request.state {
-                    State::Pending => "pending",
+                    State::Pending if waiting(request, now) => "pending",
+                    State::Pending => return None,
                     State::Approved => "approved",
                     State::Rejected => return None,
                 };
@@ -785,7 +825,11 @@ impl Store {
         {
             return Err(StoreError::Unreadable);
         }
+        let now = self.now();
         let request = self.request_mut(account, id)?;
+        if request.state == State::Pending && !waiting(request, now) {
+            return Err(StoreError::Waiting);
+        }
         if request.state != State::Pending {
             return Err(StoreError::Conflict);
         }
@@ -796,7 +840,11 @@ impl Store {
     }
 
     pub fn reject(&mut self, account: &str, id: &str) -> Result<(), StoreError> {
+        let now = self.now();
         let request = self.request_mut(account, id)?;
+        if request.state == State::Pending && !waiting(request, now) {
+            return Err(StoreError::Waiting);
+        }
         if request.state != State::Pending {
             return Err(StoreError::Conflict);
         }
@@ -856,6 +904,15 @@ impl Default for Store {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn waiting(request: &Request, now: u64) -> bool {
+    let seen = if request.last_seen > 0 {
+        request.last_seen
+    } else {
+        request.created
+    };
+    now.saturating_sub(seen) < HEARTBEAT_MS
 }
 
 fn fresh(hits: &mut BTreeMap<String, Hit>, now: u64) {
@@ -1071,6 +1128,7 @@ fn mailbox_bytes(mailbox: &Mailbox) -> Vec<u8> {
                 "wrap": b64(&request.wrap),
                 "proof": b64(&request.proof),
                 "created": request.created,
+                "last_seen": request.last_seen,
             })
         })
         .collect();
@@ -1114,6 +1172,7 @@ fn mailbox_from(bytes: &[u8]) -> Option<Mailbox> {
                 wrap: from_b64(row.get("wrap")?.as_str()?)?,
                 proof: from_b64(row.get("proof")?.as_str()?)?,
                 created: row.get("created")?.as_u64()?,
+                last_seen: row.get("last_seen").and_then(Value::as_u64).unwrap_or(0),
             },
         );
     }
@@ -1457,6 +1516,47 @@ mod tests {
         assert!(gone(&store, &unread));
         assert!(gone(&store, &device));
         assert!(gone(&store, b"Hall table"));
+    }
+
+    #[test]
+    fn a_phone_that_stops_waiting_cannot_be_approved() {
+        let mut store = Store::new();
+        let account = account();
+        store.create(&account, record()).unwrap();
+        let device = vec![9u8; 80];
+        let secret = [9u8, 1, 1, 1, 1];
+        let chain = b"OMACUS-DEVICES/1ferry".to_vec();
+        let wrap = b"wrap".to_vec();
+        let id = arrive(
+            &mut store,
+            &account,
+            50_000,
+            secret,
+            &device,
+            "Harbor phone",
+        );
+        let rows = store.pending(&account).unwrap();
+        assert_eq!(rows[0].name, "Harbor phone");
+        store.set_now(50_000 + super::HEARTBEAT_MS);
+        assert!(store.pending(&account).unwrap().is_empty());
+        assert!(store.open_requests(&account).unwrap().is_empty());
+        assert_eq!(
+            store
+                .approve(&account, &id, chain.clone(), wrap.clone())
+                .unwrap_err(),
+            StoreError::Waiting
+        );
+        assert_eq!(
+            StoreError::Waiting.message(),
+            "That phone or computer stopped waiting."
+        );
+        let mac = invite::proof(&secret, &device);
+        let view = store.request_with_proof(&account, &id, &mac).unwrap();
+        assert_eq!(view.state, "pending");
+        assert_eq!(view.name, "Harbor phone");
+        let rows = store.pending(&account).unwrap();
+        assert_eq!(rows[0].name, "Harbor phone");
+        store.approve(&account, &id, chain, wrap).unwrap();
     }
 
     fn sample_object(id: &str, body: Vec<u8>) -> ObjectWrite {
