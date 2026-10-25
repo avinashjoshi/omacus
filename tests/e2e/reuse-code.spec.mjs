@@ -52,9 +52,15 @@ async function handle(route) {
   });
 }
 
+async function syncReady(page) {
+  // The loading screen leaves before Turn on sync can open the explanation.
+  await page.waitForFunction(() => typeof globalThis.omacusTurnOnSync === "function");
+}
+
 async function openSync(page) {
   await page.goto("/app/", { waitUntil: "domcontentloaded" });
   await page.waitForSelector("[data-loading]", { state: "detached" });
+  await syncReady(page);
   await page.getByRole("button", { name: "Settings" }).click();
   await page.locator("[data-settings-tab='sync']").click();
 }
@@ -122,6 +128,7 @@ test("the same code asks again after a phone stops waiting", async ({ browser })
 
     await phoneA.goto("/app/", { waitUntil: "domcontentloaded" });
     await phoneA.waitForSelector("[data-loading]", { state: "detached" });
+    await syncReady(phoneA);
     await phoneA.getByRole("button", { name: "Turn on sync" }).first().click();
     await expect(phoneA.getByRole("heading", { name: "How sync works" })).toBeVisible();
     await phoneA.getByRole("button", { name: "Set up sync" }).click();

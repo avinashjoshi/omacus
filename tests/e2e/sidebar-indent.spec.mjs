@@ -47,17 +47,15 @@ test("a page and a folder on one level share a name column", async ({ page }) =>
 
 test("captions, pages, and folder children step in together", async ({ page }) => {
   await openApp(page);
-  await page.waitForFunction(() => typeof globalThis.omacusShowPlaces === "function");
-  await page.evaluate(() => {
+  // Mount clears places once, after the loading screen is gone. Set them after that.
+  await page.waitForFunction(() => document.querySelector(".sync-chip")?.dataset.ready === "1");
+  const box = await page.evaluate(() => {
     globalThis.omacusShowPlaces({
       vaultName: "My pages",
       localIds: ["ex5"],
       here: "On this computer",
       move() {},
     });
-  });
-  await page.waitForSelector('[data-sync-section="local"]');
-  const box = await page.evaluate(() => {
     const left = (sel) => document.querySelector(sel).getBoundingClientRect().left;
     const right = (sel) => document.querySelector(sel).getBoundingClientRect().right;
     const step = parseFloat(getComputedStyle(document.querySelector(".sheet-list")).getPropertyValue("--row-step"));
