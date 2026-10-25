@@ -78,6 +78,7 @@ function cluster(serve) {
   const env = {
     ACCESS_SECRET: SECRET,
     ADMIN_KEY: ADMIN,
+    ALLOW_NO_ACCESS: "1",
     SERVE_APP: serve,
   };
   const open = (key, build) => {
@@ -244,7 +245,9 @@ assert(listed === 2, `linked devices ${listed}`);
     objects: [{ id: objectId, base: 0, body: b64(new Uint8Array(1500).fill(7)) }],
   };
   const raw = JSON.stringify(payload);
-  const put = await call(env, "PUT", path, payload, await authHeaders(device, "PUT", path, raw));
+  const putHeaders = await authHeaders(device, "PUT", path, raw);
+  putHeaders["if-match"] = `"${payload.revision}"`;
+  const put = await call(env, "PUT", path, payload, putHeaders);
   assert(put.status === 429 && put.json.message === "That account is out of room.", put.text);
   const home = storages.get(`acct-${account}`);
   const mailbox = await home.get("m:" + account);

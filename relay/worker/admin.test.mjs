@@ -77,6 +77,7 @@ function harness(extra = {}) {
     SERVE_APP: extra.SERVE_APP ?? "0",
     ACCESS_AUD: extra.ACCESS_AUD || "",
     ACCESS_TEAM_DOMAIN: extra.ACCESS_TEAM_DOMAIN || "",
+    ALLOW_NO_ACCESS: Object.hasOwn(extra, "ALLOW_NO_ACCESS") ? extra.ALLOW_NO_ACCESS : "1",
     MAILBOXES: {
       idFromName: () => "test",
       get: () => ({
@@ -367,6 +368,7 @@ const other = "cd".repeat(32);
     ADMIN_KEY: ADMIN,
     SERVE_APP: "0",
     ACCESS_AUD: "",
+    ALLOW_NO_ACCESS: "1",
   };
   const open = (name) => {
     if (!storages.has(name)) {
@@ -431,7 +433,7 @@ const other = "cd".repeat(32);
   const served = await worker.fetch(new Request("https://sync-test.omacus.com/"), serving.env);
   assert(served.status === 200 && await served.text() === "/", "test worker redirected /");
   const health = await worker.fetch(new Request("https://sync-test.omacus.com/v1/health"), closed.env);
-  assert((await health.json()).label === "1.0.0-beta.30", "label");
+  assert((await health.json()).label === "1.0.0-beta.31", "label");
 }
 
 {
@@ -487,15 +489,21 @@ const other = "cd".repeat(32);
   const aud = "aud-tag";
   const exp = Math.floor(Date.now() / 1000) + 3600;
   try {
-    const open = harness();
-    const plain = await call(open.env, "GET", "/v1/admin/stats");
-    assert(plain.status === 200, "unconfigured access rejected a key");
-    const pageOpen = await call(open.env, "GET", "/admin");
-    assert(pageOpen.status === 404, "unconfigured access refused the admin page");
-    const noTeam = harness({ ACCESS_AUD: aud });
+    const closed = harness({ ALLOW_NO_ACCESS: "" });
+    const plain = await call(closed.env, "GET", "/v1/admin/stats");
+    assert(plain.status === 403 && plain.json.message === "Sign in again.", plain.text);
+    const pageClosed = await call(closed.env, "GET", "/admin");
+    assert(pageClosed.status === 403 && pageClosed.text.includes("Sign in again"), "a missing audience opened the admin page");
+    const flagged = harness({ ALLOW_NO_ACCESS: "1" });
+    const plainFlag = await call(flagged.env, "GET", "/v1/admin/stats");
+    assert(plainFlag.status === 200, "the test flag refused a key");
+    const noTeam = harness({ ACCESS_AUD: aud, ALLOW_NO_ACCESS: "" });
     const noTeamRes = await call(noTeam.env, "GET", "/v1/admin/stats");
     assert(noTeamRes.status === 403 && noTeamRes.json.message === "Sign in again.", noTeamRes.text);
-    const locked = harness({ ACCESS_AUD: aud, ACCESS_TEAM_DOMAIN: "omacus.cloudflareaccess.com" });
+    const noDomain = harness({ ACCESS_AUD: aud, ACCESS_TEAM_DOMAIN: "", ALLOW_NO_ACCESS: "" });
+    const noDomainRes = await call(noDomain.env, "GET", "/v1/admin/stats");
+    assert(noDomainRes.status === 403 && noDomainRes.json.message === "Sign in again.", "a missing team host was accepted");
+    const locked = harness({ ACCESS_AUD: aud, ACCESS_TEAM_DOMAIN: "omacus.cloudflareaccess.com", ALLOW_NO_ACCESS: "" });
     locked.env.ASSETS = {
       fetch: async (request) => new Response(new URL(request.url).pathname, { status: 200 }),
     };
@@ -556,9 +564,11 @@ const other = "cd".repeat(32);
   assert(wrangler.includes("omacus-sync-test-backups") && wrangler.includes("omacus-sync-backups"), "backup buckets");
   assert(wrangler.includes('"binding": "BACKUPS"') && wrangler.includes("15 7 * * *"), "backup binding");
   assert(wrangler.includes("ACCESS_AUD") && !wrangler.includes("CF_ACCESS_AUD"), "access audience");
+  assert(!wrangler.includes("ALLOW_NO_ACCESS"), "the deployed worker skips the access check");
   assert((wrangler.match(/omacus\.cloudflareaccess\.com/g) || []).length >= 2, "access team on both workers");
   const access = await readFile(new URL("./admin.js", import.meta.url), "utf8");
   assert(access.includes("ACCESS_TEAM_DOMAIN") && access.includes("/cdn-cgi/access/certs"), "access certs");
+  assert(access.includes("ALLOW_NO_ACCESS"), "the test flag is unnamed");
   assert(!access.includes("damp-band"), "old access team");
   assert(wrangler.includes('"SERVE_APP": "0"') && wrangler.includes('"SERVE_APP": "1"'), "serve flag");
   assert(wrangler.includes('"APP_URL": "https://app.omacus.com/"'), "app url");
@@ -567,6 +577,14 @@ const other = "cd".repeat(32);
   assert(!mint.includes("ACCESS_SECRET") && mint.includes("admin.mjs"), "mint.mjs still mints locally");
   assert(!page.includes("innerHTML"), "admin page builds html from strings");
   assert(page.includes("Sign in again") && page.includes("status === 403"), "admin page names a missing sign-in");
+}
+
+{
+  const { env } = harness();
+  const wide = "é".repeat(3000);
+  assert(wide.length < 4096, "the character count stayed under the old check");
+  const tooBig = await call(env, "POST", "/v1/admin/codes", { label: wide });
+  assert(tooBig.status === 400 && tooBig.json.message === "That request was too large.", tooBig.text);
 }
 
 console.log("admin checks passed");

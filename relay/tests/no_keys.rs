@@ -110,7 +110,14 @@ fn signed(
     wire: &mut Vec<u8>,
 ) -> (u16, Vec<u8>) {
     let auth = desk.sign_request(method, path, body).unwrap();
-    exchange_with(port, method, path, body, &auth.headers(), wire)
+    let mut extra = auth.headers();
+    if method == "PUT"
+        && let Ok(value) = serde_json::from_slice::<serde_json::Value>(body)
+        && let Some(revision) = value.get("revision").and_then(serde_json::Value::as_u64)
+    {
+        extra.push_str(&format!("If-Match: \"{revision}\"\r\n"));
+    }
+    exchange_with(port, method, path, body, &extra, wire)
 }
 
 fn json_body(bytes: &[u8]) -> serde_json::Value {
@@ -345,6 +352,7 @@ fn the_relay_holds_no_key_and_no_page() {
     let wrap_bytes = base64::engine::general_purpose::STANDARD
         .decode(decision["wrap"].as_str().unwrap())
         .unwrap();
+    joiner.confirm_link();
     let page = joiner
         .open_approval(&chain_bytes, &wrap_bytes, &stored_record)
         .unwrap();
@@ -532,6 +540,7 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
     let wrap_bytes = base64::engine::general_purpose::STANDARD
         .decode(decision["wrap"].as_str().unwrap())
         .unwrap();
+    joiner.confirm_link();
     let joined = joiner
         .open_approval_pages(&chain_bytes, &wrap_bytes, &stored_record)
         .unwrap();
@@ -752,7 +761,7 @@ fn the_test_pages_do_not_name_private_parts_or_the_live_app() {
     ] {
         assert!(!text.contains(word), "the test pages say {word}");
     }
-    assert!(text.contains("1.0.0-beta.30"));
+    assert!(text.contains("1.0.0-beta.31"));
     assert!(
         !std::fs::read_to_string(root.join("../site/app/index.html"))
             .unwrap()

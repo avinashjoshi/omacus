@@ -4,7 +4,7 @@ import worker, { clearPlacement, runBackup } from "./worker.js";
 import { Mailboxes, Config } from "./worker.js";
 import { MemoryStorage } from "./storage.js";
 import { memoryBackupStore, nightOf, openBackupStore, RETENTION_DAYS } from "./backup.js";
-import { authHeaders, makeDevice, makeRecord } from "./auth.js";
+import { appendDevice, authHeaders, deviceChain, makeDevice, makeRecord } from "./auth.js";
 
 const SECRET = "omacus-access-test-secret";
 const ADMIN = "admin-test-key-value";
@@ -53,6 +53,7 @@ function cluster() {
   const env = {
     ACCESS_SECRET: SECRET,
     ADMIN_KEY: ADMIN,
+    ALLOW_NO_ACCESS: "1",
     SERVE_APP: "1",
     BACKUPS: bucket,
   };
@@ -204,7 +205,9 @@ assert(RETENTION_DAYS === 30, "a night is kept for 30 days");
     ],
     drop: [elm],
   };
-  const put = await call(env, "PUT", path, edited, await authHeaders(device, "PUT", path, JSON.stringify(edited)));
+  const editedHeaders = await authHeaders(device, "PUT", path, JSON.stringify(edited));
+  editedHeaders["if-match"] = `"${edited.revision}"`;
+  const put = await call(env, "PUT", path, edited, editedHeaders);
   assert(put.status === 200, `edit ${put.text}`);
   const restored = await call(env, "POST", "/v1/admin/restore", { account, confirm: account, date: index.day });
   assert(restored.status === 200 && restored.json.revision === 3, restored.text);
@@ -225,7 +228,9 @@ assert(RETENTION_DAYS === 30, "a night is kept for 30 days");
       { id: fir, base: 0, body: firBody },
     ],
   };
-  const merge = await call(env, "PUT", path, merged, await authHeaders(device, "PUT", path, JSON.stringify(merged)));
+  const mergeHeaders = await authHeaders(device, "PUT", path, JSON.stringify(merged));
+  mergeHeaders["if-match"] = `"${merged.revision}"`;
+  const merge = await call(env, "PUT", path, merged, mergeHeaders);
   assert(merge.status === 200, `merge ${merge.text}`);
   const after = await home.get("m:" + account);
   assert(after.record === mergedRecord && after.revision === 4, "the merge did not land");
@@ -238,6 +243,52 @@ assert(RETENTION_DAYS === 30, "a night is kept for 30 days");
   assert(fetched.status === 200 && fetched.json.objects.length === 3, fetched.text);
   const seen = new Set(fetched.json.objects.map((row) => row.id));
   assert(seen.size === 3, "a page was returned twice");
+}
+
+{
+  const { env, storages } = cluster();
+  const made = await call(env, "POST", "/v1/admin/codes", { uses: 1, label: "Row", expires: "2099-01-01" });
+  assert(made.status === 200, made.text);
+  const account = "88".repeat(32);
+  const oak = "44".repeat(16);
+  const fir = "55".repeat(16);
+  const device = await makeDevice(account);
+  const second = await makeDevice(account);
+  const chain = await deviceChain(device);
+  const longer = await appendDevice(device, chain, second);
+  assert(longer, "the longer list was not signed");
+  const oakBody = b64(new Uint8Array(64).fill(4));
+  const firBody = b64(new Uint8Array(64).fill(5));
+  const first = await makeRecord(device, "oak page\n", 2, chain);
+  const created = await call(env, "POST", "/v1/mailboxes", {
+    account,
+    record: first,
+    code: made.json.code,
+    objects: [{ id: oak, base: 0, body: oakBody }],
+  });
+  assert(created.status === 201, `longer create ${created.text}`);
+  const when = Date.UTC(2026, 9, 26, 7, 15);
+  const index = await runBackup(env, when);
+  assert(index.failed === 0, JSON.stringify(index));
+  const later = await makeRecord(device, "oak page\nfir page\n", 2, longer);
+  const path = `/v1/mailboxes/${account}`;
+  const edited = {
+    revision: 1,
+    record: later,
+    objects: [{ id: fir, base: 0, body: firBody }],
+  };
+  const headers = await authHeaders(device, "PUT", path, JSON.stringify(edited));
+  headers["if-match"] = `"${edited.revision}"`;
+  const put = await call(env, "PUT", path, edited, headers);
+  assert(put.status === 200, `longer edit ${put.text}`);
+  const restored = await call(env, "POST", "/v1/admin/restore", { account, confirm: account, date: index.day });
+  assert(restored.status === 200 && restored.json.keptList === true, restored.text);
+  assert(restored.json.revision === 2 && restored.json.objects === 0, restored.text);
+  const home = storages.get(`acct-${account}`);
+  const mailbox = await home.get("m:" + account);
+  assert(mailbox.record === later && mailbox.revision === 2, "restore replaced a longer device list");
+  assert((await home.get(`o:${account}:${fir}`)).body === firBody, "a page from after the night was dropped");
+  assert((await home.get(`o:${account}:${oak}`)).body === oakBody, "the earlier page was dropped");
 }
 
 console.log("backups ok");

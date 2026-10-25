@@ -158,7 +158,7 @@ const pageB = await openApp(contextB);
 
 try {
   const health = await (await fetch(relay + "/v1/health")).json();
-  if (health.label !== "1.0.0-beta.30") throw new Error(`relay label ${health.label}`);
+  if (health.label !== "1.0.0-beta.31") throw new Error(`relay label ${health.label}`);
 
   await openSync(pageA);
   const guessed = await pageA.getByRole("textbox", { name: "Name this phone or computer" }).inputValue();
@@ -201,6 +201,8 @@ try {
   await pageB.getByRole("button", { name: "Join", exact: true }).click();
   await pageA.getByRole("heading", { name: "Is this your phone or computer?" }).waitFor({ timeout: 20000 });
   await pageA.getByRole("button", { name: "Yes, approve it" }).click();
+  await pageB.getByRole("heading", { name: "Do these match?" }).waitFor({ timeout: 20000 });
+  await pageB.getByRole("button", { name: "These match" }).click();
   await pageB.locator("[data-sync-set]").waitFor({ timeout: 60000 });
   await pageA.locator("[data-sync-set]").waitFor({ timeout: 60000 });
   await pageA.waitForFunction(() => document.querySelector(".sync-devices")?.innerText.includes("Harbor phone"), null, { timeout: 20000 });

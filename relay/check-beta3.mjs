@@ -107,6 +107,8 @@ async function joinFrom(page, host) {
   await page.getByRole("heading", { name: "Approve on your other device" }).waitFor({ timeout: 20000 });
   await host.getByRole("heading", { name: "Is this your phone or computer?" }).waitFor({ timeout: 20000 });
   await host.getByRole("button", { name: "Yes, approve it" }).click();
+  await page.getByRole("heading", { name: "Do these match?" }).waitFor({ timeout: 20000 });
+  await page.getByRole("button", { name: "These match" }).click();
   await page.locator("[data-sync-set]").waitFor({ timeout: 60000 });
   await host.locator("[data-sync-set]").waitFor({ timeout: 60000 });
 }
@@ -314,11 +316,11 @@ try {
   await frame(pageA, "dark", 390, 844);
   await pageA.locator(".side-name").first().waitFor();
   const version = (await pageA.locator(".side-version").innerText()).trim();
-  if (version !== "omacus 1.0.0-beta.30") throw new Error(`version line ${version}`);
+  if (version !== "omacus 1.0.0-beta.31") throw new Error(`version line ${version}`);
   const beta = await pageA.locator(".sync-beta").innerText();
-  if (!beta.includes("1.0.0-beta.30")) throw new Error(`phone label ${beta}`);
+  if (!beta.includes("1.0.0-beta.31")) throw new Error(`phone label ${beta}`);
   const panelLabel = await removedPage.locator(".sync-label").innerText();
-  if (!panelLabel.includes("1.0.0-beta.30")) throw new Error(`panel label ${panelLabel}`);
+  if (!panelLabel.includes("1.0.0-beta.31")) throw new Error(`panel label ${panelLabel}`);
 
   console.log("sync stays on after close, a removed phone can join again, and the device list stays clear of the buttons");
 } catch (error) {

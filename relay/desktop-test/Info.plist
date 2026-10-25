@@ -15,9 +15,9 @@
   <key>CFBundleIconFile</key>
   <string>icon</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0.0-beta.30</string>
+  <string>1.0.0-beta.31</string>
   <key>CFBundleVersion</key>
-  <string>30</string>
+  <string>31</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>LSMinimumSystemVersion</key>

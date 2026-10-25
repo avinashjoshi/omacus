@@ -14,7 +14,8 @@ use serde_json::{Value, json};
 use crate::LABEL;
 use crate::store::{ObjectWrite, Store, StoreError};
 
-const CORS: &str = "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, If-None-Match, X-Omacus-Device, X-Omacus-Time, X-Omacus-Nonce, X-Omacus-Signature, X-Omacus-Proof\r\nAccess-Control-Expose-Headers: ETag\r\n";
+// Sync hosts never set a cookie, and they never take one as a login.
+const CORS: &str = "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, If-None-Match, If-Match, X-Omacus-Device, X-Omacus-Time, X-Omacus-Nonce, X-Omacus-Signature, X-Omacus-Proof\r\nAccess-Control-Expose-Headers: ETag\r\n";
 
 pub fn serve(listener: TcpListener, www: PathBuf, site: PathBuf, store: Arc<Mutex<Store>>) {
     for stream in listener.incoming() {
@@ -220,6 +221,15 @@ fn route(
                 .ok_or(StoreError::Unreadable)?;
             let record = decode_field(&value, "record")?;
             store.allow_put(account, &record, recovery)?;
+            let (current, _) = store.get(account)?;
+            if current != revision
+                || !same_revision(
+                    headers.get("if-match").map(String::as_str).unwrap_or(""),
+                    current,
+                )
+            {
+                return Err(StoreError::Revision);
+            }
             let writes = object_writes(&value)?;
             let dropping = id_list(&value, "drop")?;
             if writes.is_empty() && dropping.is_empty() {

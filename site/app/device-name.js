@@ -1,6 +1,5 @@
 // A guess for this phone or computer. The person can change it.
 // omacus Test and the desktop app put their own name in the browser string.
-// WebKit on a computer that also says Chrome is the test app.
 
 export function guessDeviceName(ua) {
   const text = String(ua || "");
@@ -13,9 +12,6 @@ export function guessDeviceName(ua) {
   const place = phone || computer;
   if (/\bomacus-test\b/.test(text)) return `omacus Test on ${place}`;
   if (/\bomacus-desktop\b/.test(text)) return `Omacus on ${place}`;
-  const webkit = /AppleWebKit\/(\d+)/.exec(text);
-  const webkitMajor = webkit ? Number(webkit[1]) : 0;
-  if (!phone && /Chrome\//.test(text) && webkitMajor >= 600) return `omacus Test on ${place}`;
   let browser = "Browser";
   if (/Edg\//.test(text)) browser = "Edge";
   else if (/Chrome\//.test(text)) browser = "Chrome";

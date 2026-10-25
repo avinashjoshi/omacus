@@ -1,4 +1,4 @@
-// Private sync test relay (1.0.0-beta.30) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.31) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
 // Each account lives in its own object. A directory object maps an invite
 // hash to that account, so a join does not list every account.
@@ -21,7 +21,7 @@ import {
   noteError,
   summarize,
 } from "./admin.js";
-import { allowPut, authorize } from "./auth.js";
+import { allowPut, authorize, chainIsLongerExtension } from "./auth.js";
 import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
 import {
   LIMIT_HEADER,
@@ -33,7 +33,7 @@ import {
 } from "./limits.js";
 import { nightOf, nightPrefix, openBackupStore } from "./backup.js";
 
-const LABEL = "1.0.0-beta.30";
+const LABEL = "1.0.0-beta.31";
 const MAX_RECORD = 256 * 1024, MAX_MANIFEST = 1024 * 1024, MAX_OBJECT = 4 * 1024 * 1024 + 64;
 const MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024, MAX_BODY = 8 * 1024 * 1024;
 const MAX_REQUESTS = 8, MAX_USES = 20;
@@ -58,10 +58,11 @@ const ERR = {
   Devices: [429, "That account has as many phones and computers as it can."],
   Limited: [429, "Try again in a moment."],
 };
+// Sync hosts never set a cookie. A browser on any origin may call them.
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, If-None-Match, X-Omacus-Device, X-Omacus-Time, X-Omacus-Nonce, X-Omacus-Signature, X-Omacus-Proof",
+  "Access-Control-Allow-Headers": "Content-Type, If-None-Match, If-Match, X-Omacus-Device, X-Omacus-Time, X-Omacus-Nonce, X-Omacus-Signature, X-Omacus-Proof",
   "Access-Control-Expose-Headers": "ETag",
   "Cache-Control": "no-store",
 };
@@ -402,6 +403,7 @@ export class Mailboxes extends DurableObject {
         const record = sealed(v.record);
         if (!await allowPut(m.record, record, auth.recovery)) fail("Unreadable");
         if (m.revision !== v.revision) fail("Revision");
+        if (header("if-match").trim() !== `"${m.revision}"`) fail("Revision");
         const writes = objectWrites(v);
         const dropping = idList(v.drop);
         const blocked = await rejectStored(txn, account, record, writes, dropping, this.limits);
@@ -669,15 +671,22 @@ export class Mailboxes extends DurableObject {
 
   // The same compare-and-swap a phone uses when it saves. The revision
   // moves forward. Objects in the night are written. Objects that are not
-  // in the night are dropped in that same commit.
+  // in the night are dropped in that same commit. A current device list
+  // that already extends the restored one stays, and so do its pages.
   async revise(account, value) {
     const record = sealed(value.record);
     const incoming = Array.isArray(value.objects) ? value.objects : fail("Unreadable");
     if (incoming.length > 2000) fail("Unreadable");
     let revision = 0;
     let written = 0;
+    let keptList = false;
     await this.store.transaction(async (txn) => {
       const current = await txn.get("m:" + account);
+      if (current && await chainIsLongerExtension(current.record, record)) {
+        revision = current.revision;
+        keptList = true;
+        return;
+      }
       const listed = await txn.list({ prefix: `o:${account}:` });
       const have = new Map();
       for (const [key, row] of listed) have.set(key.slice(`o:${account}:`.length), row);
@@ -720,7 +729,7 @@ export class Mailboxes extends DurableObject {
       await txn.put("m:" + account, current);
       revision = current.revision;
     });
-    return [200, { ok: true, revision, objects: written }];
+    return [200, { ok: true, revision, objects: written, keptList }];
   }
 }
 
@@ -1002,7 +1011,7 @@ async function restoreSealed(env, account, day) {
     }));
   }
   homed.add(account);
-  return { objects: shot.objects.length, revision: body.revision };
+  return { objects: body.keptList ? 0 : shot.objects.length, revision: body.revision, keptList: body.keptList === true };
 }
 
 function nightSummary(row) {
@@ -1147,7 +1156,12 @@ async function adminRestore(env, payload) {
   }
   const restored = await restoreSealed(env, account, date);
   if (!restored) return json(404, { message: "No backup from that day." });
-  return json(200, { ok: true, objects: restored.objects, revision: restored.revision });
+  return json(200, {
+    ok: true,
+    objects: restored.objects,
+    revision: restored.revision,
+    keptList: restored.keptList === true,
+  });
 }
 
 function internalHeaders() {
@@ -1457,7 +1471,7 @@ async function adminApi(request, env, url) {
   let payload = {};
   if (request.method !== "GET" && request.method !== "HEAD") {
     const text = await request.text();
-    if (text.length > 4096) return json(400, { message: "That request was too large." });
+    if (enc.encode(text).length > 4096) return json(400, { message: "That request was too large." });
     if (text) {
       try { payload = JSON.parse(text); } catch { return json(400, { message: "That request could not be read." }); }
     }

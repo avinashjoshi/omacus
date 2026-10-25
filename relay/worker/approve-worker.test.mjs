@@ -12,6 +12,7 @@ import init, {
   approveDevice,
   sealPages,
   openApprovalPages,
+  confirmLink,
   makeInvite,
   joinProof,
   packPages,
@@ -121,12 +122,14 @@ async function call(box, method, path, body, headers = {}) {
 async function authed(box, deskId, method, path, body) {
   const text = body === undefined ? "" : JSON.stringify(body);
   const auth = parse(signRequest(deskId, method, path, text));
-  return call(box, method, path, body === undefined ? undefined : text, {
+  const headers = {
     "x-omacus-device": auth.device,
     "x-omacus-time": auth.time,
     "x-omacus-nonce": auth.nonce,
     "x-omacus-signature": auth.signature,
-  });
+  };
+  if (body && Number.isInteger(body.revision)) headers["if-match"] = `"${body.revision}"`;
+  return call(box, method, path, body === undefined ? undefined : text, headers);
 }
 
 const started = parse(startNew());
@@ -210,6 +213,7 @@ if (mailboxBody.json.record !== sealed.record) {
 }
 let opened;
 try {
+  parse(confirmLink(joiner.id));
   opened = JSON.parse(openApprovalPages(joiner.id, decision.json.chain, decision.json.wrap, mailboxBody.json.record));
 } catch (error) {
   opened = { ok: false, message: error.message };

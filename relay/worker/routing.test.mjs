@@ -47,6 +47,7 @@ function cluster() {
   const env = {
     ACCESS_SECRET: SECRET,
     ADMIN_KEY: ADMIN,
+    ALLOW_NO_ACCESS: "1",
     SERVE_APP: "0",
     MAILBOXES: {
       idFromName: (name) => {

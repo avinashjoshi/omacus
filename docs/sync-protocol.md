@@ -69,7 +69,7 @@ generation(u64)
 
 A string is a `u16` length and at most 200 bytes, with no control characters. Folder flag 0 means no parent. Meta is `OMACUS-META/1\n`: vault name (chunk), name revision (`u64`), device-name count (`u16`) of id(16) + rev(`u64`) + name(chunk), then membership count (`u32`) of page id (`u16` length) + rev(`u64`) + one byte (1 if the page is in the synced set).
 
-The manifest is how a device learns which objects to fetch. The server never sees this plaintext. The last eight bytes are a counter. A manifest written before the counter is generation 0. Each new seal uses the next number. The counter sits inside the seal, so the server cannot change it. A phone remembers the highest number it has opened and refuses an older seal. The mailbox revision stays outside the seal and is not that counter.
+The manifest is how a device learns which objects to fetch. The server never sees this plaintext. The last eight bytes are a counter. A manifest written before the counter is generation 0. Each new seal uses the next number. A new seal starts with `OMACUS-SEAL/2` and that generation, and the same generation is in the associated data with the page id and the epoch. A generation lower than the last one this phone opened is refused before the seal is opened. An older seal, without that header, still opens. The mailbox revision stays outside the seal and is not that counter.
 
 ### Page object
 
@@ -87,7 +87,7 @@ Object ids are random. They are not page ids. An unchanged page keeps its object
 
 ## Keys
 
-Recovery words are 12 words from a fixed list. They encode 128 bits and a checksum nibble. Argon2id (version `0x13`, 19 MiB, 2 iterations, 1 lane, 32-byte output, salt `omacus-v1`) derives the root from those 16 bytes, a zero byte, and an optional extra word. The root is wiped after the device keys exist.
+Recovery words are 12 words from a fixed list. They encode 128 bits and a checksum nibble. Argon2id (version `0x13`, 19 MiB, 2 iterations, 1 lane, 32-byte output, salt `omacus-v1`) derives the root from those 16 bytes, a zero byte, and an optional extra word. The salt is that fixed string. It separates this use from any other hash of the same bytes. The 128 random bits in the words are the secret, so a different salt per account would not hide them. The root is wiped after the device keys exist.
 
 HKDF-SHA256, salt `omacus-v1`, expands the root:
 
@@ -117,6 +117,8 @@ The list is a chain of signed snapshots. Each snapshot covers:
 ```
 
 The signature is Ed25519, 64 bytes, by the device named `signer`. `prev` is the hash of the previous snapshot. Version 1 has an empty `prev`. Each later version is exactly one device added or removed, and the signer is on the previous list. The signature does not cover the vault key. The stored chain is `OMACUS-DEVICES/1`, a `u16` count, then each snapshot as version, prev, signer, signature, device count, and the public keys. At most 64 devices.
+
+A phone keeps the list it already checked. It takes a longer list that extends that one. It takes a list that starts over only when the first snapshot is signed by the account key, the same key as the recovery signer, and that key matches the one this phone already pinned. A vault key it has not seen is refused unless it arrives with one of those lists. The first list, on a phone that has none yet, is stored only after the six numbers are checked.
 
 One list entry has the 16-byte id `recovery-signer` followed by a zero byte. Its verify key is the account public key. It is not a phone. A linked device adds it when publishing, so recovery can sign later requests. Removing a phone does not remove this entry. When the words open the latest pages, that signer adds the phone that typed them. The vault key stays the same, and the other phones see the longer list.
 
@@ -182,7 +184,7 @@ The server checks the signature against the latest device list inside the stored
 
 A PUT must also carry a signed record. The new device list shares a prefix with the stored list and is the same length or longer, unless the request was signed by the recovery signer. Recovery may publish a new list. A device that is not the recovery signer cannot fork the list.
 
-The server checks the signature before compare-and-swap. A stale `revision` or object `base` is still 409, and only after the signature and the new record check out. A missing account, a bad signature, a removed device, and a replay are the same 404. The body does not say which.
+The server checks the signature before compare-and-swap. A PUT also names the revision it is replacing, in `If-Match`, as the same quoted number the GET returns in `ETag`. A missing or different tag is 409, the same as a stale `revision` in the body. A stale `revision` or object `base` is still 409, and only after the signature and the new record check out. The server keeps 64 nonces from the last 5 minutes. A new nonce is refused while those 64 are still inside the window. It does not drop an older one to make room. A missing account, a bad signature, a removed device, a full nonce table, and a replay are the same 404. The body does not say which.
 
 ## Compare-and-swap
 

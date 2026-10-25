@@ -202,6 +202,32 @@ pub fn start_join() -> String {
     })
 }
 
+#[wasm_bindgen(js_name = confirmLink)]
+pub fn confirm_link(id: u32) -> String {
+    call(|| {
+        with_desk(id, |desk| desk.confirm_link())?;
+        Ok(json!({ "ok": true }))
+    })
+}
+
+#[wasm_bindgen(js_name = accountWords)]
+pub fn account_words(id: u32) -> String {
+    call(|| {
+        let words = with_desk(id, |desk| desk.account_words())??;
+        Ok(json!({ "ok": true, "words": words }))
+    })
+}
+
+#[wasm_bindgen(js_name = recordWords)]
+pub fn record_words(record_b64: &str) -> String {
+    call(|| {
+        let record = b64_decode(record_b64)?;
+        let view = omacus_engine::sync_keys::ServerView::parse(&record)?;
+        let words = omacus_engine::sync_keys::account_fingerprint(&view.account).join(" ");
+        Ok(json!({ "ok": true, "words": words }))
+    })
+}
+
 #[wasm_bindgen(js_name = codeFor)]
 pub fn code_for(device_b64: &str) -> String {
     call(|| {

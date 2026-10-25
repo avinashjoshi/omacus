@@ -79,6 +79,8 @@ try {
   await pageB.locator(".sync-code").waitFor({ timeout: 20000 });
   await pageA.getByRole("heading", { name: "Is this your phone or computer?" }).waitFor({ timeout: 20000 });
   await pageA.getByRole("button", { name: "Yes, approve it" }).click();
+  await pageB.getByRole("heading", { name: "Do these match?" }).waitFor({ timeout: 20000 });
+  await pageB.getByRole("button", { name: "These match" }).click();
   await pageA.locator("[data-sync-set]").waitFor({ timeout: 60000 });
 
   const removes = pageA.getByRole("button", { name: "Remove", exact: true });

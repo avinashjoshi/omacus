@@ -32,6 +32,7 @@ async function call(box, method, path, body, headers = {}) {
 async function authed(box, device, method, path, body) {
   const text = body === undefined ? "" : JSON.stringify(body);
   const headers = await authHeaders(device, method, path, text);
+  if (body && Number.isInteger(body.revision)) headers["if-match"] = `"${body.revision}"`;
   return call(box, method, path, body === undefined ? undefined : text, headers);
 }
 

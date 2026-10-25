@@ -68,6 +68,10 @@ pub struct Desk {
     signed_seen: bool,
     /// Highest seal counter opened on this phone. An older seal is refused.
     seen_gen: u64,
+    /// The six numbers were checked on this phone before the first list was stored.
+    link_confirmed: bool,
+    /// The next record is signed by the account key. Used for one recovery fork.
+    sign_recovery: bool,
 }
 
 /// What the recovery words could open from one record.
@@ -173,6 +177,8 @@ impl Desk {
             prior_devices: Vec::new(),
             signed_seen: false,
             seen_gen: 0,
+            link_confirmed: false,
+            sign_recovery: false,
         })
     }
 
@@ -193,6 +199,8 @@ impl Desk {
             prior_devices: Vec::new(),
             signed_seen: false,
             seen_gen: 0,
+            link_confirmed: false,
+            sign_recovery: false,
         })
     }
 
@@ -217,6 +225,8 @@ impl Desk {
             prior_devices: Vec::new(),
             signed_seen: false,
             seen_gen: 0,
+            link_confirmed: false,
+            sign_recovery: false,
         })
     }
 
@@ -278,6 +288,17 @@ impl Desk {
 
     pub fn pairing_code(&self) -> String {
         sync_keys::pairing_code(&self.device.public())
+    }
+
+    /// The six numbers on this phone match the other phone or computer.
+    pub fn confirm_link(&mut self) {
+        self.link_confirmed = true;
+    }
+
+    /// Four words for this account, from the public key.
+    pub fn account_words(&self) -> Result<String, SyncKeyError> {
+        let account = self.account.ok_or(SyncKeyError::Corrupt)?;
+        Ok(sync_keys::account_fingerprint(&account).join(" "))
     }
 
     pub fn public_device(&self) -> Vec<u8> {
@@ -417,30 +438,34 @@ impl Desk {
         let public = self.recovery_public.ok_or(SyncKeyError::NotConfirmed)?;
         let kek = self.phrase_kek.ok_or(SyncKeyError::NotConfirmed)?;
         let vault = VaultKey::generate()?;
-        let mut chain = sync_keys::found_devices(&self.device)?;
-        let mut wraps = Vec::new();
+        let epoch = self.epoch;
         let mine = *self.device.public().id();
-        wraps.push(sync_keys::wrap_vault_for_device(
-            &self.device.public(),
-            &vault,
-            self.epoch,
-            Some(&public),
-        )?);
-        for device in &self.prior_devices {
-            if *device.id() == mine {
-                continue;
-            }
-            let (next, wrap) = sync_keys::approve(
-                &self.device,
-                &chain,
-                device,
-                &vault,
-                self.epoch,
-                Some(&public),
-            )?;
+        let me = self.device.public();
+        let (chain, wraps) = {
+            let root = self.root.as_ref().ok_or(SyncKeyError::NotConfirmed)?;
+            let mut chain = sync_keys::found_recovery(root, &public)?;
+            let mut wraps = Vec::new();
+            let (next, wrap) =
+                sync_keys::admit_with_recovery(root, &chain, &me, &vault, epoch, Some(&public))?;
             chain = next;
             wraps.push(wrap);
-        }
+            for device in &self.prior_devices {
+                if *device.id() == mine {
+                    continue;
+                }
+                let (next, wrap) = sync_keys::admit_with_recovery(
+                    root,
+                    &chain,
+                    device,
+                    &vault,
+                    epoch,
+                    Some(&public),
+                )?;
+                chain = next;
+                wraps.push(wrap);
+            }
+            (chain, wraps)
+        };
         let phrase = sync_keys::wrap_vault_for_recovery(&public, &vault, self.epoch)?;
         let sealed = sync_keys::seal_page(&vault, self.epoch, PAGES_ID, packed)?;
         self.vault = Some(vault);
@@ -453,7 +478,10 @@ impl Desk {
         self.prior_devices.clear();
         self.ensure_recovery()?;
         self.signed_seen = true;
-        self.record()
+        self.sign_recovery = true;
+        let record = self.record();
+        self.sign_recovery = false;
+        record
     }
 
     pub fn export_local(&self) -> Result<Vec<u8>, SyncKeyError> {
@@ -494,6 +522,7 @@ impl Desk {
             chain.verify()?;
             Some(chain)
         };
+        let link_confirmed = chain.is_some();
         Ok(Self {
             device: file.device,
             vault: Some(file.vault),
@@ -522,6 +551,8 @@ impl Desk {
             prior_devices: Vec::new(),
             signed_seen: file.signed_seen,
             seen_gen: file.seen_gen,
+            link_confirmed,
+            sign_recovery: false,
         })
     }
 
@@ -552,7 +583,6 @@ impl Desk {
     ) -> Result<OpenedRecord, SyncKeyError> {
         let view = ServerView::parse(record)?;
         view.chain.verify()?;
-        let unsigned = self.note_signature(&view)?;
         if let Some(account) = self.account
             && account != view.account
         {
@@ -568,13 +598,12 @@ impl Desk {
             .chain
             .as_ref()
             .map(|local| view.chain.compared_with(local));
-        let take_chain = match order {
-            None => true,
-            Some(sync_keys::ChainOrder::Newer | sync_keys::ChainOrder::Same) => true,
-            Some(sync_keys::ChainOrder::Older | sync_keys::ChainOrder::Diverge) => false,
-        };
-        // A recovery on another phone starts a new list and seals the key for
-        // anyone still linked. Follow that seal. An older list is a rollback.
+        // A different list is followed only when it starts at the account key.
+        // A new vault key needs that fork, or a list that extends the one here.
+        // Both are decided before the wrap is opened and before a signature
+        // on the forged list is remembered.
+        let adopt = self.chain_decision(&view, order)?;
+        let unsigned = self.note_signature(&view)?;
         let diverged = matches!(order, Some(sync_keys::ChainOrder::Diverge));
         let opened = if let Some(vault) = &self.vault {
             if vault.id() == &view.key_id {
@@ -587,7 +616,7 @@ impl Desk {
         };
         match opened {
             Some(Opened::Current(pages)) => {
-                if take_chain {
+                if adopt {
                     self.note_public_from_wraps(&view.device_wraps, view.epoch, &view.key_id);
                     self.adopt_view(view);
                 } else {
@@ -608,8 +637,8 @@ impl Desk {
                 recovery_public: public,
             })) => {
                 self.note_recovery(public);
-                let republish_older = !take_chain && !diverged && self.member();
-                if take_chain || diverged {
+                let republish_older = !adopt && !diverged && self.member();
+                if adopt {
                     self.adopt_view(view);
                     self.vault = Some(vault);
                 } else {
@@ -625,7 +654,7 @@ impl Desk {
                 })
             }
             None if !on_list => {
-                if take_chain {
+                if adopt {
                     self.chain = Some(view.chain);
                     self.epoch = view.epoch;
                 }
@@ -649,6 +678,68 @@ impl Desk {
                 })
             }
             None => Err(SyncKeyError::Sealed),
+        }
+    }
+
+    /// `true` means this record's list replaces the one stored here.
+    fn chain_decision(
+        &self,
+        view: &ServerView,
+        order: Option<sync_keys::ChainOrder>,
+    ) -> Result<bool, SyncKeyError> {
+        let new_key = self
+            .vault
+            .as_ref()
+            .is_some_and(|vault| vault.id() != &view.key_id);
+        let recovery = self
+            .account
+            .is_some_and(|account| sync_keys::recovery_signed_record(view, &account));
+        if new_key {
+            let extends = matches!(order, Some(sync_keys::ChainOrder::Newer));
+            let first = order.is_none();
+            if !extends && !recovery && !first {
+                return Err(SyncKeyError::Sealed);
+            }
+        }
+        match order {
+            None => {
+                if !self.link_confirmed {
+                    return Err(SyncKeyError::NotApproved(sync_keys::CONFIRM_LINK));
+                }
+                Ok(true)
+            }
+            Some(sync_keys::ChainOrder::Newer | sync_keys::ChainOrder::Same) => Ok(true),
+            Some(sync_keys::ChainOrder::Older) => Ok(false),
+            Some(sync_keys::ChainOrder::Diverge) => {
+                if recovery {
+                    Ok(true)
+                } else {
+                    Err(SyncKeyError::Sealed)
+                }
+            }
+        }
+    }
+
+    fn accept_incoming_chain(&self, chain: &DeviceChain) -> Result<(), SyncKeyError> {
+        if let Some(local) = &self.chain {
+            let recovery = self
+                .account
+                .is_some_and(|account| chain.recovery_fork(&account));
+            match chain.compared_with(local) {
+                sync_keys::ChainOrder::Newer | sync_keys::ChainOrder::Same => Ok(()),
+                sync_keys::ChainOrder::Older => Err(SyncKeyError::Sealed),
+                sync_keys::ChainOrder::Diverge => {
+                    if recovery {
+                        Ok(())
+                    } else {
+                        Err(SyncKeyError::Sealed)
+                    }
+                }
+            }
+        } else if self.link_confirmed {
+            Ok(())
+        } else {
+            Err(SyncKeyError::NotApproved(sync_keys::CONFIRM_LINK))
         }
     }
 
@@ -739,6 +830,7 @@ impl Desk {
             .verify()
             .map_err(|error| sync_keys::scope_list_error(error, false))?;
         self.require_self(&chain)?;
+        self.accept_incoming_chain(&chain)?;
         let view = ServerView::parse(record)?;
         view.chain
             .verify()
@@ -748,7 +840,7 @@ impl Desk {
             sync_keys::open_device_wrap_parts(&self.device, wrap, view.epoch, &view.key_id)?;
         let pages = open_sealed(&opened.vault, view.epoch, &view.page)?;
         self.note_recovery(opened.recovery_public);
-        self.keep_opened(view, opened.vault, chain);
+        self.keep_opened(view, opened.vault, chain, false)?;
         let _ = self.repair_phrase();
         Ok(pages)
     }
@@ -784,7 +876,7 @@ impl Desk {
                     self.phrase_kek = Some(kek);
                     self.recovery_public = Some(public);
                     let chain = view.chain.clone();
-                    self.keep_opened(view, vault, chain);
+                    self.keep_opened(view, vault, chain, true)?;
                     PhraseOpen {
                         pages,
                         partial: false,
@@ -923,7 +1015,30 @@ impl Desk {
         self.reseal_phrase(vault)
     }
 
-    fn keep_opened(&mut self, view: ServerView, vault: VaultKey, chain: DeviceChain) {
+    fn keep_opened(
+        &mut self,
+        view: ServerView,
+        vault: VaultKey,
+        chain: DeviceChain,
+        from_words: bool,
+    ) -> Result<(), SyncKeyError> {
+        if !from_words {
+            self.accept_incoming_chain(&chain)?;
+        }
+        if let Some(local) = &self.chain
+            && self
+                .vault
+                .as_ref()
+                .is_some_and(|have| have.id() != vault.id())
+        {
+            let extends = matches!(chain.compared_with(local), sync_keys::ChainOrder::Newer);
+            let recovery = self
+                .account
+                .is_some_and(|account| chain.recovery_fork(&account));
+            if !extends && !recovery {
+                return Err(SyncKeyError::Sealed);
+            }
+        }
         self.epoch = view.epoch;
         self.account = Some(view.account);
         self.phrase_wrap = view.phrase_wrap;
@@ -931,6 +1046,7 @@ impl Desk {
         self.sealed_page = view.page;
         self.chain = Some(chain);
         self.vault = Some(vault);
+        Ok(())
     }
 
     fn record(&self) -> Result<Vec<u8>, SyncKeyError> {
@@ -958,6 +1074,11 @@ impl Desk {
     }
 
     fn record_secret(&self) -> Result<([u8; 16], [u8; 32]), SyncKeyError> {
+        if self.sign_recovery
+            && let Some(root) = &self.root
+        {
+            return Ok((sync_keys::RECOVERY_ID, root.account_signing_secret()?));
+        }
         if self.member() {
             return Ok((*self.device.public().id(), *self.device.signing_secret()));
         }
@@ -1083,7 +1204,10 @@ impl Desk {
                 combine: opened.combine,
             });
         }
-        let peeked = self.peek_manifest(record);
+        let peeked = match self.peek_manifest(record) {
+            Err(SyncKeyError::Older) => return Err(SyncKeyError::Older),
+            other => other,
+        };
         let generation = match &peeked {
             Ok(plain) => {
                 let generation = omacus_engine::sync_objects::manifest_generation(plain)?;
@@ -1134,13 +1258,13 @@ impl Desk {
         if let Some(vault) = &self.vault
             && vault.id() == &view.key_id
         {
-            return open_manifest(vault, view.epoch, &view.page);
+            return open_manifest_at(vault, view.epoch, &view.page, self.seen_gen);
         }
         for wrap in &view.device_wraps {
             if let Ok(opened) =
                 sync_keys::open_device_wrap_parts(&self.device, wrap, view.epoch, &view.key_id)
             {
-                return open_manifest(&opened.vault, view.epoch, &view.page);
+                return open_manifest_at(&opened.vault, view.epoch, &view.page, self.seen_gen);
             }
         }
         Err(SyncKeyError::Sealed)
@@ -1207,7 +1331,7 @@ impl Desk {
                 resign,
             });
         }
-        let plain = match open_manifest(&vault, view.epoch, &view.page) {
+        let plain = match open_manifest_at(&vault, view.epoch, &view.page, self.seen_gen) {
             Ok(plain) => plain,
             Err(_) => {
                 self.remember_partial(&view, kek, public);
@@ -1231,7 +1355,7 @@ impl Desk {
         self.phrase_kek = Some(kek);
         self.recovery_public = Some(public);
         let chain = view.chain.clone();
-        self.keep_opened(view, vault, chain);
+        self.keep_opened(view, vault, chain, true)?;
         self.root = Some(root);
         let _ = self.claim_listed();
         Ok(RecoveryPeeked {
@@ -1272,6 +1396,7 @@ impl Desk {
             .verify()
             .map_err(|error| sync_keys::scope_list_error(error, false))?;
         self.require_self(&chain)?;
+        self.accept_incoming_chain(&chain)?;
         let view = ServerView::parse(record)?;
         view.chain
             .verify()
@@ -1279,10 +1404,10 @@ impl Desk {
         self.note_signature(&view)?;
         let opened =
             sync_keys::open_device_wrap_parts(&self.device, wrap, view.epoch, &view.key_id)?;
-        let plain = open_manifest(&opened.vault, view.epoch, &view.page)?;
+        let plain = open_manifest_at(&opened.vault, view.epoch, &view.page, self.seen_gen)?;
         let want = omacus_engine::sync_objects::manifest_wants(&plain, &[])?;
         self.note_recovery(opened.recovery_public);
-        self.keep_opened(view, opened.vault, chain);
+        self.keep_opened(view, opened.vault, chain, false)?;
         let _ = self.repair_phrase();
         Ok(ApprovalPlan {
             packed: Vec::new(),
@@ -1369,11 +1494,21 @@ fn phrase_vault(root: &Root, view: &ServerView) -> Option<VaultKey> {
 }
 
 fn open_manifest(vault: &VaultKey, epoch: u64, stored: &[u8]) -> Result<Vec<u8>, SyncKeyError> {
-    sync_keys::open_page(
+    open_manifest_at(vault, epoch, stored, 0)
+}
+
+fn open_manifest_at(
+    vault: &VaultKey,
+    epoch: u64,
+    stored: &[u8],
+    floor: u64,
+) -> Result<Vec<u8>, SyncKeyError> {
+    sync_keys::open_manifest_seal(
         vault,
         epoch,
         omacus_engine::sync_objects::MANIFEST_ID,
         stored,
+        floor,
     )
 }
 
@@ -1477,6 +1612,12 @@ pub(crate) fn qr_svg(payload: &str, label: &str) -> Result<String, SyncKeyError>
 mod tests {
     use super::*;
 
+    fn start_join_confirmed() -> Desk {
+        let mut desk = Desk::start_join().unwrap();
+        desk.confirm_link();
+        desk
+    }
+
     fn confirmed_desk() -> (Desk, Vec<u8>) {
         let mut desk = Desk::start_new().unwrap();
         let words = desk.words().unwrap();
@@ -1498,7 +1639,7 @@ mod tests {
             "a reload forgets the sealed copies"
         );
         let _ = founder.absorb_record(&first).unwrap();
-        let joiner = Desk::start_join().unwrap();
+        let joiner = start_join_confirmed();
         let device = joiner.public_device();
         let approval = founder.approve_new(&device).unwrap();
         let published = founder.seal_pages(b"Trip Budget\nferry = 40\n").unwrap();
@@ -1516,7 +1657,7 @@ mod tests {
         // nothing else. A slow reload has not pulled the mailbox yet.
         let mut founder = Desk::import_local(&file).unwrap();
         assert!(founder.wraps.is_empty());
-        let mut joiner = Desk::start_join().unwrap();
+        let mut joiner = start_join_confirmed();
         let approval = founder.approve_new(&joiner.public_device()).unwrap();
         let published = founder.seal_pages(b"Trip Budget\nferry = 40\n").unwrap();
         let err = joiner
@@ -1539,7 +1680,7 @@ mod tests {
         let file = founder.export_local().unwrap();
         let mut founder = Desk::import_local(&file).unwrap();
         founder.absorb_record(&first).unwrap();
-        let mut joiner = Desk::start_join().unwrap();
+        let mut joiner = start_join_confirmed();
         let approval = founder.approve_new(&joiner.public_device()).unwrap();
         // A slow tick published nothing new: the joiner still sees the previous copy.
         joiner
@@ -1574,7 +1715,7 @@ mod tests {
     fn a_second_approve_needs_the_list_from_before_the_first_tap() {
         let (mut founder, _) = confirmed_desk();
         let file = founder.export_local().unwrap();
-        let joiner = Desk::start_join().unwrap();
+        let joiner = start_join_confirmed();
         let device = joiner.public_device();
         founder.approve_new(&device).unwrap();
         let Err(error) = founder.approve_new(&device) else {
@@ -1590,7 +1731,7 @@ mod tests {
     #[test]
     fn a_bad_approval_says_which_list_failed() {
         let (mut founder, record) = confirmed_desk();
-        let mut joiner = Desk::start_join().unwrap();
+        let mut joiner = start_join_confirmed();
         let approval = founder.approve_new(&joiner.public_device()).unwrap();
         let mut forged = approval.chain.clone();
         let last = forged.len() - 1;
@@ -1612,7 +1753,7 @@ mod tests {
         assert!(alone[0].2);
         let self_id = alone[0].0.clone();
 
-        let phone = Desk::start_join().unwrap();
+        let phone = start_join_confirmed();
         founder.approve_new(&phone.public_device()).unwrap();
         let two = founder.listed_devices().unwrap();
         assert_eq!(two.len(), 2);
@@ -1620,7 +1761,7 @@ mod tests {
         assert!(two.iter().any(|(id, _, mine)| *mine && id == &self_id));
         let other = two.iter().find(|(_, _, mine)| !mine).unwrap().0.clone();
 
-        let extra = Desk::start_join().unwrap();
+        let extra = start_join_confirmed();
         founder.approve_new(&extra.public_device()).unwrap();
         let three = founder.listed_devices().unwrap();
         assert_eq!(three.len(), 3);
@@ -1678,7 +1819,7 @@ mod tests {
         let founder_id = listed_ids(&founder)[0].0.clone();
         assert!(listed_ids(&founder)[0].1);
 
-        let mut joiner = Desk::start_join().unwrap();
+        let mut joiner = start_join_confirmed();
         let approval = founder.approve_new(&joiner.public_device()).unwrap();
         let published_plan = founder
             .seal_library(&trip_pages(), &before_plan.slots)
@@ -1713,7 +1854,7 @@ mod tests {
             1
         );
 
-        let mut skipped = Desk::start_join().unwrap();
+        let mut skipped = start_join_confirmed();
         let stale = sync_keys::ServerView::parse(&before)
             .unwrap()
             .chain
@@ -1888,14 +2029,14 @@ mod tests {
             .collect();
         founder.confirm_saved(&picks).unwrap();
 
-        let mut laptop = Desk::start_join().unwrap();
+        let mut laptop = start_join_confirmed();
         let approval = founder.approve_new(&laptop.public_device()).unwrap();
         let first = founder.seal_pages(b"ferry = 40\n").unwrap();
         laptop
             .open_approval_pages(&approval.chain, &approval.wrap, &first)
             .unwrap();
 
-        let mut phone = Desk::start_join().unwrap();
+        let mut phone = start_join_confirmed();
         let approval = founder.approve_new(&phone.public_device()).unwrap();
         let shared = founder.seal_pages(b"ferry = 40\n").unwrap();
         phone
@@ -1994,7 +2135,7 @@ mod tests {
         let mut founder = Desk::import_local(&legacy).unwrap();
         founder.absorb_record(&legacy_record).unwrap();
 
-        let mut phone = Desk::start_join().unwrap();
+        let mut phone = start_join_confirmed();
         let approval = founder.approve_new(&phone.public_device()).unwrap();
         let shared = founder.seal_pages(b"ferry = 40\n").unwrap();
         phone
@@ -2098,7 +2239,7 @@ mod tests {
             .collect();
         founder.confirm_saved(&picks).unwrap();
 
-        let mut laptop = Desk::start_join().unwrap();
+        let mut laptop = start_join_confirmed();
         let approval = founder.approve_new(&laptop.public_device()).unwrap();
         let shared = founder.seal_pages(b"ferry = 40\n").unwrap();
         laptop
@@ -2111,14 +2252,14 @@ mod tests {
         );
         assert_eq!(stored.recovery_public.len(), 32);
 
-        let mut phone = Desk::start_join().unwrap();
+        let mut phone = start_join_confirmed();
         let approval = laptop.approve_new(&phone.public_device()).unwrap();
         let shared = laptop.seal_pages(b"ferry = 40\n").unwrap();
         phone
             .open_approval_pages(&approval.chain, &approval.wrap, &shared)
             .unwrap();
 
-        let mut tablet = Desk::start_join().unwrap();
+        let mut tablet = start_join_confirmed();
         let approval = laptop.approve_new(&tablet.public_device()).unwrap();
         let shared = laptop.seal_pages(b"milk $3\n").unwrap();
         tablet
@@ -2137,7 +2278,7 @@ mod tests {
         let after_tablet = laptop.seal_pages(b"bread $2\n").unwrap();
         assert!(founder.absorb_record(&after_tablet).unwrap().member);
 
-        let mut extra = Desk::start_join().unwrap();
+        let mut extra = start_join_confirmed();
         let approval = founder.approve_new(&extra.public_device()).unwrap();
         let shared = founder.seal_pages(b"bread $2\n").unwrap();
         extra
@@ -2173,7 +2314,7 @@ mod tests {
     }
 
     #[test]
-    fn a_linked_device_repairs_a_wrap_from_before_this_seal() {
+    fn a_new_key_on_the_same_list_is_refused() {
         let mut founder = Desk::start_new().unwrap();
         let words = founder.words().unwrap();
         let phrase = words.join(" ");
@@ -2221,19 +2362,85 @@ mod tests {
             signature: None,
         }
         .stored();
-        let opened = legacy.absorb_record(&stale).unwrap();
-        assert!(opened.member);
-        assert!(
-            opened.republish,
-            "the phone that still has the pages reseals"
-        );
-        let repaired = legacy.seal_pages(b"bread $2\n").unwrap();
+        let kept = *legacy.vault().unwrap().id();
+        let err = match legacy.absorb_record(&stale) {
+            Err(error) => error,
+            Ok(_) => panic!("a new key on the same list was adopted"),
+        };
+        assert_eq!(err, SyncKeyError::Sealed);
+        assert_eq!(legacy.vault().unwrap().id(), &kept);
 
         let mut recovered = Desk::start_recovery(&phrase).unwrap();
         recovered.accept_phrase().unwrap();
-        let opened = recovered.recovery_open_pages(&repaired).unwrap();
+        let opened = recovered.recovery_open_pages(&first).unwrap();
         assert!(!opened.partial);
-        assert_eq!(opened.pages, b"bread $2\n");
+        assert_eq!(opened.pages, SAMPLE_PAGE.as_bytes());
+    }
+
+    #[test]
+    fn a_server_minted_fork_with_a_valid_wrap_is_refused() {
+        let (mut founder, _) = confirmed_desk();
+        let account = founder.account.unwrap();
+        let epoch = founder.epoch;
+        let vault_before = *founder.vault().unwrap().id();
+        let listed = founder.listed_devices().unwrap();
+        let stranger = DeviceKeys::generate().unwrap();
+        let chain = sync_keys::found_devices(&stranger).unwrap();
+        let vault = VaultKey::generate().unwrap();
+        let wrap =
+            sync_keys::wrap_vault_for_device(&founder.device().public(), &vault, epoch, None)
+                .unwrap();
+        let page = sync_keys::seal_page(&vault, epoch, PAGES_ID, b"forged lentils\n").unwrap();
+        let view = ServerView {
+            epoch,
+            account,
+            chain,
+            phrase_wrap: Vec::new(),
+            device_wraps: vec![wrap],
+            key_id: *vault.id(),
+            page,
+            version: 1,
+            signer: None,
+            signature: None,
+        };
+        let record = sync_keys::append_record_signature(
+            &view.to_bytes(1),
+            stranger.public().id(),
+            stranger.signing_secret(),
+        );
+        let parsed = ServerView::parse(&record).unwrap();
+        assert!(
+            sync_keys::trust_signature(&parsed, true).is_ok(),
+            "the forged list's own signature checks out"
+        );
+        let err = match founder.absorb_record(&record) {
+            Err(error) => error,
+            Ok(_) => panic!("a server-minted fork was adopted"),
+        };
+        assert_eq!(err, SyncKeyError::Sealed);
+        assert_eq!(founder.vault().unwrap().id(), &vault_before);
+        assert_eq!(founder.listed_devices().unwrap(), listed);
+        assert!(founder.member());
+    }
+
+    #[test]
+    fn a_first_link_waits_until_the_numbers_are_checked() {
+        let (mut founder, _) = confirmed_desk();
+        let mut joiner = Desk::start_join().unwrap();
+        let approval = founder.approve_new(&joiner.public_device()).unwrap();
+        let record = founder.seal_pages(b"lentils = 180 g\n").unwrap();
+        let err = joiner
+            .open_approval_pages(&approval.chain, &approval.wrap, &record)
+            .unwrap_err();
+        assert_eq!(err.message(), sync_keys::CONFIRM_LINK);
+        assert!(joiner.vault().is_none());
+        assert!(!joiner.member());
+        joiner.confirm_link();
+        joiner
+            .open_approval_pages(&approval.chain, &approval.wrap, &record)
+            .unwrap();
+        assert!(joiner.member());
+        assert_eq!(joiner.listed_devices().unwrap().len(), 2);
     }
 
     #[test]

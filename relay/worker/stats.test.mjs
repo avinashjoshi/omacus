@@ -89,6 +89,7 @@ function harness() {
     ADMIN_KEY: ADMIN,
     SERVE_APP: "0",
     ACCESS_AUD: "",
+    ALLOW_NO_ACCESS: "1",
     MAILBOXES: {
       idFromName: () => "test",
       get: () => box,
@@ -269,7 +270,9 @@ function shape(stats) {
 
   const next = await makeRecord(device, "Trip Budget\nferry");
   const body = { revision: read.json.revision, record: next };
-  const put = await call(env, "PUT", path, body, await authHeaders(device, "PUT", path, JSON.stringify(body)));
+  const putHeaders = await authHeaders(device, "PUT", path, JSON.stringify(body));
+  putHeaders["if-match"] = `"${body.revision}"`;
+  const put = await call(env, "PUT", path, body, putHeaders);
   assert(put.status === 200, put.text);
   const saved = await call(env, "GET", "/v1/admin/stats");
   const written = saved.json.storage.find((row) => row.account === account);

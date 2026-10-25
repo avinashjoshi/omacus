@@ -48,8 +48,14 @@ if 'from "./device-name.js"' not in sync:
     errors.append("the name guess left the shared helper")
 if "omacus-test" not in names or "omacus-desktop" not in names:
     errors.append("the test app and the desktop app are unnamed")
-if "AppleWebKit" not in names or "omacus Test on" not in names:
-    errors.append("WebKit on a computer can still be called Chrome")
+if "webkitMajor" in names or ">= 600" in names:
+    errors.append("Chrome with WebKit is still called omacus Test")
+wait = sync[sync.index("async function waitForApproval("):sync.index("async function acceptJoin(")]
+accept = sync[sync.index("async function acceptJoin("):sync.index("async function approve(")]
+if "approvalPlan" in wait:
+    errors.append("the waiting screen accepts the list before the numbers are checked")
+if "confirmLink" not in accept or "approvalPlan" not in accept or "These match" not in sync:
+    errors.append("These match does not check the numbers before opening")
 if '"device-name.js"' not in sw or "omacus-sync-test-3" not in sw:
     errors.append("the sync test cache missed the name helper")
 if "site/app/device-name.js" not in build or "./device-name.js?v=" not in build:

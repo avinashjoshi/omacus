@@ -1,6 +1,6 @@
 # Sync hosting
 
-The test worker and the production worker are separate. This repository does not deploy either one.
+The test worker and the production worker are separate. This repository does not deploy either one. Sync hosts answer with `Access-Control-Allow-Origin: *`. They never set a cookie, and they never take a cookie as a login.
 
 The app at app.omacus.com stays the app. A production build sends sealed pages to `https://sync.omacus.com`. A test build sends them to `https://sync-test.omacus.com`. The source file leaves that address empty, and the build writes it.
 
@@ -30,7 +30,7 @@ npx wrangler secret put ADMIN_KEY
 npx wrangler secret put ACCESS_AUD
 ```
 
-Until `ACCESS_AUD` is set, the admin key is enough. Once it is set, a missing or expired Access sign-in is refused with "Sign in again." A wrong admin key is still "That key didn't work." `/v1/admin` requires both.
+A missing `ACCESS_AUD` or `ACCESS_TEAM_DOMAIN` refuses admin with "Sign in again." A missing or expired Access sign-in is the same refusal. A wrong admin key is still "That key didn't work." `/v1/admin` requires both the sign-in and the admin key. `ALLOW_NO_ACCESS` is for tests only. Do not set it on a deployed worker.
 
 ## Production
 
@@ -53,7 +53,12 @@ npx wrangler secret put ACCESS_AUD --env production
 
 Production starts at 10,000 accounts, 50 MB (52,428,800 bytes) per account, and 10 devices. The test worker starts at 3 accounts, 65,536 bytes, and 4 devices. Those are the numbers before anyone saves a limit. The admin page can change them. Do not copy the test storage cap onto production.
 
-Production does not have Access yet. Create one Access application that includes both `sync.omacus.com/admin` and `sync.omacus.com/v1/admin`. The page loads from `/admin` and its calls go to `/v1/admin`. A path left out of the application does not get `Cf-Access-Jwt-Assertion`, and the page then says "Sign in again." Both workers set `ACCESS_TEAM_DOMAIN` to `omacus.cloudflareaccess.com`. Set that application's own audience tag as `ACCESS_AUD` on the production worker. Until that tag is set, the production admin key is enough.
+Create one Access application that includes both `sync.omacus.com/admin` and `sync.omacus.com/v1/admin`. The page loads from `/admin` and its calls go to `/v1/admin`. A path left out of the application does not get `Cf-Access-Jwt-Assertion`, and the page then says "Sign in again." Both workers set `ACCESS_TEAM_DOMAIN` to `omacus.cloudflareaccess.com`. Set that application's own audience tag as `ACCESS_AUD` on the production worker. If either value is missing, admin is refused. Do not set `ALLOW_NO_ACCESS` on the production worker.
+
+## Before the first production deploy
+
+- `ACCESS_AUD` and `ACCESS_TEAM_DOMAIN` are both set. A missing one refuses admin. `ALLOW_NO_ACCESS` is not set.
+- The R2 lifecycle rule is on `omacus-sync-backups`. Prefix `nights/`. Delete after 30 days. The same rule is on `omacus-sync-test-backups`.
 
 ## Nightly copies
 
@@ -76,13 +81,13 @@ Keep 30 days with an R2 lifecycle rule on each bucket. Prefix `nights/`. Delete 
 }
 ```
 
-Add that rule on `omacus-sync-test-backups` and on `omacus-sync-backups` (R2, the bucket, Settings, Object lifecycle rules). `2592000` is 30 days in seconds.
+Add that rule on `omacus-sync-test-backups` and on `omacus-sync-backups` (R2, the bucket, Settings, Object lifecycle rules). `2592000` is 30 days in seconds. Before the first production deploy, confirm that rule is on `omacus-sync-backups`: prefix `nights/`, delete after 30 days.
 
-The admin page and `admin.mjs restore` write a night back through the same revision a phone uses when it saves. A phone then merges that copy with the pages it already has. One account, or every account from that day. They do not open a page.
+The admin page and `admin.mjs restore` write a night back through the same revision a phone uses when it saves. A phone then merges that copy with the pages it already has. One account, or every account from that day. They do not open a page. If the device list already on the server is a longer extension of the list in that night, the restore leaves the current list and the current pages. A phone that was removed does not come back from an older night, and that night is not written over the longer list.
 
 ## Cloudflare Access
 
-Access protects `sync-test.omacus.com/admin` and `sync-test.omacus.com/v1/admin` on one application. The worker checks `Cf-Access-Jwt-Assertion` on every `/admin` and `/v1/admin` request once `ACCESS_AUD` is set. `ACCESS_TEAM_DOMAIN` is the team host (`omacus.cloudflareaccess.com` on both workers). The worker checks the signature against `https://omacus.cloudflareaccess.com/cdn-cgi/access/certs`, the issuer `https://omacus.cloudflareaccess.com`, and the `ACCESS_AUD` tag. A missing or expired sign-in is HTTP 403, "Sign in again." A wrong admin key is HTTP 401, "That key didn't work." `/v1/admin` requires both.
+Access protects `sync-test.omacus.com/admin` and `sync-test.omacus.com/v1/admin` on one application. The worker checks `Cf-Access-Jwt-Assertion` on every `/admin` and `/v1/admin` request. A missing `ACCESS_AUD` or `ACCESS_TEAM_DOMAIN` is a refusal, the same as a missing sign-in. `ACCESS_TEAM_DOMAIN` is the team host (`omacus.cloudflareaccess.com` on both workers). The worker checks the signature against `https://omacus.cloudflareaccess.com/cdn-cgi/access/certs`, the issuer `https://omacus.cloudflareaccess.com`, and the `ACCESS_AUD` tag. A missing or expired sign-in is HTTP 403, "Sign in again." A wrong admin key is HTTP 401, "That key didn't work." `/v1/admin` requires both. `ALLOW_NO_ACCESS=1` skips that check in tests and is never set on a deployed worker.
 
 Production needs its own Access application covering both `sync.omacus.com/admin` and `sync.omacus.com/v1/admin`, then:
 
@@ -143,6 +148,6 @@ node relay/worker/admin.mjs delete <account> --confirm <account>
 
 Mint prints the code once. The server stores a hash, a label, the uses left, and the times. It does not store the code. An optional expiry is the end of that UTC day.
 
-The same actions are on the admin page. List shows the label, uses left, created time, last-used time, and status. Revoke retires a code. Stats show the account count, how many phones and computers are linked, the total size, how many accounts were used in the last day and the last week, how many accounts were created in the last week, and the last nightly copy: when it ran, whether it saved, and its size. Each account shows when it was created, when it was last used, when its sealed copy last changed, its size, its linked phones and computers, and how many times it was used in the last day. A time reads as how long ago it was, and hovering shows the exact time. The device count is the phones and computers on that account's list. Stats do not show page text or names. Pause and resume apply to new signups. Phones that are already in keep syncing. Limits set how many accounts the server will take, how much storage one account can use, how many devices it can list, and the rate limits. A signup past the account limit is refused, and the invite code is not used. A nightly copy keeps each sealed account. Restoring writes that copy back and does not open a page. Removing a sealed copy asks for the account id to be typed again.
+The same actions are on the admin page. List shows the label, uses left, created time, last-used time, and status. Revoke retires a code. Stats show the account count, how many phones and computers are linked, the total size, how many accounts were used in the last day and the last week, how many accounts were created in the last week, and the last nightly copy: when it ran, whether it saved, and its size. Each account shows when it was created, when it was last used, when its sealed copy last changed, its size, its linked phones and computers, and how many times it was used in the last day. A time reads as how long ago it was, and hovering shows the exact time. The device count is the phones and computers on that account's list. Stats do not show page text or names. Pause and resume apply to new signups. Phones that are already in keep syncing. Limits set how many accounts the server will take, how much storage one account can use, how many devices it can list, and the rate limits. A signup past the account limit is refused, and the invite code is not used. A nightly copy keeps each sealed account. Restoring writes that copy back and does not open a page. A longer device list that already extends the restored one stays, and so do its pages. Removing a sealed copy asks for the account id to be typed again.
 
 `node relay/worker/mint.mjs` does the same as `admin.mjs mint`.

@@ -451,8 +451,8 @@ function decodeRecord(record) {
 }
 
 // ACCESS_TEAM_DOMAIN is the host only, such as omacus.cloudflareaccess.com.
-// Until ACCESS_AUD is set, the admin key is the worker's check. Once it is
-// set, a request without a valid Access assertion is refused.
+// A missing audience or team host refuses the request. ALLOW_NO_ACCESS=1
+// is for tests only and is never set on a deployed worker.
 function accessTeamDomain(env) {
   const domain = String((env && env.ACCESS_TEAM_DOMAIN) || "").trim().toLowerCase();
   if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(domain)) return "";
@@ -460,10 +460,10 @@ function accessTeamDomain(env) {
 }
 
 async function accessJwtOk(token, env) {
-  const aud = String(env.ACCESS_AUD || "").trim();
-  if (!aud) return true;
+  if (String((env && env.ALLOW_NO_ACCESS) || "") === "1") return true;
+  const aud = String((env && env.ACCESS_AUD) || "").trim();
   const domain = accessTeamDomain(env);
-  if (!domain || !token) return false;
+  if (!aud || !domain || !token) return false;
   const parts = token.split(".");
   if (parts.length !== 3) return false;
   let header;

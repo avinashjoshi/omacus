@@ -91,13 +91,7 @@ pub fn accept_request(
         return None;
     }
     if nonces.len() >= MAX_NONCES {
-        let oldest = nonces
-            .iter()
-            .min_by_key(|(_, time)| *time)
-            .map(|(nonce, _)| nonce.clone());
-        if let Some(oldest) = oldest {
-            nonces.remove(&oldest);
-        }
+        return None;
     }
     nonces.insert(nonce, auth.time);
     Some(recovery)

@@ -472,7 +472,8 @@ pub fn plan(
         .collect();
     let folders = folders_of(&set.doc);
     let manifest = encode_manifest(&set.meta, &slots, &folders, generation)?;
-    let sealed_manifest = sync_keys::seal_page(vault, epoch, MANIFEST_ID, &manifest)?;
+    let sealed_manifest =
+        sync_keys::seal_manifest(vault, epoch, MANIFEST_ID, &manifest, generation)?;
     Ok(Planned {
         manifest,
         sealed_manifest,
@@ -603,6 +604,35 @@ mod tests {
             pages,
             meta: SyncMeta::default(),
         }
+    }
+
+    #[test]
+    fn a_manifest_seal_binds_its_generation_and_refuses_an_older_one() {
+        let vault = VaultKey::generate().unwrap();
+        let set = sample_set(vec![("pantry".into(), "oats\n".into())]);
+        let first = plan(&vault, 1, &set, &[], 1).unwrap();
+        let second = plan(&vault, 1, &set, &first.slots, 2).unwrap();
+        assert_eq!(
+            sync_keys::manifest_seal_generation(&first.sealed_manifest),
+            Some(1)
+        );
+        let opened =
+            sync_keys::open_manifest_seal(&vault, 1, MANIFEST_ID, &second.sealed_manifest, 2)
+                .unwrap();
+        assert_eq!(manifest_generation(&opened).unwrap(), 2);
+        let err = sync_keys::open_manifest_seal(&vault, 1, MANIFEST_ID, &first.sealed_manifest, 2)
+            .unwrap_err();
+        assert_eq!(err, SyncKeyError::Older);
+        let mut claimed = first.sealed_manifest.clone();
+        let at = b"OMACUS-SEAL/2\n".len();
+        claimed[at..at + 8].copy_from_slice(&2u64.to_be_bytes());
+        assert_eq!(
+            sync_keys::open_manifest_seal(&vault, 1, MANIFEST_ID, &claimed, 0).unwrap_err(),
+            SyncKeyError::Sealed
+        );
+        let legacy = sync_keys::seal_page(&vault, 1, MANIFEST_ID, &first.manifest).unwrap();
+        let plain = sync_keys::open_manifest_seal(&vault, 1, MANIFEST_ID, &legacy, 0).unwrap();
+        assert_eq!(plain, first.manifest);
     }
 
     #[test]

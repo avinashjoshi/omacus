@@ -5,7 +5,7 @@ import { beginSave, finishSave, noteLocalEdit } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 
-const LABEL = "omacus 1.0.0-beta.30";
+const LABEL = "omacus 1.0.0-beta.31";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 
@@ -71,6 +71,8 @@ export async function mountSync(api) {
     device: "",
     requestId: "",
     joinProof: "",
+    joinWords: "",
+    approval: null,
     pending: null,
     phrase: "",
     phraseMsg: "",
@@ -578,7 +580,7 @@ export async function mountSync(api) {
         revision: state.revision,
         record,
         ...extra,
-      });
+      }, undefined, undefined, { "If-Match": `"${state.revision}"` });
     state.revision = result.revision;
     await saveFile();
     return result;
@@ -1249,13 +1251,34 @@ export async function mountSync(api) {
         draw();
         return;
       }
-      state.busy = true;
+      state.approval = { chain: decision.chain, wrap: decision.wrap };
+      const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
+      const named = JSON.parse(sync.recordWords(mailbox.record));
+      if (!named.ok) throw new Error(named.message || "Couldn't sync.");
+      state.joinWords = named.words;
+      state.screen = "join-confirm";
+      state.busy = false;
       draw();
+    } catch (error) {
+      state.error = plainError(error.message);
+      state.busy = false;
+      draw();
+    }
+  }
+
+  async function acceptJoin() {
+    if (state.busy || state.screen !== "join-confirm" || !state.approval) return;
+    state.busy = true;
+    state.error = "";
+    draw();
+    try {
+      const confirmed = JSON.parse(sync.confirmLink(state.desk));
+      if (!confirmed.ok) throw new Error(confirmed.message || "Couldn't sync.");
       let mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
-      let plan = JSON.parse(sync.approvalPlan(state.desk, decision.chain, decision.wrap, mailbox.record));
+      let plan = JSON.parse(sync.approvalPlan(state.desk, state.approval.chain, state.approval.wrap, mailbox.record));
       for (let attempt = 0; !plan.ok && attempt < 3 && /saved copy/i.test(plan.message || ""); attempt += 1) {
         mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
-        plan = JSON.parse(sync.approvalPlan(state.desk, decision.chain, decision.wrap, mailbox.record));
+        plan = JSON.parse(sync.approvalPlan(state.desk, state.approval.chain, state.approval.wrap, mailbox.record));
       }
       if (!plan.ok) throw new Error(plan.message);
       let packed = plan.packed;
@@ -1564,6 +1587,7 @@ export async function mountSync(api) {
     else if (state.screen === "join-start" || state.screen === "join-type") drawJoinType();
     else if (state.screen === "join-scan") drawJoinScan();
     else if (state.screen === "join") drawJoin();
+    else if (state.screen === "join-confirm") drawJoinConfirm();
     else if (state.screen === "removed") drawRemoved();
     else if (state.screen === "approve") drawApprove();
     else if (state.screen === "remove-ask") drawRemoveAsk();
@@ -1764,6 +1788,25 @@ export async function mountSync(api) {
     );
   }
 
+  function drawJoinConfirm() {
+    panel.append(
+      el("h2", {}, ["Do these match?"]),
+      el("p", { class: "setting-help" }, ["The same six numbers and the same four words should be on your other phone or computer."]),
+      el("div", { class: "sync-code" }, [state.code || ""]),
+      el("div", { class: "sync-words" }, [state.joinWords || ""]),
+      addActions([
+        [state.busy ? "Opening your pages…" : "These match", "primary", () => acceptJoin(), state.busy],
+        ["Cancel", "", () => {
+          state.screen = "off";
+          state.requestId = "";
+          state.approval = null;
+          state.error = "";
+          draw();
+        }, state.busy],
+      ]),
+    );
+  }
+
   function drawRemoved() {
     panel.append(
       el("h2", {}, [`${hereCap()} was removed from sync`]),
@@ -1781,10 +1824,16 @@ export async function mountSync(api) {
   }
 
   function drawApprove() {
+    let words = "";
+    if (state.desk) {
+      const named = JSON.parse(sync.accountWords(state.desk));
+      if (named.ok) words = named.words;
+    }
     panel.append(
       el("h2", {}, ["Is this your phone or computer?"]),
-      el("p", { class: "setting-help" }, ["It wants to open your pages. The same six numbers should be on that screen. Tap Yes, approve it only if they match."]),
+      el("p", { class: "setting-help" }, ["It wants to open your pages. The same six numbers and the same four words should be on that screen. Tap Yes, approve it only if they match."]),
       el("div", { class: "sync-code" }, [state.pending?.code || ""]),
+      el("p", { class: "sync-words" }, [words]),
       addActions([
         [state.busy ? "Approving…" : "Yes, approve it", "primary", () => approve(), state.busy],
         ["No", "", () => decline(), state.busy],

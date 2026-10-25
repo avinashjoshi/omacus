@@ -84,6 +84,9 @@ pub const LIST_STEP: &str = "The list has to change by one phone or computer.";
 pub const NO_LIST: &str = "This device doesn't have the list yet.";
 pub const NOT_ON_LIST: &str = "This device is no longer on the list.";
 pub const ALREADY_ON_LIST: &str = "That device is already on the list.";
+/// The first link is stored only after the six numbers are checked on this phone.
+pub const CONFIRM_LINK: &str =
+    "Check the six numbers on your other phone or computer, then tap These match.";
 
 const APPROVAL_VERSION: &str = "The approval's list version doesn't line up.";
 const APPROVAL_CHECK: &str = "The approval's list didn't check out.";
@@ -886,6 +889,20 @@ impl DeviceChain {
             std::cmp::Ordering::Less => ChainOrder::Older,
         }
     }
+
+    /// The first snapshot is the account key. A server that mints its own list
+    /// cannot produce that signature. Later snapshots may be signed by a phone
+    /// that this key already admitted.
+    pub fn recovery_fork(&self, account: &[u8; KEY_LEN]) -> bool {
+        let Some(root) = self.lists.first() else {
+            return false;
+        };
+        if root.signer != RECOVERY_ID || root.devices.len() != 1 {
+            return false;
+        }
+        let device = &root.devices[0];
+        device.id == RECOVERY_ID && device.sign == *account
+    }
 }
 
 /// Whether one device list extends another.
@@ -938,6 +955,35 @@ fn removed_one(previous: &[DevicePublic], next: &[DevicePublic]) -> bool {
 
 fn changed_by_one(previous: &[DevicePublic], next: &[DevicePublic]) -> bool {
     appended_one(previous, next) || removed_one(previous, next)
+}
+
+/// The account key signs a list that contains only itself.
+/// `receive` is the recovery X25519 public key, not a signing seed.
+pub fn found_recovery(root: &Root, receive: &[u8; KEY_LEN]) -> Result<DeviceChain, SyncKeyError> {
+    let account = root.account_public()?;
+    let mut secret = root.account_signing_secret()?;
+    let signer = DeviceKeys {
+        id: RECOVERY_ID,
+        sign: secret,
+        receive: [0u8; KEY_LEN],
+    };
+    secret.zeroize();
+    let public = DevicePublic {
+        id: RECOVERY_ID,
+        sign: account,
+        receive: *receive,
+    };
+    let mut list = SignedDevices {
+        version: 1,
+        prev: [0u8; KEY_LEN],
+        signer: RECOVERY_ID,
+        devices: vec![public],
+        signature: [0u8; 64],
+    };
+    list.signature = sign_list(&signer, &list)?;
+    let chain = DeviceChain { lists: vec![list] };
+    chain.verify()?;
+    Ok(chain)
 }
 
 /// The first device signs a list that contains only itself.
@@ -1322,6 +1368,9 @@ pub fn open_device_wrap(
     Ok(open_device_wrap_parts(device, stored, epoch, key_id)?.vault)
 }
 
+/// HPKE base mode seals to a public receive key. It does not say who sealed it.
+/// A wrap is followed only together with a list this device already extends,
+/// or a list whose first snapshot is the account key.
 pub fn open_device_wrap_parts(
     device: &DeviceKeys,
     stored: &[u8],
@@ -1391,6 +1440,71 @@ pub fn open_page(
     let mut aad = bind(b"page", epoch, &vault.id, None);
     aad.extend_from_slice(page_id);
     xchacha(false, &vault.key, &nonce, &aad, ciphertext)
+}
+
+const MANIFEST_SEAL_MAGIC: &[u8] = b"OMACUS-SEAL/2\n";
+
+/// Seal a manifest. The generation is in the clear and in the associated data,
+/// so a stored seal cannot be presented as a different generation.
+pub fn seal_manifest(
+    vault: &VaultKey,
+    epoch: u64,
+    page_id: &[u8],
+    page: &[u8],
+    generation: u64,
+) -> Result<Vec<u8>, SyncKeyError> {
+    let mut nonce = random_bytes::<X_NONCE>()?;
+    let mut aad = bind(b"page", epoch, &vault.id, None);
+    aad.extend_from_slice(page_id);
+    aad.extend_from_slice(&generation.to_be_bytes());
+    let ciphertext = xchacha(true, &vault.key, &nonce, &aad, page)?;
+    let mut out = Vec::with_capacity(MANIFEST_SEAL_MAGIC.len() + 8 + X_NONCE + ciphertext.len());
+    out.extend_from_slice(MANIFEST_SEAL_MAGIC);
+    out.extend_from_slice(&generation.to_be_bytes());
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&ciphertext);
+    nonce.zeroize();
+    Ok(out)
+}
+
+/// The generation written in front of a manifest seal. Absent on an older seal.
+pub fn manifest_seal_generation(stored: &[u8]) -> Option<u64> {
+    if stored.len() < MANIFEST_SEAL_MAGIC.len() + 8 {
+        return None;
+    }
+    if &stored[..MANIFEST_SEAL_MAGIC.len()] != MANIFEST_SEAL_MAGIC {
+        return None;
+    }
+    let mut bytes = [0u8; 8];
+    bytes.copy_from_slice(&stored[MANIFEST_SEAL_MAGIC.len()..MANIFEST_SEAL_MAGIC.len() + 8]);
+    Some(u64::from_be_bytes(bytes))
+}
+
+/// Open a manifest seal. A generation below `floor` is refused before decrypt.
+/// An older seal, without the generation header, still opens.
+pub fn open_manifest_seal(
+    vault: &VaultKey,
+    epoch: u64,
+    page_id: &[u8],
+    stored: &[u8],
+    floor: u64,
+) -> Result<Vec<u8>, SyncKeyError> {
+    if let Some(generation) = manifest_seal_generation(stored) {
+        if generation < floor {
+            return Err(SyncKeyError::Older);
+        }
+        let rest = &stored[MANIFEST_SEAL_MAGIC.len() + 8..];
+        if rest.len() < X_NONCE + 16 {
+            return Err(SyncKeyError::Corrupt);
+        }
+        let (nonce, ciphertext) = rest.split_at(X_NONCE);
+        let nonce: [u8; X_NONCE] = nonce.try_into().map_err(|_| SyncKeyError::Corrupt)?;
+        let mut aad = bind(b"page", epoch, &vault.id, None);
+        aad.extend_from_slice(page_id);
+        aad.extend_from_slice(&generation.to_be_bytes());
+        return xchacha(false, &vault.key, &nonce, &aad, ciphertext);
+    }
+    open_page(vault, epoch, page_id, stored)
 }
 
 /// What a server would store. Public keys, signatures, and ciphertext.
@@ -1495,9 +1609,21 @@ impl ServerView {
     }
 }
 
+/// A record whose device list starts at `account`.
+/// The signature has to check out. A signature by a device on a list the
+/// server wrote for itself does not count: that list does not start here.
+pub fn recovery_signed_record(view: &ServerView, account: &[u8; KEY_LEN]) -> bool {
+    if view.account != *account || !view.chain.recovery_fork(account) {
+        return false;
+    }
+    matches!(trust_signature(view, true), Ok(false))
+}
+
 /// `Ok(true)` is an older unsigned record this device may still open.
 /// `Ok(false)` is a signature by a device on the newest list, or the recovery key.
 /// Anything else is refused, including a signature that does not check out.
+/// A signature only shows that the named key signed this record. A key that
+/// appears on a list inside the same record is not a reason to adopt that list.
 pub fn trust_signature(view: &ServerView, signed_seen: bool) -> Result<bool, SyncKeyError> {
     match (view.signer, view.signature) {
         (None, None) => {

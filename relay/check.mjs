@@ -101,6 +101,8 @@ async function shot(page, name) {
 await shot(pageA, "approve");
 
 await pageA.getByRole("button", { name: "Yes, approve it" }).click();
+await pageB.locator("[data-screen=join-confirm]").waitFor({ timeout: 20000 });
+await pageB.getByRole("button", { name: "These match" }).click();
 await pageB.locator("[data-screen=opened]").waitFor({ timeout: 20000 });
 await pageB.getByText("milk $3").waitFor();
 await pageA.locator("[data-screen=ready]").waitFor();

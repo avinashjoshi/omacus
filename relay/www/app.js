@@ -18,6 +18,8 @@ const state = {
   record: "",
   revision: 0,
   code: "",
+  joinWords: "",
+  approval: null,
   device: "",
   requestId: "",
   pending: null,
@@ -57,9 +59,12 @@ function serverBase() {
 }
 
 async function api(method, path, body) {
+  const headers = {};
+  if (body) headers["Content-Type"] = "application/json";
+  if (body && Number.isInteger(body.revision)) headers["If-Match"] = `"${body.revision}"`;
   const response = await fetch(`${serverBase()}${path}`, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
+    headers: Object.keys(headers).length ? headers : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await response.json().catch(() => ({}));
@@ -278,11 +283,26 @@ function render() {
       ${actions([["start", "Cancel", "block"]])}`,
       true,
     );
+  } else if (state.screen === "join-confirm") {
+    html = sheet(
+      `<h1>Do these match?</h1>
+      <p class="lead">The same six numbers and the same four words should be on your other phone or computer.</p>
+      <div class="code">${esc(state.code)}</div>
+      <p class="words">${esc(state.joinWords || "")}</p>
+      ${err}
+      ${actions([
+        ["accept-join", state.busy ? "Opening your pages…" : "These match", "primary block"],
+        ["start", "Cancel", "block"],
+      ])}`,
+      true,
+    );
   } else if (state.screen === "approve") {
+    const named = state.desk ? JSON.parse(sync.accountWords(state.desk)) : { ok: false, words: "" };
     html = sheet(
       `<h1>Is this your phone or computer?</h1>
-      <p class="lead">It wants to open your pages. The same six numbers should be on that screen. Tap Yes, approve it only if they match.</p>
+      <p class="lead">It wants to open your pages. The same six numbers and the same four words should be on that screen. Tap Yes, approve it only if they match.</p>
       <div class="code">${esc(state.pending ? state.pending.code : "")}</div>
+      <p class="words">${esc(named.ok ? named.words : "")}</p>
       ${err}
       ${actions([
         ["approve", state.busy ? "Approving…" : "Yes, approve it", "primary block"],
@@ -562,11 +582,35 @@ async function waitForApproval() {
       render();
       return;
     }
-    state.busy = true;
+    state.approval = { chain: decision.chain, wrap: decision.wrap };
+    const mailbox = await api("GET", `/v1/mailboxes/${state.account}`);
+    const named = JSON.parse(sync.recordWords(mailbox.record));
+    state.joinWords = named.ok ? named.words : "";
+    state.busy = false;
+    state.screen = "join-confirm";
     render();
+  } catch (error) {
+    state.error = error.message;
+    state.busy = false;
+    render();
+  }
+}
+
+async function acceptJoin() {
+  if (!state.approval) return;
+  state.busy = true;
+  render();
+  try {
+    const confirmed = JSON.parse(sync.confirmLink(state.desk));
+    if (!confirmed.ok) {
+      state.busy = false;
+      state.error = confirmed.message;
+      render();
+      return;
+    }
     const mailbox = await api("GET", `/v1/mailboxes/${state.account}`);
     const opened = JSON.parse(
-      sync.openApproval(state.desk, decision.chain, decision.wrap, mailbox.record),
+      sync.openApproval(state.desk, state.approval.chain, state.approval.wrap, mailbox.record),
     );
     state.busy = false;
     if (!opened.ok) {
@@ -578,7 +622,9 @@ async function waitForApproval() {
     state.note = "Your pages are here.";
     show("opened");
   } catch (error) {
+    state.busy = false;
     state.error = error.message;
+    render();
   }
 }
 
@@ -793,6 +839,7 @@ const acts = {
   },
   approve,
   decline,
+  "accept-join": acceptJoin,
   recover() {
     state.server = serverBase();
     state.phraseMsg = "";

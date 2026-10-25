@@ -235,11 +235,21 @@ function rememberNonce(mailbox, nonce, time, now) {
   }
   if (Object.hasOwn(mailbox.nonces, nonce)) return false;
   const keys = Object.keys(mailbox.nonces);
-  if (keys.length >= MAX_NONCES) {
-    keys.sort((a, b) => mailbox.nonces[a] - mailbox.nonces[b]);
-    delete mailbox.nonces[keys[0]];
-  }
+  if (keys.length >= MAX_NONCES) return false;
   mailbox.nonces[nonce] = time;
+  return true;
+}
+
+// The current device list is a longer extension of the older one.
+export async function chainIsLongerExtension(currentB64, olderB64) {
+  const current = fromB64(currentB64);
+  const older = fromB64(olderB64);
+  const next = current ? await openRecord(current) : null;
+  const prev = older ? await openRecord(older) : null;
+  if (!next || !prev || next.lists.length <= prev.lists.length) return false;
+  for (let i = 0; i < prev.lists.length; i += 1) {
+    if (!same(listMessage(next.lists[i]), listMessage(prev.lists[i]))) return false;
+  }
   return true;
 }
 
@@ -297,8 +307,25 @@ async function chainBytes(device) {
   return concat(enc.encode("OMACUS-DEVICES/1"), u16(1), body);
 }
 
-export async function makeRecord(device, text, version = 2) {
-  const chain = await chainBytes(device);
+export async function deviceChain(device) {
+  return chainBytes(device);
+}
+
+export async function appendDevice(signer, chain, newcomer) {
+  const lists = await openChain(chain);
+  if (!lists || !lists.length) return null;
+  const previous = lists[lists.length - 1];
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", listMessage(previous)));
+  const devices = previous.devices.concat([{ id: newcomer.id, sign: newcomer.pub, receive: newcomer.receive }]);
+  const list = { version: previous.version + 1, prev: hash, signer: signer.id, devices };
+  const signature = new Uint8Array(await crypto.subtle.sign("Ed25519", signer.privateKey, listMessage(list)));
+  const rows = devices.map((row) => concat(row.id, row.sign, row.receive));
+  const body = concat(u64(list.version), hash, signer.id, signature, u16(devices.length), ...rows);
+  return concat(chain.slice(0, 16), u16(lists.length + 1), chain.slice(18), body);
+}
+
+export async function makeRecord(device, text, version = 2, chain) {
+  const used = chain || await chainBytes(device);
   const magic = enc.encode(version === 1 ? "OMACUS-SYNC/1\n" : "OMACUS-SYNC/2\n");
   const vault = enc.encode("personal");
   const page = enc.encode(text);
@@ -309,7 +336,7 @@ export async function makeRecord(device, text, version = 2) {
     u64(1),
     device.account,
     device.id,
-    chunk(chain),
+    chunk(used),
     chunk(new Uint8Array()),
     u16(0),
     chunk(page),
