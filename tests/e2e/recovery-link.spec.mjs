@@ -60,7 +60,13 @@ test("a recovery link fills the words and no request carries them", async ({ pag
   page.on("request", (request) => {
     seen.push(`${request.method()} ${request.url()}\n${request.postData() || ""}`);
   });
-  await page.goto(`/app/#recover=${encoded}`, { waitUntil: "domcontentloaded" });
+  // The fragment is installed in the page. The navigation URL stays free of the words,
+  // so a failure log does not print them.
+  await page.addInitScript((token) => {
+    const path = `${location.pathname}${location.search}`;
+    history.replaceState(null, "", `${path}#recover=${token}`);
+  }, encoded);
+  await page.goto("/app/", { waitUntil: "domcontentloaded" });
   await page.waitForSelector("[data-loading]", { state: "detached" });
   await expect(page.getByRole("heading", { name: "Use your recovery words" })).toBeVisible();
   await expect(page.locator("textarea[aria-label='Recovery words']")).toHaveValue(PHRASE);

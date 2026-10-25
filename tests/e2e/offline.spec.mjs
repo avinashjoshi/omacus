@@ -94,7 +94,8 @@ test("first load, offline reload, edit, and an update with unsaved text", async 
     await expect(page.locator(".cm-content")).toContainText("milk = 2 + 2");
     await expect(page.locator(".cm-content")).toContainText("bread = 3");
   } finally {
-    await context.setOffline(false).catch(() => {});
     unreachable(false);
+    await context.setOffline(false).catch(() => {});
+    await context.close().catch(() => {});
   }
 });
