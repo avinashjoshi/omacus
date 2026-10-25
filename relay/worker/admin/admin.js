@@ -10,6 +10,8 @@ const codes = document.querySelector("[data-codes]");
 const counts = document.querySelector("[data-counts]");
 const storage = document.querySelector("[data-storage]");
 const errors = document.querySelector("[data-errors]");
+const limitsForm = document.querySelector("[data-limits]");
+const limitsNote = document.querySelector("[data-limits-note]");
 const remove = document.querySelector("[data-remove]");
 const removeNote = document.querySelector("[data-remove-note]");
 
@@ -129,14 +131,39 @@ function renderErrors(list) {
   errors.append(listNode);
 }
 
+const LIMIT_FIELDS = [
+  "maxAccounts",
+  "maxStorage",
+  "maxDevices",
+  "accountRate",
+  "ipRate",
+  "guessRate",
+  "joinRate",
+  "readAccountRate",
+  "readIpRate",
+];
+
+function fillLimits(row) {
+  if (!row) return;
+  for (const name of LIMIT_FIELDS) {
+    const input = limitsForm.elements[name];
+    if (input && Number.isInteger(row[name])) input.value = String(row[name]);
+  }
+}
+
 async function refresh() {
-  const [listed, stats] = await Promise.all([api("GET", "/v1/admin/codes"), api("GET", "/v1/admin/stats")]);
+  const [listed, stats, limits] = await Promise.all([
+    api("GET", "/v1/admin/codes"),
+    api("GET", "/v1/admin/stats"),
+    api("GET", "/v1/admin/limits"),
+  ]);
   signups.textContent = stats.paused ? "New signups are paused." : "New signups are on.";
   pause.textContent = stats.paused ? "Resume new signups" : "Pause new signups";
   counts.textContent = `Accounts ${stats.accounts}. Devices ${stats.devices}.`;
   renderCodes(listed.codes || []);
   renderStorage(stats.storage || []);
   renderErrors(stats.errors || []);
+  fillLimits(limits);
 }
 
 async function unlock(next) {
@@ -156,6 +183,24 @@ keyForm.addEventListener("submit", async (event) => {
     await unlock(String(next || ""));
   } catch (error) {
     if (!key) keyError.textContent = error.message;
+  }
+});
+
+limitsForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  limitsNote.textContent = "";
+  const body = {};
+  const form = new FormData(limitsForm);
+  for (const name of LIMIT_FIELDS) body[name] = Number(form.get(name));
+  const button = limitsForm.querySelector("button");
+  button.disabled = true;
+  try {
+    fillLimits(await api("POST", "/v1/admin/limits", body));
+    limitsNote.textContent = "Limits saved.";
+  } catch (error) {
+    limitsNote.textContent = error.message;
+  } finally {
+    button.disabled = false;
   }
 });
 

@@ -10,7 +10,7 @@
   <body>
     <main class="admin">
       <h1>Sync</h1>
-      <p class="lede">This page can pause new signups, mint an invite code, and remove a sealed copy. It cannot open a page.</p>
+      <p class="lede">This page can pause new signups, set the limits, mint an invite code, and remove a sealed copy. It cannot open a page.</p>
 
       <form class="key" data-key>
         <label>Admin key <input name="key" type="password" autocomplete="current-password" required></label>
@@ -38,6 +38,25 @@
         <section class="block">
           <h2>Codes</h2>
           <div data-codes></div>
+        </section>
+
+        <section class="block">
+          <h2>Limits</h2>
+          <p>These limits apply on this server. A signup past the account limit is refused, and the invite code is not used.</p>
+          <form class="limits" data-limits>
+            <label>Max accounts <input name="maxAccounts" type="number" min="1" max="1000000" required></label>
+            <label>Max storage per account, in bytes <input name="maxStorage" type="number" min="1024" required></label>
+            <label>Max devices <input name="maxDevices" type="number" min="1" max="64" required></label>
+            <label>Requests per account <input name="accountRate" type="number" min="1" required></label>
+            <label>Requests per address <input name="ipRate" type="number" min="1" required></label>
+            <label>Code guesses per address <input name="guessRate" type="number" min="1" required></label>
+            <label>Join attempts per address <input name="joinRate" type="number" min="1" required></label>
+            <label>Reads per account <input name="readAccountRate" type="number" min="1" required></label>
+            <label>Reads per address <input name="readIpRate" type="number" min="1" required></label>
+            <button class="quiet" type="submit">Save limits</button>
+          </form>
+          <p class="hint">Each rate is for 60 seconds.</p>
+          <p class="alert" data-limits-note role="status"></p>
         </section>
 
         <section class="block">

@@ -72,11 +72,13 @@ node relay/worker/admin.mjs revoke <hash>
 node relay/worker/admin.mjs stats
 node relay/worker/admin.mjs pause
 node relay/worker/admin.mjs resume
+node relay/worker/admin.mjs limits
+node relay/worker/admin.mjs limits --max-accounts 10000
 node relay/worker/admin.mjs delete <account> --confirm <account>
 ```
 
 Mint prints the code once. The server stores a hash, a label, the uses left, and the times. It does not store the code. An optional expiry is the end of that UTC day.
 
-The same actions are on the admin page. List shows the label, uses left, created time, last-used time, and status. Revoke retires a code. Stats show the account count, the device count, the size of each sealed copy, and recent error counts. They do not show page text or names. Pause and resume apply to new signups. Phones that are already in keep syncing. Removing a sealed copy asks for the account id to be typed again.
+The same actions are on the admin page. List shows the label, uses left, created time, last-used time, and status. Revoke retires a code. Stats show the account count, the device count, the size of each sealed copy, and recent error counts. They do not show page text or names. Pause and resume apply to new signups. Phones that are already in keep syncing. Limits set how many accounts the server will take, how much storage one account can use, how many devices it can list, and the rate limits. A signup past the account limit is refused, and the invite code is not used. Removing a sealed copy asks for the account id to be typed again.
 
 `node relay/worker/mint.mjs` does the same as `admin.mjs mint`.

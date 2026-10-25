@@ -1,4 +1,4 @@
-// Private sync test relay (1.0.0-beta.19) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.20) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
 // Each account lives in its own object. A directory object maps an invite
 // hash to that account, so a join does not list every account.
@@ -10,11 +10,19 @@
 // This worker holds no keys and cannot open a page.
 import { DurableObject } from "cloudflare:workers";
 import { mint, openCode, spend } from "./access.js";
-import { adminAuthorized, deviceCount, handleAdmin, isolateAllow, noteError } from "./admin.js";
+import { adminAuthorized, deviceCount, handleAdmin, isolateAllow, linkedDevices, noteError } from "./admin.js";
 import { allowPut, authorize } from "./auth.js";
 import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
+import {
+  LIMIT_HEADER,
+  LIMIT_KEY,
+  defaultsFor,
+  limitsFromHeader,
+  normalizeLimits,
+  rejectSignup,
+} from "./limits.js";
 
-const LABEL = "1.0.0-beta.19";
+const LABEL = "1.0.0-beta.20";
 const MAX_RECORD = 256 * 1024, MAX_MANIFEST = 1024 * 1024, MAX_OBJECT = 4 * 1024 * 1024 + 64;
 const MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024, MAX_BODY = 8 * 1024 * 1024;
 const MAX_REQUESTS = 8, MAX_USES = 20;
@@ -34,6 +42,9 @@ const ERR = {
   BadInvite: [400, "That code didn't work. Check it on the other device."],
   BadAccess: [400, "That invite code didn't work. Check it and try again."],
   Paused: [403, "New signups are paused."],
+  SignupFull: [403, "New signups are full."],
+  Room: [429, "That account is out of room."],
+  Devices: [429, "That account has as many phones and computers as it can."],
   Limited: [429, "Try again in a moment."],
 };
 const CORS = {
@@ -180,6 +191,7 @@ export class Mailboxes extends DurableObject {
     this.joinHits = new Map();
     this.readIpHits = new Map();
     this.readAccountHits = new Map();
+    this.limits = defaultsFor(env);
   }
   bump(map, key, limit) {
     if (!key) return;
@@ -193,18 +205,18 @@ export class Mailboxes extends DurableObject {
     row.count += 1;
   }
   charge(ip, account) {
-    this.bump(this.ipHits, ip, 800);
-    this.bump(this.accountHits, account, 240);
+    this.bump(this.ipHits, ip, this.limits.ipRate);
+    this.bump(this.accountHits, account, this.limits.accountRate);
   }
   chargeGuess(ip) {
-    this.bump(this.guessHits, ip, 10);
+    this.bump(this.guessHits, ip, this.limits.guessRate);
   }
   chargeJoin(ip) {
-    this.bump(this.joinHits, ip, 10);
+    this.bump(this.joinHits, ip, this.limits.joinRate);
   }
   chargeRead(ip, account) {
-    this.bump(this.readIpHits, ip, 500);
-    this.bump(this.readAccountHits, account, 180);
+    this.bump(this.readIpHits, ip, this.limits.readIpRate);
+    this.bump(this.readAccountHits, account, this.limits.readAccountRate);
   }
   async guard(method, path, raw, headers, mailbox) {
     const auth = await authorize(method, path, raw, headers, mailbox.record, Date.now(), mailbox);
@@ -226,6 +238,7 @@ export class Mailboxes extends DurableObject {
       try { body = JSON.parse(raw); } catch { body = null; }
     }
     try {
+      this.limits = limitsFromHeader(request.headers) || defaultsFor(this.env);
       const admin = request.headers.get("x-omacus-admin") === "1";
       const ip = request.headers.get("cf-connecting-ip") || "local";
       const [status, value] = await this.route(request.method, url.pathname, body, access, admin, request.headers, raw, ip);
@@ -266,12 +279,12 @@ export class Mailboxes extends DurableObject {
     return out;
   }
 
-  async useAccess(access, take) {
+  async useAccess(access, take, store = this.store) {
     const hash = access.hash;
     const uses = access.uses;
     if (!/^[0-9a-f]{64}$/.test(hash) || !Number.isInteger(uses) || uses < 1 || uses > MAX_USES) fail("BadAccess");
     const key = "a:" + hash;
-    const row = await this.store.get(key);
+    const row = await store.get(key);
     if (row && row.revoked) fail("BadAccess");
     if (row && Number.isInteger(row.expires) && row.expires > 0 && row.expires <= Date.now()) fail("BadAccess");
     const table = {};
@@ -281,7 +294,7 @@ export class Mailboxes extends DurableObject {
     const next = row && typeof row === "object" ? { ...row } : {};
     next.left = table[hash];
     next.usedAt = Date.now();
-    await this.store.put(key, next);
+    await store.put(key, next);
   }
 
   async route(method, path, body, access, admin, headers, raw, ip) {
@@ -305,6 +318,8 @@ export class Mailboxes extends DurableObject {
       const account = accountId(typeof v.account === "string" ? v.account : fail("Unreadable"));
       const record = sealed(v.record);
       const writes = objectWrites(v);
+      const blocked = rejectSignup({ devices: linkedDevices(fromB64(record)), bytes: storedBytes(record, writes) }, this.limits);
+      if (blocked) fail(blocked);
       const spent = headers && headers.get && headers.get("x-omacus-access-spent") === "1";
       if (!spent) {
         if (!access.spend) fail("BadAccess");
@@ -368,6 +383,8 @@ export class Mailboxes extends DurableObject {
         if (m.revision !== v.revision) fail("Revision");
         const writes = objectWrites(v);
         const dropping = idList(v.drop);
+        const blocked = await rejectStored(txn, account, record, writes, dropping, this.limits);
+        if (blocked) fail(blocked);
         const written = await applyObjects(txn, account, writes, dropping);
         m.revision += 1;
         m.record = record;
@@ -536,11 +553,17 @@ export class Mailboxes extends DurableObject {
       sealed(value.record);
       objectWrites(value);
       if (!access.spend) fail("BadAccess");
-      const signups = await this.store.get("admin:signups");
-      if (signups && signups.paused) fail("Paused");
-      if ((await this.store.get("r:" + account)) || (await this.store.get("m:" + account))) fail("Conflict");
-      await this.useAccess(access, true);
-      await this.store.put("r:" + account, { pending: true, bytes: 0, devices: 0, invite: "" });
+      await this.store.transaction(async (txn) => {
+        if ((await txn.get("r:" + account)) || (await txn.get("m:" + account))) fail("Conflict");
+        const signups = await txn.get("admin:signups");
+        if (signups && signups.paused) fail("Paused");
+        const listed = await txn.list({ prefix: "r:" });
+        let count = 0;
+        for (const key of listed.keys()) if (/^r:[0-9a-f]{64}$/.test(key)) count += 1;
+        if (count >= this.limits.maxAccounts) fail("SignupFull");
+        await this.useAccess(access, true, txn);
+        await txn.put("r:" + account, { pending: true, bytes: 0, devices: 0, invite: "" });
+      });
       return [201, { ok: true }];
     }
     if (method === "POST" && path === "/v1/internal/release") {
@@ -601,6 +624,122 @@ function box(env, name) {
 
 function accountObject(account) {
   return `acct-${account}`;
+}
+
+function storedBytes(record, writes) {
+  let bytes = fromB64(record).length;
+  for (const write of writes) bytes += write.bytes;
+  return bytes;
+}
+
+async function rejectStored(txn, account, record, writes, dropping, limits) {
+  const drop = new Set(dropping);
+  const replacing = new Map();
+  for (const write of writes) {
+    if (drop.has(write.id)) return "Unreadable";
+    replacing.set(write.id, write.bytes);
+  }
+  let bytes = fromB64(record).length;
+  const objects = await txn.list({ prefix: `o:${account}:` });
+  for (const [key, row] of objects) {
+    const id = key.slice(key.lastIndexOf(":") + 1);
+    if (drop.has(id)) continue;
+    if (replacing.has(id)) {
+      bytes += replacing.get(id);
+      replacing.delete(id);
+    } else {
+      bytes += row && Number.isInteger(row.bytes) ? row.bytes : 0;
+    }
+  }
+  for (const size of replacing.values()) bytes += size;
+  return rejectSignup({ devices: linkedDevices(fromB64(record)), bytes }, limits);
+}
+
+function signupFits(body, limits) {
+  if (!body || typeof body.record !== "string") return "";
+  let record;
+  try { record = fromB64(body.record); } catch { return ""; }
+  let bytes = record.length;
+  if (Array.isArray(body.objects)) {
+    for (const item of body.objects) {
+      if (!item || typeof item.body !== "string") return "";
+      try { bytes += fromB64(item.body).length; } catch { return ""; }
+    }
+  }
+  return rejectSignup({ devices: linkedDevices(record), bytes }, limits);
+}
+
+export class Config extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.store = ctx.storage;
+    this.env = env;
+  }
+
+  async fetch(request) {
+    if (request.headers.get("x-omacus-internal") !== "1") return json(404, { message: ERR.Unknown[1] });
+    const url = new URL(request.url);
+    if (url.pathname !== "/v1/internal/limits") return json(404, { message: "Not found." });
+    if (request.method === "GET") return json(200, await this.effective());
+    if (request.method !== "PUT") return json(404, { message: "Not found." });
+    let body = {};
+    try { body = await request.json(); } catch { return json(400, { message: "That limit didn't work." }); }
+    const next = normalizeLimits(body, await this.numbers());
+    if (!next) return json(400, { message: "That limit didn't work." });
+    const stored = { ...next, updated: Date.now() };
+    await this.store.put(LIMIT_KEY, stored);
+    return json(200, { ...stored, saved: true });
+  }
+
+  async numbers() {
+    const stored = await this.store.get(LIMIT_KEY);
+    const base = defaultsFor(this.env);
+    if (!stored) return base;
+    return normalizeLimits(stored, base) || base;
+  }
+
+  async effective() {
+    const stored = await this.store.get(LIMIT_KEY);
+    const numbers = await this.numbers();
+    const saved = Boolean(stored) && Boolean(normalizeLimits(stored, defaultsFor(this.env)));
+    return {
+      ...numbers,
+      saved,
+      updated: stored && Number.isInteger(stored.updated) ? stored.updated : 0,
+    };
+  }
+}
+
+async function currentLimits(env) {
+  const fallback = defaultsFor(env);
+  if (!env.CONFIG || typeof env.CONFIG.get !== "function" || typeof env.CONFIG.idFromName !== "function") {
+    return fallback;
+  }
+  try {
+    const response = await env.CONFIG.get(env.CONFIG.idFromName("index")).fetch(new Request(
+      "https://sync.omacus.com/v1/internal/limits",
+      { headers: internalHeaders() },
+    ));
+    if (!response.ok) return fallback;
+    return normalizeLimits(await response.json(), fallback) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function adminLimits(env, method, payload) {
+  if (!env.CONFIG || typeof env.CONFIG.get !== "function") return json(404, { message: "Not found." });
+  const headers = internalHeaders();
+  const request = method === "GET"
+    ? new Request("https://sync.omacus.com/v1/internal/limits", { headers })
+    : new Request("https://sync.omacus.com/v1/internal/limits", {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(payload || {}),
+    });
+  const response = await env.CONFIG.get(env.CONFIG.idFromName("index")).fetch(request);
+  const body = await response.json().catch(() => ({ message: "Try again in a moment." }));
+  return json(response.status, body);
 }
 
 function internalHeaders() {
@@ -738,6 +877,8 @@ async function createAccount(env, request, raw, headers) {
   if (!/^[0-9a-f]{64}$/.test(account)) {
     return box(env, DIRECTORY).fetch(new Request(request.url, { method: "POST", headers, body: raw }));
   }
+  const blocked = signupFits(body, limitsFromHeader(headers) || defaultsFor(env));
+  if (blocked) return json(ERR[blocked][0], { message: ERR[blocked][1] });
   const legacy = await box(env, LEGACY).fetch(new Request(
     new URL(`/v1/internal/probe/${account}`, request.url),
     { headers: internalHeaders() },
@@ -811,9 +952,11 @@ async function routeClient(env, request) {
   const headers = new Headers(request.headers);
   headers.delete("x-omacus-internal");
   headers.delete("x-omacus-access-spent");
+  headers.delete(LIMIT_HEADER);
   headers.delete("content-length");
   let raw = "";
   if (method !== "GET" && method !== "HEAD") raw = await request.text();
+  headers.set(LIMIT_HEADER, JSON.stringify(await currentLimits(env)));
   const forward = () => new Request(request.url, {
     method,
     headers,
@@ -861,6 +1004,11 @@ async function adminApi(request, env, url) {
     if (text) {
       try { payload = JSON.parse(text); } catch { return json(400, { message: "That request could not be read." }); }
     }
+  }
+  if (url.pathname === "/v1/admin/limits") {
+    if (!allowed) return json(401, { message: "That key didn't work." });
+    if (request.method !== "GET" && request.method !== "POST") return json(404, { message: "Not found." });
+    return adminLimits(env, request.method, payload);
   }
   if (allowed && request.method === "POST" && url.pathname === "/v1/admin/codes") {
     const uses = Number(payload && payload.uses);

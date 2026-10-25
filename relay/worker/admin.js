@@ -85,6 +85,48 @@ export function deviceCount(bytes) {
   return (bytes[at] << 8) | bytes[at + 1];
 }
 
+function readChunk(bytes, at) {
+  if (at < 0 || at + 4 > bytes.length) return null;
+  const length = (bytes[at] << 24) | (bytes[at + 1] << 16) | (bytes[at + 2] << 8) | bytes[at + 3];
+  const start = at + 4;
+  if (length < 0 || start + length > bytes.length) return null;
+  return { bytes: bytes.subarray(start, start + length), next: start + length };
+}
+
+// How many devices are on the newest list inside the sealed copy.
+export function linkedDevices(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.length < RECORD_MAGIC.length) return 0;
+  const v1 = RECORD_MAGIC.every((byte, i) => bytes[i] === byte);
+  const v2 = RECORD_MAGIC_V2.every((byte, i) => bytes[i] === byte);
+  if (!v1 && !v2) return 0;
+  let at = RECORD_MAGIC.length;
+  if (at >= bytes.length) return 0;
+  at += 1 + bytes[at] + 8 + 32 + 16;
+  const chain = readChunk(bytes, at);
+  if (!chain) return 0;
+  return chainDevices(chain.bytes);
+}
+
+function chainDevices(bytes) {
+  const magic = enc.encode("OMACUS-DEVICES/1");
+  if (bytes.length < 18 || !magic.every((byte, i) => bytes[i] === byte)) return 0;
+  let at = 16;
+  const count = (bytes[at] << 8) | bytes[at + 1];
+  at += 2;
+  if (count < 1 || count > 64) return 0;
+  let devices = 0;
+  for (let place = 0; place < count; place += 1) {
+    at += 8 + 32 + 16 + 64;
+    if (at + 2 > bytes.length) return 0;
+    devices = (bytes[at] << 8) | bytes[at + 1];
+    at += 2;
+    if (devices < 1 || devices > 64) return 0;
+    at += devices * 80;
+    if (at > bytes.length) return 0;
+  }
+  return devices;
+}
+
 export async function adminAuthorized(request, env) {
   const expected = String((env && env.ADMIN_KEY) || "");
   const header = request.headers.get("authorization") || "";

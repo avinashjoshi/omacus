@@ -10,8 +10,11 @@
 //   node relay/worker/admin.mjs stats
 //   node relay/worker/admin.mjs pause
 //   node relay/worker/admin.mjs resume
+//   node relay/worker/admin.mjs limits
+//   node relay/worker/admin.mjs limits --max-accounts 10000
 //   node relay/worker/admin.mjs delete <account> --confirm <account>
 import { fileURLToPath } from "node:url";
+import { LIMIT_FLAGS } from "./limits.js";
 
 export const DEFAULT_SYNC_URL = "https://sync-test.omacus.com";
 
@@ -19,6 +22,51 @@ function flag(argv, name) {
   const index = argv.indexOf(name);
   if (index === -1) return undefined;
   return argv[index + 1];
+}
+
+export function planLimits(argv, current) {
+  const next = {};
+  let changed = false;
+  for (const [name, key] of LIMIT_FLAGS) {
+    const index = argv.indexOf(name);
+    if (index === -1) continue;
+    const raw = argv[index + 1];
+    if (raw === undefined || !/^\d+$/.test(raw)) return { error: "That limit didn't work." };
+    const value = Number(raw);
+    if (!Number.isSafeInteger(value)) return { error: "That limit didn't work." };
+    next[key] = value;
+    changed = true;
+  }
+  const limits = {};
+  for (const [, key] of LIMIT_FLAGS) {
+    if (Object.hasOwn(next, key)) limits[key] = next[key];
+    else if (current && Number.isInteger(current[key])) limits[key] = current[key];
+  }
+  if (!changed) return { changed: false, limits };
+  return { changed: true, limits };
+}
+
+const LIMIT_LINES = [
+  ["maxAccounts", "Max accounts"],
+  ["maxStorage", "Max storage per account"],
+  ["maxDevices", "Max devices"],
+  ["accountRate", "Requests per account"],
+  ["ipRate", "Requests per address"],
+  ["guessRate", "Code guesses per address"],
+  ["joinRate", "Join attempts per address"],
+  ["readAccountRate", "Reads per account"],
+  ["readIpRate", "Reads per address"],
+];
+
+export function formatLimits(data) {
+  const lines = LIMIT_LINES.map(([key, label]) => {
+    const value = data[key];
+    if (key === "maxStorage") return `${label}: ${value} bytes`;
+    return `${label}: ${value}`;
+  });
+  lines.push("Each rate is for 60 seconds.");
+  lines.push(data.saved ? "Saved on this server." : "Using the starting limits.");
+  return lines.join("\n");
 }
 
 function utc(ms) {
@@ -34,7 +82,7 @@ async function main() {
   const base = (process.env.SYNC_URL || DEFAULT_SYNC_URL).replace(/\/$/, "");
   const key = process.env.ADMIN_KEY || "";
   if (!command || command === "--help") {
-    console.log("mint, list, revoke, stats, pause, resume, delete");
+    console.log("mint, list, revoke, stats, pause, resume, limits, delete");
     return;
   }
   if (!key) {
@@ -71,6 +119,9 @@ async function main() {
     method = "POST";
     path = "/v1/admin/signups";
     body = { paused: command === "pause" };
+  } else if (command === "limits") {
+    method = "GET";
+    path = "/v1/admin/limits";
   } else if (command === "delete") {
     const account = argv[1] || "";
     const confirm = flag(argv, "--confirm") || "";
@@ -82,7 +133,7 @@ async function main() {
     path = `/v1/admin/accounts/${account}`;
     body = { confirm };
   } else {
-    console.error("Unknown command. Use mint, list, revoke, stats, pause, resume, or delete.");
+    console.error("Unknown command. Use mint, list, revoke, stats, pause, resume, limits, or delete.");
     process.exit(1);
   }
 
@@ -128,6 +179,29 @@ async function main() {
     for (const row of data.storage || []) console.log(`${row.account}  ${row.bytes} bytes  ${row.devices} devices`);
     if (!data.errors || !data.errors.length) console.log("No recent errors.");
     for (const row of data.errors || []) console.log(`${row.name} ${row.count}`);
+    return;
+  }
+  if (command === "limits") {
+    const planned = planLimits(argv, data);
+    if (planned.error) {
+      console.error(planned.error);
+      process.exit(1);
+    }
+    if (!planned.changed) {
+      console.log(formatLimits(data));
+      return;
+    }
+    const saved = await fetch(base + path, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify(planned.limits),
+    });
+    const next = await saved.json().catch(() => ({}));
+    if (!saved.ok) {
+      console.error(next.message || "That request did not work.");
+      process.exit(1);
+    }
+    console.log(formatLimits(next));
     return;
   }
   console.log("Done.");

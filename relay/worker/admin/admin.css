@@ -53,7 +53,7 @@ h3 {
   border-top: 1px solid var(--app-line);
 }
 
-.key, .create {
+.key, .create, .limits {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
