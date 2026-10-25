@@ -102,7 +102,7 @@ check(html.includes("data-build-hash"), "settings shows the build hash");
 check(js.includes("Add to Home Screen"), "iPhone gets an Add to Home Screen prompt");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-15"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('const CACHE = "omacus-app-16"'), "the app cache name moved past the cache-first shell");
 check(html.includes("data-pick"), "a same-line conflict can ask which line to keep");
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
@@ -130,6 +130,11 @@ check(html.includes('data-turn-on-sync') && html.includes(">Turn on sync<"), "th
 check(css.includes(".bar .sync-setup") && css.includes("display: none"), "a narrow phone keeps Turn on sync in the pages list");
 check(css.includes(".sync-chip[hidden]"), "a hidden sync status stays off the bar");
 check(buildWeb.includes("site/app/layer.js"), "the published app includes the row menu placement");
+check(buildWeb.includes("omacus-sync-web") && buildWeb.includes("omacus_sync_web_bg.wasm"), "the published build ships the sync engine");
+{
+  const boot = js.slice(js.indexOf("calc = new Calc()"), js.indexOf("loadRates();"));
+  check(js.includes("FALLBACK_RATES") && js.includes("JPY: 150") && boot.includes("setRates") && boot.indexOf("setRates") < boot.indexOf("showSheet"), "bundled rates answer the hotel line before the live rates load");
+}
 
 {
   const fitted = placeRowMenu(248, 180, { width: 180, height: 160 }, { width: 1280, height: 800 }, { top: 148 });
@@ -251,7 +256,8 @@ check(/\.drawer-scrim \{[^}]*z-index: 35/.test(css) && /\.bar \{[^}]*z-index: 50
 check(css.includes("clip-path: inset(50%)"), "the screen reader line stays off the page");
 check(!html.includes("Saved in this browser"), "the sidebar footer does not repeat where pages are saved");
 check(!html.includes("side-note"), "the sidebar has no privacy paragraph");
-check(html.includes("Pages stay in this browser, on this device. Nothing is uploaded."), "About says pages stay in this browser");
+check(html.includes("Pages stay in this browser, on this device. With sync on, a sealed copy can go to your other phones and computers."), "About says pages stay in this browser");
+check(!html.includes("Nothing is uploaded."), "About does not say nothing is uploaded");
 check(html.includes("Home Screen so Safari keeps them."), "About mentions the Home Screen");
 check(html.indexOf("data-persist-note") > html.indexOf('data-settings-panel="about"'), "a refused save is explained in About");
 check(/<div class="side-foot">\s*<a class="side-version"/.test(html), "the sidebar footer is the version");

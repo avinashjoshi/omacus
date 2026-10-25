@@ -38,6 +38,19 @@ if (bootLoading) bootLoading.hidden = false;
 const WASM = new URL("pkg/omacus_web_bg.wasm", import.meta.url).href;
 const WORKER = new URL("./worker.js", import.meta.url).href;
 const RATES_URL = "https://open.er-api.com/v6/latest/USD";
+// Units per 1 USD, so the welcome page can answer ¥ before the live rates arrive.
+const FALLBACK_RATES = {
+  USD: 1,
+  EUR: 0.92,
+  GBP: 0.78,
+  JPY: 150,
+  CAD: 1.36,
+  AUD: 1.52,
+  INR: 83,
+  CNY: 7.2,
+  CHF: 0.88,
+  KRW: 1350,
+};
 const RATES_MAX_AGE = 12 * 60 * 60 * 1000;
 const KEYWORDS = new Set(["prev", "sum", "total", "avg", "average", "mean", "min", "max", "today", "now",
   "tomorrow", "yesterday", "plus", "minus", "times", "mod"]);
@@ -5139,6 +5152,7 @@ async function start() {
   await init({ module_or_path: WASM });
   engineReady = true;
   calc = new Calc();
+  setRates(JSON.stringify(FALLBACK_RATES));
   if (!EMBED) await ensureLibraryDoc();
   if (typeof Worker !== "undefined") startWorker();
   el.loading.remove();

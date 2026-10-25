@@ -31,6 +31,7 @@ pub enum StoreError {
     BadInvite,
     BadAccess,
     Limited,
+    Busy,
 }
 
 impl StoreError {
@@ -38,7 +39,7 @@ impl StoreError {
         match self {
             StoreError::Unknown => 404,
             StoreError::Conflict | StoreError::Revision => 409,
-            StoreError::Full | StoreError::Limited => 429,
+            StoreError::Full | StoreError::Limited | StoreError::Busy => 429,
             StoreError::Unreadable | StoreError::BadInvite | StoreError::BadAccess => 400,
         }
     }
@@ -53,6 +54,7 @@ impl StoreError {
             StoreError::BadInvite => "That code didn't work. Check it on the other device.",
             StoreError::BadAccess => "That invite code didn't work. Check it and try again.",
             StoreError::Limited => "Try again in a moment.",
+            StoreError::Busy => "Sync is busy. Try again in a moment.",
         }
     }
 }
@@ -99,7 +101,7 @@ struct Mailbox {
     requests: BTreeMap<String, Request>,
     invite: Option<Invite>,
     objects: BTreeMap<String, StoredObject>,
-    nonces: BTreeMap<String, u64>,
+    nonces: crate::auth::NonceBook,
 }
 
 pub struct ObjectWrite {
@@ -251,8 +253,9 @@ impl Store {
         )
     }
 
-    /// Check a device signature and remember its nonce. A failure is the same
-    /// as a missing mailbox.
+    /// Check a device signature and remember its nonce.
+    /// A bad signature is the same as a missing mailbox.
+    /// A repeated nonce, or a full list for that phone, is busy.
     pub fn authorize(
         &mut self,
         account: &str,
@@ -264,7 +267,7 @@ impl Store {
         let account = account_id(account)?;
         let auth = crate::auth::read_auth(headers).ok_or(StoreError::Unknown)?;
         let now = self.now();
-        let recovery = {
+        let decision = {
             let mailbox = self
                 .mailboxes
                 .get_mut(&account)
@@ -278,10 +281,15 @@ impl Store {
                 &mailbox.record,
                 &mut mailbox.nonces,
             )
-            .ok_or(StoreError::Unknown)?
         };
-        self.checkpoint();
-        Ok(recovery)
+        match decision {
+            Some(crate::auth::AuthDecision::Allowed(recovery)) => {
+                self.checkpoint();
+                Ok(recovery)
+            }
+            Some(crate::auth::AuthDecision::Busy) => Err(StoreError::Busy),
+            None => Err(StoreError::Unknown),
+        }
     }
 
     pub fn allow_put(
@@ -408,7 +416,7 @@ impl Store {
                 requests: BTreeMap::new(),
                 invite: None,
                 objects: BTreeMap::new(),
-                nonces: BTreeMap::new(),
+                nonces: crate::auth::NonceBook::default(),
             },
         );
         self.checkpoint();
@@ -458,7 +466,7 @@ impl Store {
                 requests: BTreeMap::new(),
                 invite: None,
                 objects,
-                nonces: BTreeMap::new(),
+                nonces: crate::auth::NonceBook::default(),
             },
         );
         self.checkpoint();
@@ -1078,7 +1086,7 @@ fn mailbox_bytes(mailbox: &Mailbox) -> Vec<u8> {
         "record": b64(&mailbox.record),
         "requests": requests,
         "invite": invite,
-        "nonces": mailbox.nonces.iter().map(|(nonce, time)| json!({"nonce": nonce, "time": time})).collect::<Vec<_>>(),
+        "nonces": mailbox.nonces.rows().into_iter().map(|(device, nonce, time)| json!({"device": device, "nonce": nonce, "time": time})).collect::<Vec<_>>(),
     }))
     .unwrap_or_default()
 }
@@ -1117,7 +1125,7 @@ fn mailbox_from(bytes: &[u8]) -> Option<Mailbox> {
             used: row.get("used")?.as_bool()?,
         }),
     };
-    let mut nonces = BTreeMap::new();
+    let mut nonces = crate::auth::NonceBook::default();
     if let Some(rows) = value.get("nonces").and_then(Value::as_array) {
         for row in rows {
             let Some(nonce) = row.get("nonce").and_then(Value::as_str) else {
@@ -1126,7 +1134,8 @@ fn mailbox_from(bytes: &[u8]) -> Option<Mailbox> {
             let Some(time) = row.get("time").and_then(Value::as_u64) else {
                 continue;
             };
-            nonces.insert(nonce.to_string(), time);
+            let device = row.get("device").and_then(Value::as_str).unwrap_or("");
+            nonces.insert_raw(device, nonce, time);
         }
     }
     Some(Mailbox {

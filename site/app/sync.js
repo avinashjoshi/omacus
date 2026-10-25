@@ -1,6 +1,6 @@
 // Sync. A device file stays in this browser. The server receives a sealed record.
 import { SYNC_URL } from "./sync-config.js";
-import { beginSave, finishSave, noteLocalEdit, pagesDiffer, showTurnOnSync } from "./sync-save.mjs";
+import { beginSave, finishSave, noteLocalEdit, pagesDiffer, pollWait, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 import {
@@ -12,7 +12,7 @@ import {
   upsertVault,
 } from "./sync-vaults.mjs";
 
-const LABEL = "omacus 1.0.0-beta.33";
+const LABEL = "omacus 1.0.0-beta.34";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 
@@ -111,6 +111,7 @@ export async function mountSync(api) {
   };
   let wordlist = [];
   let timer = null;
+  let hurry = false;
   let loop = null;
   let stream = null;
   let ticking = false;
@@ -244,7 +245,7 @@ export async function mountSync(api) {
       clearPaused();
       state.saveError = "";
       setChip("Synced", "on");
-    } else if (!state.member || state.removed || pausedFlag()) {
+    } else if (state.removed || pausedFlag()) {
       setChip("Sync paused", "off");
     } else {
       hideChip();
@@ -803,7 +804,8 @@ export async function mountSync(api) {
 
   async function push() {
     if (!state.member) {
-      setChip("Sync paused", "off");
+      if (state.removed || pausedFlag()) setChip("Sync paused", "off");
+      else hideChip();
       return;
     }
     const started = beginSave(state);
@@ -913,7 +915,8 @@ export async function mountSync(api) {
         armSaving();
         await push();
       } else if (state.member && navigator.onLine !== false) calm();
-      else if (!state.member) setChip("Sync paused", "off");
+      else if (state.removed || pausedFlag()) setChip("Sync paused", "off");
+      else if (navigator.onLine !== false) hideChip();
       if (state.screen === "linked" || state.screen === "invite") {
         const found = await findRequest();
         if (found) {
@@ -926,7 +929,9 @@ export async function mountSync(api) {
       clearTimeout(saveTimer);
       saveTimer = null;
       if (error.offline || navigator.onLine === false) setChip("Offline", "offline");
-      else {
+      else if (error.status === 429 && /sync is busy/i.test(error.message || "")) {
+        schedule();
+      } else {
         state.saveError = plainError(error.message);
         setChip("Not saved", "error");
         if ((state.screen === "linked" || state.screen === "invite") && !panel.hidden) draw();
@@ -936,9 +941,28 @@ export async function mountSync(api) {
     }
   }
 
-  function schedule() {
+  function nextPoll(delay) {
     clearTimeout(timer);
-    timer = setTimeout(() => tick(), 800);
+    timer = setTimeout(runPoll, delay);
+  }
+
+  function runPoll() {
+    tick().finally(() => {
+      const soon = hurry;
+      hurry = false;
+      nextPoll(pollWait({
+        hidden: document.hidden,
+        dirty: state.dirty,
+        saving: saveWanted,
+        soon,
+      }));
+    });
+  }
+
+  function schedule() {
+    hurry = true;
+    if (ticking) return;
+    nextPoll(pollWait({ soon: true }));
   }
 
   async function readMailbox() {
@@ -2264,8 +2288,7 @@ export async function mountSync(api) {
         } else if (state.member) {
           calm();
         } else {
-          markPaused();
-          setChip("Sync paused", "off");
+          hideChip();
         }
       } else if (pausedFlag()) {
         state.member = false;
@@ -2291,8 +2314,7 @@ export async function mountSync(api) {
     url.searchParams.delete("sync");
     history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }
-  if (state.account) tick();
-  setInterval(() => tick(), 4000);
+  runPoll();
   window.addEventListener("online", () => tick());
   window.addEventListener("offline", () => {
     if (!state.account) return;
@@ -2300,6 +2322,11 @@ export async function mountSync(api) {
     clearTimeout(saveTimer);
     saveTimer = null;
     setChip("Offline", "offline");
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!state.account || ticking) return;
+    if (document.hidden) nextPoll(pollWait({ hidden: true }));
+    else schedule();
   });
   const settingsRoot = document.querySelector("[data-settings]");
   let syncShown = false;

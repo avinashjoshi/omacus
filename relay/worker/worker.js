@@ -1,4 +1,4 @@
-// Private sync test relay (1.0.0-beta.33) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.34) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
 // Each account lives in its own object. A directory object maps an invite
 // hash to that account, so a join does not list every account.
@@ -33,7 +33,7 @@ import {
 } from "./limits.js";
 import { nightOf, nightPrefix, openBackupStore } from "./backup.js";
 
-const LABEL = "1.0.0-beta.33";
+const LABEL = "1.0.0-beta.34";
 const MAX_RECORD = 256 * 1024, MAX_MANIFEST = 1024 * 1024, MAX_OBJECT = 4 * 1024 * 1024 + 64;
 const MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024, MAX_BODY = 8 * 1024 * 1024;
 const MAX_REQUESTS = 8, MAX_USES = 20;
@@ -57,6 +57,7 @@ const ERR = {
   Room: [429, "That account is out of room."],
   Devices: [429, "That account has as many phones and computers as it can."],
   Limited: [429, "Try again in a moment."],
+  Busy: [429, "Sync is busy. Try again in a moment."],
 };
 // Sync hosts never set a cookie. A browser on any origin may call them.
 const CORS = {
@@ -232,6 +233,7 @@ export class Mailboxes extends DurableObject {
   }
   async guard(method, path, raw, headers, mailbox) {
     const auth = await authorize(method, path, raw, headers, mailbox.record, Date.now(), mailbox);
+    if (auth && auth.busy) fail("Busy");
     if (!auth) fail("Unknown");
     noteActivity(mailbox);
     return auth;

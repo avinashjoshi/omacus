@@ -1,7 +1,7 @@
 // A quiet poll names the revision it has. The record comes back only when that revision changed.
 import { Mailboxes } from "./worker.js";
 import { MemoryStorage } from "./storage.js";
-import { authHeaders, makeDevice, makeRecord } from "./auth.js";
+import { MAX_NONCES, appendDevice, authHeaders, authorize, deviceChain, makeDevice, makeRecord } from "./auth.js";
 
 const account = "ab".repeat(32);
 const object = "0123456789abcdef0123456789abcdef";
@@ -113,15 +113,86 @@ const nonceCreated = await call(nonceBox, "POST", "/v1/mailboxes", {
 assert(nonceCreated.status === 201, `nonce mailbox ${nonceCreated.status}`);
 const noncePath = `/v1/mailboxes/${nonceAccount}`;
 const seen = [];
-for (let n = 0; n < 64; n += 1) {
+for (let n = 0; n < 70; n += 1) {
   const headers = await authHeaders(nonceDevice, "GET", noncePath, "");
   seen.push(headers);
   const read = await call(nonceBox, "GET", noncePath, undefined, headers);
   assert(read.status === 200, `nonce ${n} ${read.status} ${read.raw}`);
 }
-const overflow = await call(nonceBox, "GET", noncePath, undefined, await authHeaders(nonceDevice, "GET", noncePath, ""));
-assert(overflow.status === 404, `a full nonce table accepted another ${overflow.status}`);
 const replay = await call(nonceBox, "GET", noncePath, undefined, seen[0]);
-assert(replay.status === 404, `a captured request was replayed after the table filled ${replay.status}`);
+assert(replay.status === 429, `a captured request was not busy ${replay.status} ${replay.raw}`);
+assert(replay.json.message === "Sync is busy. Try again in a moment.", `busy message ${replay.raw}`);
+assert(!replay.raw.includes("No pages for that yet"), "a replay looked like a missing mailbox");
+
+const phones = [
+  await makeDevice(nonceAccount),
+  await makeDevice(nonceAccount),
+  await makeDevice(nonceAccount),
+];
+let chain = await deviceChain(phones[0]);
+chain = await appendDevice(phones[0], chain, phones[1]);
+chain = await appendDevice(phones[0], chain, phones[2]);
+assert(chain, "three phones were not listed");
+const shared = await makeRecord(phones[0], "harbor", 2, chain);
+const book = { record: shared, nonces: {} };
+const start = 1_700_000_000_000;
+const step = 4000;
+const span = 15 * 60 * 1000;
+let captured = null;
+let capturedAt = start;
+for (let t = start, n = 0; t < start + span; t += step, n += 1) {
+  for (const phone of phones) {
+    const headers = await authHeaders(phone, "GET", `/v1/mailboxes/${nonceAccount}`, "", t);
+    const auth = await authorize("GET", `/v1/mailboxes/${nonceAccount}`, "", new Headers(headers), shared, t, book);
+    assert(auth && !auth.busy, `poll ${n} was refused`);
+    if (phone === phones[0]) {
+      captured = headers;
+      capturedAt = t;
+    }
+    if (n % 15 === 0) {
+      const body = JSON.stringify({ revision: 1, record: shared });
+      const put = await authHeaders(phone, "PUT", `/v1/mailboxes/${nonceAccount}`, body, t);
+      const saved = await authorize("PUT", `/v1/mailboxes/${nonceAccount}`, body, new Headers(put), shared, t, book);
+      assert(saved && !saved.busy, `save ${n} was refused`);
+    }
+  }
+}
+const again = await authorize(
+  "GET",
+  `/v1/mailboxes/${nonceAccount}`,
+  "",
+  new Headers(captured),
+  shared,
+  capturedAt,
+  book,
+);
+assert(again && again.busy, "a poll still inside the window was accepted again");
+const fresh = { record: shared, nonces: {} };
+const now = start + span + 5 * 60 * 1000;
+for (let i = 0; i < MAX_NONCES; i += 1) {
+  const headers = await authHeaders(phones[0], "GET", `/v1/mailboxes/${nonceAccount}`, "", now);
+  const auth = await authorize("GET", `/v1/mailboxes/${nonceAccount}`, "", new Headers(headers), shared, now, fresh);
+  assert(auth && !auth.busy, `fill ${i} was refused`);
+}
+const overflow = await authorize(
+  "GET",
+  `/v1/mailboxes/${nonceAccount}`,
+  "",
+  new Headers(await authHeaders(phones[0], "GET", `/v1/mailboxes/${nonceAccount}`, "", now)),
+  shared,
+  now,
+  fresh,
+);
+assert(overflow && overflow.busy, "a full phone list accepted another poll");
+const other = await authorize(
+  "GET",
+  `/v1/mailboxes/${nonceAccount}`,
+  "",
+  new Headers(await authHeaders(phones[1], "GET", `/v1/mailboxes/${nonceAccount}`, "", now)),
+  shared,
+  now,
+  fresh,
+);
+assert(other && !other.busy, "another phone was blocked by the full list");
 
 console.log("revision poll ok");

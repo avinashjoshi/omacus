@@ -4,7 +4,9 @@
 
 const enc = new TextEncoder();
 const WINDOW_MS = 5 * 60 * 1000;
-const MAX_NONCES = 64;
+// One phone polling every few seconds, plus a save, stays well under this.
+// The cap is per device. A nonce is still unique across the whole account.
+export const MAX_NONCES = 512;
 const RECOVERY_ID = enc.encode("recovery-signer\0");
 
 const concat = (...parts) => {
@@ -228,16 +230,48 @@ function authMessage(method, path, time, nonce, raw) {
   ));
 }
 
-function rememberNonce(mailbox, nonce, time, now) {
-  if (!mailbox.nonces || typeof mailbox.nonces !== "object") mailbox.nonces = {};
-  for (const [key, at] of Object.entries(mailbox.nonces)) {
-    if (Number(at) + WINDOW_MS < now) delete mailbox.nonces[key];
+function nonceBook(mailbox) {
+  const raw = mailbox.nonces;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    mailbox.nonces = {};
+    return mailbox.nonces;
   }
-  if (Object.hasOwn(mailbox.nonces, nonce)) return false;
-  const keys = Object.keys(mailbox.nonces);
-  if (keys.length >= MAX_NONCES) return false;
-  mailbox.nonces[nonce] = time;
-  return true;
+  const values = Object.values(raw);
+  // Older copies stored one flat map of nonce → time for the whole account.
+  if (values.length && values.every((value) => typeof value === "number")) {
+    mailbox.nonces = { "": raw };
+  }
+  return mailbox.nonces;
+}
+
+function pruneBook(book, now) {
+  for (const device of Object.keys(book)) {
+    const bucket = book[device];
+    if (!bucket || typeof bucket !== "object") {
+      delete book[device];
+      continue;
+    }
+    for (const [nonce, at] of Object.entries(bucket)) {
+      if (Number(at) + WINDOW_MS < now) delete bucket[nonce];
+    }
+    if (!Object.keys(bucket).length) delete book[device];
+  }
+}
+
+function nonceSeen(book, nonce) {
+  return Object.values(book).some((bucket) => bucket && typeof bucket === "object" && Object.hasOwn(bucket, nonce));
+}
+
+// "ok" remembers the nonce. "busy" is a replay, or that phone's list is full.
+function rememberNonce(mailbox, device, nonce, time, now) {
+  const book = nonceBook(mailbox);
+  pruneBook(book, now);
+  if (nonceSeen(book, nonce)) return "busy";
+  const bucket = book[device] && typeof book[device] === "object" ? book[device] : {};
+  book[device] = bucket;
+  if (Object.keys(bucket).length >= MAX_NONCES) return "busy";
+  bucket[nonce] = time;
+  return "ok";
 }
 
 // The current device list is a longer extension of the older one.
@@ -267,7 +301,7 @@ export async function authorize(method, path, raw, headers, recordB64, now, mail
   if (!key) return null;
   const message = await authMessage(method, path, time, nonce, raw || "");
   if (!await verify(key, signature, message)) return null;
-  if (!rememberNonce(mailbox, hex(nonce), time, now)) return null;
+  if (rememberNonce(mailbox, hex(device), hex(nonce), time, now) !== "ok") return { busy: true };
   return { recovery: same(device, RECOVERY_ID) };
 }
 
@@ -349,8 +383,7 @@ export async function makeRecord(device, text, version = 2, chain) {
   return b64(concat(prefix, device.id, signature));
 }
 
-export async function authHeaders(device, method, path, raw) {
-  const time = Date.now();
+export async function authHeaders(device, method, path, raw, time = Date.now()) {
   const nonce = crypto.getRandomValues(new Uint8Array(16));
   const message = await authMessage(method, path, time, nonce, raw || "");
   const signature = new Uint8Array(await crypto.subtle.sign("Ed25519", device.privateKey, message));

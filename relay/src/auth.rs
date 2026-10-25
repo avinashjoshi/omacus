@@ -16,7 +16,7 @@ pub const GUESS_LIMIT: u32 = 10;
 pub const JOIN_LIMIT: u32 = 10;
 pub const READ_ACCOUNT_LIMIT: u32 = 180;
 pub const READ_IP_LIMIT: u32 = 500;
-const MAX_NONCES: usize = 64;
+pub const MAX_NONCES: usize = 512;
 const RECOVERY_ID: [u8; 16] = *b"recovery-signer\0";
 
 pub struct Auth {
@@ -24,6 +24,65 @@ pub struct Auth {
     pub time: u64,
     pub nonce: [u8; 16],
     pub signature: [u8; 64],
+}
+
+/// A good signature. `bool` is true when the recovery key signed it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthDecision {
+    Allowed(bool),
+    Busy,
+}
+
+/// Recent nonces, one list per phone. A nonce is still unique for the account.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NonceBook {
+    by_device: BTreeMap<String, BTreeMap<String, u64>>,
+}
+
+impl NonceBook {
+    /// `false` when this nonce was already used, or this phone's list is full.
+    pub fn remember(&mut self, device: &str, nonce: &str, time: u64, now: u64) -> bool {
+        self.prune(now);
+        if self.seen(nonce) {
+            return false;
+        }
+        let bucket = self.by_device.entry(device.to_string()).or_default();
+        if bucket.len() >= MAX_NONCES {
+            return false;
+        }
+        bucket.insert(nonce.to_string(), time);
+        true
+    }
+
+    pub fn insert_raw(&mut self, device: &str, nonce: &str, time: u64) {
+        self.by_device
+            .entry(device.to_string())
+            .or_default()
+            .insert(nonce.to_string(), time);
+    }
+
+    pub fn rows(&self) -> Vec<(String, String, u64)> {
+        let mut out = Vec::new();
+        for (device, bucket) in &self.by_device {
+            for (nonce, time) in bucket {
+                out.push((device.clone(), nonce.clone(), *time));
+            }
+        }
+        out
+    }
+
+    fn seen(&self, nonce: &str) -> bool {
+        self.by_device
+            .values()
+            .any(|bucket| bucket.contains_key(nonce))
+    }
+
+    fn prune(&mut self, now: u64) {
+        for bucket in self.by_device.values_mut() {
+            bucket.retain(|_, time| time.saturating_add(WINDOW_MS) >= now);
+        }
+        self.by_device.retain(|_, bucket| !bucket.is_empty());
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -65,7 +124,8 @@ pub fn read_proof(headers: &BTreeMap<String, String>) -> Option<Vec<u8>> {
     base64::Engine::decode(&base64::engine::general_purpose::STANDARD, text.trim()).ok()
 }
 
-/// `Some(true)` when the recovery signing key signed this request.
+/// `Allowed(true)` when the recovery signing key signed this request.
+/// `Busy` is a replay, or that phone's nonce list is full. A bad signature is `None`.
 pub fn accept_request(
     method: &str,
     path: &str,
@@ -73,8 +133,8 @@ pub fn accept_request(
     auth: &Auth,
     now: u64,
     record: &[u8],
-    nonces: &mut BTreeMap<String, u64>,
-) -> Option<bool> {
+    nonces: &mut NonceBook,
+) -> Option<AuthDecision> {
     if auth.time.saturating_add(WINDOW_MS) < now || now.saturating_add(WINDOW_MS) < auth.time {
         return None;
     }
@@ -85,16 +145,10 @@ pub fn accept_request(
     let signature = Signature::from_slice(&auth.signature).ok()?;
     let verifying = VerifyingKey::from_bytes(&key).ok()?;
     verifying.verify(&message, &signature).ok()?;
-    let nonce = hex(&auth.nonce);
-    prune_nonces(nonces, now);
-    if nonces.contains_key(&nonce) {
-        return None;
+    if !nonces.remember(&hex(&auth.device), &hex(&auth.nonce), auth.time, now) {
+        return Some(AuthDecision::Busy);
     }
-    if nonces.len() >= MAX_NONCES {
-        return None;
-    }
-    nonces.insert(nonce, auth.time);
-    Some(recovery)
+    Some(AuthDecision::Allowed(recovery))
 }
 
 pub fn put_allowed(stored: &[u8], incoming: &[u8], recovery: bool) -> bool {
@@ -151,10 +205,6 @@ fn auth_message(method: &str, path: &str, time_ms: u64, nonce: &[u8; 16], body: 
     message.extend_from_slice(nonce);
     message.extend_from_slice(&Sha256::digest(body));
     message
-}
-
-fn prune_nonces(nonces: &mut BTreeMap<String, u64>, now: u64) {
-    nonces.retain(|_, time| time.saturating_add(WINDOW_MS) >= now);
 }
 
 struct Cursor<'a> {
@@ -431,4 +481,60 @@ fn unhex_exact<const N: usize>(text: &str) -> Option<[u8; N]> {
         *slot = u8::from_str_radix(text, 16).ok()?;
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn three_phones_can_poll_for_fifteen_minutes() {
+        let mut book = NonceBook::default();
+        let start = 1_700_000_000_000u64;
+        let step = 4_000u64;
+        let span = 15 * 60 * 1000;
+        let phones = ["harbor", "ferry", "bread"];
+        let mut t = start;
+        let mut n = 0u32;
+        let mut last_harbor = String::new();
+        let mut last_time = start;
+        while t < start + span {
+            for phone in phones {
+                let nonce = format!("{phone}-{n:05}");
+                assert!(
+                    book.remember(phone, &nonce, t, t),
+                    "{phone} poll {n} was refused"
+                );
+                if phone == "harbor" {
+                    last_harbor = nonce;
+                    last_time = t;
+                }
+                if n.is_multiple_of(15) {
+                    assert!(
+                        book.remember(phone, &format!("{phone}-save-{n}"), t, t),
+                        "{phone} save {n} was refused"
+                    );
+                }
+            }
+            n += 1;
+            t += step;
+        }
+        let end = start + span;
+        assert!(
+            !book.remember("ferry", &last_harbor, last_time, end),
+            "a captured poll was accepted on another phone"
+        );
+        assert!(
+            book.remember("harbor", "harbor-00000", end, end),
+            "a nonce from outside the window stayed blocked"
+        );
+
+        let mut full = NonceBook::default();
+        let now = end + WINDOW_MS;
+        for i in 0..MAX_NONCES {
+            assert!(full.remember("harbor", &format!("n{i}"), now, now));
+        }
+        assert!(!full.remember("harbor", "overflow", now, now));
+        assert!(full.remember("ferry", "still-ok", now, now));
+    }
 }

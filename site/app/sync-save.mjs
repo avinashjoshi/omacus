@@ -26,6 +26,20 @@ function pageMap(pages) {
   return map;
 }
 
+// A follow-up after a save is soon. A quiet visible tab waits. A hidden tab waits longer.
+export const POLL_SOON_MS = 800;
+export const POLL_ACTIVE_MS = 4000;
+export const POLL_IDLE_MS = 30000;
+export const POLL_HIDDEN_MS = 60000;
+
+export function pollWait(flags) {
+  const row = flags || {};
+  if (row.soon) return POLL_SOON_MS;
+  if (row.hidden) return POLL_HIDDEN_MS;
+  if (row.dirty || row.saving) return POLL_ACTIVE_MS;
+  return POLL_IDLE_MS;
+}
+
 // Turn on sync is the entry before setup. A paused cloud is only for a phone
 // that already turned sync off, or was removed.
 export function showTurnOnSync(status) {

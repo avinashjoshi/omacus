@@ -1,7 +1,7 @@
 // An edit typed while a save is in flight must stay unsaved.
 // Two phones that each edit offline both keep their lines: the one that was
 // offline merges when its pages differ from the last synced copy.
-import { beginSave, finishSave, noteLocalEdit, pagesDiffer, showTurnOnSync } from "../site/app/sync-save.mjs";
+import { beginSave, finishSave, noteLocalEdit, pagesDiffer, pollWait, showTurnOnSync } from "../site/app/sync-save.mjs";
 
 function assert(cond, message) {
   if (!cond) throw new Error(message);
@@ -40,5 +40,10 @@ assert(showTurnOnSync({ account: "", removed: false, paused: false }) === true, 
 assert(showTurnOnSync({ account: "harbor", paused: false, removed: false }) === false, "a linked phone still offered Turn on sync");
 assert(showTurnOnSync({ paused: true }) === false, "a paused phone was treated as not set up");
 assert(showTurnOnSync({ removed: true }) === false, "a removed phone was treated as not set up");
+assert(pollWait({ soon: true, hidden: true, dirty: true }) === 800, "a follow-up waited for the idle delay");
+assert(pollWait({ dirty: true }) === 4000, "an unsaved edit waited half a minute");
+assert(pollWait({ saving: true }) === 4000, "a save in flight waited half a minute");
+assert(pollWait({}) === 30000, "a quiet tab polled every 4 seconds");
+assert(pollWait({ hidden: true }) === 60000, "a hidden tab polled as if it were visible");
 
 console.log("sync save ok");

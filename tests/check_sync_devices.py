@@ -56,16 +56,26 @@ if "approvalPlan" in wait:
     errors.append("the waiting screen accepts the list before the numbers are checked")
 if "confirmLink" not in accept or "approvalPlan" not in accept or "These match" not in sync:
     errors.append("These match does not check the numbers before opening")
-if '"device-name.js"' not in sw or "omacus-sync-test-6" not in sw:
+if '"device-name.js"' not in sw or "omacus-sync-test-7" not in sw:
     errors.append("the sync test cache missed the name helper")
 if "site/app/device-name.js" not in build or "./device-name.js?v=" not in build:
     errors.append("the published app missed the name helper")
-if 'const CACHE = "omacus-app-15"' not in sw:
+if 'const CACHE = "omacus-app-16"' not in sw:
     errors.append("the published app cache changed")
+if "omacus-sync-web" not in build or "omacus_sync_web.js" not in build or "omacus_sync_web_bg.wasm" not in build:
+    errors.append("the published build does not ship the sync engine")
+if 'test -s "$dest/omacus_sync_web.js"' not in build or 'test -s "$dest/omacus_sync_web_bg.wasm"' not in build:
+    errors.append("the published build keeps going when the sync engine is missing")
 if 'from "./sync-vaults.mjs"' not in sync or '"sync-vaults.mjs"' not in sw:
     errors.append("the vault list is not in the app")
 if "site/app/sync-vaults.mjs" not in build or "./sync-vaults.mjs?v=" not in build:
     errors.append("the published app missed the vault list")
+calm = sync[sync.index("function calm("):sync.index("function armSaving(")]
+follow = sync[sync.index("async function follow("):sync.index("function nextPoll(")]
+if "!state.member" in calm or "else if (!state.member)" in follow:
+    errors.append("a phone that is not on the list says Sync paused")
+if "setInterval(() => tick(), 4000)" in sync or "pollWait" not in sync:
+    errors.append("sync still polls every 4 seconds while it is quiet")
 
 if errors:
     raise SystemExit("\n".join(errors))

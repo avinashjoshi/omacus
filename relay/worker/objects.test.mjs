@@ -80,7 +80,8 @@ try {
   const replayHeaders = await authHeaders(device, "GET", `/v1/mailboxes/${account}`, "");
   const once = await call(first, "GET", `/v1/mailboxes/${account}`, undefined, replayHeaders);
   const twice = await call(first, "GET", `/v1/mailboxes/${account}`, undefined, replayHeaders);
-  assert(once.status === 200 && twice.status === 404, `replay ${once.status} ${twice.status}`);
+  assert(once.status === 200 && twice.status === 429, `replay ${once.status} ${twice.status}`);
+  assert(twice.json.message === "Sync is busy. Try again in a moment.", `replay message ${twice.raw}`);
 
   const stranger = await makeDevice(account);
   const forged = await authed(first, stranger, "GET", `/v1/mailboxes/${account}`);

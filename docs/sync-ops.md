@@ -59,7 +59,8 @@ Create one Access application that includes both `sync.omacus.com/admin` and `sy
 
 - `ACCESS_AUD` and `ACCESS_TEAM_DOMAIN` are both set. A missing one refuses admin. `ALLOW_NO_ACCESS` is not set.
 - The R2 lifecycle rule is on `omacus-sync-backups`. Prefix `nights/`. Delete after 30 days. The same rule is on `omacus-sync-test-backups`.
-- The published app shows the Sync tab. `.github/scripts/build-web.sh` writes `https://sync.omacus.com` into the app's sync address, and `site/app/_headers` allows that host in `connect-src`. Deploy app.omacus.com from that build.
+- The published build includes the sync engine. `.github/scripts/build-web.sh` builds `omacus-sync-web` and stops if `omacus_sync_web.js` or `omacus_sync_web_bg.wasm` is missing. That build writes `https://sync.omacus.com` into the app's sync address, and `site/app/_headers` allows that host in `connect-src`. The published app shows the Sync tab. Deploy app.omacus.com from that build.
+- Point-in-time recovery is on for the production `Mailboxes` namespace. In the Cloudflare dashboard, open that namespace and turn it on before you rely on a night's copy.
 - After the deploy, check `GET /v1/health`, that `GET /` redirects to the app, that admin returns 403 when signed out, and that a phone can create a set of pages, link a second one, and save.
 - To roll back, deploy the previous worker script and the previous app assets. A phone keeps the pages it already has.
 

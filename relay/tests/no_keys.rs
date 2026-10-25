@@ -436,7 +436,7 @@ fn the_relay_holds_no_key_and_no_page() {
     assert_eq!(status, 400);
     let kept = store.lock().unwrap().stored_bytes();
     for word in words {
-        assert!(!holds(&kept, word.as_bytes()));
+        assert!(!holds_word(&kept, word.as_bytes()));
     }
 }
 
@@ -694,8 +694,8 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
         assert!(!holds(&wire, secret), "the wire holds a page or a key");
     }
     for word in words {
-        assert!(!holds(&kept, word.as_bytes()));
-        assert!(!holds(&wire, word.as_bytes()));
+        assert!(!holds_word(&kept, word.as_bytes()));
+        assert!(!holds_word(&wire, word.as_bytes()));
     }
 }
 
@@ -775,7 +775,7 @@ fn the_test_pages_do_not_name_private_parts_or_the_live_app() {
     ] {
         assert!(!text.contains(word), "the test pages say {word}");
     }
-    assert!(text.contains("1.0.0-beta.33"));
+    assert!(text.contains("1.0.0-beta.34"));
     assert!(
         !std::fs::read_to_string(root.join("../site/app/index.html"))
             .unwrap()
@@ -985,8 +985,11 @@ fn an_unsigned_request_a_removed_phone_and_a_replay_are_refused() {
     let (status, _) = exchange_with(port, "GET", &path, b"", &auth.headers(), &mut Vec::new());
     assert_eq!(status, 200);
     let (status, body) = exchange_with(port, "GET", &path, b"", &auth.headers(), &mut Vec::new());
-    assert_eq!(status, 404, "a repeated request is refused");
-    assert_eq!(json_body(&body)["message"], missing);
+    assert_eq!(status, 429, "a repeated request is refused");
+    assert_eq!(
+        json_body(&body)["message"],
+        "Sync is busy. Try again in a moment."
+    );
 
     let joiner = Desk::start_join().unwrap();
     let device = joiner.public_device();

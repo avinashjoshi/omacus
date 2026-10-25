@@ -230,7 +230,7 @@ pre {
   color: var(--white);
 }
 
-:focus-visible {
+:focus-visible:not(.cm-content):not(.cm-scroller):not(.cm-editor) {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
   border-radius: 6px;

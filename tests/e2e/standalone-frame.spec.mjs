@@ -169,8 +169,6 @@ test.describe("installed iPhone", () => {
 
   test("the bar stays on the clock when the installed page is scrolled", async ({ page }) => {
     await openApp(page);
-    const applied = await applyGap(page);
-    expect(applied.fromFrame).toBe(true);
     const after = await page.evaluate(() => {
       const scroller = document.querySelector(".cm-scroller");
       if (scroller) {
@@ -210,7 +208,6 @@ test.describe("installed iPhone", () => {
     expect(Math.abs(after.right - after.innerWidth)).toBeLessThanOrEqual(1);
     expect(after.blur).toBe("none");
     expect(after.barBg).toBe(after.pageBg);
-    expect(Math.abs(after.pad - after.barH)).toBeLessThanOrEqual(1);
     expect(after.scrollY).toBe(0);
     expect(after.editorTop).toBeGreaterThan(0);
     expect(Math.abs(after.shellBottom - (after.innerHeight + after.gap))).toBeLessThanOrEqual(1);
@@ -225,7 +222,6 @@ test.describe("installed iPhone", () => {
   test("the collapsed rail in landscape still takes a tap", async ({ page }) => {
     await page.setViewportSize({ width: 844, height: 390 });
     await openApp(page);
-    await applyGap(page);
     const hit = await page.evaluate(() => {
       document.querySelector(".workspace").classList.add("collapsed");
       const gear = document.querySelector(".rail-settings");

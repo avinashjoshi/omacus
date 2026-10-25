@@ -46,8 +46,15 @@ if old not in text:
     raise SystemExit("sync-config.js has no empty SYNC_URL")
 config.write_text(text.replace(old, new, 1))
 headers = Path("../../site/app/_headers").read_text()
-if "Content-Security-Policy" not in headers or "https://sync.omacus.com" not in headers or "https://sync-test.omacus.com" not in headers:
+if "Content-Security-Policy" not in headers or "https://sync.omacus.com" not in headers:
     raise SystemExit("test build lost the sync content security policy")
+if "https://sync-test.omacus.com" in headers:
+    raise SystemExit("source headers already name the test sync host")
+headers = headers.replace(
+    "https://sync.omacus.com",
+    "https://sync.omacus.com https://sync-test.omacus.com",
+    1,
+)
 if "Cache-Control:" not in headers:
     headers = headers.rstrip() + "\n  Cache-Control: no-store\n"
 Path("public/_headers").write_text(headers if headers.endswith("\n") else headers + "\n")
