@@ -12,6 +12,11 @@ const storage = document.querySelector("[data-storage]");
 const errors = document.querySelector("[data-errors]");
 const limitsForm = document.querySelector("[data-limits]");
 const limitsNote = document.querySelector("[data-limits-note]");
+const backupsReady = document.querySelector("[data-backups-ready]");
+const backupButton = document.querySelector("[data-backup]");
+const backups = document.querySelector("[data-backups]");
+const restore = document.querySelector("[data-restore]");
+const restoreNote = document.querySelector("[data-restore-note]");
 const remove = document.querySelector("[data-remove]");
 const removeNote = document.querySelector("[data-remove-note]");
 
@@ -151,11 +156,40 @@ function fillLimits(row) {
   }
 }
 
+function renderBackups(row) {
+  clear(backups);
+  if (!row || row.ready === false) {
+    backupsReady.textContent = "Backups are not set up.";
+    backupButton.disabled = true;
+    return;
+  }
+  backupsReady.textContent = "A nightly copy of each sealed account. Restoring puts that copy back.";
+  backupButton.disabled = false;
+  const list = row.backups || [];
+  if (!list.length) {
+    backups.append(el("p", { class: "muted" }, ["No nightly copies yet."]));
+    return;
+  }
+  const table = el("table", {}, [
+    el("thead", {}, [el("tr", {}, ["Day", "Accounts"].map((name) => el("th", {}, [name])))]),
+  ]);
+  const body = el("tbody");
+  for (const item of list) {
+    body.append(el("tr", {}, [
+      el("td", {}, [item.day]),
+      el("td", {}, [String(item.accounts)]),
+    ]));
+  }
+  table.append(body);
+  backups.append(table);
+}
+
 async function refresh() {
-  const [listed, stats, limits] = await Promise.all([
+  const [listed, stats, limits, copies] = await Promise.all([
     api("GET", "/v1/admin/codes"),
     api("GET", "/v1/admin/stats"),
     api("GET", "/v1/admin/limits"),
+    api("GET", "/v1/admin/backups"),
   ]);
   signups.textContent = stats.paused ? "New signups are paused." : "New signups are on.";
   pause.textContent = stats.paused ? "Resume new signups" : "Pause new signups";
@@ -164,6 +198,7 @@ async function refresh() {
   renderStorage(stats.storage || []);
   renderErrors(stats.errors || []);
   fillLimits(limits);
+  renderBackups(copies);
 }
 
 async function unlock(next) {
@@ -236,6 +271,39 @@ create.addEventListener("submit", async (event) => {
     await refresh();
   } catch (error) {
     keyError.textContent = error.message;
+  }
+});
+
+backupButton.addEventListener("click", async () => {
+  backupButton.disabled = true;
+  restoreNote.textContent = "";
+  try {
+    await api("POST", "/v1/admin/backups", {});
+    await refresh();
+    restoreNote.textContent = "Nightly copy saved.";
+  } catch (error) {
+    restoreNote.textContent = error.message;
+  } finally {
+    backupButton.disabled = false;
+  }
+});
+
+restore.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = new FormData(restore);
+  const account = String(form.get("account") || "").trim();
+  restoreNote.textContent = "";
+  try {
+    await api("POST", "/v1/admin/restore", {
+      account,
+      confirm: account,
+      date: String(form.get("date") || ""),
+    });
+    restoreNote.textContent = "Sealed copy restored.";
+    restore.reset();
+    await refresh();
+  } catch (error) {
+    restoreNote.textContent = error.message;
   }
 });
 

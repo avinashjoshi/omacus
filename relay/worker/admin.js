@@ -127,12 +127,16 @@ function chainDevices(bytes) {
   return devices;
 }
 
+export async function adminPageAllowed(request, env) {
+  return accessJwtOk(request.headers.get("cf-access-jwt-assertion") || "", env || {});
+}
+
 export async function adminAuthorized(request, env) {
   const expected = String((env && env.ADMIN_KEY) || "");
   const header = request.headers.get("authorization") || "";
   const presented = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
   if (!sameSecret(expected, presented)) return false;
-  return accessJwtOk(request.headers.get("cf-access-jwt-assertion") || "", env || {});
+  return adminPageAllowed(request, env);
 }
 
 export async function noteError(storage, name) {
@@ -348,11 +352,20 @@ function decodeRecord(record) {
   }
 }
 
+// ACCESS_TEAM_DOMAIN is the host only, such as omacus.cloudflareaccess.com.
+// Until ACCESS_AUD is set, the admin key is the worker's check. Once it is
+// set, a request without a valid Access assertion is refused.
+function accessTeamDomain(env) {
+  const domain = String((env && env.ACCESS_TEAM_DOMAIN) || "").trim().toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(domain)) return "";
+  return domain;
+}
+
 async function accessJwtOk(token, env) {
-  const team = String(env.CF_ACCESS_TEAM || "").trim();
-  const aud = String(env.CF_ACCESS_AUD || "").trim();
-  if (!team || !aud) return true;
-  if (!token) return false;
+  const aud = String(env.ACCESS_AUD || "").trim();
+  if (!aud) return true;
+  const domain = accessTeamDomain(env);
+  if (!domain || !token) return false;
   const parts = token.split(".");
   if (parts.length !== 3) return false;
   let header;
@@ -366,11 +379,11 @@ async function accessJwtOk(token, env) {
   if (!header || header.alg !== "RS256" || typeof header.kid !== "string") return false;
   const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
   if (!audiences.includes(aud)) return false;
-  const host = team.includes(".") ? team : `${team}.cloudflareaccess.com`;
-  if (payload.iss !== `https://${host}`) return false;
+  const issuer = `https://${domain}`;
+  if (payload.iss !== issuer) return false;
   if (typeof payload.exp !== "number" || payload.exp * 1000 <= Date.now()) return false;
   if (typeof payload.nbf === "number" && payload.nbf * 1000 > Date.now()) return false;
-  const keys = await accessKeys(team);
+  const keys = await accessKeys(`${issuer}/cdn-cgi/access/certs`);
   if (!keys) return false;
   const jwk = keys.find((key) => key && key.kid === header.kid);
   if (!jwk) return false;
@@ -389,15 +402,14 @@ async function accessJwtOk(token, env) {
   }
 }
 
-async function accessKeys(team) {
-  const hit = certs.get(team);
+async function accessKeys(certsUrl) {
+  const hit = certs.get(certsUrl);
   if (hit && hit.until > Date.now()) return hit.keys;
-  const host = team.includes(".") ? team : `${team}.cloudflareaccess.com`;
-  const response = await fetch(`https://${host}/cdn-cgi/access/certs`);
+  const response = await fetch(certsUrl);
   if (!response.ok) return null;
   const body = await response.json();
   const keys = Array.isArray(body.keys) ? body.keys : [];
-  certs.set(team, { until: Date.now() + 60 * 60 * 1000, keys });
+  certs.set(certsUrl, { until: Date.now() + 60 * 60 * 1000, keys });
   return keys;
 }
 

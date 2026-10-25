@@ -12,6 +12,9 @@
 //   node relay/worker/admin.mjs resume
 //   node relay/worker/admin.mjs limits
 //   node relay/worker/admin.mjs limits --max-accounts 10000
+//   node relay/worker/admin.mjs backups
+//   node relay/worker/admin.mjs backup
+//   node relay/worker/admin.mjs restore <account> --date 2026-10-25 --confirm <account>
 //   node relay/worker/admin.mjs delete <account> --confirm <account>
 import { fileURLToPath } from "node:url";
 import { LIMIT_FLAGS } from "./limits.js";
@@ -82,7 +85,7 @@ async function main() {
   const base = (process.env.SYNC_URL || DEFAULT_SYNC_URL).replace(/\/$/, "");
   const key = process.env.ADMIN_KEY || "";
   if (!command || command === "--help") {
-    console.log("mint, list, revoke, stats, pause, resume, limits, delete");
+    console.log("mint, list, revoke, stats, pause, resume, limits, backups, backup, restore, delete");
     return;
   }
   if (!key) {
@@ -122,6 +125,23 @@ async function main() {
   } else if (command === "limits") {
     method = "GET";
     path = "/v1/admin/limits";
+  } else if (command === "backups") {
+    path = "/v1/admin/backups";
+  } else if (command === "backup") {
+    method = "POST";
+    path = "/v1/admin/backups";
+    body = {};
+  } else if (command === "restore") {
+    const account = argv[1] || "";
+    const confirm = flag(argv, "--confirm") || "";
+    const date = flag(argv, "--date") || "";
+    if (confirm !== account || !/^[0-9a-f]{64}$/.test(account)) {
+      console.error("Type the account id to confirm.");
+      process.exit(1);
+    }
+    method = "POST";
+    path = "/v1/admin/restore";
+    body = { account, confirm, date };
   } else if (command === "delete") {
     const account = argv[1] || "";
     const confirm = flag(argv, "--confirm") || "";
@@ -133,7 +153,7 @@ async function main() {
     path = `/v1/admin/accounts/${account}`;
     body = { confirm };
   } else {
-    console.error("Unknown command. Use mint, list, revoke, stats, pause, resume, limits, or delete.");
+    console.error("Unknown command. Use mint, list, revoke, stats, pause, resume, limits, backups, backup, restore, or delete.");
     process.exit(1);
   }
 
@@ -202,6 +222,22 @@ async function main() {
       process.exit(1);
     }
     console.log(formatLimits(next));
+    return;
+  }
+  if (command === "backups") {
+    if (data.ready === false) {
+      console.log("Backups are not set up.");
+      return;
+    }
+    if (!data.backups || !data.backups.length) {
+      console.log("No nightly copies yet.");
+      return;
+    }
+    for (const row of data.backups) console.log(`${row.day}  ${row.accounts} accounts`);
+    return;
+  }
+  if (command === "backup") {
+    console.log(`${data.day}  ${data.accounts} accounts`);
     return;
   }
   console.log("Done.");

@@ -1,6 +1,6 @@
 # Private sync test
 
-This is a private test, labeled 1.0.0-beta.20. This repository does not deploy it. Hosting for the test and for production is in `docs/sync-ops.md`.
+This is a private test, labeled 1.0.0-beta.21. This repository does not deploy it. Hosting for the test and for production is in `docs/sync-ops.md`.
 
 The server keeps sealed copies of pages. It cannot open them. The words stay on the device.
 
@@ -26,7 +26,7 @@ node relay/worker/admin.mjs mint --uses 3 --label "Friends"
 node relay/worker/admin.mjs list
 ```
 
-The command talks to the test host. A code works once, unless `--uses` sets a higher number from 1 to 20. Existing pages keep syncing without a new code. The admin page can also pause new signups, change the account, storage, device, and rate limits, and remove a sealed copy. It cannot open a page. `node relay/worker/admin.mjs limits` prints the current numbers. Add a flag such as `--max-accounts` to change one.
+The command talks to the test host. A code works once, unless `--uses` sets a higher number from 1 to 20. Existing pages keep syncing without a new code. The admin page can also pause new signups, change the account, storage, device, and rate limits, copy the sealed accounts for the night, restore one from a saved night, and remove a sealed copy. It cannot open a page. Once the Access audience tag is set, every admin request also needs that sign-in. `node relay/worker/admin.mjs limits` prints the current numbers. Add a flag such as `--max-accounts` to change one. `node relay/worker/admin.mjs backups` lists the nights.
 
 With the server already running, `node relay/check.mjs` walks that path in a browser.
 

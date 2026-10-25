@@ -24,7 +24,13 @@ npx wrangler secret put ACCESS_SECRET
 npx wrangler secret put ADMIN_KEY
 ```
 
-`ACCESS_SECRET` checks invite codes. `ADMIN_KEY` opens the admin page and the admin commands. Leave Cloudflare Access unset until it is in front of the admin paths. While it is unset, the admin key is enough.
+`ACCESS_SECRET` checks invite codes. `ADMIN_KEY` opens the admin commands. Cloudflare Access is already in front of `sync-test.omacus.com/admin`. Set the audience tag so the worker checks that sign-in on every `/admin` request:
+
+```
+npx wrangler secret put ACCESS_AUD
+```
+
+Until `ACCESS_AUD` is set, the admin key is enough. Once it is set, a missing or bad Access sign-in is refused, and `/v1/admin` still requires the admin key.
 
 ## Production
 
@@ -42,22 +48,26 @@ Set the secrets on that worker. A secret set on the test worker is not copied ov
 ```
 npx wrangler secret put ACCESS_SECRET --env production
 npx wrangler secret put ADMIN_KEY --env production
+npx wrangler secret put ACCESS_AUD --env production
 ```
+
+Production does not have Access yet. Create a matching Access application on `sync.omacus.com/admin` (and `/v1/admin`) before relying on that admin page. Both workers set `ACCESS_TEAM_DOMAIN` to `omacus.cloudflareaccess.com`. Set that application's own audience tag as `ACCESS_AUD` on the production worker. Until that tag is set, the production admin key is enough.
+
+## Nightly copies
+
+The buckets already exist and are bound as `BACKUPS`. The test worker uses `omacus-sync-test-backups`. The production worker uses `omacus-sync-backups`. A deploy picks up that binding. The worker copies every sealed account at 07:15 UTC and keeps 14 nights. The admin page and `admin.mjs restore` write a night back. They do not open a page.
 
 ## Cloudflare Access
 
-Put Access in front of `/admin` and `/v1/admin` on the host you are protecting. Create an Access application for those paths and copy its audience tag.
+Access already protects `sync-test.omacus.com/admin`. The worker checks `Cf-Access-Jwt-Assertion` on every `/admin` request once `ACCESS_AUD` is set. `ACCESS_TEAM_DOMAIN` is the team host (`omacus.cloudflareaccess.com` on both workers). The worker checks the signature against `https://omacus.cloudflareaccess.com/cdn-cgi/access/certs`, the issuer `https://omacus.cloudflareaccess.com`, and the `ACCESS_AUD` tag. A request that fails that check is refused. `/v1/admin` also requires `ADMIN_KEY`.
 
-When both of these are set, admin calls also require a valid Access token. The worker checks the `Cf-Access-Jwt-Assertion` header. Leave them unset until Access is in place, or every admin call is refused.
+Production needs its own Access application on `sync.omacus.com/admin`, then:
 
 ```
-npx wrangler secret put CF_ACCESS_TEAM
-npx wrangler secret put CF_ACCESS_AUD
+npx wrangler secret put ACCESS_AUD --env production
 ```
 
-`CF_ACCESS_TEAM` is the team name in `https://<team>.cloudflareaccess.com`. `CF_ACCESS_AUD` is the application's audience tag. Add `--env production` for the production worker.
-
-For the command line, create a service token in Access and export `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. The admin command sends those headers. It does not print them.
+For the command line, create a service token in Access and export `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. The admin command sends those headers. It does not print them. Access adds the assertion before the request reaches the worker.
 
 ## Invite codes
 
@@ -74,11 +84,14 @@ node relay/worker/admin.mjs pause
 node relay/worker/admin.mjs resume
 node relay/worker/admin.mjs limits
 node relay/worker/admin.mjs limits --max-accounts 10000
+node relay/worker/admin.mjs backups
+node relay/worker/admin.mjs backup
+node relay/worker/admin.mjs restore <account> --date 2026-10-25 --confirm <account>
 node relay/worker/admin.mjs delete <account> --confirm <account>
 ```
 
 Mint prints the code once. The server stores a hash, a label, the uses left, and the times. It does not store the code. An optional expiry is the end of that UTC day.
 
-The same actions are on the admin page. List shows the label, uses left, created time, last-used time, and status. Revoke retires a code. Stats show the account count, the device count, the size of each sealed copy, and recent error counts. They do not show page text or names. Pause and resume apply to new signups. Phones that are already in keep syncing. Limits set how many accounts the server will take, how much storage one account can use, how many devices it can list, and the rate limits. A signup past the account limit is refused, and the invite code is not used. Removing a sealed copy asks for the account id to be typed again.
+The same actions are on the admin page. List shows the label, uses left, created time, last-used time, and status. Revoke retires a code. Stats show the account count, the device count, the size of each sealed copy, and recent error counts. They do not show page text or names. Pause and resume apply to new signups. Phones that are already in keep syncing. Limits set how many accounts the server will take, how much storage one account can use, how many devices it can list, and the rate limits. A signup past the account limit is refused, and the invite code is not used. A nightly copy keeps each sealed account. Restoring writes that copy back and does not open a page. Removing a sealed copy asks for the account id to be typed again.
 
 `node relay/worker/mint.mjs` does the same as `admin.mjs mint`.

@@ -69,6 +69,20 @@
         </section>
 
         <section class="block">
+          <h2>Nightly copies</h2>
+          <p data-backups-ready>A nightly copy of each sealed account. Restoring puts that copy back.</p>
+          <button class="quiet" type="button" data-backup>Copy now</button>
+          <div data-backups></div>
+          <form class="remove" data-restore>
+            <label>Account id <input name="account" autocomplete="off" spellcheck="false" required></label>
+            <label>Day <input name="date" type="date" required></label>
+            <p>Type the account id to confirm.</p>
+            <button class="danger" type="submit">Restore sealed copy</button>
+          </form>
+          <p class="alert" data-restore-note role="status"></p>
+        </section>
+
+        <section class="block">
           <h2>Remove a sealed copy</h2>
           <p>Type the account id to confirm.</p>
           <form class="remove" data-remove>

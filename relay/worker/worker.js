@@ -1,4 +1,4 @@
-// Private sync test relay (1.0.0-beta.20) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.21) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
 // Each account lives in its own object. A directory object maps an invite
 // hash to that account, so a join does not list every account.
@@ -10,7 +10,7 @@
 // This worker holds no keys and cannot open a page.
 import { DurableObject } from "cloudflare:workers";
 import { mint, openCode, spend } from "./access.js";
-import { adminAuthorized, deviceCount, handleAdmin, isolateAllow, linkedDevices, noteError } from "./admin.js";
+import { adminAuthorized, adminPageAllowed, deviceCount, handleAdmin, isolateAllow, linkedDevices, noteError } from "./admin.js";
 import { allowPut, authorize } from "./auth.js";
 import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
 import {
@@ -21,8 +21,9 @@ import {
   normalizeLimits,
   rejectSignup,
 } from "./limits.js";
+import { KEEP_NIGHTS, dayFromKey, nightOf, nightPrefix, nightsToDrop } from "./backup.js";
 
-const LABEL = "1.0.0-beta.20";
+const LABEL = "1.0.0-beta.21";
 const MAX_RECORD = 256 * 1024, MAX_MANIFEST = 1024 * 1024, MAX_OBJECT = 4 * 1024 * 1024 + 64;
 const MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024, MAX_BODY = 8 * 1024 * 1024;
 const MAX_REQUESTS = 8, MAX_USES = 20;
@@ -514,7 +515,7 @@ export class Mailboxes extends DurableObject {
     if (objectPath && method === "PUT") {
       const key = `o:${objectPath[1]}:${objectPath[2]}`;
       if (!Number.isInteger(value.revision) || typeof value.body !== "string") fail("Unreadable");
-      if (!(await this.store.get(key))) {
+      if (value.replace === true || !(await this.store.get(key))) {
         await this.store.put(key, {
           revision: value.revision,
           body: value.body,
@@ -609,6 +610,36 @@ export class Mailboxes extends DurableObject {
       const foot = await footprint(this.store, size[1]);
       if (!foot) fail("Unknown");
       return [200, foot];
+    }
+    if (method === "GET" && path === "/v1/internal/accounts") {
+      const ids = new Set();
+      const registered = await this.store.list({ prefix: "r:" });
+      for (const [key, row] of registered) {
+        const account = key.slice(2);
+        if (/^[0-9a-f]{64}$/.test(account) && row && !row.pending) ids.add(account);
+      }
+      const mailboxes = await this.store.list({ prefix: "m:" });
+      for (const key of mailboxes.keys()) {
+        const account = key.slice(2);
+        if (/^[0-9a-f]{64}$/.test(account)) ids.add(account);
+      }
+      return [200, { accounts: [...ids].sort() }];
+    }
+    const replacing = /^\/v1\/internal\/replace\/([0-9a-f]{64})$/.exec(path);
+    if (method === "POST" && replacing) {
+      const account = replacing[1];
+      const mailbox = value.mailbox;
+      if (!mailbox || typeof mailbox !== "object" || typeof mailbox.record !== "string") fail("Unreadable");
+      const keep = new Set(
+        Array.isArray(value.keep) ? value.keep.filter((id) => /^[0-9a-f]{32}$/.test(id)) : [],
+      );
+      await this.store.put("m:" + account, mailbox);
+      const objects = await this.store.list({ prefix: `o:${account}:` });
+      for (const key of objects.keys()) {
+        const id = key.slice(`o:${account}:`.length);
+        if (!keep.has(id)) await this.store.delete(key);
+      }
+      return [200, { ok: true }];
     }
     fail("Unknown");
   }
@@ -740,6 +771,205 @@ async function adminLimits(env, method, payload) {
   const response = await env.CONFIG.get(env.CONFIG.idFromName("index")).fetch(request);
   const body = await response.json().catch(() => ({ message: "Try again in a moment." }));
   return json(response.status, body);
+}
+
+function internalJson(path, method = "GET", body) {
+  return new Request("https://sync.omacus.com" + path, {
+    method,
+    headers: internalHeaders(),
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+async function listKeys(bucket, prefix) {
+  const keys = [];
+  let cursor = "";
+  do {
+    const page = await bucket.list(cursor ? { prefix, cursor } : { prefix });
+    for (const object of page.objects || []) keys.push(object.key);
+    cursor = page.truncated ? page.cursor || "" : "";
+  } while (cursor);
+  return keys;
+}
+
+async function sealedAccounts(env) {
+  const ids = new Set();
+  for (const name of [DIRECTORY, LEGACY]) {
+    const response = await box(env, name).fetch(internalJson("/v1/internal/accounts"));
+    if (!response.ok) continue;
+    const body = await response.json().catch(() => ({}));
+    for (const account of body.accounts || []) {
+      if (/^[0-9a-f]{64}$/.test(account)) ids.add(account);
+    }
+  }
+  return [...ids].sort();
+}
+
+async function snapshotAccount(env, account) {
+  for (const name of [accountObject(account), LEGACY]) {
+    const copy = await box(env, name).fetch(internalJson(`/v1/internal/copy/${account}`, "POST", {}));
+    if (!copy.ok) continue;
+    const payload = await copy.json();
+    if (!payload || typeof payload.mailbox !== "object" || !payload.mailbox) continue;
+    const objects = [];
+    let complete = true;
+    for (const id of payload.objects || []) {
+      if (!/^[0-9a-f]{32}$/.test(id)) continue;
+      const object = await box(env, name).fetch(internalJson(`/v1/internal/object/${account}/${id}`));
+      if (!object.ok) {
+        complete = false;
+        break;
+      }
+      objects.push({ id, row: await object.json() });
+    }
+    if (!complete) return null;
+    return { mailbox: payload.mailbox, objects };
+  }
+  return null;
+}
+
+function snapshotBytes(mailbox, objects) {
+  let bytes = 0;
+  try { bytes += fromB64(mailbox.record).length; } catch { bytes += 0; }
+  for (const object of objects) {
+    bytes += object.row && Number.isInteger(object.row.bytes) ? object.row.bytes : 0;
+  }
+  return bytes;
+}
+
+export async function runBackup(env, when = Date.now()) {
+  if (!env.BACKUPS || typeof env.BACKUPS.put !== "function") return null;
+  const day = nightOf(when);
+  const prefix = nightPrefix(day);
+  const accounts = [];
+  let failed = 0;
+  for (const account of await sealedAccounts(env)) {
+    const shot = await snapshotAccount(env, account);
+    if (!shot) {
+      failed += 1;
+      continue;
+    }
+    await env.BACKUPS.put(`${prefix}accounts/${account}/mailbox.json`, JSON.stringify(shot.mailbox));
+    for (const object of shot.objects) {
+      await env.BACKUPS.put(
+        `${prefix}accounts/${account}/objects/${object.id}.json`,
+        JSON.stringify(object.row),
+      );
+    }
+    accounts.push({ account, objects: shot.objects.length, bytes: snapshotBytes(shot.mailbox, shot.objects) });
+  }
+  const index = { day, accounts, failed };
+  await env.BACKUPS.put(`${prefix}index.json`, JSON.stringify(index));
+  const keys = await listKeys(env.BACKUPS, "nights/");
+  const drop = new Set(nightsToDrop(keys.map(dayFromKey), KEEP_NIGHTS));
+  for (const key of keys) {
+    if (drop.has(dayFromKey(key))) await env.BACKUPS.delete(key);
+  }
+  return index;
+}
+
+async function readBackup(env, account, day) {
+  const prefix = `${nightPrefix(day)}accounts/${account}/`;
+  const mailboxGot = await env.BACKUPS.get(`${prefix}mailbox.json`);
+  if (!mailboxGot) return null;
+  const mailbox = JSON.parse(await mailboxGot.text());
+  const keys = (await listKeys(env.BACKUPS, `${prefix}objects/`)).sort();
+  const objects = [];
+  for (const key of keys) {
+    const id = key.slice(key.lastIndexOf("/") + 1).replace(/\.json$/, "");
+    if (!/^[0-9a-f]{32}$/.test(id)) continue;
+    const got = await env.BACKUPS.get(key);
+    if (!got) continue;
+    objects.push({ id, row: JSON.parse(await got.text()) });
+  }
+  return { mailbox, objects };
+}
+
+async function restoreSealed(env, account, day) {
+  const shot = await readBackup(env, account, day);
+  if (!shot || !shot.mailbox || typeof shot.mailbox.record !== "string") return null;
+  const home = box(env, accountObject(account));
+  const replaced = await home.fetch(internalJson(`/v1/internal/replace/${account}`, "POST", {
+    mailbox: shot.mailbox,
+    keep: shot.objects.map((object) => object.id),
+  }));
+  if (!replaced.ok) return null;
+  for (const object of shot.objects) {
+    const saved = await home.fetch(internalJson(`/v1/internal/object/${account}/${object.id}`, "PUT", {
+      ...object.row,
+      replace: true,
+    }));
+    if (!saved.ok) return null;
+  }
+  await box(env, LEGACY).fetch(internalJson(`/v1/internal/drop/${account}`, "POST", {}));
+  const invite = shot.mailbox.invite;
+  if (invite && /^[0-9a-f]{64}$/.test(invite.hash || "") && !invite.used) {
+    await box(env, DIRECTORY).fetch(internalJson(`/v1/internal/invite/${invite.hash}`, "PUT", {
+      account,
+      expires: invite.expires,
+    }));
+  }
+  const size = await home.fetch(internalJson(`/v1/internal/size/${account}`));
+  if (size.ok) {
+    const foot = await size.json();
+    await box(env, DIRECTORY).fetch(internalJson("/v1/internal/registry", "POST", {
+      account,
+      bytes: foot.bytes,
+      devices: foot.devices,
+    }));
+  }
+  homed.add(account);
+  return { objects: shot.objects.length };
+}
+
+async function listBackups(env) {
+  if (!env.BACKUPS || typeof env.BACKUPS.list !== "function") return { ready: false, backups: [] };
+  const keys = (await listKeys(env.BACKUPS, "nights/")).filter((key) => key.endsWith("/index.json"));
+  const backups = [];
+  for (const key of keys) {
+    const got = await env.BACKUPS.get(key);
+    if (!got) continue;
+    const row = JSON.parse(await got.text());
+    if (!row || typeof row.day !== "string") continue;
+    backups.push({
+      day: row.day,
+      accounts: Array.isArray(row.accounts) ? row.accounts.length : 0,
+      failed: Number.isInteger(row.failed) ? row.failed : 0,
+    });
+  }
+  backups.sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0));
+  return { ready: true, backups };
+}
+
+async function adminBackups(env, method, payload) {
+  if (method === "GET") return json(200, await listBackups(env));
+  if (!env.BACKUPS || typeof env.BACKUPS.put !== "function") {
+    return json(400, { message: "Backups are not set up." });
+  }
+  const index = await runBackup(env, Date.now());
+  return json(200, {
+    ready: true,
+    day: index.day,
+    accounts: index.accounts.length,
+    failed: index.failed,
+  });
+}
+
+async function adminRestore(env, payload) {
+  const value = payload && typeof payload === "object" ? payload : {};
+  const account = String(value.account || "").trim().toLowerCase();
+  const confirm = String(value.confirm || "").trim().toLowerCase();
+  const date = String(value.date || "");
+  if (!/^[0-9a-f]{64}$/.test(account) || confirm !== account) {
+    return json(400, { message: "Type the account id to confirm." });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json(400, { message: "That day didn't work." });
+  if (!env.BACKUPS || typeof env.BACKUPS.get !== "function") {
+    return json(400, { message: "Backups are not set up." });
+  }
+  const restored = await restoreSealed(env, account, date);
+  if (!restored) return json(404, { message: "No backup from that day." });
+  return json(200, { ok: true, objects: restored.objects });
 }
 
 function internalHeaders() {
@@ -1010,6 +1240,16 @@ async function adminApi(request, env, url) {
     if (request.method !== "GET" && request.method !== "POST") return json(404, { message: "Not found." });
     return adminLimits(env, request.method, payload);
   }
+  if (url.pathname === "/v1/admin/backups") {
+    if (!allowed) return json(401, { message: "That key didn't work." });
+    if (request.method !== "GET" && request.method !== "POST") return json(404, { message: "Not found." });
+    return adminBackups(env, request.method, payload);
+  }
+  if (url.pathname === "/v1/admin/restore") {
+    if (!allowed) return json(401, { message: "That key didn't work." });
+    if (request.method !== "POST") return json(404, { message: "Not found." });
+    return adminRestore(env, payload);
+  }
   if (allowed && request.method === "POST" && url.pathname === "/v1/admin/codes") {
     const uses = Number(payload && payload.uses);
     const code = await mint(String(env.ACCESS_SECRET || ""), Number.isInteger(uses) ? uses : NaN);
@@ -1049,8 +1289,16 @@ export default {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     if (url.pathname === "/v1/health" && request.method === "GET") return json(200, { label: LABEL });
-    if (url.pathname === "/admin" || url.pathname === "/admin/") return adminAsset(request, env, "/admin/index.html");
-    if (url.pathname.startsWith("/admin/")) return adminAsset(request, env, url.pathname);
+    if (url.pathname === "/admin" || url.pathname === "/admin/" || url.pathname.startsWith("/admin/")) {
+      if (!(await adminPageAllowed(request, env))) {
+        return new Response("That sign-in didn't work.", {
+          status: 401,
+          headers: { "cache-control": "no-store", "content-type": "text/plain; charset=utf-8" },
+        });
+      }
+      const pathname = url.pathname === "/admin" || url.pathname === "/admin/" ? "/admin/index.html" : url.pathname;
+      return adminAsset(request, env, pathname);
+    }
     if (url.pathname === "/css/tokens.css") return adminAsset(request, env, url.pathname);
     if (url.pathname.startsWith("/v1/admin")) return adminApi(request, env, url);
     if (url.pathname.startsWith("/v1/internal")) return json(404, { message: ERR.Unknown[1] });
@@ -1061,5 +1309,11 @@ export default {
     }
     if (String(env.SERVE_APP) === "1" && env.ASSETS) return env.ASSETS.fetch(request);
     return notFound();
+  },
+  async scheduled(event, env, ctx) {
+    const when = event && Number.isFinite(event.scheduledTime) ? event.scheduledTime : Date.now();
+    const job = runBackup(env, when);
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(job);
+    await job;
   },
 };

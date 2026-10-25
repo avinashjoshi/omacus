@@ -75,8 +75,8 @@ function harness(extra = {}) {
     ACCESS_SECRET: extra.ACCESS_SECRET ?? SECRET,
     ADMIN_KEY: Object.hasOwn(extra, "ADMIN_KEY") ? extra.ADMIN_KEY : ADMIN,
     SERVE_APP: extra.SERVE_APP ?? "0",
-    CF_ACCESS_TEAM: extra.CF_ACCESS_TEAM || "",
-    CF_ACCESS_AUD: extra.CF_ACCESS_AUD || "",
+    ACCESS_AUD: extra.ACCESS_AUD || "",
+    ACCESS_TEAM_DOMAIN: extra.ACCESS_TEAM_DOMAIN || "",
     MAILBOXES: {
       idFromName: () => "test",
       get: () => ({
@@ -306,7 +306,7 @@ const other = "cd".repeat(32);
   const home = await worker.fetch(new Request("https://sync.omacus.com/"), closed.env);
   assert(home.status === 404, "production served the app");
   const health = await worker.fetch(new Request("https://sync-test.omacus.com/v1/health"), closed.env);
-  assert((await health.json()).label === "1.0.0-beta.20", "label");
+  assert((await health.json()).label === "1.0.0-beta.21", "label");
 }
 
 {
@@ -341,8 +341,9 @@ const other = "cd".repeat(32);
   jwk.alg = "RS256";
   jwk.use = "sig";
   const realFetch = globalThis.fetch;
+  const certs = "https://omacus.cloudflareaccess.com/cdn-cgi/access/certs";
   globalThis.fetch = async (url) => {
-    if (String(url) === "https://omacus.cloudflareaccess.com/cdn-cgi/access/certs") {
+    if (String(url) === certs) {
       return new Response(JSON.stringify({ keys: [jwk] }), { status: 200 });
     }
     throw new Error(`unexpected fetch ${url}`);
@@ -364,18 +365,43 @@ const other = "cd".repeat(32);
     const open = harness();
     const plain = await call(open.env, "GET", "/v1/admin/stats");
     assert(plain.status === 200, "unconfigured access rejected a key");
-    const locked = harness({ CF_ACCESS_TEAM: "omacus", CF_ACCESS_AUD: aud });
+    const pageOpen = await call(open.env, "GET", "/admin");
+    assert(pageOpen.status !== 401, "unconfigured access refused the admin page");
+    const noTeam = harness({ ACCESS_AUD: aud });
+    const noTeamRes = await call(noTeam.env, "GET", "/v1/admin/stats");
+    assert(noTeamRes.status === 401, "audience without a team domain was accepted");
+    const locked = harness({ ACCESS_AUD: aud, ACCESS_TEAM_DOMAIN: "omacus.cloudflareaccess.com" });
+    locked.env.ASSETS = {
+      fetch: async (request) => new Response(new URL(request.url).pathname, { status: 200 }),
+    };
     const bare = await call(locked.env, "GET", "/v1/admin/stats");
     assert(bare.status === 401, "missing access token was accepted");
+    const barePage = await call(locked.env, "GET", "/admin", undefined, { authorization: "" });
+    assert(barePage.status === 401 && barePage.text.includes("didn't work"), "admin page skipped the access check");
+    const bareScript = await call(locked.env, "GET", "/admin/admin.js");
+    assert(bareScript.status === 401, "admin script skipped the access check");
     const other = await jwt({ aud: "other", exp, iss });
     const mismatch = await call(locked.env, "GET", "/v1/admin/stats", undefined, { "cf-access-jwt-assertion": other });
     assert(mismatch.status === 401, "wrong audience was accepted");
+    const foreign = await jwt({ aud, exp, iss: "https://other.cloudflareaccess.com" });
+    const wrongIss = await call(locked.env, "GET", "/v1/admin/stats", undefined, { "cf-access-jwt-assertion": foreign });
+    assert(wrongIss.status === 401, "wrong issuer was accepted");
     const stale = await jwt({ aud, exp: Math.floor(Date.now() / 1000) - 10, iss });
     const expired = await call(locked.env, "GET", "/v1/admin/stats", undefined, { "cf-access-jwt-assertion": stale });
     assert(expired.status === 401, "expired access token was accepted");
     const good = await jwt({ aud, exp, iss });
+    const keyless = await call(locked.env, "GET", "/v1/admin/stats", undefined, {
+      "cf-access-jwt-assertion": good,
+      authorization: "",
+    });
+    assert(keyless.status === 401, "access token replaced the admin key");
     const ok = await call(locked.env, "GET", "/v1/admin/stats", undefined, { "cf-access-jwt-assertion": good });
     assert(ok.status === 200, `valid access token failed ${ok.text}`);
+    const page = await call(locked.env, "GET", "/admin", undefined, {
+      "cf-access-jwt-assertion": good,
+      authorization: "",
+    });
+    assert(page.status === 200 && page.text === "/admin/index.html", `admin page rejected a valid sign-in ${page.status}`);
   } finally {
     globalThis.fetch = realFetch;
     clearAdminCaches();
@@ -402,6 +428,13 @@ const other = "cd".repeat(32);
   assert(!testBuild.includes("printf"), "test build replaces the headers file");
   assert(wrangler.includes('"name": "omacus-sync-test"') && wrangler.includes("sync-test.omacus.com"), "test worker");
   assert(wrangler.includes('"name": "omacus-sync"') && wrangler.includes("sync.omacus.com"), "production worker");
+  assert(wrangler.includes("omacus-sync-test-backups") && wrangler.includes("omacus-sync-backups"), "backup buckets");
+  assert(wrangler.includes('"binding": "BACKUPS"') && wrangler.includes("15 7 * * *"), "backup binding");
+  assert(wrangler.includes("ACCESS_AUD") && !wrangler.includes("CF_ACCESS_AUD"), "access audience");
+  assert((wrangler.match(/omacus\.cloudflareaccess\.com/g) || []).length >= 2, "access team on both workers");
+  const access = await readFile(new URL("./admin.js", import.meta.url), "utf8");
+  assert(access.includes("ACCESS_TEAM_DOMAIN") && access.includes("/cdn-cgi/access/certs"), "access certs");
+  assert(!access.includes("damp-band"), "old access team");
   assert(wrangler.includes('"SERVE_APP": "0"') && wrangler.includes('"SERVE_APP": "1"'), "serve flag");
   assert(DEFAULT_SYNC_URL === "https://sync-test.omacus.com", "cli default host");
   assert(!cli.includes("ACCESS_SECRET"), "cli still mints locally");

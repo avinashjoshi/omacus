@@ -4,9 +4,10 @@
   //   npx wrangler secret put ADMIN_KEY
   // Production uses the same commands with `--env production`.
   // A secret on the test worker is not copied to production.
-  // Optional, and only after Cloudflare Access is in front of /admin:
-  //   npx wrangler secret put CF_ACCESS_TEAM
-  //   npx wrangler secret put CF_ACCESS_AUD
+  // ACCESS_TEAM_DOMAIN is the Access team host. The audience tag is a secret:
+  //   npx wrangler secret put ACCESS_AUD
+  // Production needs its own Access application on sync.omacus.com/admin, then:
+  //   npx wrangler secret put ACCESS_AUD --env production
   // The default deploy (no --env) is the test worker.
   "name": "omacus-sync-test",
   "main": "worker.js",
@@ -18,7 +19,9 @@
     "binding": "ASSETS",
     "run_worker_first": true
   },
-  "vars": { "SERVE_APP": "1" },
+  "vars": { "SERVE_APP": "1", "ACCESS_TEAM_DOMAIN": "omacus.cloudflareaccess.com" },
+  "triggers": { "crons": ["15 7 * * *"] },
+  "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "omacus-sync-test-backups" }],
   "durable_objects": {
     "bindings": [
       { "name": "MAILBOXES", "class_name": "Mailboxes" },
@@ -34,7 +37,9 @@
       "name": "omacus-sync",
       "workers_dev": false,
       "routes": [{ "pattern": "sync.omacus.com", "custom_domain": true }],
-      "vars": { "SERVE_APP": "0" },
+      "vars": { "SERVE_APP": "0", "ACCESS_TEAM_DOMAIN": "omacus.cloudflareaccess.com" },
+      "triggers": { "crons": ["15 7 * * *"] },
+      "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "omacus-sync-backups" }],
       "durable_objects": {
         "bindings": [
           { "name": "MAILBOXES", "class_name": "Mailboxes" },
