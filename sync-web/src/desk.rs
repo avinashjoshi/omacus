@@ -2484,6 +2484,40 @@ mod tests {
     }
 
     #[test]
+    fn a_joiner_after_a_removal_still_checks_the_six_numbers() {
+        let (mut founder, _) = confirmed_desk();
+        let mut phone = start_join_confirmed();
+        let approval = founder.approve_new(&phone.public_device()).unwrap();
+        let before = founder.seal_pages(b"ferry = 40\n").unwrap();
+        phone
+            .open_approval_pages(&approval.chain, &approval.wrap, &before)
+            .unwrap();
+
+        let phone_id = *phone.device().public().id();
+        founder.remove_listed(&phone_id).unwrap();
+        let after = founder.seal_pages(b"bread $2\n").unwrap();
+
+        let mut third = Desk::start_join().unwrap();
+        let approval = founder.approve_new(&third.public_device()).unwrap();
+        let err = third
+            .open_approval_pages(&approval.chain, &approval.wrap, &after)
+            .unwrap_err();
+        assert_eq!(err.message(), sync_keys::CONFIRM_LINK);
+        assert!(third.vault().is_none());
+        third.confirm_link();
+        let pages = third
+            .open_approval_pages(&approval.chain, &approval.wrap, &after)
+            .unwrap();
+        assert_eq!(pages, b"bread $2\n");
+        assert!(third.member());
+        let old = third
+            .open_approval_pages(&approval.chain, &approval.wrap, &before)
+            .unwrap_err();
+        assert_ne!(old.message(), sync_keys::CONFIRM_LINK);
+        assert_eq!(old, SyncKeyError::Sealed);
+    }
+
+    #[test]
     fn an_old_sealed_copy_splits_into_one_object_per_page() {
         let (mut desk, _) = confirmed_desk();
         let set = omacus_engine::sync_keys::PageSet {

@@ -256,6 +256,9 @@ const thirdApproval = JSON.parse(approveDevice(computer.id, third.device));
 console.log("approve after removal", thirdApproval.ok ? "ok" : thirdApproval.message);
 if (thirdApproval.ok) {
   const thirdSealed = parse(sealPages(computer.id, packed.packed));
+  // A phone added after a removal still has no list. The first list is stored
+  // only after the six numbers are checked, same as the first link.
+  parse(confirmLink(third.id));
   const thirdOpen = JSON.parse(openApprovalPages(third.id, thirdApproval.chain, thirdApproval.wrap, thirdSealed.record));
   console.log("open after removal", thirdOpen.ok ? "ok" : thirdOpen.message);
   const oldOpen = JSON.parse(openApprovalPages(third.id, thirdApproval.chain, thirdApproval.wrap, record));
@@ -263,6 +266,10 @@ if (thirdApproval.ok) {
   if (!thirdOpen.ok) process.exitCode = 1;
   if (oldOpen.ok) {
     console.error("a copy from before removal opened with the new seal");
+    process.exitCode = 1;
+  }
+  if ((oldOpen.message || "").includes("six numbers")) {
+    console.error("the copy from before removal failed the fingerprint check");
     process.exitCode = 1;
   }
 } else process.exitCode = 1;
