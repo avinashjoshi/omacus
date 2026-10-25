@@ -66,12 +66,7 @@ function listMessage(list) {
   return concat(enc.encode("omacus-devices/1"), u64(list.version), list.prev, list.signer, ...body);
 }
 
-function changedByOne(previous, next) {
-  if (next.length === previous.length + 1) {
-    const added = next[next.length - 1];
-    return next.slice(0, previous.length).every((device, i) => same(device.id, previous[i].id) && same(device.sign, previous[i].sign) && same(device.receive, previous[i].receive))
-      && previous.every((device) => !same(device.id, added.id));
-  }
+function removedOne(previous, next) {
   if (previous.length < 2 || next.length + 1 !== previous.length) return false;
   let skipped = false;
   let index = 0;
@@ -82,6 +77,15 @@ function changedByOne(previous, next) {
     else return false;
   }
   return skipped && index === next.length;
+}
+
+function changedByOne(previous, next) {
+  if (next.length === previous.length + 1) {
+    const added = next[next.length - 1];
+    return next.slice(0, previous.length).every((device, i) => same(device.id, previous[i].id) && same(device.sign, previous[i].sign) && same(device.receive, previous[i].receive))
+      && previous.every((device) => !same(device.id, added.id));
+  }
+  return removedOne(previous, next);
 }
 
 async function openChain(bytes) {
@@ -130,7 +134,14 @@ async function openChain(bytes) {
       if (!previous.devices.some((device) => same(device.id, signer))) return null;
     }
     const list = { version: Number(version), prev, signer, devices };
-    const row = devices.find((device) => same(device.id, signer));
+    let row = devices.find((device) => same(device.id, signer));
+    if (!row && place > 0) {
+      const previous = out[place - 1];
+      const left = removedOne(previous.devices, devices)
+        ? previous.devices.find((device) => same(device.id, signer))
+        : null;
+      if (left) row = left;
+    }
     if (!row || !await verify(row.sign, signature, listMessage(list))) return null;
     out.push(list);
   }
@@ -204,8 +215,12 @@ async function recordOk(lists, account, signer, signature, prefix) {
     key = account;
   } else {
     const row = latest.devices.find((device) => same(device.id, signer));
-    if (!row) return false;
-    key = row.sign;
+    if (row) key = row.sign;
+    else if (lists.length >= 2 && same(latest.signer, signer) && removedOne(lists[lists.length - 2].devices, latest.devices)) {
+      const prior = lists[lists.length - 2].devices.find((device) => same(device.id, signer));
+      if (!prior) return false;
+      key = prior.sign;
+    } else return false;
   }
   return verify(key, signature, concat(enc.encode("omacus-record/1"), prefix));
 }
@@ -375,7 +390,9 @@ export async function dropDevice(signer, chain, removeId) {
   const previous = lists[lists.length - 1];
   const devices = previous.devices.filter((row) => !same(row.id, removeId));
   if (devices.length + 1 !== previous.devices.length) return null;
-  if (!devices.some((row) => same(row.id, signer.id))) return null;
+  const staying = devices.some((row) => same(row.id, signer.id));
+  const leaving = same(signer.id, removeId) && previous.devices.some((row) => same(row.id, signer.id));
+  if (!staying && !leaving) return null;
   const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", listMessage(previous)));
   const list = { version: previous.version + 1, prev: hash, signer: signer.id, devices };
   const signature = new Uint8Array(await crypto.subtle.sign("Ed25519", signer.privateKey, listMessage(list)));

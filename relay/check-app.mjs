@@ -400,10 +400,16 @@ await pageA.getByRole("button", { name: "Turn sync off", exact: true }).click();
 await pageA.getByRole("heading", { name: "Turn on sync" }).waitFor();
 await both(pageA, "19-sync-off");
 await closeSettings(pageA);
-await pageA.waitForFunction(() => document.querySelector(".sync-chip")?.textContent === "Sync paused");
+await pageA.waitForFunction(() => {
+  const chip = document.querySelector(".sync-chip");
+  return chip && chip.hidden && chip.textContent !== "Sync paused";
+});
 await pageA.reload({ waitUntil: "domcontentloaded" });
 await pageA.waitForSelector(".sync-chip", { timeout: 60000 });
-await pageA.waitForFunction(() => document.querySelector(".sync-chip")?.textContent === "Sync paused");
+await pageA.waitForFunction(() => {
+  const chip = document.querySelector(".sync-chip");
+  return chip && chip.dataset.ready === "1" && chip.hidden && chip.textContent !== "Sync paused";
+});
 await openNamed(pageA, "Trip Budget");
 const kept = await pageA.locator(".cm-content").innerText();
 if (!kept.includes("museum = 12")) throw new Error("turning sync off removed the page");

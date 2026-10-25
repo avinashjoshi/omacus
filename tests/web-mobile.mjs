@@ -102,7 +102,7 @@ check(html.includes("data-build-hash"), "settings shows the build hash");
 check(js.includes("Add to Home Screen"), "iPhone gets an Add to Home Screen prompt");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-24"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('const CACHE = "omacus-app-25"'), "the app cache name moved past the cache-first shell");
 check(html.includes("data-pick"), "a same-line conflict can ask which line to keep");
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
@@ -128,6 +128,11 @@ check(!html.includes("private-chip") && !html.includes('data-action="privacy"'),
 check(html.includes("Private by design") && html.includes("on this device"), "About says pages stay on this device");
 check(syncJs.includes("function hideChip") && syncJs.includes('storeGet("sync-paused")') && syncJs.includes('dataset.ready = "1"'), "a fresh copy hides the status cloud until sync is on or paused");
 check(syncJs.includes('return ["intro", "access", "save", "confirm"].includes(state.screen);') && syncJs.includes('text === "Sync paused" && freshSetup()') && syncJs.includes("if (freshSetup()) hideChip();"), "an unfinished setup does not say Sync paused");
+{
+  const off = syncJs.slice(syncJs.indexOf("async function leaveList("), syncJs.indexOf("async function startInvite("));
+  check(off.includes("sync.removeDevice") && off.includes("hideChip()") && !off.includes('setChip("Sync paused"'), "turning sync off removes this phone and leaves the status quiet");
+  check(syncJs.includes("If this is the last one, that is fine.") && syncJs.includes("Just turn off here") && syncJs.includes("Another phone or computer can still remove this one."), "turning sync off says the words still open the pages");
+}
 check(syncJs.includes("parseRecovery") && syncJs.includes("pageOrigin()") && !syncJs.includes("captureSyncLink") && !syncJs.includes("console."), "the sync screen reads a recovery link and does not record it");
 check(js.includes("captureSyncLink") && js.includes("history.replaceState"), "a recovery link is taken out of the address bar before a share link");
 check(syncJs.includes("How sync works") && syncJs.includes("Set up sync") && syncJs.includes("showTurnOnSync"), "Turn on sync opens a short explanation before setup");

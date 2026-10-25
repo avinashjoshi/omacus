@@ -49,7 +49,7 @@ signer(16) || signature(64)   present when a linked device signed the record
 
 `key_id` is a random 16-byte id for the current vault key. It is not a page id.
 
-A signed record ends with exactly 80 bytes: the signer id, then an Ed25519 signature over `omacus-record/1` concatenated with every byte before those 80. The signer is a device on the latest list, or the recovery signer. Anything else left over after the page chunk is corrupt. An older record may omit the 80 bytes. A device that can open that copy publishes a signed record. After this device has seen a signature, it rejects a copy that has none.
+A signed record ends with exactly 80 bytes: the signer id, then an Ed25519 signature over `omacus-record/1` concatenated with every byte before those 80. The signer is a device on the latest list, the recovery signer, or the device the newest snapshot removed. That last signature is checked with the key on the previous snapshot. Anything else left over after the page chunk is corrupt. An older record may omit the 80 bytes. A device that can open that copy publishes a signed record. After this device has seen a signature, it rejects a copy that has none.
 
 ### Version 1 page blob
 
@@ -118,7 +118,7 @@ The list is a chain of signed snapshots. Each snapshot covers:
   || (id(16) || sign(32) || receive(32)) × count
 ```
 
-The signature is Ed25519, 64 bytes, by the device named `signer`. `prev` is the hash of the previous snapshot. Version 1 has an empty `prev`. Each later version is exactly one device added or removed, and the signer is on the previous list. The signature does not cover the vault key. The stored chain is `OMACUS-DEVICES/1`, a `u16` count, then each snapshot as version, prev, signer, signature, device count, and the public keys. At most 64 devices.
+The signature is Ed25519, 64 bytes, by the device named `signer`. `prev` is the hash of the previous snapshot. Version 1 has an empty `prev`. Each later version is exactly one device added or removed, and the signer is on the previous list. When that signer removed itself, the signature is checked with its key on the previous snapshot. The signature does not cover the vault key. The stored chain is `OMACUS-DEVICES/1`, a `u16` count, then each snapshot as version, prev, signer, signature, device count, and the public keys. At most 64 devices.
 
 A phone keeps the list it already checked. It takes a longer list that extends that one. It takes a list that starts over only when the first snapshot is signed by the account key, the same key as the recovery signer, and that key matches the one this phone already pinned. A vault key it has not seen is refused unless it arrives with one of those lists. The first list, on a phone that has none yet, is stored only after the six numbers are checked.
 
@@ -184,7 +184,7 @@ The server checks the signature against the latest device list inside the stored
 
 `POST /v1/mailboxes` stays on the invite code and does not need this signature. `POST /v1/join` stays on the invite HMAC. `GET /v1/health` is open.
 
-A PUT must also carry a signed record. The new device list shares a prefix with the stored list and is the same length or longer, unless the request was signed by the recovery signer. Recovery may publish a new list. A device that is not the recovery signer cannot fork the list.
+A PUT must also carry a signed record. The new device list shares a prefix with the stored list and is the same length or longer, unless the request was signed by the recovery signer. Recovery may publish a new list. A device that is not the recovery signer cannot fork the list. A phone can remove itself in that longer list. The newest snapshot drops the phone that signed it, and the recovery signer stays, so the words still open the pages. A later request from that phone is refused, because it is no longer on the stored list.
 
 The server checks the signature before compare-and-swap. A PUT also names the revision it is replacing, in `If-Match`, as the same quoted number the GET returns in `ETag`. A missing or different tag is 409, the same as a stale `revision` in the body. A stale `revision` or object `base` is still 409, and only after the signature and the new record check out. The server keeps 64 nonces from the last 5 minutes. A new nonce is refused while those 64 are still inside the window. It does not drop an older one to make room. A missing account, a bad signature, a removed device, a full nonce table, and a replay are the same 404. The body does not say which.
 

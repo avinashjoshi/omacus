@@ -333,8 +333,16 @@ fn record_signature_ok(
             Some(_) => return false,
             None => account,
         }
+    } else if let Some(row) = latest.devices.iter().find(|row| row.id == signer) {
+        row.sign
     } else {
-        match latest.devices.iter().find(|row| row.id == signer) {
+        let Some(previous) = lists.iter().rev().nth(1) else {
+            return false;
+        };
+        if latest.signer != signer || !removed_one(&previous.devices, &latest.devices) {
+            return false;
+        }
+        match previous.devices.iter().find(|row| row.id == signer) {
             Some(row) => row.sign,
             None => return false,
         }
@@ -393,7 +401,21 @@ fn open_chain(bytes: &[u8]) -> Option<Vec<List>> {
                 return None;
             }
         }
-        let sign = devices.iter().find(|device| device.id == signer)?.sign;
+        let sign = match devices.iter().find(|device| device.id == signer) {
+            Some(device) => device.sign,
+            None if place == 0 => return None,
+            None => {
+                let previous = &lists[place - 1];
+                if !removed_one(&previous.devices, &devices) {
+                    return None;
+                }
+                previous
+                    .devices
+                    .iter()
+                    .find(|device| device.id == signer)?
+                    .sign
+            }
+        };
         let list = List {
             version,
             prev,

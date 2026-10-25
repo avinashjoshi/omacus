@@ -134,6 +134,7 @@ jobs:
           node tests/sync-link.mjs
           node tests/web-mobile.mjs
           node --import ./relay/worker/register-cf.mjs relay/worker/link-limits.test.mjs
+          node --import ./relay/worker/register-cf.mjs relay/worker/leave.test.mjs
           node --import ./relay/worker/register-cf.mjs relay/worker/routing.test.mjs
       - name: Web app offline
         run: |

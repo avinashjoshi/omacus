@@ -1171,6 +1171,37 @@ fn ferry_pages() -> Vec<u8> {
 }
 
 #[test]
+fn turning_sync_off_drops_this_phone_and_the_words_still_open() {
+    let mut founder = Desk::start_new().unwrap();
+    let words = founder.words().unwrap();
+    let phrase = words.join(" ");
+    let picks: Vec<(u8, &str)> = desk::CONFIRM_AT
+        .into_iter()
+        .map(|n| (n, words[n as usize - 1]))
+        .collect();
+    founder.confirm_saved(&picks).unwrap();
+    founder.seal_library(&ferry_pages(), &[]).unwrap();
+    let published = founder.library_record().unwrap();
+    let mine = *founder.device().public().id();
+    founder.remove_listed(&mine).unwrap();
+    founder.seal_library(&ferry_pages(), &[]).unwrap();
+    let left = founder.library_record().unwrap();
+    assert!(
+        put_allowed(&published, &left, false),
+        "leaving the list was refused"
+    );
+    assert!(!founder.member());
+    assert!(
+        founder.listed_devices().unwrap().is_empty(),
+        "this phone is still listed"
+    );
+    let mut recovered = Desk::start_recovery(&phrase).unwrap();
+    recovered.accept_phrase().unwrap();
+    let peeked = recovered.recovery_peek(&left).unwrap();
+    assert!(!peeked.partial, "the words could not open the pages");
+}
+
+#[test]
 fn an_old_phone_adopts_the_recovery_list_before_it_saves() {
     let mut founder = Desk::start_new().unwrap();
     let words = founder.words().unwrap();

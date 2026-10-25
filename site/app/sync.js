@@ -1282,35 +1282,89 @@ export async function mountSync(api) {
     draw();
   }
 
-  async function turnOff() {
+  function leaveError(error) {
+    if (error && (error.offline || navigator.onLine === false)) {
+      return `Sync is offline, so ${here()} is still on the list. Try again, or turn off only here. Another phone or computer can still remove this one.`;
+    }
+    return `Couldn't reach sync, so ${here()} is still on the list. Try again, or turn off only here. Another phone or computer can still remove this one.`;
+  }
+
+  async function restoreDesk(prior) {
+    if (!prior) return;
+    const imported = JSON.parse(sync.importLocal(prior));
+    if (!imported.ok) return;
+    state.desk = imported.id;
+    if (imported.account) state.account = imported.account;
+  }
+
+  async function leaveList() {
+    const exported = JSON.parse(sync.exportLocal(state.desk));
+    const prior = exported.ok ? exported.file : "";
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let changed = false;
+      try {
+        const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
+        if (mailbox.revision !== state.revision) await pull(mailbox);
+        await refreshDevices();
+        const self = state.devices.find((device) => device.self);
+        if (!self) throw new Error("Couldn't sync.");
+        changed = true;
+        const removed = JSON.parse(sync.removeDevice(state.desk, self.id));
+        if (!removed.ok) throw new Error(removed.message || "Couldn't sync.");
+        const snap = await api.snapshot();
+        const packed = await pack(snap.doc, snap.pages);
+        const sealed = await sealPacked(packed);
+        await commitSeal(sealed);
+        await rememberBase(snap.pages);
+        return;
+      } catch (error) {
+        if (changed) await restoreDesk(prior);
+        if (error.status === 409 && attempt === 0) continue;
+        throw error;
+      }
+    }
+  }
+
+  async function turnOff(localOnly) {
+    if (state.busy) return;
     state.busy = true;
     state.error = "";
     draw();
-    try {
-      await writeVault(snapshotVault({ paused: true, deviceFile: "" }));
-    } catch {
+    await asLeader(async () => {
+      try {
+        if (!localOnly && !state.leftRemote) await leaveList();
+        state.leftRemote = !localOnly;
+        await writeVault(snapshotVault({ paused: false, deviceFile: "" }));
+        if (api.storeRemove) await api.storeRemove("sync-paused");
+      } catch (error) {
+        state.busy = false;
+        state.offFailed = true;
+        state.error = localOnly ? "Sync is still on. Try again." : leaveError(error);
+        draw();
+        return;
+      }
+      stopScan();
+      state.desk = null;
+      state.account = "";
+      state.revision = 0;
+      state.member = false;
+      state.removed = false;
+      state.devices = [];
+      state.invite = null;
+      state.pending = null;
+      state.words = [];
+      state.qr = "";
+      state.requestId = "";
+      state.joinProof = "";
+      state.dirty = false;
+      state.leftRemote = false;
+      state.offFailed = false;
+      state.error = "";
+      state.screen = "off";
       state.busy = false;
-      state.error = "Sync is still on. Try again.";
+      hideChip();
       draw();
-      return;
-    }
-    stopScan();
-    state.desk = null;
-    state.account = "";
-    state.revision = 0;
-    state.member = false;
-    state.devices = [];
-    state.invite = null;
-    state.pending = null;
-    state.words = [];
-    state.qr = "";
-    state.requestId = "";
-    state.joinProof = "";
-    state.dirty = false;
-    state.screen = "off";
-    state.busy = false;
-    setChip("Sync paused", "off");
-    draw();
+    });
   }
 
   async function startInvite() {
@@ -2410,12 +2464,22 @@ export async function mountSync(api) {
   }
 
   function drawOffAsk() {
+    const failed = !!state.offFailed;
+    const cancel = () => {
+      state.screen = "linked";
+      state.error = "";
+      state.offFailed = false;
+      draw();
+    };
+    const links = failed
+      ? [["Just turn off here", () => turnOff(true), state.busy], ["Not now", cancel, state.busy]]
+      : [["Not now", cancel, state.busy]];
     panel.append(
-      backLink(() => { state.screen = "linked"; state.error = ""; draw(); }, state.busy),
+      backLink(cancel, state.busy),
       el("h2", {}, [`Turn sync off on ${here()}?`]),
-      el("p", { class: "setting-help" }, [`Your pages stay here. ${hereCap()} will stop sharing them. The recovery words still open them.`]),
-      actionButton(state.busy ? "Working…" : "Turn sync off", "primary", () => turnOff(), state.busy),
-      quietLinks([["Not now", () => { state.screen = "linked"; state.error = ""; draw(); }, state.busy]]),
+      el("p", { class: "setting-help" }, [`Your pages stay here. ${hereCap()} leaves the list, so the other phones and computers stop showing it. If this is the last one, that is fine. The recovery words still open the pages.`]),
+      actionButton(state.busy ? "Working…" : (failed ? "Try again" : "Turn sync off"), "primary", () => turnOff(), state.busy),
+      quietLinks(links),
     );
   }
 

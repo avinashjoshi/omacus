@@ -787,12 +787,13 @@ impl DeviceChain {
                     return Err(SyncKeyError::NotApproved(LIST_SIGNER));
                 }
             }
-            let signer = list
-                .devices
-                .iter()
-                .find(|device| device.id == list.signer)
-                .ok_or(SyncKeyError::NotApproved(LIST_SIGNER))?;
-            let key = VerifyingKey::from_bytes(&signer.sign)
+            let previous = if place == 0 {
+                None
+            } else {
+                Some(self.lists[place - 1].devices.as_slice())
+            };
+            let sign = signer_sign_key(previous, list)?;
+            let key = VerifyingKey::from_bytes(&sign)
                 .map_err(|_| SyncKeyError::NotApproved(LIST_CHECK))?;
             let signature =
                 Signature::from_slice(&list.signature).map_err(|_| SyncKeyError::Corrupt)?;
@@ -954,6 +955,29 @@ fn removed_one(previous: &[DevicePublic], next: &[DevicePublic]) -> bool {
 
 fn changed_by_one(previous: &[DevicePublic], next: &[DevicePublic]) -> bool {
     appended_one(previous, next) || removed_one(previous, next)
+}
+
+/// The key that signed this snapshot. A phone that removed itself is not on
+/// the new list. Its key is the one on the previous snapshot, and it has to
+/// be the device that left.
+fn signer_sign_key(
+    previous: Option<&[DevicePublic]>,
+    list: &SignedDevices,
+) -> Result<[u8; KEY_LEN], SyncKeyError> {
+    if let Some(device) = list.devices.iter().find(|device| device.id == list.signer) {
+        return Ok(device.sign);
+    }
+    let Some(previous) = previous else {
+        return Err(SyncKeyError::NotApproved(LIST_SIGNER));
+    };
+    if !removed_one(previous, &list.devices) {
+        return Err(SyncKeyError::NotApproved(LIST_SIGNER));
+    }
+    previous
+        .iter()
+        .find(|device| device.id == list.signer)
+        .map(|device| device.sign)
+        .ok_or(SyncKeyError::NotApproved(LIST_SIGNER))
 }
 
 /// The account key signs a list that contains only itself.
@@ -1136,8 +1160,9 @@ pub fn admit_recovery(
     Ok(admitted)
 }
 
-/// An approved device removes one other device from the list.
-/// The removed device is no longer approved to add or remove devices.
+/// An approved device removes one device from the list, including itself.
+/// The recovery signer stays. One device alone cannot leave an empty list.
+/// A device that was removed is no longer approved to add or remove devices.
 pub fn remove_device(
     approver: &DeviceKeys,
     chain: &DeviceChain,
@@ -1145,7 +1170,7 @@ pub fn remove_device(
 ) -> Result<DeviceChain, SyncKeyError> {
     chain.verify()?;
     let latest = chain.latest()?;
-    if approver.id == *target || *target == RECOVERY_ID || latest.devices.len() < 2 {
+    if *target == RECOVERY_ID || latest.devices.len() < 2 {
         return Err(SyncKeyError::NotApproved(NOT_ON_LIST));
     }
     if !latest.devices.iter().any(|device| device.id == approver.id) {
@@ -1664,16 +1689,17 @@ fn record_signature_ok(
             Some(device) => *device.signing_key(),
             None => view.account,
         }
-    } else {
-        let Some(device) = view
-            .chain
-            .devices()?
-            .into_iter()
-            .find(|device| *device.id() == signer)
-        else {
-            return Ok(false);
-        };
+    } else if let Some(device) = view
+        .chain
+        .devices()?
+        .into_iter()
+        .find(|device| *device.id() == signer)
+    {
         *device.signing_key()
+    } else if let Some(sign) = departed_sign_key(&view.chain, signer) {
+        sign
+    } else {
+        return Ok(false);
     };
     if signer == RECOVERY_ID && key_bytes != view.account {
         key_bytes.zeroize();
@@ -1682,6 +1708,25 @@ fn record_signature_ok(
     let key = VerifyingKey::from_bytes(&key_bytes).map_err(|_| SyncKeyError::Corrupt)?;
     key_bytes.zeroize();
     Ok(key.verify(&message, &sig).is_ok())
+}
+
+fn departed_sign_key(chain: &DeviceChain, signer: [u8; 16]) -> Option<[u8; KEY_LEN]> {
+    let lists = &chain.lists;
+    if lists.len() < 2 {
+        return None;
+    }
+    let last = lists.len() - 1;
+    if lists[last].signer != signer {
+        return None;
+    }
+    if !removed_one(&lists[last - 1].devices, &lists[last].devices) {
+        return None;
+    }
+    lists[last - 1]
+        .devices
+        .iter()
+        .find(|device| device.id == signer)
+        .map(|device| device.sign)
 }
 
 fn record_message(prefix: &[u8]) -> Vec<u8> {
@@ -2967,7 +3012,17 @@ mod tests {
         assert!(!ids.contains(&phone.id));
         assert_eq!(removed.compared_with(&with_both), ChainOrder::Newer);
         assert!(remove_device(&phone, &removed, tablet.public().id()).is_err());
-        assert!(remove_device(&laptop, &removed, laptop.public().id()).is_err());
+        let left = remove_device(&laptop, &removed, laptop.public().id()).unwrap();
+        left.verify().unwrap();
+        let stayed: Vec<_> = left
+            .devices()
+            .unwrap()
+            .iter()
+            .map(|device| device.id)
+            .collect();
+        assert_eq!(stayed, vec![tablet.id]);
+        assert!(remove_device(&laptop, &left, tablet.public().id()).is_err());
+        assert!(remove_device(&tablet, &left, tablet.public().id()).is_err());
         assert!(
             approve(
                 &phone,
@@ -2979,6 +3034,62 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn a_phone_can_remove_itself_and_the_words_still_sign() {
+        let laptop = DeviceKeys::generate().unwrap();
+        let phone = DeviceKeys::generate().unwrap();
+        let vault = VaultKey::generate().unwrap();
+        let account = [7u8; KEY_LEN];
+        let receive = [9u8; KEY_LEN];
+        let chain = found_devices(&laptop).unwrap();
+        assert!(remove_device(&laptop, &chain, laptop.public().id()).is_err());
+        let with_words = admit_recovery(&laptop, &chain, &account, &receive).unwrap();
+        let alone = remove_device(&laptop, &with_words, laptop.public().id()).unwrap();
+        alone.verify().unwrap();
+        let ids: Vec<_> = alone
+            .devices()
+            .unwrap()
+            .iter()
+            .map(|device| device.id)
+            .collect();
+        assert_eq!(ids, vec![RECOVERY_ID]);
+        assert!(remove_device(&laptop, &alone, &RECOVERY_ID).is_err());
+
+        let (with_phone, _) =
+            approve(&laptop, &with_words, &phone.public(), &vault, 1, None).unwrap();
+        let left = remove_device(&phone, &with_phone, phone.public().id()).unwrap();
+        left.verify().unwrap();
+        let stayed: Vec<_> = left
+            .devices()
+            .unwrap()
+            .iter()
+            .map(|device| device.id)
+            .collect();
+        assert!(stayed.contains(&laptop.id));
+        assert!(stayed.contains(&RECOVERY_ID));
+        assert!(!stayed.contains(&phone.id));
+
+        let mut view = ServerView {
+            epoch: 1,
+            account,
+            chain: left,
+            phrase_wrap: Vec::new(),
+            device_wraps: Vec::new(),
+            key_id: [0u8; 16],
+            page: b"sealed".to_vec(),
+            version: 1,
+            signer: None,
+            signature: None,
+        };
+        let prefix = view.to_bytes(1);
+        let signed = append_record_signature(&prefix, phone.public().id(), phone.signing_secret());
+        let parsed = ServerView::parse(&signed).unwrap();
+        assert!(matches!(trust_signature(&parsed, true), Ok(false)));
+        let forged = append_record_signature(&prefix, phone.public().id(), laptop.signing_secret());
+        view = ServerView::parse(&forged).unwrap();
+        assert!(trust_signature(&view, true).is_err());
     }
 
     #[test]

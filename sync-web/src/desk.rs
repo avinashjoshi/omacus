@@ -787,6 +787,10 @@ impl Desk {
     }
 
     pub fn remove_listed(&mut self, id: &[u8; 16]) -> Result<Vec<u8>, SyncKeyError> {
+        let leaving = id == self.device.public().id();
+        if leaving {
+            self.ensure_recovery()?;
+        }
         let chain = self
             .chain
             .clone()
@@ -811,7 +815,9 @@ impl Desk {
         self.vault = Some(vault);
         self.wraps = wraps;
         self.chain = Some(chain);
-        self.ensure_recovery()?;
+        if !leaving {
+            self.ensure_recovery()?;
+        }
         self.signed_seen = true;
         self.record()
     }
