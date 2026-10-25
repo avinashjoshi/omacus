@@ -1,4 +1,4 @@
-// Private sync test relay (1.0.0-beta.22) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.23) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
 // Each account lives in its own object. A directory object maps an invite
 // hash to that account, so a join does not list every account.
@@ -10,7 +10,7 @@
 // This worker holds no keys and cannot open a page.
 import { DurableObject } from "cloudflare:workers";
 import { mint, openCode, spend } from "./access.js";
-import { adminAuthorized, adminPageAllowed, deviceCount, handleAdmin, isolateAllow, linkedDevices, noteError } from "./admin.js";
+import { adminKeyOk, adminPageAllowed, deviceCount, handleAdmin, isolateAllow, linkedDevices, noteError } from "./admin.js";
 import { allowPut, authorize } from "./auth.js";
 import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
 import {
@@ -23,7 +23,7 @@ import {
 } from "./limits.js";
 import { nightOf, nightPrefix, openBackupStore } from "./backup.js";
 
-const LABEL = "1.0.0-beta.22";
+const LABEL = "1.0.0-beta.23";
 const MAX_RECORD = 256 * 1024, MAX_MANIFEST = 1024 * 1024, MAX_OBJECT = 4 * 1024 * 1024 + 64;
 const MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024, MAX_BODY = 8 * 1024 * 1024;
 const MAX_REQUESTS = 8, MAX_USES = 20;
@@ -1338,7 +1338,8 @@ async function adminApi(request, env, url) {
   if (!isolateAllow(request.headers.get("cf-connecting-ip") || "")) {
     return json(429, { message: "Too many tries. Wait a minute." });
   }
-  const allowed = await adminAuthorized(request, env);
+  if (!(await adminPageAllowed(request, env))) return json(403, { message: "Sign in again." });
+  const allowed = adminKeyOk(request, env);
   const headers = new Headers();
   headers.set("content-type", "application/json");
   if (allowed) headers.set("x-omacus-admin", "1");
@@ -1406,8 +1407,8 @@ export default {
     if (url.pathname === "/v1/health" && request.method === "GET") return json(200, { label: LABEL });
     if (url.pathname === "/admin" || url.pathname === "/admin/" || url.pathname.startsWith("/admin/")) {
       if (!(await adminPageAllowed(request, env))) {
-        return new Response("That sign-in didn't work.", {
-          status: 401,
+        return new Response("Sign in again.", {
+          status: 403,
           headers: { "cache-control": "no-store", "content-type": "text/plain; charset=utf-8" },
         });
       }

@@ -24,13 +24,13 @@ npx wrangler secret put ACCESS_SECRET
 npx wrangler secret put ADMIN_KEY
 ```
 
-`ACCESS_SECRET` checks invite codes. `ADMIN_KEY` opens the admin commands. Cloudflare Access is already in front of `sync-test.omacus.com/admin`. Set the audience tag so the worker checks that sign-in on every `/admin` request:
+`ACCESS_SECRET` checks invite codes. `ADMIN_KEY` opens the admin commands. Cloudflare Access is in front of `sync-test.omacus.com/admin` and `sync-test.omacus.com/v1/admin` on the same application. The page calls `/v1/admin`. That path has to be in the application, or Cloudflare does not attach `Cf-Access-Jwt-Assertion` and every call is refused. Set the audience tag so the worker checks that sign-in:
 
 ```
 npx wrangler secret put ACCESS_AUD
 ```
 
-Until `ACCESS_AUD` is set, the admin key is enough. Once it is set, a missing or bad Access sign-in is refused, and `/v1/admin` still requires the admin key.
+Until `ACCESS_AUD` is set, the admin key is enough. Once it is set, a missing or expired Access sign-in is refused with "Sign in again." A wrong admin key is still "That key didn't work." `/v1/admin` requires both.
 
 ## Production
 
@@ -51,7 +51,7 @@ npx wrangler secret put ADMIN_KEY --env production
 npx wrangler secret put ACCESS_AUD --env production
 ```
 
-Production does not have Access yet. Create a matching Access application on `sync.omacus.com/admin` (and `/v1/admin`) before relying on that admin page. Both workers set `ACCESS_TEAM_DOMAIN` to `omacus.cloudflareaccess.com`. Set that application's own audience tag as `ACCESS_AUD` on the production worker. Until that tag is set, the production admin key is enough.
+Production does not have Access yet. Create one Access application that includes both `sync.omacus.com/admin` and `sync.omacus.com/v1/admin`. The page loads from `/admin` and its calls go to `/v1/admin`. A path left out of the application does not get `Cf-Access-Jwt-Assertion`, and the page then says "Sign in again." Both workers set `ACCESS_TEAM_DOMAIN` to `omacus.cloudflareaccess.com`. Set that application's own audience tag as `ACCESS_AUD` on the production worker. Until that tag is set, the production admin key is enough.
 
 ## Nightly copies
 
@@ -80,9 +80,9 @@ The admin page and `admin.mjs restore` write a night back through the same revis
 
 ## Cloudflare Access
 
-Access already protects `sync-test.omacus.com/admin`. The worker checks `Cf-Access-Jwt-Assertion` on every `/admin` request once `ACCESS_AUD` is set. `ACCESS_TEAM_DOMAIN` is the team host (`omacus.cloudflareaccess.com` on both workers). The worker checks the signature against `https://omacus.cloudflareaccess.com/cdn-cgi/access/certs`, the issuer `https://omacus.cloudflareaccess.com`, and the `ACCESS_AUD` tag. A request that fails that check is refused. `/v1/admin` also requires `ADMIN_KEY`.
+Access protects `sync-test.omacus.com/admin` and `sync-test.omacus.com/v1/admin` on one application. The worker checks `Cf-Access-Jwt-Assertion` on every `/admin` and `/v1/admin` request once `ACCESS_AUD` is set. `ACCESS_TEAM_DOMAIN` is the team host (`omacus.cloudflareaccess.com` on both workers). The worker checks the signature against `https://omacus.cloudflareaccess.com/cdn-cgi/access/certs`, the issuer `https://omacus.cloudflareaccess.com`, and the `ACCESS_AUD` tag. A missing or expired sign-in is HTTP 403, "Sign in again." A wrong admin key is HTTP 401, "That key didn't work." `/v1/admin` requires both.
 
-Production needs its own Access application on `sync.omacus.com/admin`, then:
+Production needs its own Access application covering both `sync.omacus.com/admin` and `sync.omacus.com/v1/admin`, then:
 
 ```
 npx wrangler secret put ACCESS_AUD --env production

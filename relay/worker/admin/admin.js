@@ -65,11 +65,16 @@ async function api(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await response.json().catch(() => ({}));
+  if (response.status === 403) {
+    const message = data.message || "Sign in again.";
+    keyError.textContent = message;
+    throw new Error(message);
+  }
   if (response.status === 401) {
     key = "";
     sessionStorage.removeItem(STORE);
-    showLocked("That key didn't work.");
-    throw new Error("That key didn't work.");
+    showLocked(data.message || "That key didn't work.");
+    throw new Error(data.message || "That key didn't work.");
   }
   if (!response.ok) throw new Error(data.message || "Try again in a moment.");
   return data;

@@ -131,12 +131,16 @@ export async function adminPageAllowed(request, env) {
   return accessJwtOk(request.headers.get("cf-access-jwt-assertion") || "", env || {});
 }
 
-export async function adminAuthorized(request, env) {
+export function adminKeyOk(request, env) {
   const expected = String((env && env.ADMIN_KEY) || "");
   const header = request.headers.get("authorization") || "";
   const presented = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
-  if (!sameSecret(expected, presented)) return false;
-  return adminPageAllowed(request, env);
+  return sameSecret(expected, presented);
+}
+
+export async function adminAuthorized(request, env) {
+  if (!(await adminPageAllowed(request, env))) return false;
+  return adminKeyOk(request, env);
 }
 
 export async function noteError(storage, name) {

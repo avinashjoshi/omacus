@@ -306,7 +306,7 @@ const other = "cd".repeat(32);
   const home = await worker.fetch(new Request("https://sync.omacus.com/"), closed.env);
   assert(home.status === 404, "production served the app");
   const health = await worker.fetch(new Request("https://sync-test.omacus.com/v1/health"), closed.env);
-  assert((await health.json()).label === "1.0.0-beta.22", "label");
+  assert((await health.json()).label === "1.0.0-beta.23", "label");
 }
 
 {
@@ -366,35 +366,35 @@ const other = "cd".repeat(32);
     const plain = await call(open.env, "GET", "/v1/admin/stats");
     assert(plain.status === 200, "unconfigured access rejected a key");
     const pageOpen = await call(open.env, "GET", "/admin");
-    assert(pageOpen.status !== 401, "unconfigured access refused the admin page");
+    assert(pageOpen.status === 404, "unconfigured access refused the admin page");
     const noTeam = harness({ ACCESS_AUD: aud });
     const noTeamRes = await call(noTeam.env, "GET", "/v1/admin/stats");
-    assert(noTeamRes.status === 401, "audience without a team domain was accepted");
+    assert(noTeamRes.status === 403 && noTeamRes.json.message === "Sign in again.", noTeamRes.text);
     const locked = harness({ ACCESS_AUD: aud, ACCESS_TEAM_DOMAIN: "omacus.cloudflareaccess.com" });
     locked.env.ASSETS = {
       fetch: async (request) => new Response(new URL(request.url).pathname, { status: 200 }),
     };
     const bare = await call(locked.env, "GET", "/v1/admin/stats");
-    assert(bare.status === 401, "missing access token was accepted");
+    assert(bare.status === 403 && bare.json.message === "Sign in again.", bare.text);
     const barePage = await call(locked.env, "GET", "/admin", undefined, { authorization: "" });
-    assert(barePage.status === 401 && barePage.text.includes("didn't work"), "admin page skipped the access check");
+    assert(barePage.status === 403 && barePage.text.includes("Sign in again"), "admin page skipped the access check");
     const bareScript = await call(locked.env, "GET", "/admin/admin.js");
-    assert(bareScript.status === 401, "admin script skipped the access check");
+    assert(bareScript.status === 403, "admin script skipped the access check");
     const other = await jwt({ aud: "other", exp, iss });
     const mismatch = await call(locked.env, "GET", "/v1/admin/stats", undefined, { "cf-access-jwt-assertion": other });
-    assert(mismatch.status === 401, "wrong audience was accepted");
+    assert(mismatch.status === 403 && mismatch.json.message === "Sign in again.", mismatch.text);
     const foreign = await jwt({ aud, exp, iss: "https://other.cloudflareaccess.com" });
     const wrongIss = await call(locked.env, "GET", "/v1/admin/stats", undefined, { "cf-access-jwt-assertion": foreign });
-    assert(wrongIss.status === 401, "wrong issuer was accepted");
+    assert(wrongIss.status === 403, "wrong issuer was accepted");
     const stale = await jwt({ aud, exp: Math.floor(Date.now() / 1000) - 10, iss });
     const expired = await call(locked.env, "GET", "/v1/admin/stats", undefined, { "cf-access-jwt-assertion": stale });
-    assert(expired.status === 401, "expired access token was accepted");
+    assert(expired.status === 403 && expired.json.message === "Sign in again.", expired.text);
     const good = await jwt({ aud, exp, iss });
     const keyless = await call(locked.env, "GET", "/v1/admin/stats", undefined, {
       "cf-access-jwt-assertion": good,
-      authorization: "",
+      authorization: "Bearer nope",
     });
-    assert(keyless.status === 401, "access token replaced the admin key");
+    assert(keyless.status === 401 && keyless.json.message === "That key didn't work.", keyless.text);
     const ok = await call(locked.env, "GET", "/v1/admin/stats", undefined, { "cf-access-jwt-assertion": good });
     assert(ok.status === 200, `valid access token failed ${ok.text}`);
     const page = await call(locked.env, "GET", "/admin", undefined, {
@@ -440,6 +440,7 @@ const other = "cd".repeat(32);
   assert(!cli.includes("ACCESS_SECRET"), "cli still mints locally");
   assert(!mint.includes("ACCESS_SECRET") && mint.includes("admin.mjs"), "mint.mjs still mints locally");
   assert(!page.includes("innerHTML"), "admin page builds html from strings");
+  assert(page.includes("Sign in again") && page.includes("status === 403"), "admin page names a missing sign-in");
 }
 
 console.log("admin checks passed");
