@@ -64,7 +64,7 @@ mkdir -p "$out/pkg" "$out/css" "$out/fonts" "$out/img"
 wasm-bindgen --target web --no-typescript --out-dir "$out/pkg" \
   target/wasm32-unknown-unknown/release/omacus_web.wasm
 cp site/app/index.html site/app/app.js site/app/app.css site/app/editor.js \
-  site/app/worker.js site/app/tree.js site/app/store.js site/app/sw.js \
+  site/app/worker.js site/app/tree.js site/app/layer.js site/app/store.js site/app/sw.js \
   site/app/trust.js site/app/recover.js site/app/frame.js site/app/backup.js \
   site/app/seed.js site/app/examples.js site/app/sync.js site/app/sync-save.mjs site/app/sync-leader.mjs site/app/sync-config.js \
   site/app/manifest.webmanifest site/app/migrate.js site/app/migrate.html \
@@ -99,6 +99,8 @@ short="$(sha256sum "$out/editor.js" | cut -c1-10)"
 sed -i "s#\"./editor.js\"#\"./editor.js?v=$short\"#" "$out/app.js"
 short="$(sha256sum "$out/tree.js" | cut -c1-10)"
 sed -i "s#\"./tree.js\"#\"./tree.js?v=$short\"#" "$out/app.js"
+short="$(sha256sum "$out/layer.js" | cut -c1-10)"
+sed -i "s#\"./layer.js\"#\"./layer.js?v=$short\"#" "$out/app.js"
 short="$(sha256sum "$out/store.js" | cut -c1-10)"
 sed -i "s#\"./store.js\"#\"./store.js?v=$short\"#" "$out/app.js" "$out/migrate.js"
 short="$(sha256sum "$out/backup.js" | cut -c1-10)"

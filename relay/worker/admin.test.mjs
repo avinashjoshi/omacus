@@ -328,7 +328,7 @@ const other = "cd".repeat(32);
   const served = await worker.fetch(new Request("https://sync-test.omacus.com/"), serving.env);
   assert(served.status === 200 && await served.text() === "/", "test worker redirected /");
   const health = await worker.fetch(new Request("https://sync-test.omacus.com/v1/health"), closed.env);
-  assert((await health.json()).label === "1.0.0-beta.23", "label");
+  assert((await health.json()).label === "1.0.0-beta.24", "label");
 }
 
 {

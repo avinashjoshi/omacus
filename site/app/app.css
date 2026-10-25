@@ -1149,11 +1149,24 @@ body.answers-inline .res {
 
 .row-menu {
   position: fixed;
+  inset: auto;
   top: 0;
   right: auto;
-  /* Above the phone drawer, under the bar. */
-  z-index: 45;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  height: auto;
+  max-height: calc(100vh - 16px);
+  margin: 0;
+  overflow: auto;
+  color: var(--app-fg);
+  background: var(--app-side);
+  /* Above the sidebar and the bar. showPopover also puts it in the top layer. */
+  z-index: 70;
   min-width: 180px;
+}
+
+.row-menu:popover-open {
+  display: block;
 }
 
 .switcher {
@@ -2320,6 +2333,9 @@ body.answers-inline .md .pill {
     color: transparent;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   .app-page.drawer .drawer-scrim {
@@ -2328,6 +2344,15 @@ body.answers-inline .md .pill {
 
   .app-page.drawer .empty-hint {
     visibility: hidden;
+  }
+
+  .app-page.drawer .cm-content {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .app-page.drawer-swallow .cm-editor {
+    pointer-events: none;
   }
 
   .drawer-scrim:focus,

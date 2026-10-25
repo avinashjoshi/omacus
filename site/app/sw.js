@@ -11,6 +11,7 @@ const APP_FILES = [
   "index.html",
   "app.js",
   "tree.js",
+  "layer.js",
   "seed.js",
   "examples.js",
   "app.css",

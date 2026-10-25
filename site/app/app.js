@@ -19,6 +19,7 @@ import {
   insertNode, moveSibling, pageIds, pagesUnder, place, removeNode, renameFolder, sanitize, siblingEnds, toggleFolder, validDrop,
   visible,
 } from "./tree.js";
+import { placeRowMenu, swallowDrawerTap } from "./layer.js";
 import {
   ready as storeReady, get as storeGet, set as storeSet, remove as storeRemove, adopt as storeAdopt,
   drained as storeDrained, keys as storeKeys, persistGranted, selfTab, PREFIX, CHANNEL,
@@ -3878,16 +3879,28 @@ function followSwitcher(hit) {
   else if (hit.id) select(hit.id);
 }
 
-function closeRowMenu() {
-  if (el.rowMenu) el.rowMenu.hidden = true;
+function mountRowMenu() {
+  const menu = el.rowMenu;
+  if (!menu) return;
+  if (menu.parentElement !== document.body) document.body.append(menu);
+  if (typeof menu.showPopover === "function") menu.setAttribute("popover", "manual");
 }
 
-function openMenu(x, y, items) {
-  if (!el.rowMenu) return;
-  el.rowMenu.replaceChildren();
+function closeRowMenu() {
+  const menu = el.rowMenu;
+  if (!menu) return;
+  if (typeof menu.hidePopover === "function" && menu.matches(":popover-open")) menu.hidePopover();
+  menu.hidden = true;
+}
+
+function openMenu(x, y, items, anchor) {
+  const menu = el.rowMenu;
+  if (!menu) return;
+  mountRowMenu();
+  menu.replaceChildren();
   for (const item of items) {
     if (item === "sep") {
-      el.rowMenu.append(document.createElement("hr"));
+      menu.append(document.createElement("hr"));
       continue;
     }
     const button = document.createElement("button");
@@ -3900,14 +3913,21 @@ function openMenu(x, y, items) {
       closeRowMenu();
       item.run();
     });
-    el.rowMenu.append(button);
+    menu.append(button);
   }
-  el.rowMenu.hidden = false;
-  el.rowMenu.style.left = "0px";
-  el.rowMenu.style.top = "0px";
-  const rect = el.rowMenu.getBoundingClientRect();
-  el.rowMenu.style.left = `${Math.min(Math.max(8, x), window.innerWidth - rect.width - 8)}px`;
-  el.rowMenu.style.top = `${Math.min(Math.max(8, y), window.innerHeight - rect.height - 8)}px`;
+  menu.hidden = false;
+  menu.style.visibility = "hidden";
+  menu.style.margin = "0";
+  menu.style.right = "auto";
+  menu.style.bottom = "auto";
+  menu.style.left = "0px";
+  menu.style.top = "0px";
+  if (typeof menu.showPopover === "function" && !menu.matches(":popover-open")) menu.showPopover();
+  const size = menu.getBoundingClientRect();
+  const placed = placeRowMenu(x, y, size, { width: window.innerWidth, height: window.innerHeight }, anchor);
+  menu.style.left = `${placed.left}px`;
+  menu.style.top = `${placed.top}px`;
+  menu.style.visibility = "";
 }
 
 function openBlankMenu(x, y) {
@@ -3924,7 +3944,7 @@ function nudge(id, step) {
   renderSidebar();
 }
 
-function openRowMenu(row, x, y) {
+function openRowMenu(row, x, y, anchor) {
   if (!row) return;
   const id = row.dataset.id;
   if (row.dataset.kind === "folder") {
@@ -3941,7 +3961,7 @@ function openRowMenu(row, x, y) {
     }
     if (anyUnlocked()) items.push({ label: "Lock now", run: () => lockNow() });
     items.push("sep", { label: "Delete folder", danger: true, run: () => deleteFolder(id) });
-    openMenu(x, y, items);
+    openMenu(x, y, items, anchor);
     return;
   }
   const ends = siblingEnds(state.tree, id);
@@ -3975,7 +3995,7 @@ function openRowMenu(row, x, y) {
   } else if (choice === "relock") items.push({ label: "Lock now", run: () => lockNow() });
   if (ownPageLock(id)) items.push({ label: "Remove lock…", run: () => openLock("remove-page", id) });
   items.push("sep", { label: "Delete page", danger: true, run: () => deletePage(id) });
-  openMenu(x, y, items);
+  openMenu(x, y, items, anchor);
 }
 
 let drag = null;
@@ -4161,7 +4181,7 @@ function onSideClick(e) {
     e.preventDefault();
     const row = more.closest(".side-row");
     const rect = more.getBoundingClientRect();
-    openRowMenu(row, rect.left, rect.bottom + 4);
+    openRowMenu(row, rect.left, rect.bottom + 4, rect);
     return;
   }
   const row = e.target.closest?.(".side-row");
@@ -4244,6 +4264,82 @@ el.switcherQuery?.addEventListener("keydown", (e) => {
   }
 });
 
+// A tap beside the open phone drawer closes it when the finger lifts.
+// The press is swallowed, so the editor underneath does not take a caret,
+// a selection, or the keyboard.
+let drawerTap = null;
+let drawerSwallowUntil = 0;
+
+function caretSnapshot() {
+  const main = view.state.selection.main;
+  return { anchor: main.anchor, head: main.head, focused: view.hasFocus };
+}
+
+function restoreCaret(snap) {
+  if (!snap) return;
+  const main = view.state.selection.main;
+  if (main.anchor !== snap.anchor || main.head !== snap.head) {
+    const max = view.state.doc.length;
+    view.dispatch({
+      selection: { anchor: Math.min(snap.anchor, max), head: Math.min(snap.head, max) },
+    });
+  }
+  if (snap.focused) return;
+  const blurEditor = () => {
+    const active = document.activeElement;
+    if (view.hasFocus || active === view.contentDOM || (active && view.dom.contains(active))) view.contentDOM.blur();
+  };
+  blurEditor();
+  window.setTimeout(blurEditor, 0);
+  window.setTimeout(blurEditor, 320);
+}
+
+function takeDrawerTap(event) {
+  if (drawerTap) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  const node = event.target instanceof Element ? event.target : event.target?.parentElement;
+  if (!swallowDrawerTap(node, {
+    drawer: el.page.classList.contains("drawer"),
+    narrow: matchMedia("(max-width: 760px)").matches,
+  })) return;
+  drawerTap = caretSnapshot();
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+function finishDrawerTap(event) {
+  if (!drawerTap) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const snap = drawerTap;
+  drawerTap = null;
+  drawerSwallowUntil = performance.now() + 400;
+  closeRowMenu();
+  if (el.page.classList.contains("drawer")) setDrawer(false);
+  restoreCaret(snap);
+  el.page.classList.add("drawer-swallow");
+  window.setTimeout(() => el.page.classList.remove("drawer-swallow"), 450);
+}
+
+document.addEventListener("touchstart", takeDrawerTap, { capture: true, passive: false });
+document.addEventListener("pointerdown", takeDrawerTap, { capture: true, passive: false });
+document.addEventListener("mousedown", takeDrawerTap, { capture: true, passive: false });
+document.addEventListener("touchend", finishDrawerTap, { capture: true, passive: false });
+document.addEventListener("pointerup", finishDrawerTap, { capture: true, passive: false });
+document.addEventListener("pointercancel", finishDrawerTap, { capture: true, passive: false });
+
+document.addEventListener("click", (event) => {
+  if (!drawerTap && performance.now() >= drawerSwallowUntil) return;
+  const node = event.target instanceof Element ? event.target : event.target?.parentElement;
+  if (node?.closest(".side, .sheets-toggle, .bar, [data-row-menu]")) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (el.page.classList.contains("drawer")) setDrawer(false);
+}, true);
+
 document.addEventListener("click", (e) => {
   if (!e.target.closest?.("[data-row-menu]")) closeRowMenu();
   const button = e.target.closest?.("[data-action]");
@@ -4273,22 +4369,6 @@ document.addEventListener("click", (e) => {
   if (e.target.closest?.(".sheets-toggle")) setDrawer(!el.page.classList.contains("drawer"));
   else if (e.target.closest?.("[data-scrim]")) setDrawer(false);
 });
-
-// A tap on the sheet while the phone drawer is open dismisses it, and does not
-// also move the cursor in the editor underneath.
-document.addEventListener(
-  "pointerdown",
-  (e) => {
-    if (!el.page.classList.contains("drawer")) return;
-    if (!matchMedia("(max-width: 760px)").matches) return;
-    const target = e.target instanceof Element ? e.target : e.target.parentElement;
-    if (target?.closest(".side, .sheets-toggle, .bar")) return;
-    setDrawer(false);
-    e.preventDefault();
-    e.stopPropagation();
-  },
-  { capture: true, passive: false },
-);
 
 function showMenuPanel(name) {
   if (!el.menu) return;
