@@ -179,26 +179,32 @@ const approval = parse(approveDevice(upgraded.id, pending.json.requests[0].devic
 const packed = parse(packPages("", JSON.stringify([["trip", "Trip Budget\nferry = 40\n"]]), ""));
 const sealed = parse(sealPages(upgraded.id, packed.packed));
 
-// Overlap the page save and the approval the way a slow phone does.
-storage.overlap = true;
-const putPromise = authed(box, upgraded.id, "PUT", `/v1/mailboxes/${account}`, { revision: 1, record: sealed.record });
-const postPromise = authed(box, upgraded.id, "POST", `/v1/mailboxes/${account}/requests/${joined.json.id}`, {
+// The approval stores the list. A save of the old revision cannot replace it.
+const post = await authed(box, upgraded.id, "POST", `/v1/mailboxes/${account}/requests/${joined.json.id}`, {
   chain: approval.chain,
   wrap: approval.wrap,
+  record: sealed.record,
+  revision: 1,
 });
-await new Promise((resolve) => setTimeout(resolve, 20));
-storage.release();
-const put = await putPromise;
-const post = await postPromise;
-storage.overlap = false;
-console.log("PUT", put.status, put.json);
+const stale = await authed(box, upgraded.id, "PUT", `/v1/mailboxes/${account}`, { revision: 1, record: sealed.record });
 console.log("POST", post.status, post.json);
+console.log("stale PUT", stale.status, stale.json);
+if (post.status !== 200) throw new Error("approve " + JSON.stringify(post));
+if (stale.status !== 409) throw new Error("stale save replaced the list " + JSON.stringify(stale));
+const early = await authed(box, joiner.id, "GET", `/v1/mailboxes/${account}`);
+if (early.status !== 200) throw new Error("joiner could not read " + JSON.stringify(early));
 
 const decision = await call(box, "GET", `/v1/mailboxes/${account}/requests/${joined.json.id}`, undefined, {
   "x-omacus-proof": proof.proof,
 });
-const again = await call(box, "GET", `/v1/mailboxes/${account}/requests/${joined.json.id}`);
-if (again.status !== 404) throw new Error("approved request stayed " + JSON.stringify(again));
+const again = await call(box, "GET", `/v1/mailboxes/${account}/requests/${joined.json.id}`, undefined, {
+  "x-omacus-proof": proof.proof,
+});
+if (again.status !== 200) throw new Error("approval could not be read again " + JSON.stringify(again));
+const done = await authed(box, joiner.id, "POST", `/v1/mailboxes/${account}/requests/${joined.json.id}`, { done: true });
+if (done.status !== 200) throw new Error("done " + JSON.stringify(done));
+const gone = await call(box, "GET", `/v1/mailboxes/${account}/requests/${joined.json.id}`);
+if (gone.status !== 404) throw new Error("approved request stayed " + JSON.stringify(gone));
 const after = await storage.get("m:" + account);
 if (after.requests[joined.json.id]) throw new Error("approved request still stored");
 const mailboxBody = await authed(box, upgraded.id, "GET", `/v1/mailboxes/${account}`);

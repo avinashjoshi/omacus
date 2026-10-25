@@ -151,6 +151,17 @@ pub fn accept_request(
     Some(AuthDecision::Allowed(recovery))
 }
 
+/// The joining phone's id is on the newest device list in this record.
+pub fn lists_device(record: &[u8], device_id: &[u8; 16]) -> bool {
+    let Some(opened) = open_record(record) else {
+        return false;
+    };
+    let Some(latest) = opened.lists.last() else {
+        return false;
+    };
+    latest.devices.iter().any(|row| row.id == *device_id)
+}
+
 pub fn put_allowed(stored: &[u8], incoming: &[u8], recovery: bool) -> bool {
     let Some(next) = open_record(incoming) else {
         return false;

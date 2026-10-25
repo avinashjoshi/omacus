@@ -345,12 +345,38 @@ export async function deviceChain(device) {
   return chainBytes(device);
 }
 
+export async function deviceListed(recordB64, deviceB64) {
+  const record = fromB64(recordB64);
+  const device = fromB64(deviceB64);
+  if (!record || !device || device.length < 16) return false;
+  const opened = await openRecord(record);
+  if (!opened || !opened.lists.length) return false;
+  const id = device.slice(0, 16);
+  const latest = opened.lists[opened.lists.length - 1];
+  return latest.devices.some((row) => same(row.id, id));
+}
+
 export async function appendDevice(signer, chain, newcomer) {
   const lists = await openChain(chain);
   if (!lists || !lists.length) return null;
   const previous = lists[lists.length - 1];
   const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", listMessage(previous)));
   const devices = previous.devices.concat([{ id: newcomer.id, sign: newcomer.pub, receive: newcomer.receive }]);
+  const list = { version: previous.version + 1, prev: hash, signer: signer.id, devices };
+  const signature = new Uint8Array(await crypto.subtle.sign("Ed25519", signer.privateKey, listMessage(list)));
+  const rows = devices.map((row) => concat(row.id, row.sign, row.receive));
+  const body = concat(u64(list.version), hash, signer.id, signature, u16(devices.length), ...rows);
+  return concat(chain.slice(0, 16), u16(lists.length + 1), chain.slice(18), body);
+}
+
+export async function dropDevice(signer, chain, removeId) {
+  const lists = await openChain(chain);
+  if (!lists || !lists.length) return null;
+  const previous = lists[lists.length - 1];
+  const devices = previous.devices.filter((row) => !same(row.id, removeId));
+  if (devices.length + 1 !== previous.devices.length) return null;
+  if (!devices.some((row) => same(row.id, signer.id))) return null;
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", listMessage(previous)));
   const list = { version: previous.version + 1, prev: hash, signer: signer.id, devices };
   const signature = new Uint8Array(await crypto.subtle.sign("Ed25519", signer.privateKey, listMessage(list)));
   const rows = devices.map((row) => concat(row.id, row.sign, row.receive));

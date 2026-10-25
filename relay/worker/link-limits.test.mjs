@@ -1,10 +1,11 @@
 // Linking under the real test limits. The clock is the worker's rate clock.
 // No x-omacus-limits header. Three phones save, one joins, all on one address.
 import { readFile } from "node:fs/promises";
-import { Mailboxes, HEARTBEAT_MS } from "./worker.js";
+import { Mailboxes } from "./worker.js";
+import { HEARTBEAT_MS } from "./heartbeat.js";
 import { MemoryStorage } from "./storage.js";
 import { PRODUCTION, TEST } from "./limits.js";
-import { appendDevice, authHeaders, deviceChain, makeDevice, makeRecord } from "./auth.js";
+import { appendDevice, authHeaders, deviceChain, dropDevice, makeDevice, makeRecord } from "./auth.js";
 import { encodeCode, hashHex, hmacBytes } from "./invite.js";
 
 const HOME = "198.51.100.20";
@@ -23,11 +24,21 @@ assert(PRODUCTION.readAccountRate === 180 && PRODUCTION.readIpRate === 500, "pro
 assert(TEST.readAccountRate === 100 && TEST.readIpRate === 140, "test read limits changed");
 
 const syncJs = await readFile(new URL("../../site/app/sync.js", import.meta.url), "utf8");
+const workerSrc = await readFile(new URL("./worker.js", import.meta.url), "utf8");
 assert(syncJs.includes("const APPROVAL_POLL_MS = 4000"), "the joining phone does not poll every 4 seconds");
 assert(!syncJs.includes("setTimeout(waitForApproval, 1000)"), "the joining phone still polls every second");
 assert(!syncJs.includes("joinWaits || 0) < 6"), "a few waits still end the join");
 const joinSrc = syncJs.slice(syncJs.indexOf("async function submitJoin("), syncJs.indexOf("function parseJoin("));
 assert(joinSrc.includes("typedJoinName()") && !joinSrc.includes('name: ""'), "the typed name is not sent");
+const waitSrc = syncJs.slice(syncJs.indexOf("async function waitForApproval("), syncJs.indexOf("async function acceptJoin("));
+assert(waitSrc.includes("MAILBOX_TRIES") && waitSrc.includes("error.status === 404"), "a missing list ends the join");
+assert(waitSrc.includes("done: true") && waitSrc.indexOf('state.screen = "join-confirm"') > waitSrc.indexOf("done: true"), "the match screen comes before the list is ready");
+assert(syncJs.includes('["Do these match?"]'), "the match screen is missing");
+const approveSrc = syncJs.slice(syncJs.indexOf("async function approvePending("), syncJs.indexOf("async function decline("));
+assert(approveSrc.includes("record: sealed.record") && approveSrc.includes("releaseJoin("), "approval does not publish the list");
+const watchSrc = syncJs.slice(syncJs.indexOf("function watchApproval("), syncJs.indexOf("function draw("));
+assert(watchSrc.includes('state.screen = "linked"'), "the approve prompt stays after the phone stops waiting");
+assert(!workerSrc.includes("export const HEARTBEAT_MS"), "the worker exports a plain number");
 
 function b64(bytes) {
   let text = "";
@@ -109,7 +120,7 @@ async function joinAs(name) {
     proof,
   });
   assert(joined.status === 201, `join ${joined.status} ${joined.raw}`);
-  return { id: joined.json.id, proof };
+  return { id: joined.json.id, proof, secret, joiner, rawDevice };
 }
 
 async function pollJoin(id, proof) {
@@ -120,14 +131,37 @@ async function listRequests() {
   return authed(phones[0], "GET", `/v1/mailboxes/${account}/requests`);
 }
 
-const chainBody = b64(new TextEncoder().encode("OMACUS-DEVICES/1ferry"));
 const wrapBody = b64(new TextEncoder().encode("wrap"));
+let liveChain = chain;
+let revision = 1;
 
-async function approve(id) {
-  return authed(phones[0], "POST", `/v1/mailboxes/${account}/requests/${id}`, {
-    chain: chainBody,
+async function approve(joined) {
+  const nextChain = await appendDevice(phones[0], liveChain, joined.joiner);
+  assert(nextChain, "the list could not add that phone");
+  const record = await makeRecord(phones[0], "ferry", 2, nextChain);
+  const posted = await authed(phones[0], "POST", `/v1/mailboxes/${account}/requests/${joined.id}`, {
+    chain: b64(nextChain),
     wrap: wrapBody,
+    record,
+    revision,
   });
+  if (posted.status === 200) {
+    liveChain = nextChain;
+    revision = posted.json.revision;
+  }
+  return posted;
+}
+
+// The test relay allows four phones. A finished join is taken off the list
+// so the next one still fits.
+async function removeJoined(joiner) {
+  const without = await dropDevice(phones[0], liveChain, joiner.id);
+  assert(without, "the list could not drop that phone");
+  const rolled = await makeRecord(phones[0], "ferry", 2, without);
+  const removal = await authed(phones[0], "PUT", `/v1/mailboxes/${account}`, { revision, record: rolled });
+  assert(removal.status === 200, `removal ${removal.status} ${removal.raw}`);
+  liveChain = without;
+  revision = removal.json.revision;
 }
 
 // A fresh rate window, then one minute of the real cadence.
@@ -158,12 +192,25 @@ for (let step = 0; step < 15; step += 1) {
 }
 assert(limited === 0, `${limited} reads were limited during the minute`);
 
-const posted = await approve(first.id);
+const posted = await approve(first);
 assert(posted.status === 200, `approve ${posted.status} ${posted.raw}`);
 const decided = await pollJoin(first.id, first.proof);
 assert(decided.status === 200 && decided.json.state === "approved", decided.raw);
 assert(decided.json.name === "Harbor phone", `name ${decided.json.name}`);
 assert(decided.json.name !== "Phone or computer", "the row fell back to Phone or computer");
+const opened = await authed(first.joiner, "GET", `/v1/mailboxes/${account}`);
+assert(opened.status === 200, `joiner read ${opened.status} ${opened.raw}`);
+const retryRead = await pollJoin(first.id, first.proof);
+assert(retryRead.status === 200 && retryRead.json.state === "approved", retryRead.raw);
+const done = await authed(first.joiner, "POST", `/v1/mailboxes/${account}/requests/${first.id}`, { done: true });
+assert(done.status === 200, `done ${done.status} ${done.raw}`);
+const gone = await pollJoin(first.id, first.proof);
+assert(gone.status === 404, `approval stayed ${gone.status} ${gone.raw}`);
+const saved = await makeRecord(first.joiner, "bread", 2, liveChain);
+const put = await authed(first.joiner, "PUT", `/v1/mailboxes/${account}`, { revision, record: saved });
+assert(put.status === 200, `first save ${put.status} ${put.raw}`);
+revision = put.json.revision;
+await removeJoined(first.joiner);
 
 // A phone that stops polling cannot be approved, and the typed name stays stored.
 clock += 60_000;
@@ -174,7 +221,7 @@ clock += HEARTBEAT_MS;
 const hidden = await listRequests();
 assert(hidden.status === 200, `hidden list ${hidden.status} ${hidden.raw}`);
 assert(!(hidden.json.requests || []).some((request) => request.id === parked.id), hidden.raw);
-const refused = await approve(parked.id);
+const refused = await approve(parked);
 assert(refused.status === 409, `abandoned approve ${refused.status} ${refused.raw}`);
 assert(refused.json.message === "That phone or computer stopped waiting.", refused.raw);
 const kept = await storage.get("m:" + account);
@@ -205,9 +252,34 @@ assert(again.status === 200 && again.json.state === "pending" && again.json.name
 const visible = await listRequests();
 const asking = (visible.json.requests || []).find((request) => request.id === retry.id);
 assert(asking && asking.name === "Harbor phone", visible.raw);
-const accepted = await approve(retry.id);
+const accepted = await approve(retry);
 assert(accepted.status === 200, `retry approve ${accepted.status} ${accepted.raw}`);
 const finished = await pollJoin(retry.id, retry.proof);
 assert(finished.status === 200 && finished.json.state === "approved" && finished.json.name === "Harbor phone", finished.raw);
+const retryOpened = await authed(retry.joiner, "GET", `/v1/mailboxes/${account}`);
+assert(retryOpened.status === 200, `retry read ${retryOpened.status} ${retryOpened.raw}`);
+await removeJoined(retry.joiner);
+
+// The joining phone never says it finished. The row comes off and the code works again.
+clock += 60_000;
+const left = await joinAs("Ferry phone");
+const waiting = await pollJoin(left.id, left.proof);
+assert(waiting.status === 200 && waiting.json.name === "Ferry phone", waiting.raw);
+const added = await approve(left);
+assert(added.status === 200, `ferry approve ${added.status} ${added.raw}`);
+const early = await authed(left.joiner, "GET", `/v1/mailboxes/${account}`);
+assert(early.status === 200, `ferry read ${early.status} ${early.raw}`);
+const released = await authed(phones[0], "POST", `/v1/mailboxes/${account}/requests/${left.id}`, { release: true });
+assert(released.status === 200, `release ${released.status} ${released.raw}`);
+await removeJoined(left.joiner);
+const denied = await authed(left.joiner, "GET", `/v1/mailboxes/${account}`);
+assert(denied.status === 404, `removed phone still read ${denied.status} ${denied.raw}`);
+const rejoined = await call("POST", "/v1/join", {
+  code: encodeCode(left.secret),
+  device: b64(left.rawDevice),
+  name: "Ferry phone",
+  proof: left.proof,
+});
+assert(rejoined.status === 201, `same code ${rejoined.status} ${rejoined.raw}`);
 
 console.log("linking under the test limits ok");

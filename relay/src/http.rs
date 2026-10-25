@@ -289,12 +289,44 @@ fn route(
             let value = json_body(body)?;
             if value.get("reject").and_then(Value::as_bool) == Some(true) {
                 store.reject(account, id)?;
-            } else {
-                let chain = decode_field(&value, "chain")?;
-                let wrap = decode_field(&value, "wrap")?;
-                store.approve(account, id, chain, wrap)?;
+                return Ok((200, json!({"ok": true})));
             }
-            Ok((200, json!({"ok": true})))
+            if value.get("release").and_then(Value::as_bool) == Some(true) {
+                store.release(account, id)?;
+                return Ok((200, json!({"ok": true})));
+            }
+            if value.get("done").and_then(Value::as_bool) == Some(true) {
+                let device = crate::auth::read_auth(headers)
+                    .map(|auth| auth.device)
+                    .ok_or(StoreError::Unknown)?;
+                store.finish(account, id, &device)?;
+                return Ok((200, json!({"ok": true})));
+            }
+            let chain = decode_field(&value, "chain")?;
+            let wrap = decode_field(&value, "wrap")?;
+            let record = decode_field(&value, "record")?;
+            let revision = value
+                .get("revision")
+                .and_then(Value::as_u64)
+                .ok_or(StoreError::Unreadable)?;
+            let (current, _) = store.get(account)?;
+            if current != revision
+                || !same_revision(
+                    headers.get("if-match").map(String::as_str).unwrap_or(""),
+                    current,
+                )
+            {
+                return Err(StoreError::Revision);
+            }
+            let writes = object_writes(&value)?;
+            let dropping = id_list(&value, "drop")?;
+            let (revision, written) = store.publish_approval(
+                account, id, chain, wrap, record, revision, recovery, writes, &dropping,
+            )?;
+            Ok((
+                200,
+                json!({"ok": true, "revision": revision, "objects": written_rows(&written)}),
+            ))
         }
         _ => Err(StoreError::Unknown),
     }

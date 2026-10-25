@@ -12,10 +12,12 @@ import {
   upsertVault,
 } from "./sync-vaults.mjs";
 
-const LABEL = "omacus 1.0.0-beta.35";
+const LABEL = "omacus 1.0.0-beta.36";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 const APPROVAL_POLL_MS = 4000;
+const MAILBOX_TRIES = 4;
+const JOIN_FINISH_MS = 30 * 1000;
 
 function syncOrigin() {
   const configured = String(SYNC_URL || "").trim().replace(/\/$/, "");
@@ -112,6 +114,7 @@ export async function mountSync(api) {
   };
   let wordlist = [];
   let timer = null;
+  let approveWatch = 0;
   let requestsChecked = 0;
   let hurry = false;
   let loop = null;
@@ -1439,9 +1442,20 @@ export async function mountSync(api) {
         saveNames();
       }
       state.approval = { chain: decision.chain, wrap: decision.wrap };
-      const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
+      let mailbox = null;
+      for (let miss = 0; miss < MAILBOX_TRIES; miss += 1) {
+        try {
+          mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
+          break;
+        } catch (error) {
+          const again = (error.status === 404 || error.status === 429) && miss + 1 < MAILBOX_TRIES && joinStillOpen();
+          if (!again) throw error;
+          await sleep(Math.min(4000, 500 * 2 ** miss));
+        }
+      }
       const named = JSON.parse(sync.recordWords(mailbox.record));
       if (!named.ok) throw new Error(named.message || "Couldn't sync.");
+      await callServer("POST", `/v1/mailboxes/${state.account}/requests/${state.requestId}`, { done: true });
       state.joinWords = named.words;
       state.joinWaits = 0;
       state.screen = "join-confirm";
@@ -1558,6 +1572,21 @@ export async function mountSync(api) {
     });
   }
 
+  async function dropJoined(code) {
+    const list = JSON.parse(sync.deviceList(state.desk));
+    if (!list.ok) return;
+    const added = (list.devices || []).find((device) => !device.self && device.code === code);
+    if (!added?.id) return;
+    const removed = JSON.parse(sync.removeDevice(state.desk, added.id));
+    if (!removed.ok) throw new Error(removed.message || "Couldn't sync.");
+    noteLocalEdit(state);
+    await push();
+  }
+
+  async function releaseJoin(requestId) {
+    await callServer("POST", `/v1/mailboxes/${state.account}/requests/${requestId}`, { release: true });
+  }
+
   function adoptAskedName(code, name) {
     const asked = cleanName(name);
     if (!asked || !code || !state.desk) return;
@@ -1588,22 +1617,41 @@ export async function mountSync(api) {
       draw();
       return;
     }
+    let published = false;
+    let requestId = "";
     try {
-      const requestId = state.pending.id;
-      await callServer("POST", `/v1/mailboxes/${state.account}/requests/${requestId}`, {
-        chain: approval.chain,
-        wrap: approval.wrap,
-      });
-      const created = Number(state.pending.created) || Date.now();
-      const finished = await waitForJoin(requestId, created + INVITE_MS);
-      if (!finished) throw new Error("That phone or computer didn't finish. Ask them to try again.");
+      requestId = state.pending.id;
       adoptAskedName(askedCode, askedName);
       const snap = await api.snapshot();
       const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
       state.revision = mailbox.revision;
       const sealed = await sealPacked(await pack(snap.doc, snap.pages));
-      await commitSeal(sealed);
+      const body = {
+        chain: approval.chain,
+        wrap: approval.wrap,
+        record: sealed.record,
+        revision: state.revision,
+      };
+      if (sealed.objects && sealed.objects.length) body.objects = sealed.objects;
+      if (sealed.drop && sealed.drop.length) body.drop = sealed.drop;
+      const posted = await callServer("POST", `/v1/mailboxes/${state.account}/requests/${requestId}`, body, undefined, undefined, {
+        "If-Match": `"${state.revision}"`,
+      });
+      const slots = JSON.parse(sealed.slots || "[]");
+      for (const row of posted.objects || []) {
+        const slot = slots.find((item) => item.objectId === row.id);
+        if (slot) slot.serverRev = row.revision;
+      }
+      state.slots = JSON.stringify(slots);
+      state.revision = posted.revision;
+      await writeVault(snapshotVault({ slots: state.slots, revision: String(state.revision || 0) }));
+      await saveFile();
+      published = true;
       await rememberBase(snap.pages);
+      const created = Number(state.pending.created) || Date.now();
+      const deadline = Math.min(created + INVITE_MS, Date.now() + JOIN_FINISH_MS);
+      const finished = await waitForJoin(requestId, deadline);
+      if (!finished) throw new Error("That phone or computer didn't finish. Ask them to try again.");
       state.pending = null;
       state.invite = null;
       state.error = "";
@@ -1611,7 +1659,18 @@ export async function mountSync(api) {
       await refreshDevices();
       calm();
     } catch (error) {
-      if (prior) {
+      if (published) {
+        try {
+          await dropJoined(askedCode);
+        } catch {
+          // The list still has this phone if the removal did not save.
+        }
+        try {
+          await releaseJoin(requestId);
+        } catch {
+          // The request can already be gone.
+        }
+      } else if (prior) {
         await writeVault(snapshotVault({ deviceFile: prior }));
         const imported = JSON.parse(sync.importLocal(prior));
         if (imported.ok) {
@@ -1823,8 +1882,40 @@ export async function mountSync(api) {
     draw();
   }
 
+  function watchApproval() {
+    if (approveWatch || state.screen !== "approve" || !state.pending) return;
+    approveWatch = setTimeout(async () => {
+      approveWatch = 0;
+      if (state.screen !== "approve" || !state.pending) return;
+      if (state.busy) {
+        watchApproval();
+        return;
+      }
+      const id = state.pending.id;
+      try {
+        const data = await callServer("GET", `/v1/mailboxes/${state.account}/requests`);
+        const still = (data.requests || []).some((request) => request.id === id && (!request.state || request.state === "pending"));
+        if (!still && state.screen === "approve" && state.pending && state.pending.id === id && !state.busy) {
+          state.pending = null;
+          state.invite = null;
+          state.error = "";
+          state.screen = "linked";
+          draw();
+          return;
+        }
+      } catch {
+        // The prompt stays up. The next check tries again.
+      }
+      if (state.screen === "approve" && state.pending) watchApproval();
+    }, APPROVAL_POLL_MS);
+  }
+
   function draw() {
     if (naming) return;
+    if (state.screen !== "approve") {
+      clearTimeout(approveWatch);
+      approveWatch = 0;
+    }
     panel.replaceChildren();
     panel.append(el("p", { class: "sync-label" }, [LABEL]));
     if (state.error && state.screen !== "recover") {
@@ -2107,6 +2198,7 @@ export async function mountSync(api) {
         ["No", "", () => decline(), state.busy],
       ]),
     );
+    watchApproval();
   }
 
   function drawRemoveAsk() {

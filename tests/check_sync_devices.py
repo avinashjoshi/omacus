@@ -56,11 +56,11 @@ if "approvalPlan" in wait:
     errors.append("the waiting screen accepts the list before the numbers are checked")
 if "confirmLink" not in accept or "approvalPlan" not in accept or "These match" not in sync:
     errors.append("These match does not check the numbers before opening")
-if '"device-name.js"' not in sw or "omacus-sync-test-8" not in sw:
+if '"device-name.js"' not in sw or "omacus-sync-test-9" not in sw:
     errors.append("the sync test cache missed the name helper")
 if "site/app/device-name.js" not in build or "./device-name.js?v=" not in build:
     errors.append("the published app missed the name helper")
-if 'const CACHE = "omacus-app-17"' not in sw:
+if 'const CACHE = "omacus-app-18"' not in sw:
     errors.append("the published app cache changed")
 if "omacus-sync-web" not in build or "omacus_sync_web.js" not in build or "omacus_sync_web_bg.wasm" not in build:
     errors.append("the published build does not ship the sync engine")
@@ -85,6 +85,16 @@ if "joinWaits || 0) < 6" in wait or "joinStillOpen" not in wait:
     errors.append("approval gives up before the code expires")
 if "adoptAskedName(askedCode, askedName)" not in sync:
     errors.append("approving drops the typed name")
+if "MAILBOX_TRIES" not in wait or "error.status === 404" not in wait:
+    errors.append("a missing list after approval ends the join")
+if "done: true" not in wait or wait.find('state.screen = "join-confirm"') < wait.find("done: true"):
+    errors.append("the number check comes before the phone can open the pages")
+approve = sync[sync.index("async function approvePending("):sync.index("async function decline(")]
+if "record: sealed.record" not in approve or "releaseJoin(" not in approve:
+    errors.append("approval does not publish the list, or a failed join leaves the row")
+watch = sync[sync.index("function watchApproval("):sync.index("function draw(")]
+if 'state.screen = "linked"' not in watch:
+    errors.append("the approve prompt stays after the phone stops waiting")
 
 if errors:
     raise SystemExit("\n".join(errors))

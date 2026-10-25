@@ -128,13 +128,13 @@ One list entry has the 16-byte id `recovery-signer` followed by a zero byte. Its
 
 A linked device picks a one-time code and sends SHA-256 of that code to `POST /v1/mailboxes/:account/invites`. The code stays on the device. The server keeps the hash for 5 minutes.
 
-The other device sends `POST /v1/join` with the code, its public device bytes, a display name, and HMAC-SHA256 of those device bytes under the code. The server checks the hash, marks the code used, and stores a pending request. A second use of the same code fails.
+The other device sends `POST /v1/join` with the code, its public device bytes, a display name, and HMAC-SHA256 of those device bytes under the code. The server checks the hash, marks the code used, and stores a pending request. A second use of the same code fails. If that phone never finishes, the other phone can release the approval, and the same code works again until it expires.
 
 The picture encodes four lines: `omacus-join`, the origin, the account id, and the code.
 
 Both screens show the same six digits. They are `SHA-256("omacus/v1/pair" || sign || receive)` reduced mod 1,000,000, printed as two groups of three. The digits are not a key.
 
-The linked device checks the HMAC, then `POST .../requests/:id` with the new device list (`chain`) and a device wrap (`wrap`). `reject: true` declines. The waiting device reads `GET .../requests/:id` once, with `X-Omacus-Proof` set to the same HMAC. That proof does not read the record, list requests, or approve anyone. After that read, or after the 5 minutes, the server deletes the request. A missing proof, a wrong proof, and an unknown request all return the same 404.
+The linked device checks the HMAC, then `POST .../requests/:id` with the new device list (`chain`), a device wrap (`wrap`), and the sealed record that already includes that phone. The record is stored in that same step, before the approval can be read. `reject: true` declines. The waiting device reads `GET .../requests/:id` with `X-Omacus-Proof` set to the same HMAC. That proof does not read the record, list requests, or approve anyone. It can read the approval again until it sends `{ done: true }`, the other phone sends `{ release: true }`, or the 5 minutes pass. A missing proof, a wrong proof, and an unknown request all return the same 404.
 
 Starting a mailbox also spends an invite code (`POST /v1/access` checks it, `POST /v1/mailboxes` spends it). The server stores a hash, not the code.
 
@@ -154,7 +154,7 @@ All bodies are JSON. `/v1/` answers are JSON. A missing mailbox is 404.
 | POST | `/v1/join` | `{ code, device, name, proof }` | `{ id, account }` |
 | GET | `/v1/mailboxes/:account/requests` | | `{ requests: [{ id, device, name, proof }] }` |
 | GET | `/v1/mailboxes/:account/requests/:id` | | `{ state, name, device, chain, wrap }` |
-| POST | `/v1/mailboxes/:account/requests/:id` | `{ chain, wrap }` or `{ reject: true }` | `{ ok: true }` |
+| POST | `/v1/mailboxes/:account/requests/:id` | `{ chain, wrap, record, revision, objects?, drop? }`, `{ reject: true }`, `{ done: true }`, or `{ release: true }` | `{ ok: true, revision?, objects? }` |
 
 GET returns an index. `bytes` is the stored length. Bodies are not in that response. POST `/objects` returns only the ids that were asked for, at most 2000. A missing id is 404 and the call returns no bodies.
 

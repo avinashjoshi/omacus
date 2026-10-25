@@ -72,8 +72,8 @@ struct Request {
     chain: Vec<u8>,
     wrap: Vec<u8>,
     proof: Vec<u8>,
-    /// When the request arrived. A decision can be read once. After that,
-    /// or once the invite window has passed, the request is removed.
+    /// When the request arrived. An approval stays until that phone says it
+    /// finished, the other phone releases it, or the invite window passes.
     created: u64,
     /// The last time the joining phone asked if it was approved.
     last_seen: u64,
@@ -861,7 +861,7 @@ impl Store {
             .get_mut(&account)
             .ok_or(StoreError::Unknown)?;
         let request = mailbox.requests.get(id).ok_or(StoreError::Unknown)?;
-        let decided = request.state != State::Pending;
+        let drop = request.state == State::Rejected;
         let view = RequestView {
             state: match request.state {
                 State::Pending => "pending",
@@ -873,10 +873,108 @@ impl Store {
             chain: request.chain.clone(),
             wrap: request.wrap.clone(),
         };
-        if decided {
+        if drop {
             mailbox.requests.remove(id);
         }
         Ok(view)
+    }
+
+    /// The joining phone has read the list. The approval does not need to stay.
+    pub fn finish(&mut self, account: &str, id: &str, device: &[u8; 16]) -> Result<(), StoreError> {
+        let account = account_id(account)?;
+        self.drop_expired(&account);
+        let mailbox = self
+            .mailboxes
+            .get_mut(&account)
+            .ok_or(StoreError::Unknown)?;
+        let request = mailbox.requests.get(id).ok_or(StoreError::Unknown)?;
+        if request.state != State::Approved {
+            return Err(StoreError::Conflict);
+        }
+        if request.device.len() < 16 || &request.device[..16] != device {
+            return Err(StoreError::Unknown);
+        }
+        mailbox.requests.remove(id);
+        self.checkpoint();
+        Ok(())
+    }
+
+    /// The joining phone never finished. The same code can be used again.
+    pub fn release(&mut self, account: &str, id: &str) -> Result<(), StoreError> {
+        let account_key = account_id(account)?;
+        self.drop_expired(&account_key);
+        let hash = {
+            let mailbox = self
+                .mailboxes
+                .get_mut(&account_key)
+                .ok_or(StoreError::Unknown)?;
+            let request = mailbox.requests.get(id).ok_or(StoreError::Unknown)?;
+            if request.state != State::Approved {
+                return Err(StoreError::Conflict);
+            }
+            mailbox.requests.remove(id);
+            mailbox.invite.as_mut().map(|invite| {
+                invite.used = false;
+                invite.hash
+            })
+        };
+        if let Some(hash) = hash {
+            self.invites.insert(hash, account_key);
+        }
+        self.checkpoint();
+        Ok(())
+    }
+
+    /// Store the extended device list, then mark the request approved.
+    /// The list is visible as soon as the approval is.
+    #[allow(clippy::too_many_arguments)]
+    pub fn publish_approval(
+        &mut self,
+        account: &str,
+        id: &str,
+        chain: Vec<u8>,
+        wrap: Vec<u8>,
+        record: Vec<u8>,
+        revision: u64,
+        recovery: bool,
+        writes: Vec<ObjectWrite>,
+        drop_ids: &[String],
+    ) -> Result<(u64, Vec<(String, u64)>), StoreError> {
+        if chain.len() > MAX_CHAIN
+            || !chain.starts_with(CHAIN_MAGIC)
+            || wrap.is_empty()
+            || wrap.len() > MAX_WRAP
+        {
+            return Err(StoreError::Unreadable);
+        }
+        let now = self.now();
+        let device_id = {
+            let request = self.request_mut(account, id)?;
+            if request.state == State::Pending && !waiting(request, now) {
+                return Err(StoreError::Waiting);
+            }
+            if request.state != State::Pending {
+                return Err(StoreError::Conflict);
+            }
+            if request.device.len() < 16 {
+                return Err(StoreError::Unreadable);
+            }
+            let mut bytes = [0u8; 16];
+            bytes.copy_from_slice(&request.device[..16]);
+            bytes
+        };
+        if !crate::auth::lists_device(&record, &device_id) {
+            return Err(StoreError::Unreadable);
+        }
+        self.allow_put(account, &record, recovery)?;
+        let (new_revision, written) = if writes.is_empty() && drop_ids.is_empty() {
+            (self.put(account, revision, record)?, Vec::new())
+        } else {
+            self.put_objects(account, revision, record, writes, drop_ids)?
+        };
+        self.approve(account, id, chain, wrap)?;
+        self.checkpoint();
+        Ok((new_revision, written))
     }
 
     fn drop_expired(&mut self, account: &str) {
@@ -1454,6 +1552,10 @@ mod tests {
         assert_eq!(view.state, "approved");
         assert_eq!(view.chain, chain);
         assert_eq!(view.wrap, wrap);
+        let again = store.request(&account, &id).unwrap();
+        assert_eq!(again.chain, chain);
+        let device_id: [u8; 16] = device[..16].try_into().unwrap();
+        store.finish(&account, &id, &device_id).unwrap();
         assert!(matches!(
             store.request(&account, &id),
             Err(StoreError::Unknown)

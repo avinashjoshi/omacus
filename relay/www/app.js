@@ -583,7 +583,16 @@ async function waitForApproval() {
       return;
     }
     state.approval = { chain: decision.chain, wrap: decision.wrap };
-    const mailbox = await api("GET", `/v1/mailboxes/${state.account}`);
+    let mailbox = null;
+    for (let miss = 0; miss < 4; miss += 1) {
+      try {
+        mailbox = await api("GET", `/v1/mailboxes/${state.account}`);
+        break;
+      } catch (error) {
+        if (miss === 3 || !/no pages|didn't work/i.test(error.message || "")) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** miss));
+      }
+    }
     const named = JSON.parse(sync.recordWords(mailbox.record));
     state.joinWords = named.ok ? named.words : "";
     state.busy = false;
@@ -640,15 +649,13 @@ async function approve() {
     return;
   }
   try {
-    const put = await api("PUT", `/v1/mailboxes/${state.account}`, {
-      revision: state.revision,
-      record: result.record,
-    });
-    state.revision = put.revision;
-    await api("POST", `/v1/mailboxes/${state.account}/requests/${state.pending.id}`, {
+    const posted = await api("POST", `/v1/mailboxes/${state.account}/requests/${state.pending.id}`, {
       chain: result.chain,
       wrap: result.wrap,
+      record: result.record,
+      revision: state.revision,
     });
+    state.revision = posted.revision || state.revision;
     state.pending = null;
     state.busy = false;
     state.note = "That phone or computer can open your pages.";

@@ -113,7 +113,7 @@ fn signed(
 ) -> (u16, Vec<u8>) {
     let auth = desk.sign_request(method, path, body).unwrap();
     let mut extra = auth.headers();
-    if method == "PUT"
+    if (method == "PUT" || method == "POST")
         && let Ok(value) = serde_json::from_slice::<serde_json::Value>(body)
         && let Some(revision) = value.get("revision").and_then(serde_json::Value::as_u64)
     {
@@ -294,17 +294,13 @@ fn the_relay_holds_no_key_and_no_page() {
     let chain = approval.chain;
     let wrap = approval.wrap;
     let updated = approval.record;
-    let put = serde_json::json!({"revision": 1, "record": b64(&updated)}).to_string();
-    let (status, _) = signed(
-        port,
-        &founder,
-        "PUT",
-        &format!("/v1/mailboxes/{account}"),
-        put.as_bytes(),
-        &mut wire,
-    );
-    assert_eq!(status, 200);
-    let approve = serde_json::json!({"chain": b64(&chain), "wrap": b64(&wrap)}).to_string();
+    let approve = serde_json::json!({
+        "revision": 1,
+        "record": b64(&updated),
+        "chain": b64(&chain),
+        "wrap": b64(&wrap),
+    })
+    .to_string();
     let (status, _) = signed(
         port,
         &founder,
@@ -314,6 +310,18 @@ fn the_relay_holds_no_key_and_no_page() {
         &mut wire,
     );
     assert_eq!(status, 200);
+    let (status, _) = signed(
+        port,
+        &joiner,
+        "GET",
+        &format!("/v1/mailboxes/{account}"),
+        b"",
+        &mut wire,
+    );
+    assert_eq!(
+        status, 200,
+        "the joining phone can read as soon as it is approved"
+    );
     let (status, body) = signed(
         port,
         &founder,
@@ -339,6 +347,26 @@ fn the_relay_holds_no_key_and_no_page() {
     assert_eq!(status, 200);
     let decision = json_body(&body);
     assert_eq!(decision["state"], "approved");
+    let (status, again_body) = exchange_with(
+        port,
+        "GET",
+        &format!("/v1/mailboxes/{account}/requests/{id}"),
+        b"",
+        &format!("X-Omacus-Proof: {}\r\n", joined.proof),
+        &mut wire,
+    );
+    assert_eq!(status, 200, "the joining phone can read the approval again");
+    assert_eq!(json_body(&again_body)["state"], "approved");
+    let done = serde_json::json!({"done": true}).to_string();
+    let (status, _) = signed(
+        port,
+        &joiner,
+        "POST",
+        &format!("/v1/mailboxes/{account}/requests/{id}"),
+        done.as_bytes(),
+        &mut wire,
+    );
+    assert_eq!(status, 200);
     let (status, body) = exchange(
         port,
         "GET",
@@ -346,7 +374,7 @@ fn the_relay_holds_no_key_and_no_page() {
         b"",
         &mut wire,
     );
-    assert_eq!(status, 404, "an approved request is not kept");
+    assert_eq!(status, 404, "a finished approval is not kept");
     assert_eq!(json_body(&body)["message"], "No pages for that yet.");
     let (status, body) = signed(
         port,
@@ -505,18 +533,13 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
     ));
     let approval = founder.approve_new(&device).unwrap();
     let updated = founder.seal_pages(&packed).unwrap();
-    let put = serde_json::json!({"revision": 1, "record": b64(&updated)}).to_string();
-    let (status, _) = signed(
-        port,
-        &founder,
-        "PUT",
-        &format!("/v1/mailboxes/{account}"),
-        put.as_bytes(),
-        &mut wire,
-    );
-    assert_eq!(status, 200);
-    let approve =
-        serde_json::json!({"chain": b64(&approval.chain), "wrap": b64(&approval.wrap)}).to_string();
+    let approve = serde_json::json!({
+        "revision": 1,
+        "record": b64(&updated),
+        "chain": b64(&approval.chain),
+        "wrap": b64(&approval.wrap),
+    })
+    .to_string();
     let (status, _) = signed(
         port,
         &founder,
@@ -526,6 +549,18 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
         &mut wire,
     );
     assert_eq!(status, 200);
+    let (status, _) = signed(
+        port,
+        &joiner,
+        "GET",
+        &format!("/v1/mailboxes/{account}"),
+        b"",
+        &mut wire,
+    );
+    assert_eq!(
+        status, 200,
+        "the joining phone can read as soon as it is approved"
+    );
     let (status, body) = signed(
         port,
         &founder,
@@ -775,7 +810,7 @@ fn the_test_pages_do_not_name_private_parts_or_the_live_app() {
     ] {
         assert!(!text.contains(word), "the test pages say {word}");
     }
-    assert!(text.contains("1.0.0-beta.35"));
+    assert!(text.contains("1.0.0-beta.36"));
     assert!(
         !std::fs::read_to_string(root.join("../site/app/index.html"))
             .unwrap()
@@ -1002,18 +1037,13 @@ fn an_unsigned_request_a_removed_phone_and_a_replay_are_refused() {
         &mut Vec::new(),
     );
     let approval = founder.approve_new(&device).unwrap();
-    let put = serde_json::json!({"revision": 1, "record": b64(&approval.record)}).to_string();
-    let (status, _) = signed(
-        port,
-        &founder,
-        "PUT",
-        &path,
-        put.as_bytes(),
-        &mut Vec::new(),
-    );
-    assert_eq!(status, 200);
-    let approve =
-        serde_json::json!({"chain": b64(&approval.chain), "wrap": b64(&approval.wrap)}).to_string();
+    let approve = serde_json::json!({
+        "revision": 1,
+        "record": b64(&approval.record),
+        "chain": b64(&approval.chain),
+        "wrap": b64(&approval.wrap),
+    })
+    .to_string();
     let (status, _) = signed(
         port,
         &founder,

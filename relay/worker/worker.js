@@ -1,11 +1,12 @@
-// Private sync test relay (1.0.0-beta.35) as a Cloudflare Worker.
+// Private sync test relay (1.0.0-beta.36) as a Cloudflare Worker.
 // Same HTTP API as relay/src/http.rs. It keeps only the sealed bytes.
 // Each account lives in its own object. A directory object maps an invite
 // hash to that account, so a join does not list every account.
 // A new set of pages needs an invite code. The code is shown once, and
 // only a hash is stored. A new phone joins with a one-time code, also
-// stored only as a hash. A join request is removed once the waiting phone
-// has read the answer, or once the same window as the code has passed.
+// stored only as a hash. An approval stays until the waiting phone says it
+// finished, the other phone releases it, or the same window as the code
+// has passed. A no is removed when it is read.
 // The admin routes count and delete sealed copies. They never return one.
 // This worker holds no keys and cannot open a page.
 import { DurableObject } from "cloudflare:workers";
@@ -21,7 +22,8 @@ import {
   noteError,
   summarize,
 } from "./admin.js";
-import { allowPut, authorize, chainIsLongerExtension } from "./auth.js";
+import { allowPut, authorize, chainIsLongerExtension, deviceListed } from "./auth.js";
+import { HEARTBEAT_MS } from "./heartbeat.js";
 import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
 import {
   LIMIT_HEADER,
@@ -33,7 +35,7 @@ import {
 } from "./limits.js";
 import { nightOf, nightPrefix, openBackupStore } from "./backup.js";
 
-const LABEL = "1.0.0-beta.35";
+const LABEL = "1.0.0-beta.36";
 const MAX_RECORD = 256 * 1024, MAX_MANIFEST = 1024 * 1024, MAX_OBJECT = 4 * 1024 * 1024 + 64;
 const MAX_CHAIN = 64 * 1024, MAX_WRAP = 1024, MAX_BODY = 8 * 1024 * 1024;
 const MAX_REQUESTS = 8, MAX_USES = 20;
@@ -60,9 +62,6 @@ const ERR = {
   Busy: [429, "Sync is busy. Try again in a moment."],
   Waiting: [409, "That phone or computer stopped waiting."],
 };
-// A joining phone polls every few seconds. This is how long a missed poll
-// can last before that request is no longer waiting.
-export const HEARTBEAT_MS = 30 * 1000;
 // Sync hosts never set a cookie. A browser on any origin may call them.
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -161,6 +160,10 @@ async function applyObjects(txn, account, writes, dropping) {
   }
   for (const id of dropping) await txn.delete(`o:${account}:${id}`);
   return written;
+}
+function deviceIdHex(deviceB64) {
+  const raw = fromB64(deviceB64);
+  return [...raw.subarray(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 const cleanName = (raw) => {
   let out = "";
@@ -411,7 +414,7 @@ export class Mailboxes extends DurableObject {
         if (!r || !given || !stored || !sameBytes(given, stored)) return [404, null];
         const reply = { state: r.state, name: r.name, device: r.device, chain: r.chain, wrap: r.wrap };
         if (r.state === "pending") r.lastSeen = this.now();
-        else delete m.requests[id];
+        else if (r.state !== "approved") delete m.requests[id];
         return [200, reply];
       });
       if (status === 404) fail("Unknown");
@@ -498,21 +501,52 @@ export class Mailboxes extends DurableObject {
       });
     }
     if (method === "POST" && id !== undefined) {
-      return this.change(account, async (m) => {
-        await authed(m);
+      return this.change(account, async (m, txn) => {
+        const auth = await authed(m);
         const v = need();
         const r = Object.hasOwn(m.requests, id) ? m.requests[id] : fail("Unknown");
         if (r.state === "pending" && !stillWaiting(r, this.now())) fail("Waiting");
         if (v.reject === true) {
           if (r.state !== "pending") fail("Conflict");
           r.state = "rejected";
-        } else {
-          const chain = fromB64(v.chain), wrap = fromB64(v.wrap);
-          if (chain.length > MAX_CHAIN || !startsWith(chain, CHAIN_MAGIC) || !wrap.length || wrap.length > MAX_WRAP) fail("Unreadable");
-          if (r.state !== "pending") fail("Conflict");
-          r.state = "approved"; r.chain = v.chain.trim(); r.wrap = v.wrap.trim();
+          return [200, { ok: true }];
         }
-        return [200, { ok: true }];
+        if (v.release === true) {
+          if (r.state !== "approved") fail("Conflict");
+          delete m.requests[id];
+          if (m.invite && m.invite.hash) {
+            m.invite.used = false;
+            await txn.put("i:" + m.invite.hash, { account, expires: m.invite.expires });
+          }
+          return [200, { ok: true }];
+        }
+        if (v.done === true) {
+          if (r.state !== "approved") fail("Conflict");
+          const signer = header("x-omacus-device").trim().toLowerCase();
+          if (!signer || signer !== deviceIdHex(r.device)) fail("Unknown");
+          delete m.requests[id];
+          return [200, { ok: true }];
+        }
+        const chain = fromB64(v.chain), wrap = fromB64(v.wrap);
+        if (chain.length > MAX_CHAIN || !startsWith(chain, CHAIN_MAGIC) || !wrap.length || wrap.length > MAX_WRAP) fail("Unreadable");
+        if (r.state !== "pending") fail("Conflict");
+        const record = sealed(v.record);
+        if (!await deviceListed(record, r.device)) fail("Unreadable");
+        if (!await allowPut(m.record, record, auth.recovery)) fail("Unreadable");
+        if (!Number.isInteger(v.revision) || v.revision !== m.revision) fail("Revision");
+        if (header("if-match").trim() !== `"${m.revision}"`) fail("Revision");
+        const writes = objectWrites(v);
+        const dropping = idList(v.drop);
+        const blocked = await rejectStored(txn, account, record, writes, dropping, this.limits);
+        if (blocked) fail(blocked);
+        const written = await applyObjects(txn, account, writes, dropping);
+        m.revision += 1;
+        m.record = record;
+        m.changed = Date.now();
+        r.state = "approved";
+        r.chain = v.chain.trim();
+        r.wrap = v.wrap.trim();
+        return [200, { ok: true, revision: m.revision, objects: written }];
       });
     }
     fail("Unknown");
