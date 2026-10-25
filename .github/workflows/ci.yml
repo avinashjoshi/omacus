@@ -129,6 +129,7 @@ jobs:
           node tests/backup.mjs
           node tests/sync-save.mjs
           node tests/sync-leader.mjs
+          node tests/device-name.mjs
           node tests/web-mobile.mjs
       - name: Web app offline
         run: |

@@ -96,7 +96,7 @@ For the command line, create a service token in Access and export `CF_ACCESS_CLI
 
 omacus Test is a separate app for trying sync at `https://sync-test.omacus.com`. It is not a release of Omacus, and it does not replace the installed app. Desktop sync in Omacus itself stays a later version.
 
-The app is named omacus Test. Its id is `dev.omacus.OmacusTest`. It does not register the `omacus://` link, and it does not write `~/.local/share/applications/omacus.desktop`. Pages stay in this app's own WebKit store. On Linux that is `~/.local/share/omacus-test` and `~/.cache/omacus-test`. They are not the pages in Omacus (`~/.local/share/omacus`, `~/.config/omacus`).
+The app is named omacus Test. Its id is `dev.omacus.OmacusTest`. On Mac its sync name is omacus Test on Mac. On Linux it is omacus Test on Linux. A browser on the same computer keeps its own name, such as Chrome on Linux. It does not register the `omacus://` link, and it does not write `~/.local/share/applications/omacus.desktop`. Pages stay in this app's own WebKit store. On Linux that is `~/.local/share/omacus-test` and `~/.cache/omacus-test`. They are not the pages in Omacus (`~/.local/share/omacus`, `~/.config/omacus`).
 
 On a Mac, the build is unsigned. It runs on Apple silicon and Intel. Download `omacus-test-mac.zip` from the `omacus-test-desktop` prerelease, unzip it, then right-click omacus Test, choose Open, and choose Open again. A double-click is blocked. The window opens the sync test.
 

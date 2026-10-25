@@ -11,6 +11,7 @@
 #define TEST_ID "dev.omacus.OmacusTest"
 #define SYNC_URL "https://sync-test.omacus.com/"
 #define DATA_NAME "omacus-test"
+#define TEST_UA "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) omacus-test/1.0"
 
 static gboolean owned_folder(const char *path) {
     const char *slash;
@@ -90,6 +91,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_window_set_title(GTK_WINDOW(window), "omacus Test");
     gtk_window_set_default_size(GTK_WINDOW(window), 1100, 760);
     view = webkit_web_view_new_with_context(context);
+    webkit_settings_set_user_agent(webkit_web_view_get_settings(WEBKIT_WEB_VIEW(view)), TEST_UA);
     gtk_container_add(GTK_CONTAINER(window), view);
     webkit_web_view_load_uri(WEBKIT_WEB_VIEW(view), SYNC_URL);
     g_signal_connect_swapped(window, "destroy", G_CALLBACK(g_application_quit), app);

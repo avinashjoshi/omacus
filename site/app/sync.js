@@ -3,8 +3,9 @@
 import { SYNC_URL } from "./sync-config.js";
 import { beginSave, finishSave, noteLocalEdit } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
+import { guessDeviceName as nameFromAgent } from "./device-name.js";
 
-const LABEL = "omacus 1.0.0-beta.27";
+const LABEL = "omacus 1.0.0-beta.28";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 
@@ -188,20 +189,7 @@ export async function mountSync(api) {
   }
 
   function guessDeviceName() {
-    const ua = navigator.userAgent || "";
-    const phone = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android" : "";
-    let browser = "Browser";
-    if (/Edg\//.test(ua)) browser = "Edge";
-    else if (/Chrome\//.test(ua)) browser = "Chrome";
-    else if (/Safari\//.test(ua) && !/Chrome\//.test(ua)) browser = "Safari";
-    else if (/Firefox\//.test(ua)) browser = "Firefox";
-    let computer = "computer";
-    if (/Mac OS X/.test(ua)) computer = "Mac";
-    else if (/Windows/.test(ua)) computer = "Windows";
-    else if (/CrOS/.test(ua)) computer = "Chromebook";
-    else if (/Linux/.test(ua)) computer = "Linux";
-    if (phone) return browser === "Safari" || browser === "Browser" ? phone : `${browser} on ${phone}`;
-    return `${browser} on ${computer}`;
+    return nameFromAgent(navigator.userAgent || "");
   }
 
   function cleanName(value) {

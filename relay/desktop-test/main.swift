@@ -9,6 +9,7 @@ import WebKit
 
 private let testBundleID = "dev.omacus.OmacusTest"
 private let syncURL = URL(string: "https://sync-test.omacus.com/")!
+private let testUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) omacus-test/1.0"
 
 final class TestApp: NSObject, NSApplicationDelegate {
     let window: NSWindow
@@ -28,6 +29,7 @@ final class TestApp: NSObject, NSApplicationDelegate {
         window.contentView = web
         window.minSize = NSSize(width: 420, height: 320)
         super.init()
+        web.customUserAgent = testUserAgent
         web.navigationDelegate = self
     }
 

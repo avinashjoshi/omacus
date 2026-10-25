@@ -66,7 +66,7 @@ wasm-bindgen --target web --no-typescript --out-dir "$out/pkg" \
 cp site/app/index.html site/app/app.js site/app/app.css site/app/editor.js \
   site/app/worker.js site/app/tree.js site/app/layer.js site/app/store.js site/app/sw.js \
   site/app/trust.js site/app/recover.js site/app/frame.js site/app/backup.js \
-  site/app/seed.js site/app/examples.js site/app/sync.js site/app/sync-save.mjs site/app/sync-leader.mjs site/app/sync-config.js \
+  site/app/seed.js site/app/examples.js site/app/sync.js site/app/device-name.js site/app/sync-save.mjs site/app/sync-leader.mjs site/app/sync-config.js \
   site/app/manifest.webmanifest site/app/migrate.js site/app/migrate.html \
   site/app/migrate-client.js site/app/migrate-protocol.js site/app/_headers "$out/"
 cp site/css/site.css site/css/tokens.css "$out/css/"
@@ -131,6 +131,8 @@ if old not in text:
     raise SystemExit("sync-config.js has no empty SYNC_URL")
 path.write_text(text.replace(old, new, 1))
 PY
+short="$(sha256sum "$out/device-name.js" | cut -c1-10)"
+sed -i "s#\"./device-name.js\"#\"./device-name.js?v=$short\"#" "$out/sync.js"
 short="$(sha256sum "$out/sync-config.js" | cut -c1-10)"
 sed -i "s#\"./sync-config.js\"#\"./sync-config.js?v=$short\"#" "$out/sync.js"
 short="$(sha256sum "$out/sync.js" | cut -c1-10)"

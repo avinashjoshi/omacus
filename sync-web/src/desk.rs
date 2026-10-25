@@ -1561,6 +1561,42 @@ mod tests {
             .expect("a real approval still opens");
     }
 
+    #[test]
+    fn the_list_shows_this_computer_and_leaves_a_removed_one_out() {
+        let (mut founder, _) = confirmed_desk();
+        let alone = founder.listed_devices().unwrap();
+        assert_eq!(alone.len(), 1);
+        assert!(alone[0].2);
+        let self_id = alone[0].0.clone();
+
+        let phone = Desk::start_join().unwrap();
+        founder.approve_new(&phone.public_device()).unwrap();
+        let two = founder.listed_devices().unwrap();
+        assert_eq!(two.len(), 2);
+        assert_eq!(two.iter().filter(|(_, _, mine)| *mine).count(), 1);
+        assert!(two.iter().any(|(id, _, mine)| *mine && id == &self_id));
+        let other = two.iter().find(|(_, _, mine)| !mine).unwrap().0.clone();
+
+        let extra = Desk::start_join().unwrap();
+        founder.approve_new(&extra.public_device()).unwrap();
+        let three = founder.listed_devices().unwrap();
+        assert_eq!(three.len(), 3);
+        let extra_id = three
+            .iter()
+            .find(|(id, _, _)| id != &self_id && id != &other)
+            .unwrap()
+            .0
+            .clone();
+        founder
+            .remove_listed(&decode_hex_id(&extra_id).unwrap())
+            .unwrap();
+        let left = founder.listed_devices().unwrap();
+        assert_eq!(left.len(), 2);
+        assert!(!left.iter().any(|(id, _, _)| id == &extra_id));
+        assert!(left.iter().any(|(id, _, mine)| *mine && id == &self_id));
+        assert_eq!(left.iter().filter(|(_, _, mine)| *mine).count(), 1);
+    }
+
     fn other_id(desk: &Desk) -> [u8; 16] {
         let listed = desk.listed_devices().unwrap();
         let (id, _, mine) = listed.iter().find(|(_, _, mine)| !mine).unwrap();
