@@ -45,10 +45,10 @@ impl StoreError {
 
     pub fn message(self) -> &'static str {
         match self {
-            StoreError::Unknown => "This test server has no pages for that yet.",
-            StoreError::Conflict => "This test server already has that copy.",
+            StoreError::Unknown => "No pages for that yet.",
+            StoreError::Conflict => "That copy is already here.",
             StoreError::Revision => "That copy is out of date. Try again.",
-            StoreError::Full => "This test server is full.",
+            StoreError::Full => "Sync is full.",
             StoreError::Unreadable => "That copy could not be read.",
             StoreError::BadInvite => "That code didn't work. Check it on the other device.",
             StoreError::BadAccess => "That invite code didn't work. Check it and try again.",
@@ -725,6 +725,40 @@ impl Store {
                 device: request.device.clone(),
                 name: request.name.clone(),
                 proof: request.proof.clone(),
+            })
+            .collect())
+    }
+
+    /// Pending requests, and approvals the other phone has not read yet.
+    /// An approval stays here until that phone reads it, or until it expires.
+    /// The third value is when the request was created, so a phone can stop
+    /// waiting at the same moment the request expires.
+    pub fn open_requests(
+        &mut self,
+        account: &str,
+    ) -> Result<Vec<(Pending, &'static str, u64)>, StoreError> {
+        let account = account_id(account)?;
+        self.drop_expired(&account);
+        let mailbox = self.mailboxes.get(&account).ok_or(StoreError::Unknown)?;
+        Ok(mailbox
+            .requests
+            .iter()
+            .filter_map(|(id, request)| {
+                let state = match request.state {
+                    State::Pending => "pending",
+                    State::Approved => "approved",
+                    State::Rejected => return None,
+                };
+                Some((
+                    Pending {
+                        id: id.clone(),
+                        device: request.device.clone(),
+                        name: request.name.clone(),
+                        proof: request.proof.clone(),
+                    },
+                    state,
+                    request.created,
+                ))
             })
             .collect())
     }

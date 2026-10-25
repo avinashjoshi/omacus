@@ -62,7 +62,6 @@ days until Christmas
 #ff8800 in hsl
 
 // Click an answer to copy it. Share link sends this page to anyone.
-// Private: your pages are saved in this browser only. Nothing is uploaded.
 `;
 
 // Embedded in omacus.com's homepage (/app/?embed#v1.…): just the editor, on the sheet
@@ -966,13 +965,19 @@ function sideCaption(text, kind, count) {
   const label = document.createElement("span");
   label.textContent = `${text} · ${count}`;
   button.append(mark, label);
+  row.append(button);
+  if (kind === "local" && count === 0) {
+    const hint = document.createElement("p");
+    hint.className = "side-sync-hint";
+    hint.textContent = `Pages you move here stay on ${herePhrase()}.`;
+    row.append(hint);
+  }
   button.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     sideCollapsed[kind] = !sideCollapsed[kind];
     renderSidebar();
   });
-  row.append(button);
   return row;
 }
 
@@ -999,7 +1004,9 @@ function syncSectionOf(id) {
 }
 
 function herePhrase() {
-  return (syncPlaces?.here || "On this computer").replace(/^On /, "this ");
+  const raw = String(syncPlaces?.here || "On this computer").replace(/^On\s+/i, "");
+  const place = raw.replace(/^(this\s+)+/i, "");
+  return `this ${place}`.replace(/\s+/g, " ").trim();
 }
 
 function closeSyncDest() {
@@ -1019,6 +1026,16 @@ function syncDestinations() {
   ];
 }
 
+function openMoveTo(ids) {
+  const unique = [...new Set(ids)].filter((id) => pageIds(state.tree).includes(id));
+  if (!unique.length) return;
+  if (syncPlaces && typeof syncPlaces.move === "function") {
+    openSyncDest(unique);
+    return;
+  }
+  if (unique.length === 1) openMove(unique[0]);
+}
+
 function openSyncDest(ids) {
   const unique = [...new Set(ids)].filter((id) => pageIds(state.tree).includes(id));
   if (!unique.length || !el.syncDest || !el.syncDestList) return;
@@ -1035,7 +1052,23 @@ function openSyncDest(ids) {
     });
     el.syncDestList.append(button);
   }
-  if (!el.syncDestList.childElementCount) return;
+  for (const folder of folders(state.tree)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = folder.name;
+    button.addEventListener("click", () => {
+      closeSyncDest();
+      for (const id of unique) {
+        if (folderOf(state.tree, id) !== folder.id) applyPlace(id, { kind: "into", id: folder.id });
+      }
+      renderSidebar();
+    });
+    el.syncDestList.append(button);
+  }
+  if (!el.syncDestList.childElementCount) {
+    if (unique.length === 1) openMove(unique[0]);
+    return;
+  }
   el.syncDest.hidden = false;
   el.syncDestList.querySelector("button")?.focus();
 }
@@ -3372,6 +3405,7 @@ async function loadRates() {
   const age = Number.isFinite(cached?.at) ? Date.now() - cached.at : Infinity;
   if (have && age < RATES_MAX_AGE) {
     setRatesNote("fresh");
+    evaluate();
     return;
   }
   try {
@@ -3447,7 +3481,7 @@ async function action(name) {
   } else if (name === "new-folder") {
     addFolder(null);
   } else if (name === "move-folder") {
-    if (state.active && state.active !== "shared" && pageIds(state.tree).includes(state.active)) openMove(state.active);
+    if (state.active && state.active !== "shared" && pageIds(state.tree).includes(state.active)) openMoveTo([state.active]);
     else toast("Open a page to move it.");
   } else if (name === "close-move") {
     closeMove();
@@ -3966,12 +4000,11 @@ function openRowMenu(row, x, y, anchor) {
   const items = [];
   if (!ends.first) items.push({ label: "Move up", run: () => nudge(id, -1) });
   if (!ends.last) items.push({ label: "Move down", run: () => nudge(id, 1) });
-  items.push({ label: "Move to folder…", run: () => openMove(id) });
+  items.push({
+    label: "Move to…",
+    run: () => openMoveTo(sidePick.has(id) ? [...sidePick] : [id]),
+  });
   if (syncPlaces && typeof syncPlaces.move === "function") {
-    items.push({
-      label: "Move to…",
-      run: () => openSyncDest(sidePick.has(id) ? [...sidePick] : [id]),
-    });
     items.push({
       label: sidePick.has(id) ? "Deselect" : "Select",
       run: () => {
@@ -4332,7 +4365,7 @@ document.addEventListener("pointercancel", finishDrawerTap, { capture: true, pas
 document.addEventListener("click", (event) => {
   if (!drawerTap && performance.now() >= drawerSwallowUntil) return;
   const node = event.target instanceof Element ? event.target : event.target?.parentElement;
-  if (node?.closest(".side, .sheets-toggle, .bar, [data-row-menu]")) return;
+  if (node?.closest(".side, .sheets-toggle, .bar, [data-row-menu], .settings")) return;
   event.preventDefault();
   event.stopPropagation();
   if (el.page.classList.contains("drawer")) setDrawer(false);
@@ -4990,6 +5023,30 @@ async function backupBeforeRemote() {
   if (store.get("sync-remote-backup") !== backup) throw new Error("The backup could not be saved.");
 }
 
+function orderPagesLike(nodes, pages) {
+  const rank = new Map();
+  (pages || []).forEach((row, index) => {
+    if (Array.isArray(row) && row[0] && !rank.has(row[0])) rank.set(row[0], index);
+  });
+  if (!rank.size) return nodes;
+  const walk = (list) => {
+    const pagesHere = [];
+    const slots = (list || []).map((node) => {
+      if (!node) return node;
+      if (node.type === "folder") return { ...node, children: walk(node.children) };
+      if (node.type === "page" && rank.has(node.id)) {
+        pagesHere.push(node);
+        return null;
+      }
+      return node;
+    });
+    pagesHere.sort((a, b) => rank.get(a.id) - rank.get(b.id));
+    let at = 0;
+    return slots.map((slot) => (slot === null ? pagesHere[at++] : slot));
+  };
+  return walk(nodes);
+}
+
 async function applyRemoteLibrary(nextDoc, pages) {
   await backupBeforeRemote();
   applyingRemote = true;
@@ -5037,6 +5094,7 @@ async function applyRemoteLibrary(nextDoc, pages) {
     for (const [id, text] of state.texts) {
       if (id && id !== "shared") await store.set("page:" + id, text ?? "");
     }
+    state.tree = orderPagesLike(state.tree, pages);
     syncOrder();
     if (state.active !== "shared" && !state.order.includes(state.active)) state.active = state.order[0] ?? state.active;
     saveIndex();

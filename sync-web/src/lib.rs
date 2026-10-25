@@ -1,7 +1,6 @@
-//! The private sync test, for a browser pointed at a test server.
+//! Sync for the browser.
 //!
-//! Nothing here is the app at app.omacus.com. The page keeps the words. The
-//! server receives a sealed record and public device bytes.
+//! The page keeps the words. The server receives a sealed record and public device bytes.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;

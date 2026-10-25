@@ -120,7 +120,7 @@ The signature is Ed25519, 64 bytes, by the device named `signer`. `prev` is the 
 
 A phone keeps the list it already checked. It takes a longer list that extends that one. It takes a list that starts over only when the first snapshot is signed by the account key, the same key as the recovery signer, and that key matches the one this phone already pinned. A vault key it has not seen is refused unless it arrives with one of those lists. The first list, on a phone that has none yet, is stored only after the six numbers are checked.
 
-One list entry has the 16-byte id `recovery-signer` followed by a zero byte. Its verify key is the account public key. It is not a phone. A linked device adds it when publishing, so recovery can sign later requests. Removing a phone does not remove this entry. When the words open the latest pages, that signer adds the phone that typed them. The vault key stays the same, and the other phones see the longer list.
+One list entry has the 16-byte id `recovery-signer` followed by a zero byte. Its verify key is the account public key. It is not a phone. A linked device adds it when publishing, so recovery can sign later requests. Removing a phone does not remove this entry. When the words open the latest pages, that signer adds the phone that typed them. The vault key stays the same, and the other phones see the longer list. An older phone adopts that longer recovery-signed list before it publishes. A shorter list is refused.
 
 ## Invite and join
 

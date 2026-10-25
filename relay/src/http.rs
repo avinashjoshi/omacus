@@ -255,14 +255,16 @@ fn route(
         }
         ("GET", Some("requests"), None) => {
             let pending: Vec<_> = store
-                .pending(account)?
+                .open_requests(account)?
                 .into_iter()
-                .map(|request| {
+                .map(|(request, state, created)| {
                     json!({
                         "id": request.id,
                         "device": b64(&request.device),
                         "name": request.name,
                         "proof": b64(&request.proof),
+                        "state": state,
+                        "created": created,
                     })
                 })
                 .collect();

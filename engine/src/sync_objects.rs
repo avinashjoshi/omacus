@@ -179,6 +179,28 @@ pub fn merge_page(
     Ok((doc, text))
 }
 
+/// Fold two copies of one page that both started from `ancestor`.
+/// A copy that still matches `ancestor` takes the other one, so a deleted line
+/// stays deleted. A line added on one side stays.
+pub fn three_way(
+    page_id: &str,
+    ancestor: &str,
+    local: &str,
+    remote: &str,
+) -> Result<String, SyncKeyError> {
+    if local == ancestor {
+        return Ok(remote.to_string());
+    }
+    if remote == ancestor || local == remote {
+        return Ok(local.to_string());
+    }
+    let base = page_document(b"", page_id, ancestor)?;
+    let ours = page_document(&base, page_id, local)?;
+    let theirs = page_document(&base, page_id, remote)?;
+    let (_doc, text) = merge_page(page_id, &ours, local, &theirs, remote)?;
+    Ok(text)
+}
+
 fn folders_of(doc: &[u8]) -> Vec<FolderRow> {
     if doc.is_empty() {
         return Vec::new();
@@ -550,7 +572,8 @@ pub fn assemble(
         };
         let hash = content_hash(&text);
         let vault_id = prev.map(|slot| slot.vault_id).unwrap_or([0u8; 16]);
-        pages.push((entry.page_id.clone(), text));
+        let sealed = prev.and_then(|slot| page_text(&slot.doc, &entry.page_id).ok());
+        pages.push((entry.page_id.clone(), text, sealed));
         slots.push(Slot {
             page_id: entry.page_id,
             object_id: entry.object_id,
@@ -567,11 +590,23 @@ pub fn assemble(
     } else {
         omacus_doc::Library::load(base_doc).unwrap_or_else(|_| omacus_doc::Library::new())
     };
-    for (id, text) in &pages {
+    let mut folded = Vec::with_capacity(pages.len());
+    for (id, incoming, sealed) in &pages {
+        let current = lib.snapshot(id);
+        let text = match (current.as_deref(), sealed.as_deref()) {
+            (None, _) => incoming.clone(),
+            (Some(current), _) if current == incoming => current.to_string(),
+            // This phone has not changed the page since the last sync, so the
+            // incoming copy wins. A line deleted there stays deleted.
+            (Some(current), Some(ancestor)) if current == ancestor => incoming.clone(),
+            (Some(current), Some(ancestor)) => three_way(id, ancestor, current, incoming)?,
+            (Some(current), None) => three_way(id, "", current, incoming)?,
+        };
         if lib.snapshot(id).as_deref() != Some(text.as_str()) {
-            lib.reconcile(id, text, None);
-            lib.note_written(id, text);
+            lib.reconcile(id, &text, None);
+            lib.note_written(id, &text);
         }
+        folded.push((id.clone(), text));
     }
     if !decoded.folders.is_empty() {
         let seeds: Vec<omacus_doc::FolderSeed> = decoded
@@ -587,7 +622,7 @@ pub fn assemble(
     }
     let packed = PageSet {
         doc: lib.save(),
-        pages,
+        pages: folded,
         meta: decoded.meta,
     }
     .to_bytes()?;
@@ -698,6 +733,110 @@ mod tests {
         assert_eq!(set.pages.len(), 2);
         assert!(set.pages.iter().any(|(_, text)| text.contains("mustard")));
         assert!(set.pages.iter().any(|(_, text)| text.contains("lentils")));
+    }
+
+    #[test]
+    fn a_line_typed_since_the_last_sync_survives_the_other_copy() {
+        let vault = VaultKey::generate().unwrap();
+        let ferry = "Harbor ledger\nferry = 40\n";
+        let bread = "Harbor ledger\nferry = 40\nbread $2\n";
+        let set = sample_set(vec![("harbor".into(), ferry.into())]);
+        let planned = plan(&vault, 1, &set, &[], 1).unwrap();
+        let mut slots = planned.slots.clone();
+        for slot in &mut slots {
+            slot.server_rev = 1;
+        }
+        let mut lib = omacus_doc::Library::new();
+        lib.reconcile("harbor", ferry, None);
+        lib.note_written("harbor", ferry);
+        lib.reconcile("harbor", bread, None);
+        lib.note_written("harbor", bread);
+        let incoming = vec![Incoming {
+            id: planned.objects[0].id,
+            revision: 1,
+            body: planned.objects[0].body.clone(),
+        }];
+        let opened = assemble(&planned.manifest, &incoming, &slots, &lib.save()).unwrap();
+        let round = PageSet::from_bytes(&opened.packed).unwrap();
+        let text = round
+            .pages
+            .iter()
+            .find(|(id, _)| id == "harbor")
+            .unwrap()
+            .1
+            .clone();
+        assert!(text.contains("bread $2"), "{text}");
+        assert!(text.contains("ferry = 40"), "{text}");
+        let shown = omacus_doc::Library::load(&round.doc)
+            .unwrap()
+            .snapshot("harbor")
+            .unwrap();
+        assert!(shown.contains("bread $2"), "{shown}");
+    }
+
+    #[test]
+    fn an_unchanged_page_keeps_a_line_deleted_on_the_other_phone() {
+        let vault = VaultKey::generate().unwrap();
+        let ferry = "Harbor ledger\nferry = 40\n";
+        let with_bread = "Harbor ledger\nferry = 40\nbread $2\n";
+        let set = sample_set(vec![("harbor".into(), with_bread.into())]);
+        let first = plan(&vault, 1, &set, &[], 1).unwrap();
+        let mut slots = first.slots.clone();
+        for slot in &mut slots {
+            slot.server_rev = 1;
+        }
+        let edited = sample_set(vec![("harbor".into(), ferry.into())]);
+        let second = plan(&vault, 1, &edited, &slots, 2).unwrap();
+        let mut lib = omacus_doc::Library::new();
+        lib.reconcile("harbor", with_bread, None);
+        lib.note_written("harbor", with_bread);
+        let incoming = vec![Incoming {
+            id: second.objects[0].id,
+            revision: 2,
+            body: second.objects[0].body.clone(),
+        }];
+        let opened = assemble(&second.manifest, &incoming, &slots, &lib.save()).unwrap();
+        let round = PageSet::from_bytes(&opened.packed).unwrap();
+        let text = &round.pages.iter().find(|(id, _)| id == "harbor").unwrap().1;
+        assert!(!text.contains("bread"), "{text}");
+        assert!(text.contains("ferry = 40"), "{text}");
+    }
+
+    #[test]
+    fn an_unsent_line_merges_with_a_line_from_the_other_phone() {
+        let vault = VaultKey::generate().unwrap();
+        let ferry = "Harbor ledger\nferry = 40\n";
+        let bread = "Harbor ledger\nferry = 40\nbread $2\n";
+        let cake = "Harbor ledger\nferry = 40\ncake $5\n";
+        let set = sample_set(vec![("harbor".into(), ferry.into())]);
+        let first = plan(&vault, 1, &set, &[], 1).unwrap();
+        let mut slots = first.slots.clone();
+        for slot in &mut slots {
+            slot.server_rev = 1;
+        }
+        let edited = sample_set(vec![("harbor".into(), bread.into())]);
+        let second = plan(&vault, 1, &edited, &slots, 2).unwrap();
+        let mut lib = omacus_doc::Library::new();
+        lib.reconcile("harbor", ferry, None);
+        lib.note_written("harbor", ferry);
+        lib.reconcile("harbor", cake, None);
+        lib.note_written("harbor", cake);
+        let incoming = vec![Incoming {
+            id: second.objects[0].id,
+            revision: 2,
+            body: second.objects[0].body.clone(),
+        }];
+        let opened = assemble(&second.manifest, &incoming, &slots, &lib.save()).unwrap();
+        let text = &PageSet::from_bytes(&opened.packed)
+            .unwrap()
+            .pages
+            .into_iter()
+            .find(|(id, _)| id == "harbor")
+            .unwrap()
+            .1;
+        assert!(text.contains("bread $2"), "{text}");
+        assert!(text.contains("cake $5"), "{text}");
+        assert_eq!(text.matches("ferry = 40").count(), 1, "{text}");
     }
 
     #[test]

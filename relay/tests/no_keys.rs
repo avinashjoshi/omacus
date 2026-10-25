@@ -7,6 +7,8 @@ use std::sync::{Arc, Mutex};
 
 use base64::Engine;
 use omacus_engine::sync_keys::{PageSet, RecoveryKey};
+use omacus_engine::sync_objects::Incoming;
+use omacus_relay::auth::put_allowed;
 use omacus_relay::store::Store;
 use omacus_sync_web::desk::{self, Desk, SAMPLE_PAGE};
 
@@ -281,6 +283,8 @@ fn the_relay_holds_no_key_and_no_page() {
     assert_eq!(status, 200);
     let pending = &json_body(&body)["requests"][0];
     assert_eq!(pending["name"], "This phone");
+    assert_eq!(pending["state"], "pending");
+    assert!(pending["created"].as_u64().unwrap() > 0);
     let posted = base64::engine::general_purpose::STANDARD
         .decode(pending["device"].as_str().unwrap())
         .unwrap();
@@ -310,6 +314,19 @@ fn the_relay_holds_no_key_and_no_page() {
         &mut wire,
     );
     assert_eq!(status, 200);
+    let (status, body) = signed(
+        port,
+        &founder,
+        "GET",
+        &format!("/v1/mailboxes/{account}/requests"),
+        b"",
+        &mut wire,
+    );
+    assert_eq!(status, 200);
+    let waiting = &json_body(&body)["requests"][0];
+    assert_eq!(waiting["state"], "approved");
+    assert_eq!(waiting["id"].as_str(), Some(id.as_str()));
+    assert!(waiting["created"].as_u64().unwrap() > 0);
 
     let (status, body) = exchange_with(
         port,
@@ -330,10 +347,7 @@ fn the_relay_holds_no_key_and_no_page() {
         &mut wire,
     );
     assert_eq!(status, 404, "an approved request is not kept");
-    assert_eq!(
-        json_body(&body)["message"],
-        "This test server has no pages for that yet."
-    );
+    assert_eq!(json_body(&body)["message"], "No pages for that yet.");
     let (status, body) = signed(
         port,
         &founder,
@@ -847,10 +861,7 @@ fn an_invite_code_is_spent_once_and_is_not_stored() {
         &mut Vec::new(),
     );
     assert_eq!(status, 404, "an unsigned update is refused");
-    assert_eq!(
-        json_body(&body)["message"],
-        "This test server has no pages for that yet."
-    );
+    assert_eq!(json_body(&body)["message"], "No pages for that yet.");
 
     let mut founder = Desk::start_new().unwrap();
     let words = founder.words().unwrap();
@@ -937,7 +948,7 @@ fn an_unsigned_request_a_removed_phone_and_a_replay_are_refused() {
     let record = founder.confirm_saved(&picks).unwrap();
     let account = founder.account_hex().unwrap();
     let path = format!("/v1/mailboxes/{account}");
-    let missing = "This test server has no pages for that yet.";
+    let missing = "No pages for that yet.";
     let create = serde_json::json!({
         "account": account,
         "record": b64(&record),
@@ -1044,5 +1055,94 @@ fn an_unsigned_request_a_removed_phone_and_a_replay_are_refused() {
         json_body(&body)["message"],
         missing,
         "a missing account reads the same"
+    );
+}
+
+fn as_incoming(objects: &[omacus_engine::sync_objects::Outgoing]) -> Vec<Incoming> {
+    objects
+        .iter()
+        .map(|object| Incoming {
+            id: object.id,
+            revision: 1,
+            body: object.body.clone(),
+        })
+        .collect()
+}
+
+fn ferry_pages() -> Vec<u8> {
+    PageSet {
+        doc: Vec::new(),
+        pages: vec![("trip".into(), "ferry = 40\n".into())],
+        meta: Default::default(),
+    }
+    .to_bytes()
+    .unwrap()
+}
+
+#[test]
+fn an_old_phone_adopts_the_recovery_list_before_it_saves() {
+    let mut founder = Desk::start_new().unwrap();
+    let words = founder.words().unwrap();
+    let phrase = words.join(" ");
+    let picks: Vec<(u8, &str)> = desk::CONFIRM_AT
+        .into_iter()
+        .map(|n| (n, words[n as usize - 1]))
+        .collect();
+    founder.confirm_saved(&picks).unwrap();
+    let first = founder.seal_library(&ferry_pages(), &[]).unwrap();
+    let second = founder.seal_library(&ferry_pages(), &first.slots).unwrap();
+    let current = founder.library_record().unwrap();
+
+    let mut recovered = Desk::start_recovery(&phrase).unwrap();
+    recovered.accept_phrase().unwrap();
+    let peeked = recovered.recovery_peek(&current).unwrap();
+    assert!(!peeked.partial, "the words could not open the latest pages");
+    assert!(!peeked.legacy);
+    let mut bodies = first.objects;
+    bodies.extend(second.objects);
+    let (packed, _) = recovered
+        .recovery_apply(&current, &as_incoming(&bodies))
+        .unwrap();
+    let saved = recovered.seal_library(&packed, &[]).unwrap();
+    let published = recovered.library_record().unwrap();
+    let added = recovered
+        .listed_devices()
+        .unwrap()
+        .into_iter()
+        .find(|(_, _, mine)| *mine)
+        .unwrap()
+        .0;
+
+    let short = founder.library_record().unwrap();
+    assert!(
+        !put_allowed(&published, &short, false),
+        "a save that still carries the shorter list was accepted"
+    );
+
+    let opened = founder
+        .open_library(&published, &as_incoming(&saved.objects), &second.slots, &[])
+        .expect("the old phone opens the recovery copy");
+    assert!(opened.replace);
+    assert!(
+        founder
+            .listed_devices()
+            .unwrap()
+            .iter()
+            .any(|(id, _, _)| id == &added),
+        "the old phone did not adopt the recovered computer"
+    );
+
+    let edited = PageSet {
+        doc: Vec::new(),
+        pages: vec![("trip".into(), "ferry = 40\nbread $2\n".into())],
+        meta: Default::default(),
+    };
+    founder
+        .seal_library(&edited.to_bytes().unwrap(), &opened.slots)
+        .unwrap();
+    let again = founder.library_record().unwrap();
+    assert!(
+        put_allowed(&published, &again, false),
+        "a save after adopting the recovery list was refused"
     );
 }

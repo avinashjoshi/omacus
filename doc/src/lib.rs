@@ -1838,6 +1838,55 @@ mod tests {
     }
 
     #[test]
+    fn an_append_is_kept_when_the_document_is_still_the_previous_copy() {
+        let base = "Harbor ledger\nferry = 40\n";
+        let origin = device(base);
+        let ahead = "Harbor ledger\nferry = 40\nbread $2\n";
+        let local = (
+            origin.0.clone(),
+            vec![("trip".to_string(), ahead.to_string())],
+        );
+        let text = merged_trip(&local, &origin);
+        assert!(text.contains("bread $2"), "{text}");
+        assert!(text.contains("ferry = 40"), "{text}");
+    }
+
+    #[test]
+    fn a_new_page_keeps_a_line_added_on_one_phone() {
+        let mut origin = Library::new();
+        origin.reconcile("welcome", "# Welcome to Omacus\nHotel ¥\n", None);
+        origin.reconcile("examples", "# Groceries\nmilk $3.40\n", None);
+        origin.reconcile("harbor", "", None);
+        origin.reconcile("harbor", "Harbor ledger\nferry = 40\n", None);
+        origin.note_written("harbor", "Harbor ledger\nferry = 40\n");
+        origin.set_folders(&[]);
+        let bytes = origin.save();
+        let mut ahead = Library::load(&bytes).unwrap();
+        let edited = "Harbor ledger\nferry = 40\nbread $2\n";
+        ahead.reconcile("harbor", edited, None);
+        ahead.note_written("harbor", edited);
+        ahead.set_folders(&[]);
+        let mut other = Library::load(&bytes).unwrap();
+        other.set_folders(&[]);
+        let pages = |text: &str| {
+            vec![
+                ("welcome".into(), "# Welcome to Omacus\nHotel ¥\n".into()),
+                ("examples".into(), "# Groceries\nmilk $3.40\n".into()),
+                ("harbor".into(), text.into()),
+            ]
+        };
+        let (_doc, merged) = merge_libraries(
+            &ahead.save(),
+            &pages(edited),
+            &other.save(),
+            &pages("Harbor ledger\nferry = 40\n"),
+        );
+        let text = merged.into_iter().find(|(id, _)| id == "harbor").unwrap().1;
+        assert!(text.contains("bread $2"), "{text}");
+        assert!(text.contains("ferry = 40"), "{text}");
+    }
+
+    #[test]
     fn concurrent_appends_on_one_document_each_appear_once() {
         let mut origin = Library::new();
         let sample = "# Trip Budget\nferry = 40\n";

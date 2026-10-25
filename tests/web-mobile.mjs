@@ -143,6 +143,7 @@ check(buildWeb.includes("site/app/layer.js"), "the published app includes the ro
   check(swallowDrawerTap(hit(".bar"), { drawer: true, narrow: true }) === false, "a tap on the bar is kept");
   check(swallowDrawerTap(hit(".sheets-toggle"), { drawer: true, narrow: true }) === false, "the pages button is kept");
   check(swallowDrawerTap(hit("[data-row-menu]"), { drawer: true, narrow: true }) === false, "the row menu is kept");
+  check(swallowDrawerTap(hit(".settings"), { drawer: true, narrow: true }) === false, "a tap in Settings is kept");
   check(swallowDrawerTap(hit(""), { drawer: false, narrow: true }) === false, "a closed drawer does not swallow taps");
   check(swallowDrawerTap(hit(""), { drawer: true, narrow: false }) === false, "a wide window does not swallow taps");
 }
@@ -1640,7 +1641,7 @@ async function openRowMenuPreview(forceDrawer = false) {
     const menu = document.querySelector("[data-row-menu]");
     const side = document.querySelector(".side");
     menu.replaceChildren();
-    for (const label of ["Move down", "Move to folder…", "Move to…", "Select", "Lock…", "Delete page"]) {
+    for (const label of ["Move up", "Move down", "Move to…", "Select", "Lock…", "Delete page"]) {
       const button = document.createElement("button");
       button.type = "button";
       button.setAttribute("role", "menuitem");

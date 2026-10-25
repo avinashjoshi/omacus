@@ -45,10 +45,10 @@ const RECORD_MAGIC = enc.encode("OMACUS-SYNC/1\n");
 const RECORD_MAGIC_V2 = enc.encode("OMACUS-SYNC/2\n");
 const CHAIN_MAGIC = enc.encode("OMACUS-DEVICES/1");
 const ERR = {
-  Unknown: [404, "This test server has no pages for that yet."],
-  Conflict: [409, "This test server already has that copy."],
+  Unknown: [404, "No pages for that yet."],
+  Conflict: [409, "That copy is already here."],
   Revision: [409, "That copy is out of date. Try again."],
-  Full: [429, "This test server is full."],
+  Full: [429, "Sync is full."],
   Unreadable: [400, "That copy could not be read."],
   BadInvite: [400, "That code didn't work. Check it on the other device."],
   BadAccess: [400, "That invite code didn't work. Check it and try again."],
@@ -447,8 +447,16 @@ export class Mailboxes extends DurableObject {
       return this.change(account, async (m) => {
         await authed(m);
         return [200, {
-          requests: Object.entries(m.requests).filter(([, r]) => r.state === "pending")
-            .map(([rid, r]) => ({ id: rid, device: r.device, name: r.name, proof: r.proof || "" })),
+          requests: Object.entries(m.requests)
+            .filter(([, r]) => r.state === "pending" || r.state === "approved")
+            .map(([rid, r]) => ({
+              id: rid,
+              device: r.device,
+              name: r.name,
+              proof: r.proof || "",
+              state: r.state,
+              created: r.created || 0,
+            })),
         }];
       });
     }

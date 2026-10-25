@@ -1177,7 +1177,14 @@ impl Desk {
         if !omacus_engine::sync_objects::is_v2(record) {
             return Ok((true, Vec::new()));
         }
-        let plain = match self.peek_manifest(record) {
+        // A recovery-signed list can carry an older manifest generation.
+        // The objects in that manifest still have to be fetched before it opens.
+        let floor = if self.incoming_list_wins(record) {
+            0
+        } else {
+            self.seen_gen
+        };
+        let plain = match self.peek_manifest_floor(record, floor) {
             Ok(plain) => plain,
             Err(_) => return Ok((false, Vec::new())),
         };
@@ -1204,14 +1211,21 @@ impl Desk {
                 combine: opened.combine,
             });
         }
-        let peeked = match self.peek_manifest(record) {
-            Err(SyncKeyError::Older) => return Err(SyncKeyError::Older),
+        // A recovery signer can add a phone and publish a longer list whose
+        // manifest generation is still lower than the one this phone already
+        // saved. That list has to be adopted before the next save. An older
+        // generation on the same list is still refused, so a replay does not
+        // roll the pages back.
+        let wins = self.incoming_list_wins(record);
+        let floor = if wins { 0 } else { self.seen_gen };
+        let peeked = match self.peek_manifest_floor(record, floor) {
+            Err(SyncKeyError::Older) if !wins => return Err(SyncKeyError::Older),
             other => other,
         };
         let generation = match &peeked {
             Ok(plain) => {
                 let generation = omacus_engine::sync_objects::manifest_generation(plain)?;
-                if generation < self.seen_gen {
+                if generation < self.seen_gen && !wins {
                     return Err(SyncKeyError::Older);
                 }
                 Some(generation)
@@ -1251,20 +1265,46 @@ impl Desk {
         })
     }
 
+    /// A longer list, or a recovery-signed fork, replaces the list stored here
+    /// even when its manifest generation is lower.
+    fn incoming_list_wins(&self, record: &[u8]) -> bool {
+        let Ok(view) = ServerView::parse(record) else {
+            return false;
+        };
+        if view.chain.verify().is_err() {
+            return false;
+        }
+        let order = self
+            .chain
+            .as_ref()
+            .map(|local| view.chain.compared_with(local));
+        matches!(
+            (self.chain_decision(&view, order), order),
+            (
+                Ok(true),
+                Some(sync_keys::ChainOrder::Newer | sync_keys::ChainOrder::Diverge)
+            )
+        )
+    }
+
     fn peek_manifest(&self, record: &[u8]) -> Result<Vec<u8>, SyncKeyError> {
+        self.peek_manifest_floor(record, self.seen_gen)
+    }
+
+    fn peek_manifest_floor(&self, record: &[u8], floor: u64) -> Result<Vec<u8>, SyncKeyError> {
         let view = ServerView::parse(record)?;
         view.chain.verify()?;
         sync_keys::trust_signature(&view, self.signed_seen)?;
         if let Some(vault) = &self.vault
             && vault.id() == &view.key_id
         {
-            return open_manifest_at(vault, view.epoch, &view.page, self.seen_gen);
+            return open_manifest_at(vault, view.epoch, &view.page, floor);
         }
         for wrap in &view.device_wraps {
             if let Ok(opened) =
                 sync_keys::open_device_wrap_parts(&self.device, wrap, view.epoch, &view.key_id)
             {
-                return open_manifest_at(&opened.vault, view.epoch, &view.page, self.seen_gen);
+                return open_manifest_at(&opened.vault, view.epoch, &view.page, floor);
             }
         }
         Err(SyncKeyError::Sealed)

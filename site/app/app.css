@@ -2449,10 +2449,6 @@ body.answers-inline .md .pill {
 }
 
 @media (max-width: 760px) {
-  .sync-beta {
-    display: block;
-  }
-
   .sync-chip {
     justify-content: center;
     gap: 0;
@@ -2710,6 +2706,26 @@ body.answers-inline .md .pill {
 .sheet-list .side-row[data-picked="1"] {
   background: var(--app-sel);
   color: var(--app-fg);
+}
+
+.side-sync-hint {
+  margin: 0;
+  padding: 0 var(--space-1) var(--space-2) var(--side-gutter);
+  color: var(--app-dim);
+  font: 400 var(--type-caption) / 1.4 var(--sans);
+}
+
+.sync-rename {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.sync-rename-actions {
+  display: flex;
+  gap: var(--space-2);
 }
 
 .sync-device-actions {

@@ -93,9 +93,8 @@ try {
   if (!help.includes("It will stop getting your pages. Pages already on it stay there.")) {
     throw new Error(`confirm copy missing: ${help}`);
   }
-  const shown = (await pageA.locator(".sync-code").innerText()).trim();
-  if (!/^\d{3} \d{3}$/.test(shown)) throw new Error(`confirm code ${shown}`);
-  if (!help.includes("Phone or computer")) throw new Error("confirm did not name the phone or computer");
+  if (await pageA.locator(".sync-code").count() !== 0) throw new Error("the remove screen still shows the six numbers");
+  if (!help.includes("Remove this phone or computer?")) throw new Error("confirm did not name the phone or computer");
 
   await pageA.setViewportSize({ width: 1280, height: 800 });
   await pageA.evaluate(() => { document.documentElement.dataset.appTheme = "light"; });

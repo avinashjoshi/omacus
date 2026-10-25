@@ -1,7 +1,6 @@
-// Sync for the private test. The published app does not mount this.
-// A device file stays in this browser. The server receives a sealed record.
+// Sync. A device file stays in this browser. The server receives a sealed record.
 import { SYNC_URL } from "./sync-config.js";
-import { beginSave, finishSave, noteLocalEdit } from "./sync-save.mjs";
+import { beginSave, finishSave, noteLocalEdit, pagesDiffer } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 
@@ -15,7 +14,7 @@ function syncOrigin() {
 }
 
 export async function mountSync(api) {
-  if (!api?.syncTest) return;
+  if (!api) return;
   let sync;
   try {
     const mod = await import("./pkg/omacus_sync_web.js");
@@ -81,6 +80,8 @@ export async function mountSync(api) {
     busy: false,
     dirty: false,
     editGen: 0,
+    basePages: null,
+    saveError: "",
     member: true,
     devices: [],
     name: matchMedia("(pointer: coarse)").matches ? "This phone" : "This browser",
@@ -163,6 +164,7 @@ export async function mountSync(api) {
     saveTimer = null;
     if (state.member && state.account) {
       clearPaused();
+      state.saveError = "";
       setChip("Synced", "on");
     } else if (!state.member || state.removed || pausedFlag()) {
       setChip("Sync paused", "off");
@@ -364,11 +366,39 @@ export async function mountSync(api) {
 
   function beginRename(row, device) {
     const current = deviceTitle(device);
-    const field = nameField("Name for this phone or computer", current, (name) => {
-      if (name && name !== current) renameDevice(device.id, name);
-      if (!naming) draw();
+    naming = true;
+    const field = el("input", {
+      class: "sync-name",
+      "aria-label": "Name",
+      maxlength: "40",
+      autocomplete: "off",
+      spellcheck: "false",
     });
-    row.replaceChildren(field);
+    field.value = current;
+    const save = button("Save", { type: "button", class: "btn small primary" });
+    const cancel = button("Cancel", { type: "button", class: "btn small" });
+    const finish = (commit) => {
+      naming = false;
+      const name = cleanName(field.value);
+      if (commit && name && name !== current) renameDevice(device.id, name);
+      draw();
+    };
+    save.addEventListener("click", () => finish(true));
+    cancel.addEventListener("click", () => finish(false));
+    field.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        finish(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        finish(false);
+      }
+    });
+    row.replaceChildren(el("div", { class: "sync-rename" }, [
+      el("label", { class: "sync-field" }, ["Name"]),
+      field,
+      el("div", { class: "sync-rename-actions" }, [save, cancel]),
+    ]));
     field.focus();
     field.select();
   }
@@ -556,6 +586,11 @@ export async function mountSync(api) {
     return { packed: await pack(new Uint8Array(), pages), doc: "", pages };
   }
 
+  async function rememberBase(pages) {
+    state.basePages = (pages || []).map((row) => [row[0], String(row[1] ?? "")]);
+    await api.storeSet("sync-base", JSON.stringify(state.basePages));
+  }
+
   async function saveFile() {
     const file = JSON.parse(sync.exportLocal(state.desk));
     if (!file.ok) return;
@@ -615,20 +650,22 @@ export async function mountSync(api) {
     if (!wanted.ok) throw new Error(wanted.message || "Those pages could not be opened.");
     const fetched = await fetchObjects(wanted.want || []);
     let docB64 = "";
+    let snap = { doc: new Uint8Array(), pages: [] };
+    let snapOk = false;
     try {
-      const snap = await api.snapshot();
-      if (snap && snap.doc && snap.doc.length) docB64 = api.bytesToB64(snap.doc);
+      const taken = await api.snapshot();
+      if (taken) {
+        snap = taken;
+        snapOk = true;
+        if (snap.doc && snap.doc.length) docB64 = api.bytesToB64(snap.doc);
+      }
     } catch {
       docB64 = "";
     }
     const opened = JSON.parse(sync.openLibrary(state.desk, mailbox.record, JSON.stringify(fetched), state.slots || "[]", docB64));
     if (!opened.ok) {
-      if (state.member && depth < 1) {
-        state.revision = mailbox.revision;
-        state.dirty = true;
-        await push();
-        return;
-      }
+      // Publishing the list this phone already has would replace a longer
+      // recovery-signed list, and the server refuses that copy.
       throw new Error(opened.message || "Those pages could not be opened.");
     }
     const dropped = opened.member === false && opened.replace === false;
@@ -645,34 +682,23 @@ export async function mountSync(api) {
       if (opened.republish && state.member && depth < 1) await push();
       return;
     }
-    const wasLocal = new Set(localIds());
     const remote = await asSet(opened.packed);
-    // A phone that has not typed anything since the last open takes that copy
-    // as it is. Merging a fresh library back in would put a deleted line on
-    // every other phone. A fresh list from recovery is the exception: the
-    // pages already here are combined in, and nothing is deleted.
-    // A page that left the set and then comes back is combined with the copy
-    // still on this phone, so those edits are not thrown away.
-    const cameBack = [...wasLocal].filter((id) => !localIds().includes(id));
-    let hadEdits = state.dirty === true || opened.combine === true;
-    if (!hadEdits && cameBack.length) {
-      const snap = await api.snapshot();
-      hadEdits = cameBack.some((id) => {
-        const local = (snap.pages || []).find((row) => row[0] === id);
-        const incoming = (remote.pages || []).find((row) => row[0] === id);
-        return local && incoming && local[1] !== incoming[1];
-      });
-    }
+    // Pages that differ from the last synced copy are merged in.
+    // Pages that match it take the remote copy, so a deleted line stays deleted.
+    const localChanged = (snapOk && pagesDiffer(state.basePages, snap.pages)) || opened.combine === true;
     let packed = remote.packed;
-    if (hadEdits) {
-      const snap = await api.snapshot();
+    if (localChanged) {
       const localPacked = await pack(snap.doc, snap.pages);
       const merged = JSON.parse(sync.mergePacked(localPacked, remote.packed));
       if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
       packed = merged.packed;
     }
     await installMerged({ packed });
-    state.dirty = (hadEdits && packed !== remote.packed) || opened.republish === true;
+    const kept = JSON.parse(sync.unpackPages(packed));
+    const nextPages = kept.ok ? kept.pages : remote.pages;
+    const mergedAway = localChanged && packed !== remote.packed;
+    state.dirty = mergedAway || opened.republish === true;
+    if (!state.dirty) await rememberBase(nextPages);
     await saveFile();
     await refreshDevices();
     if (dropped || state.removed) {
@@ -694,7 +720,9 @@ export async function mountSync(api) {
     const sealed = await sealPacked(packed);
     try {
       await commitSeal(sealed);
+      await rememberBase(snap.pages);
       finishSave(state, started);
+      state.saveError = "";
       if (!state.dirty) calm();
     } catch (error) {
       if (error.status !== 409) throw error;
@@ -712,6 +740,7 @@ export async function mountSync(api) {
     const packed = await pack(doc, remote.pages || []);
     const sealed = await sealPacked(packed);
     await commitSeal(sealed);
+    await rememberBase(remote.pages || []);
     finishSave(state, started);
     if (!state.dirty) calm();
   }
@@ -784,6 +813,10 @@ export async function mountSync(api) {
         armSaving();
         await pull(mailbox);
       }
+      if (state.member && navigator.onLine !== false) {
+        const snap = await api.snapshot().catch(() => null);
+        if (snap && pagesDiffer(state.basePages, snap.pages)) state.dirty = true;
+      }
       if (state.dirty && state.member) {
         armSaving();
         await push();
@@ -801,7 +834,11 @@ export async function mountSync(api) {
       clearTimeout(saveTimer);
       saveTimer = null;
       if (error.offline || navigator.onLine === false) setChip("Offline", "offline");
-      else setChip("Not saved", "error");
+      else {
+        state.saveError = plainError(error.message);
+        setChip("Not saved", "error");
+        if ((state.screen === "linked" || state.screen === "invite") && !panel.hidden) draw();
+      }
     } finally {
       leading = false;
     }
@@ -826,10 +863,11 @@ export async function mountSync(api) {
     }
     const data = await callServer("GET", `/v1/mailboxes/${state.account}/requests`);
     for (const request of data.requests || []) {
+      if (request.state && request.state !== "pending") continue;
       const check = JSON.parse(sync.checkProof(state.invite.code, request.device, request.proof || ""));
       if (!check.ok) continue;
       const coded = JSON.parse(sync.codeFor(request.device));
-      state.pending = { id: request.id, name: request.name, device: request.device, code: coded.code || "" };
+      state.pending = { id: request.id, name: request.name, device: request.device, code: coded.code || "", created: request.created || 0 };
       return true;
     }
     state.pending = null;
@@ -971,6 +1009,7 @@ export async function mountSync(api) {
       const snap = await api.snapshot();
       const sealed = await sealPacked(await pack(snap.doc, snap.pages));
       await commitSeal(sealed);
+      await rememberBase(snap.pages);
       state.member = true;
       state.removed = false;
       state.screen = "linked";
@@ -1256,14 +1295,46 @@ export async function mountSync(api) {
       const named = JSON.parse(sync.recordWords(mailbox.record));
       if (!named.ok) throw new Error(named.message || "Couldn't sync.");
       state.joinWords = named.words;
+      state.joinWaits = 0;
       state.screen = "join-confirm";
       state.busy = false;
       draw();
     } catch (error) {
+      if (error.status === 429 && (state.joinWaits || 0) < 6) {
+        state.joinWaits = (state.joinWaits || 0) + 1;
+        const wait = Math.min(8000, 500 * 2 ** (state.joinWaits - 1));
+        setTimeout(waitForApproval, wait);
+        return;
+      }
+      state.joinWaits = 0;
       state.error = plainError(error.message);
       state.busy = false;
       draw();
     }
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function waitForJoin(id, deadline) {
+    let delay = 500;
+    while (Date.now() < deadline) {
+      let data;
+      try {
+        data = await callServer("GET", `/v1/mailboxes/${state.account}/requests`);
+      } catch (error) {
+        if (error.status !== 429) throw error;
+        await sleep(delay);
+        delay = Math.min(delay * 2, 8000);
+        continue;
+      }
+      const row = (data.requests || []).find((request) => request.id === id);
+      if (!row) return true;
+      await sleep(Math.max(delay, 1000));
+      delay = Math.min(Math.max(delay, 1000) * 2, 8000);
+    }
+    return false;
   }
 
   async function acceptJoin() {
@@ -1352,15 +1423,20 @@ export async function mountSync(api) {
       return;
     }
     try {
-      const snap = await api.snapshot();
-      const sealed = await sealPacked(await pack(snap.doc, snap.pages));
-      const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
-      state.revision = mailbox.revision;
-      await commitSeal(sealed);
-      await callServer("POST", `/v1/mailboxes/${state.account}/requests/${state.pending.id}`, {
+      const requestId = state.pending.id;
+      await callServer("POST", `/v1/mailboxes/${state.account}/requests/${requestId}`, {
         chain: approval.chain,
         wrap: approval.wrap,
       });
+      const created = Number(state.pending.created) || Date.now();
+      const finished = await waitForJoin(requestId, created + INVITE_MS);
+      if (!finished) throw new Error("That phone or computer didn't finish. Ask them to try again.");
+      const snap = await api.snapshot();
+      const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
+      state.revision = mailbox.revision;
+      const sealed = await sealPacked(await pack(snap.doc, snap.pages));
+      await commitSeal(sealed);
+      await rememberBase(snap.pages);
       state.pending = null;
       state.invite = null;
       state.error = "";
@@ -1470,6 +1546,12 @@ export async function mountSync(api) {
 
   async function startRecovery() {
     stopScan();
+    const named = cleanName(panel.querySelector("[data-recover-name]")?.value || "");
+    if (named && named !== state.selfName) {
+      state.selfName = named;
+      state.selfRev += 1;
+      saveNames();
+    }
     const check = JSON.parse(sync.checkPhrase(state.phrase));
     if (!check.ok) {
       state.phraseMsg = check.message;
@@ -1533,6 +1615,8 @@ export async function mountSync(api) {
         const stale = (mailbox.objects || []).map((row) => row.id);
         sealed.drop = [...(sealed.drop || []), ...stale];
         await commitSeal(sealed);
+        const kept = JSON.parse(sync.unpackPages(packed));
+        if (kept.ok) await rememberBase(kept.pages);
         state.screen = "linked";
         await refreshDevices();
         calm();
@@ -1829,9 +1913,11 @@ export async function mountSync(api) {
       const named = JSON.parse(sync.accountWords(state.desk));
       if (named.ok) words = named.words;
     }
+    const asking = cleanName(state.pending?.name || "");
+    const heading = asking ? `Is this ${asking}?` : "Is this your phone or computer?";
     panel.append(
-      el("h2", {}, ["Is this your phone or computer?"]),
-      el("p", { class: "setting-help" }, ["It wants to open your pages. The same six numbers and the same four words should be on that screen. Tap Yes, approve it only if they match."]),
+      el("h2", {}, [heading]),
+      el("p", { class: "setting-help" }, ["It wants to open your pages. The same six numbers and the same four words should be on that screen. Those numbers only check this step. Tap Yes, approve it only if they match."]),
       el("div", { class: "sync-code" }, [state.pending?.code || ""]),
       el("p", { class: "sync-words" }, [words]),
       addActions([
@@ -1843,9 +1929,9 @@ export async function mountSync(api) {
 
   function drawRemoveAsk() {
     const name = deviceTitle(state.removing || {});
+    const heading = !name || name === "Phone or computer" ? "Remove this phone or computer?" : `Remove ${name}?`;
     panel.append(
-      el("h2", {}, [`Remove ${name}?`]),
-      el("div", { class: "sync-code" }, [state.removing?.code || ""]),
+      el("h2", {}, [heading]),
       el("p", { class: "setting-help" }, ["It will stop getting your pages. Pages already on it stay there."]),
       addActions([
         ["Remove", "danger", () => removeDevice(state.removing?.id), state.busy || !state.removing || state.removing.self],
@@ -1868,7 +1954,20 @@ export async function mountSync(api) {
     if (state.error) {
       bits.push(el("p", { class: "sync-note", role: "alert", "data-sync-note": "" }, [plainError(state.error)]));
     }
-    bits.push(el("p", { class: "setting-help" }, ["Type or paste the 12 recovery words. Numbers and capitals are fine."]));
+    const recoverName = el("input", {
+      class: "sync-name",
+      "aria-label": "Name this phone or computer",
+      maxlength: "40",
+      autocomplete: "off",
+      spellcheck: "false",
+      "data-recover-name": "",
+    });
+    recoverName.value = state.selfName || "";
+    bits.push(
+      el("label", { class: "sync-field" }, [`Name this ${onPhone() ? "phone" : "computer"}`]),
+      recoverName,
+      el("p", { class: "setting-help" }, ["Type or paste the 12 recovery words. Numbers and capitals are fine."]),
+    );
     const merged = mergeLine();
     if (merged) bits.push(el("p", { class: "setting-help" }, [merged]));
     bits.push(phrase, el("p", { class: "sync-msg", "data-sync-phrase": "", "data-ok": state.phraseOk ? "1" : "0" }, [state.phraseMsg]));
@@ -1916,6 +2015,9 @@ export async function mountSync(api) {
       home.append(el("p", { class: "sync-note", role: "status", "data-sync-note": "" }, [state.notice]));
     }
     home.append(el("p", { class: "setting-help", "data-sync-linked": "" }, ["Your pages stay on your phones and computers."]));
+    if (state.saveError) {
+      home.append(el("p", { class: "sync-err", role: "alert", "data-sync-error": "" }, [state.saveError]));
+    }
     home.append(
       el("label", { class: "sync-field" }, ["Name for these pages"]),
       nameField("Name for these pages", state.vaultName, (name) => {
@@ -1934,14 +2036,14 @@ export async function mountSync(api) {
       }),
     );
     const list = el("div", { class: "sync-devices" });
-    if (!state.devices.length) list.append(el("p", { class: "setting-help" }, [hereCap()]));
-    for (const device of state.devices) {
+    const devices = [...state.devices].sort((a, b) => Number(!!b.self) - Number(!!a.self));
+    if (!devices.length) list.append(el("p", { class: "setting-help" }, [hereCap()]));
+    for (const device of devices) {
       const row = el("div", { class: "sync-device" });
       if (device.self) row.setAttribute("data-self", "1");
-      row.append(el("div", {}, [
-        el("b", {}, [deviceTitle(device)]),
-        el("span", {}, [device.self ? hereCap() : device.code]),
-      ]));
+      const title = el("div", {}, [el("b", {}, [deviceTitle(device)])]);
+      if (device.self) title.append(el("span", {}, [hereCap()]));
+      row.append(title);
       const actions = el("div", { class: "sync-device-actions" });
       const rename = button("Rename", { type: "button", class: "btn small" });
       rename.addEventListener("click", () => beginRename(row, device));
@@ -2031,6 +2133,15 @@ export async function mountSync(api) {
         state.account = imported.account;
         state.revision = Number(api.storeGet("sync-revision") || 0);
         state.slots = api.storeGet("sync-slots") || "[]";
+        const storedBase = api.storeGet("sync-base");
+        if (storedBase) {
+          try {
+            const parsed = JSON.parse(storedBase);
+            if (Array.isArray(parsed)) state.basePages = parsed;
+          } catch {
+            state.basePages = null;
+          }
+        }
         state.screen = "linked";
         state.member = false;
         await refreshDevices().catch(() => {});

@@ -9,8 +9,7 @@
 //! list says who may receive a seal. The signature covers the list, not the
 //! vault key.
 //!
-//! The published app does not call this. The private test keeps a device file
-//! on that device and sends only a sealed record.
+//! The app keeps a device file on that device and sends only a sealed record.
 
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};

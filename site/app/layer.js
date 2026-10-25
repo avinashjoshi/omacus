@@ -1,6 +1,6 @@
 // Where the sidebar's row menu sits, and which taps only close the phone drawer.
 
-const DRAWER_KEEP = ".side, .sheets-toggle, .bar, [data-row-menu]";
+const DRAWER_KEEP = ".side, .sheets-toggle, .bar, [data-row-menu], .settings";
 
 export function placeRowMenu(x, y, size, frame, anchor) {
   const margin = 8;

@@ -81,7 +81,7 @@ Pages can sit in folders, two levels deep. Drag a page onto a folder, or choose 
 
 Each page has a short handle, taken from its title (Trip Budget is `trip`). **Handle…** changes it. Another page reads a value with `@handle.variable`, so `@trip.total` is the last assignment of `total` on that page. Typing `@` lists pages. Renaming a variable with F2 updates `@handle.name` on the other pages too.
 
-End-to-end encrypted sync, with named vaults and a recovery phrase, is described at [omacus.com/sync](https://omacus.com/sync/). It is not in this version. Pages stay on this device.
+End-to-end encrypted sync, with named vaults and 12 recovery words, is in the web app on the Sync tab. It is described at [omacus.com/sync](https://omacus.com/sync/). The desktop app does not sync yet. Pages on the desktop stay on this device.
 
 ### Sharing and the web app
 
