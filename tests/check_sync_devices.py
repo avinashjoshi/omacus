@@ -11,7 +11,7 @@ sw = (ROOT / "site/app/sw.js").read_text()
 build = (ROOT / ".github/scripts/build-web.sh").read_text()
 
 start = sync.index("function drawLinked()")
-end = sync.index("function addActions(", start)
+end = sync.index("async function copyWords(", start)
 home = sync[start:end]
 
 errors = []
@@ -40,9 +40,9 @@ else:
     if "var(--app-accent-soft)" not in rule or "var(--app-accent)" not in rule:
         errors.append("this phone's row does not use the accent")
 
-off = sync.index("function drawOff()")
+off = sync.index("function deviceNameControl()")
 join = sync.index("function drawJoinType()")
-if "Name this" not in sync[off:join]:
+if "Name this" not in sync[off:join] or "deviceNameControl()" not in sync[sync.index("function drawOff()"):join]:
     errors.append("starting sync lost the name field")
 if 'from "./device-name.js"' not in sync:
     errors.append("the name guess left the shared helper")
@@ -56,11 +56,11 @@ if "approvalPlan" in wait:
     errors.append("the waiting screen accepts the list before the numbers are checked")
 if "confirmLink" not in accept or "approvalPlan" not in accept or "These match" not in sync:
     errors.append("These match does not check the numbers before opening")
-if '"device-name.js"' not in sw or "omacus-sync-test-13" not in sw:
+if '"device-name.js"' not in sw or "omacus-sync-test-14" not in sw:
     errors.append("the sync test cache missed the name helper")
 if "site/app/device-name.js" not in build or "./device-name.js?v=" not in build:
     errors.append("the published app missed the name helper")
-if 'const CACHE = "omacus-app-22"' not in sw:
+if 'const CACHE = "omacus-app-23"' not in sw:
     errors.append("the published app cache changed")
 if "omacus-sync-web" not in build or "omacus_sync_web.js" not in build or "omacus_sync_web_bg.wasm" not in build:
     errors.append("the published build does not ship the sync engine")

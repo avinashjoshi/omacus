@@ -141,21 +141,22 @@ await openNamed(pageA, "Trip Budget");
 await openSync(pageA);
 await pageA.getByRole("heading", { name: "Turn on sync" }).waitFor();
 await both(pageA, "01-choice");
-await pageA.getByRole("button", { name: "Start fresh" }).click();
-await pageA.getByRole("heading", { name: "Have an invite code?" }).waitFor();
+await pageA.getByRole("button", { name: "This is my first device" }).click();
+await pageA.getByRole("heading", { name: "Start fresh" }).waitFor();
 await both(pageA, "02-access");
 await pageA.locator("[data-access-code]").fill("nope");
-await pageA.getByRole("button", { name: "Start fresh" }).click();
+await pageA.getByRole("button", { name: "Continue" }).click();
 await pageA.getByText("That invite code didn't work").waitFor({ timeout: 20000 });
 await both(pageA, "03-access-error");
 if (await pageA.locator(".sync-word").count()) throw new Error("a wrong invite code showed the words");
 await pageA.locator("[data-access-code]").fill(inviteCode);
-await pageA.getByRole("button", { name: "Start fresh" }).click();
+await pageA.getByRole("button", { name: "Continue" }).click();
 await pageA.waitForSelector(".sync-word", { timeout: 30000 });
 const words = await wordsOnSheet(pageA);
 if (words.length !== 12) throw new Error(`expected 12 words, saw ${words.length}`);
 foundWords.push(...words);
 await both(pageA, "04-words");
+await pageA.getByRole("checkbox", { name: "I wrote these down" }).check();
 await pageA.getByRole("button", { name: "I saved them" }).click();
 await pageA.getByRole("heading", { name: "Do these match your paper?" }).waitFor();
 await both(pageA, "05-confirm");
@@ -185,7 +186,7 @@ if (!/^[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(invite)) throw new Error(`invite ${invite}
 await both(pageA, "08-invite");
 
 await openSync(pageB);
-await pageB.getByRole("button", { name: "Join my existing pages" }).click();
+await pageB.getByRole("button", { name: "My pages already sync on another device" }).click();
 await pageB.locator("[data-join-code]").waitFor({ timeout: 10000 });
 if (await pageB.locator("[data-access-code]").count()) throw new Error("joining asked for an invite code");
 const joinText = await pageB.locator("[data-settings-panel='sync']").innerText();
@@ -211,7 +212,7 @@ if (await pageA.getByRole("heading", { name: "Is this your phone or computer?" }
   throw new Error("a bad code opened the approve prompt");
 }
 
-await pageB.getByRole("button", { name: "Scan the code instead" }).click();
+await pageB.getByRole("button", { name: "Scan QR code instead" }).click();
 await pageB.getByRole("heading", { name: "Scan the code" }).waitFor({ timeout: 10000 });
 await both(pageB, "11-scan");
 await pageB.getByRole("button", { name: "Type the code instead" }).click();
@@ -287,8 +288,8 @@ const contextC = await browser.newContext({ viewport: { width: 1280, height: 800
 pageC = await openApp(contextC);
 watch(pageC, foundWords);
 await openSync(pageC);
-await pageC.getByRole("button", { name: "Join my existing pages" }).click();
-await pageC.getByRole("button", { name: "Use my recovery words instead" }).click();
+await pageC.getByRole("button", { name: "My pages already sync on another device" }).click();
+await pageC.getByRole("button", { name: "Use recovery words" }).click();
 await pageC.locator("textarea").waitFor();
 if (await pageC.locator("[data-access-code]").count()) throw new Error("recovery asked for an invite code");
 await both(pageC, "16-recover");
@@ -366,9 +367,9 @@ await shot(pageB, "page-b-desktop-light");
 await pageA.setViewportSize({ width: 390, height: 844 });
 await pageB.setViewportSize({ width: 390, height: 844 });
 const version = (await pageA.locator(".side-version").innerText()).trim();
-if (version !== "omacus 1.0.0-beta.40") throw new Error(`version line ${version}`);
+if (version !== "omacus 1.0.0-beta.41") throw new Error(`version line ${version}`);
 const beta = await pageA.locator(".sync-beta").innerText();
-if (!beta.includes("1.0.0-beta.40")) throw new Error(`phone label ${beta}`);
+if (!beta.includes("1.0.0-beta.41")) throw new Error(`phone label ${beta}`);
 await pageA.waitForFunction(() => document.querySelector(".side")?.getBoundingClientRect().right <= 0, null, { timeout: 2000 });
 const edge = await pageA.locator(".side").evaluate((node) => {
   const style = getComputedStyle(node);

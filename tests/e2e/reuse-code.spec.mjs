@@ -97,7 +97,7 @@ async function putChange(page, text) {
 
 async function joinWith(page, code, name) {
   await openSync(page);
-  await page.getByRole("button", { name: "Join my existing pages" }).click();
+  await page.getByRole("button", { name: "My pages already sync on another device" }).click();
   await page.getByRole("textbox", { name: "Name this phone or computer" }).fill(name);
   await page.locator("[data-join-code]").fill(code);
   await page.getByRole("button", { name: "Join", exact: true }).click();
@@ -132,11 +132,12 @@ test("the same code asks again after a phone stops waiting", async ({ browser })
     await phoneA.getByRole("button", { name: "Turn on sync" }).first().click();
     await expect(phoneA.getByRole("heading", { name: "How sync works" })).toBeVisible();
     await phoneA.getByRole("button", { name: "Set up sync" }).click();
-    await phoneA.getByRole("button", { name: "Start fresh" }).click();
+    await phoneA.getByRole("button", { name: "This is my first device" }).click();
     await phoneA.locator("[data-access-code]").fill(access);
-    await phoneA.getByRole("button", { name: "Start fresh" }).click();
+    await phoneA.getByRole("button", { name: "Continue" }).click();
     await expect(phoneA.locator(".sync-word").first()).toBeVisible();
     const words = await phoneA.locator(".sync-word").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-word")));
+    await phoneA.getByRole("checkbox", { name: "I wrote these down" }).check();
     await phoneA.getByRole("button", { name: "I saved them" }).click();
     for (let step = 0; step < 3; step += 1) {
       const legend = phoneA.locator(".sync-ask").nth(step).locator("legend");

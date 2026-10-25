@@ -158,24 +158,26 @@ const pageB = await openApp(contextB);
 
 try {
   const health = await (await fetch(relay + "/v1/health")).json();
-  if (health.label !== "1.0.0-beta.40") throw new Error(`relay label ${health.label}`);
+  if (health.label !== "1.0.0-beta.41") throw new Error(`relay label ${health.label}`);
 
   await openSync(pageA);
   const guessed = await pageA.getByRole("textbox", { name: "Name this phone or computer" }).inputValue();
   if (!/Chrome on /.test(guessed)) throw new Error(`desktop guess ${guessed}`);
   await commitField(pageA, "Name this phone or computer", "Desk");
-  await pageA.getByRole("button", { name: "Start fresh" }).click();
+  await pageA.getByRole("button", { name: "This is my first device" }).click();
   const inviteCode = await mint(process.env.ACCESS_SECRET || "omacus-access-test-secret", 1);
   await pageA.locator("[data-access-code]").fill(inviteCode);
-  await pageA.getByRole("button", { name: "Start fresh" }).click();
+  await pageA.getByRole("button", { name: "Continue" }).click();
   await pageA.waitForSelector(".sync-word", { timeout: 30000 });
   const words = await wordsOnSheet(pageA);
   if (words.length !== 12) throw new Error(`words ${words.length}`);
+  await pageA.getByRole("checkbox", { name: "I wrote these down" }).check();
   await pageA.getByRole("button", { name: "I saved them" }).click();
   await pickWords(pageA, words);
   const beforeCreate = puts;
   await pageA.getByRole("button", { name: "These match" }).click();
   await pageA.locator("[data-sync-set]").waitFor({ timeout: 60000 });
+  await pageA.getByRole("button", { name: "Done" }).click();
   await waitPuts(beforeCreate);
   if (!(await pageA.locator(".sync-devices").innerText()).includes("Desk")) throw new Error("Desk missing after setup");
 
@@ -193,7 +195,7 @@ try {
   const invite = (await pageA.locator(".sync-invite-code").innerText()).trim();
 
   await openSync(pageB);
-  await pageB.getByRole("button", { name: "Join my existing pages" }).click();
+  await pageB.getByRole("button", { name: "My pages already sync on another device" }).click();
   const phoneGuess = await pageB.getByRole("textbox", { name: "Name this phone or computer" }).inputValue();
   if (phoneGuess !== "iPhone") throw new Error(`phone guess ${phoneGuess}`);
   await commitField(pageB, "Name this phone or computer", "Harbor phone");

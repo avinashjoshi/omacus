@@ -58,11 +58,12 @@ if (!inviteCode) throw new Error("could not mint an invite code");
 
 try {
   await openSync(pageA);
-  await pageA.getByRole("button", { name: "Start fresh" }).click();
+  await pageA.getByRole("button", { name: "This is my first device" }).click();
   await pageA.locator("[data-access-code]").fill(inviteCode);
-  await pageA.getByRole("button", { name: "Start fresh" }).click();
+  await pageA.getByRole("button", { name: "Continue" }).click();
   await pageA.waitForSelector(".sync-word", { timeout: 30000 });
   const words = await wordsOnSheet(pageA);
+  await pageA.getByRole("checkbox", { name: "I wrote these down" }).check();
   await pageA.getByRole("button", { name: "I saved them" }).click();
   await pickWords(pageA, words);
   await pageA.getByRole("button", { name: "These match" }).click();
@@ -73,7 +74,7 @@ try {
   const invite = (await pageA.locator(".sync-invite-code").innerText()).trim();
 
   await openSync(pageB);
-  await pageB.getByRole("button", { name: "Join my existing pages" }).click();
+  await pageB.getByRole("button", { name: "My pages already sync on another device" }).click();
   await pageB.locator("[data-join-code]").fill(invite);
   await pageB.getByRole("button", { name: "Join", exact: true }).click();
   await pageB.locator(".sync-code").waitFor({ timeout: 20000 });

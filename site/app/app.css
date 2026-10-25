@@ -2557,11 +2557,170 @@ body.answers-inline .md .pill {
   width: 100%;
 }
 
+.sync-actions .btn:disabled {
+  background: var(--app-line);
+  border-color: var(--app-line);
+  color: var(--app-comment);
+  cursor: not-allowed;
+}
+
+.sync-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hit);
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--app-dim);
+  font: 500 var(--type-caption) / 1.3 var(--sans);
+  cursor: pointer;
+}
+
+.sync-back:hover {
+  color: var(--app-fg);
+}
+
+.sync-progress {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-1);
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.sync-progress li {
+  height: var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--app-line);
+}
+
+.sync-progress li.sync-progress-done,
+.sync-progress li.sync-progress-now {
+  background: var(--app-accent);
+}
+
+.sync-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.sync-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  width: 100%;
+  min-height: var(--hit);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--app-line);
+  border-radius: var(--radius-md);
+  background: var(--app-side);
+  color: var(--app-fg);
+  font: 400 var(--type-body) / 1.4 var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sync-card b {
+  font: 600 var(--type-body) / 1.3 var(--sans);
+}
+
+.sync-card span {
+  color: var(--app-dim);
+  font: 400 var(--type-caption) / 1.4 var(--sans);
+}
+
+.sync-card:hover {
+  border-color: var(--app-line-strong);
+  background: var(--app-hover);
+}
+
+.sync-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  color: var(--app-dim);
+  font: 400 var(--type-caption) / 1.4 var(--sans);
+}
+
+.sync-actions .sync-links {
+  margin-top: var(--space-2);
+}
+
+.sync-link {
+  min-height: var(--hit);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--app-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.sync-link:hover {
+  color: var(--app-fg);
+}
+
+.sync-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--hit);
+  margin: var(--space-3) 0 0;
+  color: var(--app-fg);
+  font: 400 var(--type-body) / 1.4 var(--sans);
+  cursor: pointer;
+}
+
+.sync-check input {
+  width: var(--space-4);
+  height: var(--space-4);
+  margin: 0;
+  accent-color: var(--app-accent);
+}
+
+.sync-code-label {
+  text-align: center;
+  color: var(--app-fg);
+}
+
+.sync-hint {
+  margin: 0 0 var(--space-3);
+  color: var(--app-comment);
+  font: 400 var(--type-caption) / 1.4 var(--sans);
+  text-align: center;
+}
+
+.sync-join-input,
+.sync-access-input {
+  text-align: center;
+  font-family: var(--mono);
+}
+
+.sync-join-input {
+  min-height: calc(var(--hit) + var(--space-4));
+  font-size: var(--type-display);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
 .sync-words {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-2);
   margin: 0 0 var(--space-3);
+}
+
+.sync-words-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
 }
 
 .sync-word {
@@ -2608,9 +2767,20 @@ body.answers-inline .md .pill {
   height: 220px;
 }
 
+.sync-key > .sync-qr {
+  flex: 0 0 calc(var(--space-6) * 5);
+}
+
+.sync-qr b {
+  color: var(--app-fg);
+  font: 600 var(--type-caption) / 1.3 var(--sans);
+  text-align: center;
+}
+
 .sync-qr span {
   color: var(--app-comment);
   font: 400 var(--type-caption) / 1.3 var(--sans);
+  text-align: center;
 }
 
 .sync-ask {
@@ -2636,13 +2806,18 @@ body.answers-inline .md .pill {
 
 .sync-choice {
   min-height: var(--hit);
-  padding: var(--space-2);
+  padding: var(--space-3);
   border: 1px solid var(--app-line);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--app-side);
   color: var(--app-fg);
   font: 500 var(--type-body) / 1.3 var(--sans);
   cursor: pointer;
+}
+
+.sync-choice:hover {
+  border-color: var(--app-line-strong);
+  background: var(--app-hover);
 }
 
 .sync-choice[aria-pressed="true"] {
@@ -2843,7 +3018,69 @@ body.answers-inline .md .pill {
     grid-template-columns: 1fr 1fr;
   }
 
-  /* The device list scrolls. Add, Turn sync off, and Back stay under it. */
+  /* The recovery words sit in a sheet under the bar. The picture is under the grid. */
+  .settings-card:has(.sync-panel.sync-sheet) {
+    top: auto;
+    bottom: 0;
+    height: auto;
+    max-height: calc(100% - var(--bar) - var(--safe-top) - var(--space-3));
+    overflow: auto;
+    padding-top: var(--space-3);
+    padding-bottom: calc(var(--space-3) + var(--safe-bottom));
+    border-top: 1px solid var(--app-line);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .settings-card:has(.sync-panel.sync-sheet) header,
+  .settings-card:has(.sync-panel.sync-sheet) .settings-tabs {
+    margin-bottom: var(--space-2);
+  }
+
+  .sync-panel.sync-sheet .sync-label,
+  .sync-panel.sync-sheet .setting-help {
+    margin-bottom: var(--space-1);
+  }
+
+  .sync-panel.sync-sheet .sync-back {
+    min-height: var(--space-5);
+    margin-bottom: var(--space-1);
+  }
+
+  .sync-panel.sync-sheet .sync-progress {
+    margin-bottom: var(--space-2);
+  }
+
+  .sync-panel.sync-sheet .sync-word {
+    box-sizing: border-box;
+    min-height: 0;
+    padding: var(--space-1) var(--space-2);
+    gap: var(--space-1);
+  }
+
+  .sync-panel.sync-sheet .sync-qr svg {
+    width: 96px;
+    height: 96px;
+  }
+
+  .sync-panel.sync-sheet .sync-check {
+    margin-top: var(--space-2);
+  }
+
+  .sync-panel.sync-sheet .sync-actions {
+    margin-top: var(--space-2);
+  }
+
+  .sync-panel.sync-sheet .sync-key {
+    flex-direction: column;
+  }
+
+  .sync-panel.sync-sheet .sync-key > .sync-qr {
+    flex-basis: auto;
+    width: 100%;
+  }
+
+  /* The device list scrolls. Add and Turn sync off stay under it. */
   .settings-card:has(.sync-panel:not([hidden]) .sync-devices) {
     display: flex;
     flex-direction: column;

@@ -82,11 +82,12 @@ async function startFresh(page, inviteCode) {
   await page.keyboard.press("Control+A");
   await page.keyboard.insertText("# Trip Budget\nferry = 40\n");
   await openSync(page);
-  await page.getByRole("button", { name: "Start fresh" }).click();
+  await page.getByRole("button", { name: "This is my first device" }).click();
   await page.locator("[data-access-code]").fill(inviteCode);
-  await page.getByRole("button", { name: "Start fresh" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
   await page.waitForSelector(".sync-word", { timeout: 30000 });
   const words = await wordsOnSheet(page);
+  await page.getByRole("checkbox", { name: "I wrote these down" }).check();
   await page.getByRole("button", { name: "I saved them" }).click();
   await pickWords(page, words);
   await page.getByRole("button", { name: "These match" }).click();
@@ -101,7 +102,7 @@ async function joinFrom(page, host) {
   await host.locator(".sync-invite-code").waitFor({ timeout: 20000 });
   const invite = (await host.locator(".sync-invite-code").innerText()).trim();
   await openSync(page);
-  await page.getByRole("button", { name: "Join my existing pages" }).click();
+  await page.getByRole("button", { name: "My pages already sync on another device" }).click();
   await page.locator("[data-join-code]").fill(invite);
   await page.getByRole("button", { name: "Join", exact: true }).click();
   await page.getByRole("heading", { name: "Approve on your other device" }).waitFor({ timeout: 20000 });
@@ -138,7 +139,7 @@ async function assertButtonsClear(page, phone) {
     if (list) list.scrollTop = list.scrollHeight;
     if (card && !onPhone) card.scrollTop = card.scrollHeight;
     await new Promise((resolve) => requestAnimationFrame(resolve));
-    const buttons = [...document.querySelectorAll(".sync-actions .btn")];
+    const buttons = [...document.querySelectorAll(".sync-actions .btn, .sync-back, .sync-link")];
     const rows = [...document.querySelectorAll(".sync-device")];
     const actions = document.querySelector(".sync-actions")?.getBoundingClientRect();
     const cardBox = card?.getBoundingClientRect();
@@ -170,7 +171,7 @@ async function assertButtonsClear(page, phone) {
     };
   }, phone);
   if (result.bad.length) throw new Error(`${result.bad.join("; ")} (${result.rows} rows)`);
-  for (const label of ["Add a phone or computer", "Turn sync off", "Back"]) {
+  for (const label of ["Add a phone or computer", "Turn sync off", "← Back"]) {
     if (!result.buttons.includes(label)) throw new Error(`missing ${label}`);
   }
   if (result.rows < 8) throw new Error(`short list ${result.rows}`);
@@ -295,8 +296,8 @@ try {
   const contextR = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const pageR = await openApp(contextR);
   await openSync(pageR);
-  await pageR.getByRole("button", { name: "Join my existing pages" }).click();
-  await pageR.getByRole("button", { name: "Use my recovery words instead" }).click();
+  await pageR.getByRole("button", { name: "My pages already sync on another device" }).click();
+  await pageR.getByRole("button", { name: "Use recovery words" }).click();
   await pageR.locator("textarea").fill(words.map((word, index) => `${index + 1}. ${word}`).join("\n"));
   await frame(pageR, "dark", 390, 844);
   await shot(pageR, "recover-words-phone");
@@ -316,11 +317,11 @@ try {
   await frame(pageA, "dark", 390, 844);
   await pageA.locator(".side-name").first().waitFor();
   const version = (await pageA.locator(".side-version").innerText()).trim();
-  if (version !== "omacus 1.0.0-beta.40") throw new Error(`version line ${version}`);
+  if (version !== "omacus 1.0.0-beta.41") throw new Error(`version line ${version}`);
   const beta = await pageA.locator(".sync-beta").innerText();
-  if (!beta.includes("1.0.0-beta.40")) throw new Error(`phone label ${beta}`);
+  if (!beta.includes("1.0.0-beta.41")) throw new Error(`phone label ${beta}`);
   const panelLabel = await removedPage.locator(".sync-label").innerText();
-  if (!panelLabel.includes("1.0.0-beta.40")) throw new Error(`panel label ${panelLabel}`);
+  if (!panelLabel.includes("1.0.0-beta.41")) throw new Error(`panel label ${panelLabel}`);
 
   console.log("sync stays on after close, a removed phone can join again, and the device list stays clear of the buttons");
 } catch (error) {

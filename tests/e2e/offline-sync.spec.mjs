@@ -99,11 +99,12 @@ test("an offline edit is merged with the other phone", async ({ browser }) => {
   await phoneA.getByRole("button", { name: "Turn on sync" }).first().click();
   await expect(phoneA.getByRole("heading", { name: "How sync works" })).toBeVisible();
   await phoneA.getByRole("button", { name: "Set up sync" }).click();
-  await phoneA.getByRole("button", { name: "Start fresh" }).click();
+  await phoneA.getByRole("button", { name: "This is my first device" }).click();
   await phoneA.locator("[data-access-code]").fill("FERRY-40");
-  await phoneA.getByRole("button", { name: "Start fresh" }).click();
+  await phoneA.getByRole("button", { name: "Continue" }).click();
   await expect(phoneA.locator(".sync-word").first()).toBeVisible();
   const words = await phoneA.locator(".sync-word").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-word")));
+  await phoneA.getByRole("checkbox", { name: "I wrote these down" }).check();
   await phoneA.getByRole("button", { name: "I saved them" }).click();
   for (let step = 0; step < 3; step += 1) {
     const legend = phoneA.locator(".sync-ask").nth(step).locator("legend");
@@ -120,8 +121,8 @@ test("an offline edit is merged with the other phone", async ({ browser }) => {
   await expect(phoneA.locator(".sync-chip")).toHaveAttribute("data-state", "on", { timeout: 20000 });
 
   await openSync(phoneB);
-  await phoneB.getByRole("button", { name: "Join my existing pages" }).click();
-  await phoneB.getByRole("button", { name: "Use my recovery words instead" }).click();
+  await phoneB.getByRole("button", { name: "My pages already sync on another device" }).click();
+  await phoneB.getByRole("button", { name: "Use recovery words" }).click();
   await phoneB.locator("[data-recover-name]").fill("Harbor phone");
   await phoneB.locator(".sync-phrase").fill(words.join(" "));
   await phoneB.getByRole("button", { name: "Open my pages" }).click();

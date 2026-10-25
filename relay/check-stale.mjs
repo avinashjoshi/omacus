@@ -16,7 +16,7 @@ if (words.length !== 12) throw new Error(`fixture words ${words.length}`);
 
 const health = await fetch(relay + "/v1/health");
 const label = (await health.json()).label;
-if (label !== "1.0.0-beta.40") throw new Error(`relay label ${label}`);
+if (label !== "1.0.0-beta.41") throw new Error(`relay label ${label}`);
 
 const code = await mint("omacus-access-test-secret", 1);
 const created = await fetch(relay + "/v1/mailboxes", {
@@ -86,8 +86,8 @@ async function lightLaptop(page) {
 
 async function recover(page) {
   await openSync(page);
-  await page.getByRole("button", { name: "Join my existing pages" }).click();
-  await page.getByRole("button", { name: "Use my recovery words instead" }).click();
+  await page.getByRole("button", { name: "My pages already sync on another device" }).click();
+  await page.getByRole("button", { name: "Use recovery words" }).click();
   await page.locator("textarea").fill(words.map((word, index) => `${index + 1}. ${word}`).join("\n"));
   await page.getByRole("button", { name: "Open my pages" }).click();
   await page.locator("[data-sync-set]").waitFor({ timeout: 60000 });
