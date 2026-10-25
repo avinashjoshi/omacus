@@ -23,6 +23,7 @@ const APP_FILES = [
   "recover.js",
   "backup.js",
   "sync.js",
+  "sync-config.js",
   "sync-link.mjs",
   "device-name.js",
   "sync-save.mjs",
@@ -153,8 +154,19 @@ self.addEventListener("fetch", (e) => {
 
 function fetchFresh(url) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 2500);
-  return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
+  let timer;
+  // Abort does not always settle a fetch whose socket was dropped. The race
+  // still ends it, so a reload falls back to the cached shell.
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      ctrl.abort();
+      reject(new Error("timed out"));
+    }, 2500);
+  });
+  return Promise.race([
+    fetch(url, { signal: ctrl.signal }),
+    timeout,
+  ]).finally(() => clearTimeout(timer));
 }
 
 // Fresh when the network answers; the cached shell when it does not. A reload

@@ -185,6 +185,7 @@ check(!/omacus-app-2(?!\d)/.test(sw), "the old app cache name is gone");
 check(sw.includes("!res.ok") && sw.includes("function honest") && sw.includes("cache.put"), "only a successful response is stored for offline");
 check(sw.includes("e.waitUntil(fetched"), "the shell is refreshed in the background");
 check(sw.includes('"pkg/omacus_web_bg.wasm"'), "the engine is precached for offline");
+check(sw.includes('"sync-config.js"'), "the sync address is part of the offline shell");
 check(sw.includes("ignoreSearch"), "a hashed asset still matches the cached shell");
 check(sw.includes("text/html"), "a page served in place of a script is not kept as the script");
 check(buildWeb.includes("site/app/seed.js") && buildWeb.includes("site/app/examples.js"), "the published app includes the pages that start it");
