@@ -16,12 +16,14 @@ fn holds(hay: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty() && hay.windows(needle.len()).any(|window| window == needle)
 }
 
-/// A word sitting in the middle of a sealed blob is not the word itself.
+/// A word on its own. The label `recovery-signer` is one name, and a word in
+/// the middle of a sealed or base64 blob is not the word itself.
 fn holds_word(hay: &[u8], needle: &[u8]) -> bool {
     if needle.is_empty() {
         return false;
     }
-    let token = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=');
+    let glue =
+        |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'+' | b'/' | b'=');
     hay.windows(needle.len())
         .enumerate()
         .any(|(index, window)| {
@@ -30,7 +32,8 @@ fn holds_word(hay: &[u8], needle: &[u8]) -> bool {
             }
             let before = index.checked_sub(1).and_then(|at| hay.get(at)).copied();
             let after = hay.get(index + needle.len()).copied();
-            !matches!((before, after), (Some(left), Some(right)) if token(left) && token(right))
+            !matches!(before, Some(byte) if glue(byte))
+                && !matches!(after, Some(byte) if glue(byte))
         })
 }
 
@@ -441,14 +444,20 @@ fn the_relay_holds_no_key_and_no_page() {
     for word in words {
         secrets.push(word.as_bytes().to_vec());
     }
+    // The device list always names the recovery signer. That label is not a word.
+    if !words.contains(&"recovery") {
+        secrets.push(b"recovery".to_vec());
+    }
     for secret in &secrets {
-        assert!(!holds(&kept, secret), "stored copy holds a secret");
-        let on_wire = if secret.iter().all(|byte| byte.is_ascii_alphabetic()) {
-            holds_word(&wire, secret)
-        } else {
-            holds(&wire, secret)
+        let present = |hay: &[u8]| {
+            if secret.iter().all(|byte| byte.is_ascii_alphabetic()) {
+                holds_word(hay, secret)
+            } else {
+                holds(hay, secret)
+            }
         };
-        assert!(!on_wire, "the wire holds a secret");
+        assert!(!present(&kept), "stored copy holds a secret");
+        assert!(!present(&wire), "the wire holds a secret");
     }
 
     let attack = b64(words.join(" ").as_bytes());
@@ -466,6 +475,16 @@ fn the_relay_holds_no_key_and_no_page() {
     for word in words {
         assert!(!holds_word(&kept, word.as_bytes()));
     }
+}
+
+#[test]
+fn a_protocol_label_is_not_a_recovery_word() {
+    let label = b"recovery-signer\0";
+    assert!(!holds_word(label, b"recovery"));
+    assert!(holds(label, b"recovery"));
+    assert!(holds_word(b" recovery ", b"recovery"));
+    assert!(holds_word(b"\0recovery\0", b"recovery"));
+    assert!(!holds_word(b"xxrecoveryyy", b"recovery"));
 }
 
 #[test]
