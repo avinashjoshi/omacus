@@ -65,22 +65,28 @@ async function expectQuietChip(page) {
   await expect(chip).not.toHaveText(/Sync paused/);
 }
 
-// A phone resize redraws the panel. WebKit's content quads are empty for that
-// frame, so boundingBox() is null even though the words grid is already on screen.
+// A phone resize redraws the panel. WebKit can report the words grid before it
+// is back inside the panel, so the measure waits until that grid is connected.
 async function expectWordsFill(page) {
-  await expect(page.locator(".sync-words-grid")).toBeVisible();
-  const box = await page.locator(".sync-words-grid").evaluate((grid) => {
-    const panel = grid.closest(".sync-panel").getBoundingClientRect();
-    const rect = grid.getBoundingClientRect();
-    return {
-      grid: rect.width,
-      panel: panel.width,
-      top: rect.top,
-      bottom: rect.bottom,
-      height: rect.height,
-      view: window.innerHeight,
-    };
-  });
+  let box = null;
+  await expect.poll(async () => {
+    box = await page.locator(".sync-words-grid").evaluate((grid) => {
+      const panel = grid.closest(".sync-panel");
+      if (!panel || !grid.isConnected) return null;
+      const panelRect = panel.getBoundingClientRect();
+      const rect = grid.getBoundingClientRect();
+      if (rect.height <= 0 || panelRect.width <= 0) return null;
+      return {
+        grid: rect.width,
+        panel: panelRect.width,
+        top: rect.top,
+        bottom: rect.bottom,
+        height: rect.height,
+        view: window.innerHeight,
+      };
+    }).catch(() => null);
+    return box;
+  }).not.toBeNull();
   expect(box.height).toBeGreaterThan(0);
   expect(box.grid).toBeGreaterThan(box.panel * 0.9);
   expect(box.top).toBeLessThan(box.view);

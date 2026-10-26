@@ -116,30 +116,29 @@ fn seal(plain: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
-#[cfg(not(test))]
+#[cfg(all(not(test), target_os = "macos"))]
 fn os_seal(plain: &[u8]) -> Result<Vec<u8>, String> {
-    #[cfg(target_os = "macos")]
-    {
-        keychain_put(plain)?;
+    keychain_put(plain)?;
+    let mut out = MARK.to_vec();
+    out.extend_from_slice(b"keychain\n");
+    Ok(out)
+}
+
+#[cfg(all(not(test), windows))]
+fn os_seal(plain: &[u8]) -> Result<Vec<u8>, String> {
+    let blob = dpapi_seal(plain)?;
+    let mut out = MARK.to_vec();
+    out.extend_from_slice(b"dpapi\n");
+    out.extend_from_slice(&blob);
+    Ok(out)
+}
+
+#[cfg(all(not(test), unix, not(target_os = "macos")))]
+fn os_seal(plain: &[u8]) -> Result<Vec<u8>, String> {
+    if keyring_up() && secret_put(plain).is_ok() {
         let mut out = MARK.to_vec();
-        out.extend_from_slice(b"keychain\n");
+        out.extend_from_slice(b"secret\n");
         return Ok(out);
-    }
-    #[cfg(windows)]
-    {
-        let blob = dpapi_seal(plain)?;
-        let mut out = MARK.to_vec();
-        out.extend_from_slice(b"dpapi\n");
-        out.extend_from_slice(&blob);
-        return Ok(out);
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        if keyring_up() && secret_put(plain).is_ok() {
-            let mut out = MARK.to_vec();
-            out.extend_from_slice(b"secret\n");
-            return Ok(out);
-        }
     }
     Err("This computer has no keyring, so sync cannot keep a key here.".into())
 }

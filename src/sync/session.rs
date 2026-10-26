@@ -2530,7 +2530,7 @@ fn pipe_print(words: &str) -> Result<(), String> {
                 .write_all(words.as_bytes())
                 .map_err(|e| e.to_string())?;
         }
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(windows))]
     {
