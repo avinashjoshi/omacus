@@ -52,7 +52,27 @@
     menu.addEventListener("click", () => setOpen(!header.classList.contains("open")));
     for (const a of $$("#site-nav a")) a.addEventListener("click", () => setOpen(false));
     addEventListener("keydown", (e) => e.key === "Escape" && setOpen(false));
-    matchMedia("(min-width: 1021px)").addEventListener("change", () => setOpen(false));
+    matchMedia("(min-width: 1100px)").addEventListener("change", () => setOpen(false));
+  }
+
+  const learn = $(".nav-learn");
+  if (learn) {
+    const wide = matchMedia("(min-width: 1100px)");
+    const showLearn = () => {
+      if (!wide.matches) learn.open = true;
+    };
+    showLearn();
+    wide.addEventListener("change", () => {
+      learn.open = !wide.matches ? true : false;
+    });
+    addEventListener("click", (e) => {
+      if (!wide.matches) return;
+      if (learn.open && !learn.contains(e.target)) learn.open = false;
+    });
+    addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && wide.matches) learn.open = false;
+    });
+    menu?.addEventListener("click", showLearn);
   }
 
   // A link to a smaller update (from the app's What's new) opens the group it was folded into.
