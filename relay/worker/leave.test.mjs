@@ -26,7 +26,7 @@ function deviceBytes(device) {
 
 async function call(box, method, path, body, headers = {}) {
   const text = body === undefined ? undefined : (typeof body === "string" ? body : JSON.stringify(body));
-  const response = await box.fetch(new Request("https://sync-test.omacus.com" + path, {
+  const response = await box.fetch(new Request("https://relay.example" + path, {
     method,
     headers: { "content-type": "application/json", "cf-connecting-ip": "198.51.100.8", ...headers },
     body: text,

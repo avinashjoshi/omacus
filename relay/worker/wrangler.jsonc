@@ -1,27 +1,28 @@
 {
-  // Secrets stay out of this file. Set them per worker:
+  // Secrets stay out of this file. Set them on this worker:
   //   npx wrangler secret put ACCESS_SECRET
   //   npx wrangler secret put ADMIN_KEY
-  // Production uses the same commands with `--env production`.
-  // A secret on the test worker is not copied to production.
-  // ACCESS_TEAM_DOMAIN is the Access team host. The audience tag is a secret:
   //   npx wrangler secret put ACCESS_AUD
-  // Production needs its own Access application on sync.omacus.com/admin, then:
-  //   npx wrangler secret put ACCESS_AUD --env production
-  // The default deploy (no --env) is the test worker.
-  "name": "omacus-sync-test",
+  // ACCESS_TEAM_DOMAIN is the Access team host. It is not a secret.
+  // A bare `npx wrangler deploy` publishes omacus-sync. This file has no
+  // other environment, so that command cannot create a second worker.
+  "name": "omacus-sync",
   "main": "worker.js",
   "compatibility_date": "2026-10-01",
-  "workers_dev": true,
-  "routes": [{ "pattern": "sync-test.omacus.com", "custom_domain": true }],
+  "workers_dev": false,
+  "routes": [{ "pattern": "sync.omacus.com", "custom_domain": true }],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
     "run_worker_first": true
   },
-  "vars": { "SERVE_APP": "1", "ACCESS_TEAM_DOMAIN": "omacus.cloudflareaccess.com" },
+  "vars": {
+    "SERVE_APP": "0",
+    "ACCESS_TEAM_DOMAIN": "omacus.cloudflareaccess.com",
+    "APP_URL": "https://app.omacus.com/"
+  },
   "triggers": { "crons": ["15 7 * * *"] },
-  "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "omacus-sync-test-backups" }],
+  "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "omacus-sync-backups" }],
   // Nights stay until the bucket lifecycle rule deletes them (30 days, prefix nights/).
   "durable_objects": {
     "bindings": [
@@ -32,25 +33,5 @@
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["Mailboxes"] },
     { "tag": "v2", "new_sqlite_classes": ["Config"] }
-  ],
-  "env": {
-    "production": {
-      "name": "omacus-sync",
-      "workers_dev": false,
-      "routes": [{ "pattern": "sync.omacus.com", "custom_domain": true }],
-      "vars": { "SERVE_APP": "0", "ACCESS_TEAM_DOMAIN": "omacus.cloudflareaccess.com", "APP_URL": "https://app.omacus.com/" },
-      "triggers": { "crons": ["15 7 * * *"] },
-      "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "omacus-sync-backups" }],
-      "durable_objects": {
-        "bindings": [
-          { "name": "MAILBOXES", "class_name": "Mailboxes" },
-          { "name": "CONFIG", "class_name": "Config" }
-        ]
-      },
-      "migrations": [
-        { "tag": "v1", "new_sqlite_classes": ["Mailboxes"] },
-        { "tag": "v2", "new_sqlite_classes": ["Config"] }
-      ]
-    }
-  }
+  ]
 }

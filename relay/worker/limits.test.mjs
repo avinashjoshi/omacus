@@ -15,7 +15,7 @@ function assert(cond, message) {
 }
 
 async function call(box, method, path, body, ip, extra = {}) {
-  const response = await box.fetch(new Request("https://sync-test.omacus.com" + path, {
+  const response = await box.fetch(new Request("https://relay.example" + path, {
     method,
     headers: {
       "content-type": "application/json",

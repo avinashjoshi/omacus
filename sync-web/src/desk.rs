@@ -1723,7 +1723,7 @@ mod tests {
             .unwrap();
         let known_link = recovery_link("https://app.omacus.com", &known_words).unwrap();
         assert!(known_link.ends_with(known_token));
-        for page in ["https://app.omacus.com", "https://sync-test.omacus.com"] {
+        for page in ["https://app.omacus.com", "https://relay.example"] {
             let link = recovery_link(page, &words).unwrap();
             let (before, after) = link.split_once('#').unwrap();
             assert_eq!(before, format!("{page}/"));
@@ -1755,7 +1755,7 @@ mod tests {
         let account = "ab".repeat(32);
         let code = "K7QM-4R2P";
         let relay = "https://sync.omacus.com";
-        for page in ["https://app.omacus.com", "https://sync-test.omacus.com"] {
+        for page in ["https://app.omacus.com", "https://relay.example"] {
             let link = join_link(page, relay, &account, code).unwrap();
             let (before, after) = link.split_once('#').unwrap();
             assert_eq!(before, format!("{page}/"));

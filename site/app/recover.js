@@ -2,7 +2,7 @@
 // Show them and offer a copy. This file does not write to either store.
 
 (function () {
-  const syncTest = location.hostname === "sync-test.omacus.com" || document.documentElement.dataset.syncTest === "1";
+  const syncTest = document.documentElement.dataset.syncTest === "1";
   const DB_NAME = syncTest ? "omacus-sync-test" : "omacus";
   const STORE = "kv";
   const PREFIX = syncTest ? "omacus-sync-test:" : "omacus:";

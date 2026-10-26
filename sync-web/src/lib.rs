@@ -825,7 +825,7 @@ mod link_tests {
         assert!(!before.contains(code));
         assert!(!qr.contains(code));
         assert!(!qr.contains(&account));
-        let test_page = "https://sync-test.omacus.com";
+        let test_page = "https://relay.example";
         let test_made: serde_json::Value =
             serde_json::from_str(&make_invite(&account, relay, test_page, &secret)).unwrap();
         let test_link = desk::join_link(test_page, relay, &account, code).unwrap();

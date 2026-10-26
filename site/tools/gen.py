@@ -179,11 +179,8 @@ def llms_full():
 # ---------------------------------------------------------------------------------------
 # Shared header and footer
 
-NAV = [("/#features", "Features"), ("/use-cases/", "Use cases"), ("/guides/", "Guides"),
-       ("/docs/", "Docs"), ("/updates/", "Updates"), ("/story/", "Story"),
-       ("/sync/", "Sync"),
-       ("https://app.omacus.com", "Web app"),
-       ("https://github.com/avinashjoshi/omacus", "GitHub")]
+NAV = [("/#features", "Features"), ("/docs/", "Docs"), ("/sync/", "Sync"), ("/story/", "Story")]
+LEARN = [("/use-cases/", "Use cases"), ("/guides/", "Guides"), ("/updates/", "Updates")]
 FOOTER = [("/docs/", "Docs"), ("/guides/", "Guides"), ("/use-cases/", "Use cases"),
           ("/updates/", "Updates"), ("/story/", "Story"), ("/sync/", "Sync"), ("/privacy/", "Privacy"),
           ("https://github.com/avinashjoshi/omacus/issues/new/choose", "Report an issue"),
@@ -191,20 +188,36 @@ FOOTER = [("/docs/", "Docs"), ("/guides/", "Guides"), ("/use-cases/", "Use cases
 
 
 def header(path):
-    links = []
-    for href, label in NAV:
-        attrs = ""
+    def link(href, label, cls=""):
+        attrs = f' class="{cls}"' if cls else ""
         if href != "/#features" and path.startswith(href):
             attrs += ' aria-current="page"'
-        links.append(f'      <a href="{href}"{attrs}>{label}</a>')
-    return ('<header class="site-header">\n  <div class="wrap">\n'
-            '    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="28" height="28">omacus</a>\n'
-            '    <nav class="nav" aria-label="Main">\n      <div class="nav-links" id="site-nav">\n'
-            + "\n".join("  " + l for l in links) + "\n      </div>\n"
-            '      <a class="btn primary" href="/download/"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>\n'
-            '      <button class="menu-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="Menu">'
-            "<span></span><span></span><span></span></button>\n"
-            "    </nav>\n  </div>\n</header>")
+        return f'        <a href="{href}"{attrs}>{label}</a>'
+
+    learn = "\n".join(link(href, label) for href, label in LEARN)
+    links = "\n".join(link(href, label) for href, label in NAV)
+    return (
+        '<header class="site-header">\n  <div class="wrap">\n'
+        '    <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="28" height="28">omacus</a>\n'
+        '    <nav class="nav" aria-label="Main">\n      <div class="nav-links" id="site-nav">\n'
+        '        <a class="nav-phone-app btn primary" href="https://app.omacus.com">Open the web app</a>\n'
+        '        <a class="nav-phone-download btn" href="/download/"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>\n'
+        f'{links}\n'
+        '        <details class="nav-learn">\n'
+        '          <summary class="nav-learn-btn">Learn <svg class="nav-chevron" aria-hidden="true"><use href="/img/sprite.svg#chevron"/></svg></summary>\n'
+        '          <div class="nav-learn-menu" id="nav-learn-menu">\n'
+        '            <p class="nav-learn-kicker">Learn</p>\n'
+        f'{learn}\n'
+        '          </div>\n'
+        '        </details>\n'
+        '        <a class="nav-github" href="https://github.com/avinashjoshi/omacus"><svg aria-hidden="true"><use href="/img/sprite.svg#github"/></svg><span class="nav-github-label">GitHub</span></a>\n'
+        '      </div>\n'
+        '      <a class="btn nav-open" href="https://app.omacus.com">Open app</a>\n'
+        '      <a class="btn primary nav-download" href="/download/"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>\n'
+        '      <button class="menu-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="Menu">'
+        "<span></span><span></span><span></span></button>\n"
+        "    </nav>\n  </div>\n</header>"
+    )
 
 
 def footer():

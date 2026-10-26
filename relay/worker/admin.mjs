@@ -1,6 +1,6 @@
 // Admin commands for the sync worker. The code is minted on the server.
 // ADMIN_KEY is read from the environment and is never printed.
-// The default host is the test worker. Set SYNC_URL to reach production.
+// The default host is production. Set SYNC_URL to point the command somewhere else.
 //
 //   read -s ADMIN_KEY && export ADMIN_KEY
 //   node relay/worker/admin.mjs mint --uses 3 --label "Friends"
@@ -20,7 +20,7 @@
 import { fileURLToPath } from "node:url";
 import { LIMIT_FLAGS } from "./limits.js";
 
-export const DEFAULT_SYNC_URL = "https://sync-test.omacus.com";
+export const DEFAULT_SYNC_URL = "https://sync.omacus.com";
 
 function flag(argv, name) {
   const index = argv.indexOf(name);

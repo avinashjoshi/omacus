@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=omacus Test
-Comment=Try sync at the omacus test site
-Exec=omacus-test
-Terminal=false
-Categories=Utility;
-StartupWMClass=dev.omacus.OmacusTest
-DBusActivatable=false

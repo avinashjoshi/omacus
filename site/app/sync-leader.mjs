@@ -2,7 +2,7 @@
 // Approve and remove take the same lock and wait, so they run once.
 
 export function tabLockName(hostname, syncTestFlag) {
-  if (hostname === "sync-test.omacus.com" || syncTestFlag === "1" || syncTestFlag === true) {
+  if (syncTestFlag === "1" || syncTestFlag === true) {
     return "omacus-sync-test";
   }
   return "omacus";

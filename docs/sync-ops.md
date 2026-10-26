@@ -1,76 +1,56 @@
 # Sync hosting
 
-The test worker and the production worker are separate. This repository does not deploy either one. Sync hosts answer with `Access-Control-Allow-Origin: *`. They never set a cookie, and they never take a cookie as a login.
+This repository does not deploy the worker. Sync answers with `Access-Control-Allow-Origin: *`. It never sets a cookie, and it never takes a cookie as a login.
 
-The app at app.omacus.com stays the app. A production build sends sealed pages to `https://sync.omacus.com`. A test build sends them to `https://sync-test.omacus.com`. The source file leaves that address empty, and the build writes it.
+The app at app.omacus.com stays the app. The published build sends sealed pages to `https://sync.omacus.com`. The source file leaves that address empty, and the build writes it.
 
-## Test
+## Production
 
-The test worker is named `omacus-sync-test`. It serves the sync API and the test app at `sync-test.omacus.com`, and the admin at `sync-test.omacus.com/admin`.
+The worker is named `omacus-sync`. It serves the sync API at `sync.omacus.com` and the admin at `sync.omacus.com/admin`. It does not serve the app. A GET or HEAD of exactly `https://sync.omacus.com/` redirects to the app. `APP_URL` is that address, and it defaults to `https://app.omacus.com/`. The config already sets it. Any other unknown path is a plain not-found.
 
-From `relay/worker`, build the test app, then deploy with no `--env`. That is the test worker.
+`relay/worker/wrangler.jsonc` is that worker. A bare `npx wrangler deploy` publishes it. The file has no other environment, so that command cannot create a second worker. A local run can still serve the app when `SERVE_APP` is `1`. The deployed config sets `SERVE_APP` to `0`.
+
+Deploy it only when you mean to, from `relay/worker`:
 
 ```
 ./build.sh
 npx wrangler deploy
 ```
 
-`build.sh` points the built app at the test host. It does not change the source file.
+`./build.sh` points the built app at `https://sync.omacus.com`. It does not change the source file.
 
 Set the secrets on this worker. The commands prompt for the value. The values are not written in the repository.
 
 ```
 npx wrangler secret put ACCESS_SECRET
 npx wrangler secret put ADMIN_KEY
-```
-
-`ACCESS_SECRET` checks invite codes. `ADMIN_KEY` opens the admin commands. Cloudflare Access is in front of `sync-test.omacus.com/admin` and `sync-test.omacus.com/v1/admin` on the same application. The page calls `/v1/admin`. That path has to be in the application, or Cloudflare does not attach `Cf-Access-Jwt-Assertion` and every call is refused. Set the audience tag so the worker checks that sign-in:
-
-```
 npx wrangler secret put ACCESS_AUD
 ```
 
-A missing `ACCESS_AUD` or `ACCESS_TEAM_DOMAIN` refuses admin with "Sign in again." A missing or expired Access sign-in is the same refusal. A wrong admin key is still "That key didn't work." `/v1/admin` requires both the sign-in and the admin key. `ALLOW_NO_ACCESS` is for tests only. Do not set it on a deployed worker.
+`ACCESS_SECRET` checks invite codes. `ADMIN_KEY` opens the admin commands. Cloudflare Access is in front of `sync.omacus.com/admin` and `sync.omacus.com/v1/admin` on the same application. The page calls `/v1/admin`. That path has to be in the application, or Cloudflare does not attach `Cf-Access-Jwt-Assertion` and every call is refused.
 
-## Production
+A missing `ACCESS_AUD` or `ACCESS_TEAM_DOMAIN` refuses admin with "Sign in again." A missing or expired Access sign-in is the same refusal. A wrong admin key is still "That key didn't work." `/v1/admin` requires both the sign-in and the admin key. `ALLOW_NO_ACCESS` is for tests only. Do not set it on the deployed worker.
 
-The production worker is named `omacus-sync`. It has its own stored data and its own secrets. It serves the sync API at `sync.omacus.com` and the admin at `sync.omacus.com/admin`. It does not serve the app. A GET or HEAD of exactly `https://sync.omacus.com/` redirects to the app. `APP_URL` is that address, and it defaults to `https://app.omacus.com/`. The production config already sets it. Any other unknown path is a plain not-found. The test worker (`SERVE_APP` is `1`) still serves the app at `/`.
+Production starts at 10,000 accounts, 50 MB (52,428,800 bytes) per account, and 10 devices. Those are the numbers before anyone saves a limit. The admin page can change them. Reads start at 180 a minute per account and 500 per address. A local worker that serves the app starts lower: 3 accounts, 65,536 bytes, 4 devices, 100 reads a minute per account, and 140 per address. Do not copy that storage cap onto production.
 
-Deploy it only when you mean to:
-
-```
-./build.sh
-npx wrangler deploy --env production
-```
-
-Set the secrets on that worker. A secret set on the test worker is not copied over.
-
-```
-npx wrangler secret put ACCESS_SECRET --env production
-npx wrangler secret put ADMIN_KEY --env production
-npx wrangler secret put ACCESS_AUD --env production
-```
-
-Production starts at 10,000 accounts, 50 MB (52,428,800 bytes) per account, and 10 devices. The test worker starts at 3 accounts, 65,536 bytes, and 4 devices. Those are the numbers before anyone saves a limit. The admin page can change them. Do not copy the test storage cap onto production. The test worker also starts at 100 reads a minute per account and 140 per address, so three phones that are saving and one that is joining still fit. Production's 180 and 500 already do.
-
-Create one Access application that includes both `sync.omacus.com/admin` and `sync.omacus.com/v1/admin`. The page loads from `/admin` and its calls go to `/v1/admin`. A path left out of the application does not get `Cf-Access-Jwt-Assertion`, and the page then says "Sign in again." Both workers set `ACCESS_TEAM_DOMAIN` to `omacus.cloudflareaccess.com`. Set that application's own audience tag as `ACCESS_AUD` on the production worker. If either value is missing, admin is refused. Do not set `ALLOW_NO_ACCESS` on the production worker.
+Create one Access application that includes both `sync.omacus.com/admin` and `sync.omacus.com/v1/admin`. The page loads from `/admin` and its calls go to `/v1/admin`. A path left out of the application does not get `Cf-Access-Jwt-Assertion`, and the page then says "Sign in again." The worker sets `ACCESS_TEAM_DOMAIN` to `omacus.cloudflareaccess.com`. Set that application's audience tag as `ACCESS_AUD`. If either value is missing, admin is refused. Do not set `ALLOW_NO_ACCESS` on the worker.
 
 ## Before the first production deploy
 
 - `ACCESS_AUD` and `ACCESS_TEAM_DOMAIN` are both set. A missing one refuses admin. `ALLOW_NO_ACCESS` is not set.
-- The R2 lifecycle rule is on `omacus-sync-backups`. Prefix `nights/`. Delete after 30 days. The same rule is on `omacus-sync-test-backups`.
+- The R2 lifecycle rule is on `omacus-sync-backups`. Prefix `nights/`. Delete after 30 days.
 - The published build includes the sync engine. `.github/scripts/build-web.sh` builds `omacus-sync-web` and stops if `omacus_sync_web.js` or `omacus_sync_web_bg.wasm` is missing. That build writes `https://sync.omacus.com` into the app's sync address, and `site/app/_headers` allows that host in `connect-src`. The published app shows the Sync tab. Deploy app.omacus.com from that build.
-- Point-in-time recovery is on for the production `Mailboxes` namespace. In the Cloudflare dashboard, open that namespace and turn it on before you rely on a night's copy.
+- Point-in-time recovery is on for the production `Mailboxes` class. In the Cloudflare dashboard, open that class and turn it on before you rely on a night's copy.
 - After the deploy, check `GET /v1/health`, that `GET /` redirects to the app, that admin returns 403 when signed out, and that a phone can create a set of pages, link a second one, and save.
 - To roll back, deploy the previous worker script and the previous app assets. A phone keeps the pages it already has.
 
 ## Nightly copies
 
-Point-in-time recovery on the Durable Object is the first copy. In the Cloudflare dashboard, open the `Mailboxes` namespace for the worker and turn on point-in-time recovery. Do that for the test worker and for the production worker before you rely on a night's copy.
+Point-in-time recovery on the Durable Object is the first copy. In the Cloudflare dashboard, open the `Mailboxes` class for the worker and turn on point-in-time recovery before you rely on a night's copy.
 
-The buckets already exist and are bound as `BACKUPS`. The test worker uses `omacus-sync-test-backups`. The production worker uses `omacus-sync-backups`. A deploy picks up that binding. The worker copies every sealed account at 07:15 UTC. The copy is the sealed record, the sealed page objects, and the signed device list inside that record. It is not decrypted. The worker does not delete old nights.
+The bucket already exists and is bound as `BACKUPS`. The worker uses `omacus-sync-backups`. A deploy picks up that binding. The worker copies every sealed account at 07:15 UTC. The copy is the sealed record, the sealed page objects, and the signed device list inside that record. It is not decrypted. The worker does not delete old nights.
 
-Keep 30 days with an R2 lifecycle rule on each bucket. Prefix `nights/`. Delete objects after 30 days.
+Keep 30 days with an R2 lifecycle rule. Prefix `nights/`. Delete objects after 30 days.
 
 ```json
 {
@@ -85,52 +65,25 @@ Keep 30 days with an R2 lifecycle rule on each bucket. Prefix `nights/`. Delete 
 }
 ```
 
-Add that rule on `omacus-sync-test-backups` and on `omacus-sync-backups` (R2, the bucket, Settings, Object lifecycle rules). `2592000` is 30 days in seconds. Before the first production deploy, confirm that rule is on `omacus-sync-backups`: prefix `nights/`, delete after 30 days.
+Add that rule on `omacus-sync-backups` (R2, the bucket, Settings, Object lifecycle rules). `2592000` is 30 days in seconds. Before the first production deploy, confirm that rule is on `omacus-sync-backups`: prefix `nights/`, delete after 30 days.
 
 The admin page and `admin.mjs restore` write a night back through the same revision a phone uses when it saves. A phone then merges that copy with the pages it already has. One account, or every account from that day. They do not open a page. If the device list already on the server is a longer extension of the list in that night, the restore leaves the current list and the current pages. A phone that was removed does not come back from an older night, and that night is not written over the longer list.
 
 ## Cloudflare Access
 
-Access protects `sync-test.omacus.com/admin` and `sync-test.omacus.com/v1/admin` on one application. The worker checks `Cf-Access-Jwt-Assertion` on every `/admin` and `/v1/admin` request. A missing `ACCESS_AUD` or `ACCESS_TEAM_DOMAIN` is a refusal, the same as a missing sign-in. `ACCESS_TEAM_DOMAIN` is the team host (`omacus.cloudflareaccess.com` on both workers). The worker checks the signature against `https://omacus.cloudflareaccess.com/cdn-cgi/access/certs`, the issuer `https://omacus.cloudflareaccess.com`, and the `ACCESS_AUD` tag. A missing or expired sign-in is HTTP 403, "Sign in again." A wrong admin key is HTTP 401, "That key didn't work." `/v1/admin` requires both. `ALLOW_NO_ACCESS=1` skips that check in tests and is never set on a deployed worker.
+Access protects `sync.omacus.com/admin` and `sync.omacus.com/v1/admin` on one application. The worker checks `Cf-Access-Jwt-Assertion` on every `/admin` and `/v1/admin` request. A missing `ACCESS_AUD` or `ACCESS_TEAM_DOMAIN` is a refusal, the same as a missing sign-in. `ACCESS_TEAM_DOMAIN` is the team host (`omacus.cloudflareaccess.com`). The worker checks the signature against `https://omacus.cloudflareaccess.com/cdn-cgi/access/certs`, the issuer `https://omacus.cloudflareaccess.com`, and the `ACCESS_AUD` tag. A missing or expired sign-in is HTTP 403, "Sign in again." A wrong admin key is HTTP 401, "That key didn't work." `/v1/admin` requires both. `ALLOW_NO_ACCESS=1` skips that check in tests and is never set on the deployed worker.
 
-Production needs its own Access application covering both `sync.omacus.com/admin` and `sync.omacus.com/v1/admin`, then:
+Set the audience tag:
 
 ```
-npx wrangler secret put ACCESS_AUD --env production
+npx wrangler secret put ACCESS_AUD
 ```
 
 For the command line, create a service token in Access and export `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. The admin command sends those headers. It does not print them. Access adds the assertion before the request reaches the worker.
 
-## Desktop test
-
-omacus Test is a separate app for trying sync at `https://sync-test.omacus.com`. It is not a release of Omacus, and it does not replace the installed app. The desktop app shows Turn on sync, which explains sync and sets it up in that window. The desktop window seals pages before they leave.
-
-The app is named omacus Test. Its id is `dev.omacus.OmacusTest`. On Mac its sync name is omacus Test on Mac. On Linux it is omacus Test on Linux. A browser on the same computer keeps its own name, such as Chrome on Linux. It does not register the `omacus://` link, and it does not write `~/.local/share/applications/omacus.desktop`. Pages stay in this app's own WebKit store. On Linux that is `~/.local/share/omacus-test` and `~/.cache/omacus-test`. They are not the pages in Omacus (`~/.local/share/omacus`, `~/.config/omacus`).
-
-On a Mac, the build is unsigned. It runs on Apple silicon and Intel. Download `omacus-test-mac.zip` from the `omacus-test-desktop` prerelease, unzip it, then right-click omacus Test, choose Open, and choose Open again. A double-click is blocked. The window opens the sync test.
-
-On Linux (x86_64, including Arch with Wayland), the build is `omacus-test-linux-x86_64.tar.gz` on that same prerelease. It uses the system WebKit. `webkit2gtk-4.1` pulls in gtk3. Install that, then download and run:
-
-```
-sudo pacman -S --needed webkit2gtk-4.1 && curl -fsSL -o /tmp/omacus-test-linux-x86_64.tar.gz https://github.com/avinashjoshi/omacus/releases/download/omacus-test-desktop/omacus-test-linux-x86_64.tar.gz && mkdir -p "$HOME/omacus-test-linux" && tar -xzf /tmp/omacus-test-linux-x86_64.tar.gz -C "$HOME/omacus-test-linux" && "$HOME/omacus-test-linux/omacus-test"
-```
-
-The window uses Wayland on its own. If it stays blank on Hyprland, quit and run `WEBKIT_DISABLE_DMABUF_RENDERER=1 "$HOME/omacus-test-linux/omacus-test"`.
-
-The tarball includes `dev.omacus.OmacusTest.desktop`. That file has no `omacus://` handler. Copying it to `~/.local/share/applications/dev.omacus.OmacusTest.desktop` does not replace the Omacus entry. Set `Exec` to the full path of `omacus-test` if you want a launcher.
-
-Remove the test app, its pages, and that launcher:
-
-```
-rm -rf "$HOME/omacus-test-linux" "$HOME/.local/share/omacus-test" "$HOME/.cache/omacus-test"
-rm -f "$HOME/.local/share/applications/dev.omacus.OmacusTest.desktop"
-```
-
-That leaves the installed Omacus app, its settings, and its `omacus://` handler in place.
-
 ## Invite codes
 
-The admin command defaults to the test host. Set `SYNC_URL` to `https://sync.omacus.com` only when you mean to change production.
+The admin command talks to `https://sync.omacus.com`. It prints that the command is aimed at the production sync host. Set `SYNC_URL` only when you mean to point it somewhere else.
 
 ```
 read -s ADMIN_KEY && export ADMIN_KEY

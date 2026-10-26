@@ -224,6 +224,35 @@ class UpdatesPage(unittest.TestCase):
         self.assertIn('href="/sync/"', feed)
         self.assertTrue(feed.index("#v1.0.0") < feed.index("#v0.2.0"))
 
+    def test_shipped_1_0_notes_lead_when_the_tag_is_missing(self):
+        self.assertIsNone(updates.upcoming_notes())
+        cut = updates.shipped_v1()
+        self.assertEqual(cut["title"], "Sync is here")
+        self.assertEqual(cut["day"], "2026-10-26")
+        self.assertEqual(cut["date"], "Oct 26, 2026")
+        self.assertFalse(cut["prerelease"])
+        page, feed, _ = build([
+            release(
+                "v0.2.21",
+                "**Behind-the-scenes improvements**\n\nNothing you see in the app changed.",
+                "2026-10-24T23:46:40Z",
+            ),
+        ], upcoming=True)
+        self.assertLess(page.index('id="v1.0.0"'), page.index('id="v0.2.21"'))
+        self.assertEqual(page.count('id="v1.0.0"'), 1)
+        self.assertNotIn(">Coming<", page)
+        self.assertNotIn("Pre-release", page)
+        self.assertIn("<h2>Sync is here</h2>", page)
+        self.assertIn("invite-only for now", page)
+        self.assertIn('href="/sync/"', page)
+        self.assertIn('href="/privacy/"', page)
+        self.assertIn('datetime="2026-10-26"', page)
+        self.assertIn("Oct 26, 2026", page)
+        self.assertNotIn("upcoming 1.0 release", page)
+        self.assertIn("v1.0.0 — Sync is here", feed)
+        self.assertIn("2026-10-26T04:19:51Z", feed)
+        self.assertNotIn(">Coming<", feed)
+
     def test_a_published_1_0_is_not_listed_twice(self):
         page, feed, _ = build([
             release("v1.0.0", "**Sync is in the web app**\n\nYour pages can open on your other phones."),

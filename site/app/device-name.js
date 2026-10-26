@@ -1,5 +1,5 @@
 // A guess for this phone or computer. The person can change it.
-// omacus Test and the desktop app put their own name in the browser string.
+// The desktop app puts its own name in the browser string.
 
 export function guessDeviceName(ua) {
   const text = String(ua || "");
@@ -10,7 +10,6 @@ export function guessDeviceName(ua) {
   else if (/CrOS/.test(text)) computer = "Chromebook";
   else if (/Linux|X11/.test(text)) computer = "Linux";
   const place = phone || computer;
-  if (/\bomacus-test\b/.test(text)) return `omacus Test on ${place}`;
   if (/\bomacus-desktop\b/.test(text)) return `Omacus on ${place}`;
   let browser = "Browser";
   if (/Edg\//.test(text)) browser = "Edge";

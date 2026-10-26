@@ -57,7 +57,7 @@ const server = createServer(async (req, res) => {
     headers.set(key, Array.isArray(value) ? value.join(", ") : value);
   }
   if (!headers.has("cf-connecting-ip")) headers.set("cf-connecting-ip", "127.0.0.1");
-  const request = new Request("https://sync-test.omacus.com" + url.pathname + url.search, {
+  const request = new Request("https://relay.example" + url.pathname + url.search, {
     method: req.method,
     headers,
     body: req.method === "GET" || req.method === "HEAD" ? undefined : body,

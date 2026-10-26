@@ -3,8 +3,7 @@
 // A new version waits. The page saves the open edit, then asks this worker to take over.
 
 const CACHE = "omacus-app-28";
-const SYNC_TEST = self.location.hostname === "sync-test.omacus.com";
-const CACHE_NAME = SYNC_TEST ? "omacus-sync-test-19" : CACHE;
+const CACHE_NAME = CACHE;
 
 const APP_FILES = [
   "./",
@@ -51,12 +50,8 @@ const SHARED = [
 
 function shellUrls() {
   const base = new URL("./", self.location);
-  const extra = SYNC_TEST
-    ? ["pkg/omacus_sync_web.js", "pkg/omacus_sync_web_bg.wasm", "words.txt"]
-    : [];
   return [
     ...APP_FILES.map((path) => new URL(path, base).href),
-    ...extra.map((path) => new URL(path, base).href),
     ...SHARED.map((path) => new URL(path, self.location.origin).href),
   ];
 }

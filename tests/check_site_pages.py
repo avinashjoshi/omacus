@@ -23,10 +23,18 @@ class SitePages(unittest.TestCase):
         self.assertGreaterEqual(len(pages), 15)
         for path in pages:
             text = path.read_text()
-            nav = text.split('id="site-nav">', 1)[1].split("</div>", 1)[0]
+            header = text.split('<header class="site-header">', 1)[1].split("</header>", 1)[0]
             self.assertIn('<a href="/sync/">Sync</a>' if path != SITE / "sync" / "index.html"
-                          else '<a href="/sync/" aria-current="page">Sync</a>', nav, path)
-            self.assertIn('href="/story/"', nav, path)
+                          else '<a href="/sync/" aria-current="page">Sync</a>', header, path)
+            self.assertIn('href="/story/"', header, path)
+            self.assertIn(">Learn ", header, path)
+            self.assertIn("Open the web app", header, path)
+            self.assertIn(">Open app</a>", header, path)
+            self.assertIn("nav-github-label", header, path)
+            self.assertIn(">Use cases</a>", header, path)
+            self.assertIn(">Guides</a>", header, path)
+            self.assertIn(">Updates</a>", header, path)
+            self.assertNotIn(">Web app</a>", header, path)
 
     def test_the_sync_page_waits_for_a_real_video(self):
         text = (SITE / "sync" / "index.html").read_text()
@@ -71,6 +79,16 @@ class SitePages(unittest.TestCase):
         self.assertIn("/privacy/", body)
         self.assertNotIn("upcoming", body)
         self.assertIn('version = "1.0.0"', (ROOT / "Cargo.toml").read_text())
+        page = (SITE / "updates" / "index.html").read_text()
+        feed = (SITE / "updates" / "feed.xml").read_text()
+        self.assertNotIn(">Coming<", page)
+        self.assertNotIn("Sync is in the web app", page)
+        self.assertNotIn("upcoming 1.0 release", page)
+        self.assertIn("<h2>Sync is here</h2>", page)
+        self.assertIn("invite-only for now", page)
+        self.assertIn('datetime="2026-10-26"', page)
+        self.assertIn("v1.0.0 — Sync is here", feed)
+        self.assertNotIn("Sync is in the web app", feed)
 
 if __name__ == "__main__":
     unittest.main()
