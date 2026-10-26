@@ -442,16 +442,20 @@ fn assert_rule(session: &Session, words: &[String; 12]) {
     ] {
         assert!(!sent.contains(needle), "{needle} left this computer");
     }
-    for word in words {
-        assert!(!sent.contains(word), "a recovery word left this computer");
+    for body in session.sent_bodies() {
+        assert!(
+            word_leak(body, words).is_none(),
+            "a recovery word left this computer"
+        );
     }
     let book = fs::read_to_string(session.dir().join("sync").join("book.json")).unwrap_or_default();
     assert!(!book.contains("OMACUS-DEVICE"));
     assert!(!book.contains("pier 12"));
     assert!(!book.contains("ferry = 40"));
-    for word in words {
-        assert!(!book.contains(word.as_str()));
-    }
+    assert!(
+        word_leak(&book, words).is_none(),
+        "a recovery word was written into the sync book"
+    );
     if let Some(kind) = keys::kind(session.dir()) {
         let bytes = fs::read(keys::path(session.dir())).unwrap_or_default();
         if kind == "file" {
@@ -480,22 +484,170 @@ fn walk_clean(dir: &Path, words: &[String; 12]) {
         if path.extension().and_then(|ext| ext.to_str()) == Some("txt") {
             let text = fs::read_to_string(&path).unwrap_or_default();
             assert!(!text.contains("OMACUS-DEVICE"));
+            // A page can say "this computer". That is the title, not the phrase.
+            let phrase = words.join(" ");
+            assert!(
+                !text.contains(&phrase),
+                "{} has the recovery phrase",
+                path.display()
+            );
             continue;
         }
         let bytes = fs::read(&path).unwrap_or_default();
         let text = String::from_utf8_lossy(&bytes);
         assert!(!text.contains("OMACUS-DEVICE"), "{}", path.display());
-        // A sealed or automerge file is binary. A short word can show up inside
-        // those bytes by chance. Text files are the ones that must stay clear.
+        // Sealed bytes and automerge files are binary. A word can show up in
+        // that noise, or as a field name such as "account", without being sent.
         if bytes.contains(&0) || path.extension().and_then(|ext| ext.to_str()) == Some("bin") {
             continue;
         }
-        for word in words {
-            assert!(
-                !text.contains(word.as_str()),
-                "{} contains a recovery word",
-                path.display()
-            );
+        assert!(
+            word_leak(&text, words).is_none(),
+            "{} contains a recovery word",
+            path.display()
+        );
+    }
+}
+
+/// The phrase, and each word where a person could read it.
+///
+/// Field names are ordinary protocol words (`account`, `state`). Sealed
+/// hex and base64 are not the words either, so those are skipped. A base64
+/// value is decoded first, which still catches the words if they were packed
+/// into a field instead of sealed.
+fn word_leak(raw: &str, words: &[String; 12]) -> Option<String> {
+    let phrase = words.join(" ");
+    if !phrase.is_empty() && raw.contains(&phrase) {
+        return Some(phrase);
+    }
+    let readable = match serde_json::from_str::<serde_json::Value>(raw) {
+        Ok(value) => {
+            let mut out = String::new();
+            collect_readable(&value, &mut out);
+            out
+        }
+        Err(_) => strip_opaque(raw),
+    };
+    words
+        .iter()
+        .find(|word| readable.contains(word.as_str()))
+        .cloned()
+}
+
+fn collect_readable(value: &serde_json::Value, out: &mut String) {
+    match value {
+        serde_json::Value::String(text) => append_readable(text, out),
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_readable(item, out);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for item in map.values() {
+                collect_readable(item, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn append_readable(text: &str, out: &mut String) {
+    match opaque(text) {
+        Some(Opaque::Hex) => {}
+        Some(Opaque::Base64) => {
+            if let Some(clear) = decode_base64(text) {
+                out.push('\n');
+                out.push_str(&clear);
+            }
+        }
+        None => {
+            out.push('\n');
+            out.push_str(text);
         }
     }
+}
+
+enum Opaque {
+    Hex,
+    Base64,
+}
+
+fn opaque(text: &str) -> Option<Opaque> {
+    if text.len() >= 16
+        && text.len().is_multiple_of(2)
+        && text.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        return Some(Opaque::Hex);
+    }
+    // Eight characters is the encoding of a short word. Longer sealed fields
+    // use the same alphabet, with a digit or a capital so a plain word stays.
+    if text.len() < 8 {
+        return None;
+    }
+    let base64 = text
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=' | '-' | '_'));
+    if base64 && text.chars().any(|c| !c.is_ascii_lowercase()) {
+        Some(Opaque::Base64)
+    } else {
+        None
+    }
+}
+
+fn decode_base64(text: &str) -> Option<String> {
+    use base64::Engine;
+    let engines = [
+        base64::engine::general_purpose::STANDARD,
+        base64::engine::general_purpose::STANDARD_NO_PAD,
+        base64::engine::general_purpose::URL_SAFE,
+        base64::engine::general_purpose::URL_SAFE_NO_PAD,
+    ];
+    engines.into_iter().find_map(|engine| {
+        engine
+            .decode(text)
+            .ok()
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+    })
+}
+
+fn strip_opaque(text: &str) -> String {
+    let mut out = String::new();
+    let mut run = String::new();
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=' | '-' | '_') {
+            run.push(c);
+        } else {
+            flush_run(&mut run, &mut out);
+            out.push(c);
+        }
+    }
+    flush_run(&mut run, &mut out);
+    out
+}
+
+fn flush_run(run: &mut String, out: &mut String) {
+    if !run.is_empty() {
+        append_readable(run, out);
+        run.clear();
+    }
+}
+
+#[test]
+fn a_field_name_is_not_a_recovery_word_leaving() {
+    let mut words: [String; 12] = std::array::from_fn(|n| format!("madeup{n}"));
+    words[0] = "account".into();
+    words[1] = "state".into();
+    words[2] = "secret".into();
+    let body =
+        r#"{"account":"0123456789abcdef0123456789abcdef","state":"pending","name":"Harbor desk"}"#;
+    assert!(word_leak(body, &words).is_none());
+    let leaked = r#"{"name":"account"}"#;
+    assert_eq!(word_leak(leaked, &words).as_deref(), Some("account"));
+    use base64::Engine;
+    let encoded = base64::engine::general_purpose::STANDARD.encode("secret");
+    let packed = format!(r#"{{"note":"{encoded}"}}"#);
+    assert_eq!(word_leak(&packed, &words).as_deref(), Some("secret"));
+    let phrase = words.join(" ");
+    let pasted = format!(r#"{{"note":"{phrase}"}}"#);
+    assert!(word_leak(&pasted, &words).is_some());
 }
