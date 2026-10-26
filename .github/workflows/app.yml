@@ -20,6 +20,9 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # The job names the environment `app`. There is no required reviewer.
+    # Deploys are limited to the branch `main` and tags `v*`.
+    environment: app
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -59,7 +62,9 @@ jobs:
           text = path.read_text()
           block = (
               "\nBuild hash: `" + digest + "`\n\n"
-              "Settings shows this hash. This copy matches the release when the two hashes are the same.\n\n"
+              "Settings shows this hash. This copy matches the release when the two hashes are the same. "
+              "Every file in the web build is listed in `web-SHA256SUMS.txt` on this release and at "
+              "https://app.omacus.com/SHA256SUMS.txt.\n\n"
           )
           marker = "## Install"
           if marker in text:
@@ -69,6 +74,7 @@ jobs:
           path.write_text(text)
           PY
           gh release edit "v$version" --notes-file /tmp/notes.md
+          gh release upload "v$version" "dist/SHA256SUMS.txt#web-SHA256SUMS.txt" --clobber
       - name: Publish app.omacus.com
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

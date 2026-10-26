@@ -29,7 +29,7 @@
           <form class="create" data-create>
             <label>Label <input name="label" maxlength="40" autocomplete="off"></label>
             <label>Uses <input name="uses" type="number" min="1" max="20" value="1" required></label>
-            <label>Expiry <input name="expires" type="date"> <span class="hint">Optional.</span></label>
+            <label>Expiry <input name="expires" type="date"> <span class="hint">Blank means 30 days.</span></label>
             <button class="primary" type="submit">Create code</button>
           </form>
           <div class="once" data-once hidden></div>
@@ -61,6 +61,8 @@
 
         <section class="block">
           <h2>Stats</h2>
+          <p class="alert" data-storage-alert hidden role="alert"></p>
+          <button class="quiet" type="button" data-storage-noted hidden>Noted</button>
           <p data-counts></p>
           <p data-activity></p>
           <p data-copy></p>

@@ -129,6 +129,8 @@
 <h2 id="desktop">The desktop app</h2>
     <ul>
       <li><strong>Your pages</strong> are plain text files in a folder on your computer (see <a href="/docs/#files">where files live</a>). With sync on, a sealed copy can leave this computer. The server cannot read it. The <strong>Turn on sync</strong> button in the sidebar explains sync, then sets it up in that window. This site does not collect an email.</li>
+      <li><strong>On the disk.</strong> Pages that are not locked are plain text in that folder. Turn on full-disk encryption for the computer. Lock a page when the note is sensitive. The seal on a synced copy stops the server from reading it. It does not hide the folder on the computer.</li>
+      <li><strong>Where the sync key lives.</strong> This app keeps the sync key in the system key store. The web app keeps that key in the browser, and an extension on that page can read it. The desktop app is the stronger place for the key. Settings in the web app shows a build hash. The same hash is on the release, and <a href="https://app.omacus.com/SHA256SUMS.txt">the file list</a> names every file in that build.</li>
       <li><strong>Exchange rates.</strong> Omacus downloads the latest rates from <a href="https://www.exchangerate-api.com/docs/free">open.er-api.com</a> at most every 12 hours while you use it, and keeps them on disk so currency math works offline. The request carries nothing from your pages.</li>
       <li><strong>Checking for updates.</strong> Omacus asks GitHub for the latest version number when it starts (at most once an hour) and every 4 hours while it's open. Put <code>check_for_updates = false</code> in <code>settings.toml</code> to turn that off. A new version is downloaded, from GitHub, only when you choose <em>Update now</em> or run <code>omacus update</code>.</li>
       <li><strong>Nothing else.</strong> No telemetry, no crash reports, no usage statistics.</li>
@@ -137,6 +139,7 @@
     <h2 id="web-app">The web app</h2>
     <ul>
       <li><strong>Your pages</strong> are saved in your browser until you turn on sync. Sync sends a sealed copy. The server cannot read the pages, the names, or the recovery words. A sealed copy is also saved each night and kept for about 30 days. That copy is not opened. Clearing the site's data in your browser deletes the local copy, so export a copy (⋯ menu) if the pages matter.</li>
+      <li><strong>In this browser.</strong> Pages that are not locked stay in the browser's storage. Lock a page when the note is sensitive. The sync key for this browser is in that storage too.</li>
       <li><strong>Exchange rates</strong> come from the same source as the desktop app, kept in the browser for 12 hours.</li>
       <li><strong>The app itself</strong> is downloaded from omacus.com and cached so it works offline.</li>
     </ul>

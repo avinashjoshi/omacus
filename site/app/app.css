@@ -2480,12 +2480,14 @@ body.answers-inline .md .pill {
   color: var(--app-danger);
 }
 
-.sync-chip[data-state="ask"] {
+.sync-chip[data-state="ask"],
+.sync-chip[data-state="list"] {
   color: var(--app-fg);
   border-color: var(--app-line-strong);
 }
 
-.sync-chip[data-state="ask"] .sync-mark {
+.sync-chip[data-state="ask"] .sync-mark,
+.sync-chip[data-state="list"] .sync-mark {
   stroke: var(--app-accent);
 }
 
@@ -2521,13 +2523,15 @@ body.answers-inline .md .pill {
     display: none;
   }
 
-  .sync-chip[data-state="ask"] {
+  .sync-chip[data-state="ask"],
+  .sync-chip[data-state="list"] {
     gap: 6px;
     width: auto;
     padding: 5px 10px 5px 8px;
   }
 
-  .sync-chip[data-state="ask"] .sync-chip-word {
+  .sync-chip[data-state="ask"] .sync-chip-word,
+  .sync-chip[data-state="list"] .sync-chip-word {
     display: inline;
   }
 }

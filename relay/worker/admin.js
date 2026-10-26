@@ -53,7 +53,45 @@ export function cleanLabel(raw) {
   return out.trim();
 }
 
-// A date string is the end of that UTC day. A number is used as given. Empty means no expiry.
+// A date string is the end of that UTC day. A number is used as given.
+// Empty is not an expiry on its own: storing a code turns that into 30 days.
+export const CODE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+export const STORAGE_JUMP_BYTES = 1024 * 1024 * 1024;
+
+export function codeExpiry(value, now = Date.now()) {
+  const parsed = expiryMs(value);
+  if (parsed === null) return null;
+  if (parsed === 0) return now + CODE_TTL_MS;
+  return parsed;
+}
+
+export function storageJump(previous, next) {
+  const prior = Number.isInteger(previous) ? previous : 0;
+  const bytes = Number.isInteger(next) ? next : 0;
+  const grew = bytes - prior;
+  if (prior <= 0 || grew < STORAGE_JUMP_BYTES) return null;
+  return { previous: prior, bytes, grew };
+}
+
+export async function applyStorageAlert(storage, bytes, now = Date.now()) {
+  const mark = await storage.get("admin:storage-mark");
+  const prior = mark && Number.isInteger(mark.bytes) ? mark.bytes : null;
+  if (prior === null) {
+    await storage.put("admin:storage-mark", { bytes, at: now });
+    return null;
+  }
+  const jump = storageJump(prior, bytes);
+  if (!jump) return null;
+  const alert = { previous: prior, bytes, grew: jump.grew, at: now };
+  await storage.put("admin:storage-alert", alert);
+  return alert;
+}
+
+export async function noteStorage(storage, bytes, now = Date.now()) {
+  await storage.put("admin:storage-mark", { bytes, at: now });
+  await storage.delete("admin:storage-alert");
+}
+
 export function expiryMs(value) {
   if (value === undefined || value === null || value === "") return 0;
   if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
@@ -265,6 +303,13 @@ export async function handleAdmin(storage, method, path, body, allowed) {
     await audit(storage, "stats", {});
     return [200, await collectStats(storage)];
   }
+  if (method === "POST" && path === "/v1/admin/storage-alert") {
+    const stats = await collectStats(storage);
+    await noteStorage(storage, stats.bytes);
+    stats.storageAlert = null;
+    await audit(storage, "stats", {});
+    return [200, stats];
+  }
   if (method === "POST" && path === "/v1/admin/signups") return setSignups(storage, value.paused);
   const remove = /^\/v1\/admin\/accounts\/([0-9a-f]{64})$/.exec(path);
   if (method === "DELETE" && remove) return deleteAccount(storage, remove[1], value.confirm);
@@ -297,7 +342,7 @@ async function storeCode(storage, value) {
   if (!/^[0-9a-f]{64}$/.test(hash) || !Number.isInteger(uses) || uses < 1 || uses > MAX_USES) {
     return [400, { message: "Uses must be a number from 1 to 20." }];
   }
-  const expires = expiryMs(value.expires);
+  const expires = codeExpiry(value.expires);
   if (expires === null) return [400, { message: "That expiry didn't work." }];
   const label = cleanLabel(value.label);
   const key = "a:" + hash;
@@ -357,11 +402,13 @@ async function collectStats(storage) {
     });
   }
   storageRows.sort((a, b) => a.account.localeCompare(b.account));
-  return summarize({
+  const stats = summarize({
     paused: Boolean(signups && signups.paused),
     storage: storageRows,
     errors: await recentErrors(storage),
   });
+  stats.storageAlert = await applyStorageAlert(storage, stats.bytes);
+  return stats;
 }
 
 async function recentErrors(storage) {

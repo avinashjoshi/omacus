@@ -309,6 +309,10 @@ jobs:
 
   publish:
     needs: [check, linux, windows, macos]
+    # The signing key is a secret on the `release` environment, not a plain
+    # repo secret. That environment has no required reviewer. Deploys from it
+    # are limited to main and v* tags.
+    environment: release
     permissions:
       contents: write
     if: >-
@@ -379,6 +383,9 @@ jobs:
         # and the API answers 403. A tag push of a commit already on main does
         # not, and contents: write covers it. Once the tag exists, the release
         # step attaches to it and leaves target_commitish unused.
+        # The v* ruleset allows creating a tag and blocks updating or deleting
+        # one. This push uses the job token from the checkout. A missing
+        # RELEASE_TOKEN does not stop the tag.
         run: |
           set -euo pipefail
           version="${{ needs.check.outputs.version }}"

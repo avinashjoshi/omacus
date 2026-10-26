@@ -42,17 +42,50 @@ release_url() {
 # installed. With "maybe", a file the release doesn't have fails quietly (the caller
 # tries another); a checksum that doesn't match always says so.
 fetch() {
-  local base=$1 name=$2 dest=$3 maybe=${4:-} want got
+  local base=$1 name=$2 dest=$3 maybe=${4:-} want got dir mark
+  # The public half of keys/omacus-update.pub. The secret is not in this file.
+  local update_pub="RWQJUAvNWGSfOqUhv72iFEstoIffxF23AYficJl9Ckt5CUJ/8lFZMjmS"
   if [[ -n "$maybe" ]]; then
     "${CURL[@]}" "$base/$name" -o "$dest" 2>/dev/null || return 1
   else
     "${CURL[@]}" "$base/$name" -o "$dest" || return 1
   fi
-  "${CURL[@]}" "$base/SHA256SUMS.txt" -o "$dest.sums" || {
-    echo "Couldn't download the release's checksums; not installing." >&2
-    exit 1
-  }
-  want="$(awk -v n="$name" '$2 == n || $2 == "*" n { print tolower($1) }' "$dest.sums")"
+  dir="$(dirname "$dest")"
+  mark="$dir/omacus-update.json.checked"
+  if [[ ! -f "$mark" ]]; then
+    if command -v minisign >/dev/null \
+      && "${CURL[@]}" "$base/omacus-update.json" -o "$dir/omacus-update.json" 2>/dev/null \
+      && "${CURL[@]}" "$base/omacus-update.json.minisig" -o "$dir/omacus-update.json.minisig" 2>/dev/null; then
+      if minisign -Vm "$dir/omacus-update.json" -P "$update_pub" -x "$dir/omacus-update.json.minisig" >/dev/null 2>&1; then
+        echo signed >"$mark"
+      else
+        echo "The update signature didn't match. Not installing." >&2
+        exit 1
+      fi
+    else
+      rm -f "$dir/omacus-update.json" "$dir/omacus-update.json.minisig"
+      echo hash >"$mark"
+      echo "This release was checked with SHA256SUMS.txt. Copies before 1.0 only check that file." >&2
+    fi
+  fi
+  if [[ "$(cat "$mark")" == signed ]]; then
+    if ! command -v python3 >/dev/null; then
+      echo "Couldn't read the signed file list; not installing." >&2
+      exit 1
+    fi
+    want="$(python3 - "$name" "$dir/omacus-update.json" <<'PY'
+import json, sys
+name, path = sys.argv[1], sys.argv[2]
+print(json.load(open(path))["files"].get(name, "").lower())
+PY
+)"
+  else
+    "${CURL[@]}" "$base/SHA256SUMS.txt" -o "$dest.sums" || {
+      echo "Couldn't download the release's checksums; not installing." >&2
+      exit 1
+    }
+    want="$(awk -v n="$name" '$2 == n || $2 == "*" n { print tolower($1) }' "$dest.sums")"
+  fi
   if command -v sha256sum >/dev/null; then
     got="$(sha256sum "$dest" | cut -d' ' -f1)"
   else

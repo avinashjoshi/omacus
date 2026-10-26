@@ -35,7 +35,7 @@ jobs:
         run: python3 site/tools/test_story.py
       - name: Release notes
         if: runner.os == 'Linux'
-        run: python3 tests/check_release_notes.py && python3 tests/check_release_workflow.py && python3 tests/check_update_signature.py && python3 tests/check_site_pages.py && python3 tests/check_sync_health.py
+        run: python3 tests/check_release_notes.py && python3 tests/check_release_workflow.py && python3 tests/check_update_signature.py && python3 tests/check_site_pages.py && python3 tests/check_sync_health.py && python3 tests/check_security_review.py
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: clippy
@@ -137,6 +137,7 @@ jobs:
           node --import ./relay/worker/register-cf.mjs relay/worker/link-limits.test.mjs
           node --import ./relay/worker/register-cf.mjs relay/worker/leave.test.mjs
           node --import ./relay/worker/register-cf.mjs relay/worker/routing.test.mjs
+          node --import ./relay/worker/register-cf.mjs relay/worker/admin.test.mjs
       - name: Web app offline
         run: |
           cargo install wasm-bindgen-cli --version 0.2.129 --locked
