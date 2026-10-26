@@ -4,7 +4,7 @@
 
 **Sync on this computer**
 
-Pages in the desktop app can sync with a phone. Turn on sync stays in this window. The server still cannot read the pages.
+Pages in the desktop app can sync with a phone. Turn on sync stays in this window. The server still cannot read the pages. The sync key stays in the system key store.
 
 ## 1.0.0
 

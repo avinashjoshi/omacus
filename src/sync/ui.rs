@@ -319,10 +319,11 @@ fn words(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Stri
     ui.add_space(8.0);
     err(ui, theme, &session.error.clone());
     ui.horizontal(|ui| {
-        let saved = design::primary(ui, theme, "I saved them");
-        if wrote && saved.clicked() {
-            session.go_check();
-        }
+        ui.add_enabled_ui(wrote, |ui| {
+            if design::primary(ui, theme, "I saved them").clicked() {
+                session.go_check();
+            }
+        });
         if design::quiet(ui, theme, "Print").clicked()
             && let Err(error) = session.print_words()
         {
@@ -588,12 +589,20 @@ fn invite(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Str
         theme,
         "On the other phone or computer, open Sync and choose My pages already sync on another device. Type this code. It works for about 5 minutes, and only once.",
     );
-    ui.label(
-        RichText::new(session.invite_code())
-            .size(theme::token::TYPE_DISPLAY)
-            .color(theme.foreground)
-            .monospace(),
-    );
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new(session.invite_code())
+                .size(theme::token::TYPE_DISPLAY)
+                .color(theme.foreground)
+                .monospace(),
+        );
+        if design::quiet(ui, theme, "Copy").clicked()
+            && let Err(error) = session.copy_invite()
+        {
+            session.error = error;
+        }
+    });
+    err(ui, theme, &session.error.clone());
     hint(ui, theme, "It looks like K7QM-4R2P-9HNX.");
     if let Ok(modules) = session.invite_modules() {
         let side = (modules.len() as f32).sqrt() as usize;
@@ -639,27 +648,23 @@ fn join(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
                 .desired_width(220.0)
                 .hint_text("K7QM-4R2P-9HNX"),
         );
-        scan = design::quiet(ui, theme, "Scan").clicked();
+        scan = design::quiet(ui, theme, "Scan QR").clicked();
     });
     if scan {
         session.open_scan();
     }
+    err(ui, theme, &session.error.clone());
     hint(
         ui,
         theme,
         "12 characters · or tap the scan button to scan the QR code",
     );
-    err(ui, theme, &session.error.clone());
-    para(
-        ui,
-        theme,
-        "Pages already on this computer will be combined with your synced pages. Nothing is deleted.",
-    );
     ui.horizontal(|ui| {
-        if design::primary(ui, theme, "Join").clicked() {
-            let code = session.join_buf().clone();
-            let _ = session.submit_join(&code);
-        }
+        ui.label(
+            RichText::new("Lost your other devices?")
+                .size(theme::token::TYPE_BODY)
+                .color(theme.dim),
+        );
         if ui
             .add(
                 egui::Button::new(
@@ -676,6 +681,30 @@ fn join(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
             session.choose_recover();
         }
     });
+    ui.add_space(8.0);
+    field_label(ui, theme, "Name this computer");
+    let name = session.name_buf();
+    ui.add(
+        egui::TextEdit::singleline(name)
+            .desired_width(f32::INFINITY)
+            .hint_text("Omacus on this computer"),
+    );
+    hint(
+        ui,
+        theme,
+        "Shown on your other devices so you can tell them apart.",
+    );
+    para(
+        ui,
+        theme,
+        "Pages already on this computer will be combined with your synced pages. Nothing is deleted.",
+    );
+    if design::primary(ui, theme, "Join").clicked() {
+        let code = session.join_buf().clone();
+        let name = session.name_buf().clone();
+        session.set_name(&name);
+        let _ = session.submit_join(&code);
+    }
     None
 }
 

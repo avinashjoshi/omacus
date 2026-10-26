@@ -1,8 +1,10 @@
-//! The device file stays on this computer.
+//! The device key stays in the system key store.
 //!
-//! macOS keeps it in the Keychain for this device only. Windows wraps it with
-//! DPAPI for this user. Linux asks Secret Service when a keyring answers, and
-//! otherwise keeps the file private to this user.
+//! macOS uses the Keychain for this device only, not iCloud. Windows wraps the
+//! key with DPAPI for this user. Linux uses Secret Service. The key is not
+//! written into a plain file. A pointer file in the data folder records which
+//! store holds it. On Windows that file is the DPAPI ciphertext, which is not
+//! the key.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -42,6 +44,10 @@ pub fn load(dir: &Path) -> Result<Option<Vec<u8>>, String> {
         return Ok(None);
     }
     let bytes = fs::read(&file).map_err(|e| e.to_string())?;
+    if plain_file(&bytes) {
+        let _ = fs::remove_file(&file);
+        return Ok(None);
+    }
     Ok(Some(open_sealed(&bytes)?))
 }
 
@@ -69,30 +75,54 @@ pub fn is_private(dir: &Path) -> bool {
     }
 }
 
-/// What a leak of this file is. `file` is the Linux fallback: the bytes are
-/// the device file, and the mode is 0600. The other kinds are ciphertext.
+/// Which store the pointer names. `test` exists only in the test build, so a
+/// suite can keep a profile without a keyring. It is not a plain key.
 #[cfg(test)]
 pub fn kind(dir: &Path) -> Option<&'static str> {
     let bytes = fs::read(path(dir)).ok()?;
     let rest = bytes.strip_prefix(MARK)?;
     let line = rest.split(|b| *b == b'\n').next()?;
     match line {
-        b"file" => Some("file"),
         b"dpapi" => Some("dpapi"),
         b"keychain" => Some("keychain"),
         b"secret" => Some("secret"),
+        b"test" => Some("test"),
         _ => None,
     }
 }
 
+fn plain_file(bytes: &[u8]) -> bool {
+    let Some(rest) = bytes.strip_prefix(MARK) else {
+        return false;
+    };
+    rest.starts_with(b"file\n")
+}
+
 fn seal(plain: &[u8]) -> Result<Vec<u8>, String> {
+    // The test build never writes a plain key, and it does not use the login
+    // keychain. Each profile carries its own wrapped blob, so two devices in
+    // one run do not share a slot. The release build has no such path.
+    #[cfg(test)]
+    {
+        let mut out = MARK.to_vec();
+        out.extend_from_slice(b"test\n");
+        out.extend(wrap_test(plain));
+        Ok(out)
+    }
+    #[cfg(not(test))]
+    {
+        os_seal(plain)
+    }
+}
+
+#[cfg(not(test))]
+fn os_seal(plain: &[u8]) -> Result<Vec<u8>, String> {
     #[cfg(target_os = "macos")]
     {
-        if keychain_put(plain).is_ok() {
-            let mut out = MARK.to_vec();
-            out.extend_from_slice(b"keychain\n");
-            return Ok(out);
-        }
+        keychain_put(plain)?;
+        let mut out = MARK.to_vec();
+        out.extend_from_slice(b"keychain\n");
+        return Ok(out);
     }
     #[cfg(windows)]
     {
@@ -110,10 +140,21 @@ fn seal(plain: &[u8]) -> Result<Vec<u8>, String> {
             return Ok(out);
         }
     }
-    let mut out = MARK.to_vec();
-    out.extend_from_slice(b"file\n");
-    out.extend_from_slice(plain);
-    Ok(out)
+    Err("This computer has no keyring, so sync cannot keep a key here.".into())
+}
+
+#[cfg(test)]
+fn wrap_test(plain: &[u8]) -> Vec<u8> {
+    plain
+        .iter()
+        .enumerate()
+        .map(|(i, byte)| byte ^ 0xA5 ^ (i as u8))
+        .collect()
+}
+
+#[cfg(test)]
+fn unwrap_test(blob: &[u8]) -> Vec<u8> {
+    wrap_test(blob)
 }
 
 fn open_sealed(bytes: &[u8]) -> Result<Vec<u8>, String> {
@@ -126,7 +167,17 @@ fn open_sealed(bytes: &[u8]) -> Result<Vec<u8>, String> {
     let (kind, payload) = rest.split_at(split);
     let payload = &payload[1..];
     match kind {
-        b"file" => Ok(payload.to_vec()),
+        b"test" => {
+            #[cfg(test)]
+            {
+                Ok(unwrap_test(payload))
+            }
+            #[cfg(not(test))]
+            {
+                let _ = payload;
+                Err("That copy could not be read.".into())
+            }
+        }
         b"dpapi" => {
             #[cfg(windows)]
             {
@@ -201,6 +252,7 @@ fn keychain_options(protected: bool) -> security_framework::passwords::PasswordO
     options
 }
 
+#[cfg_attr(test, allow(dead_code))]
 #[cfg(target_os = "macos")]
 fn keychain_put(plain: &[u8]) -> Result<(), String> {
     use security_framework::passwords::set_generic_password_options;
@@ -227,6 +279,7 @@ fn keychain_delete() -> Result<(), String> {
     delete_generic_password_options(keychain_options(false)).map_err(|e| e.to_string())
 }
 
+#[cfg_attr(test, allow(dead_code))]
 #[cfg(windows)]
 fn dpapi_seal(plain: &[u8]) -> Result<Vec<u8>, String> {
     use std::ptr;
@@ -289,11 +342,9 @@ fn dpapi_open(blob: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
+#[cfg_attr(test, allow(dead_code))]
 #[cfg(all(unix, not(target_os = "macos")))]
 fn keyring_up() -> bool {
-    if std::env::var("OMACUS_SYNC_KEYRING").ok().as_deref() == Some("file") {
-        return false;
-    }
     let Ok(mut child) = std::process::Command::new("secret-tool")
         .args(["lookup", "app", "omacus", "kind", "probe"])
         .stdin(std::process::Stdio::null())
@@ -332,6 +383,7 @@ fn keyring_up() -> bool {
     }
 }
 
+#[cfg_attr(test, allow(dead_code))]
 #[cfg(all(unix, not(target_os = "macos")))]
 fn secret_put(plain: &[u8]) -> Result<(), String> {
     use std::io::Write;
@@ -401,22 +453,16 @@ mod tests {
         save(&dir, plain).unwrap();
         assert!(is_private(&dir));
         let stored = fs::read(path(&dir)).unwrap();
-        match kind(&dir) {
-            Some("file") => {
-                assert!(is_private(&dir));
-                assert_eq!(load(&dir).unwrap().unwrap(), plain);
-            }
-            Some("secret") | Some("keychain") | Some("dpapi") => {
-                assert!(
-                    !stored
-                        .windows(b"OMACUS-DEVICE".len())
-                        .any(|w| w == b"OMACUS-DEVICE"),
-                    "the wrapped file holds the raw device marker"
-                );
-                assert_eq!(load(&dir).unwrap().unwrap(), plain);
-            }
-            other => panic!("unexpected key kind {other:?}"),
-        }
+        assert_ne!(kind(&dir), Some("file"));
+        assert!(
+            !stored
+                .windows(b"OMACUS-DEVICE".len())
+                .any(|w| w == b"OMACUS-DEVICE"),
+            "the key file holds the raw device marker"
+        );
+        assert_eq!(load(&dir).unwrap().unwrap(), plain);
+        remove(&dir);
+        assert!(load(&dir).unwrap().is_none());
         let _ = fs::remove_dir_all(&dir);
     }
 

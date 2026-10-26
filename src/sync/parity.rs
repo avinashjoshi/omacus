@@ -57,6 +57,8 @@ fn parity_matrix_runs_end_to_end() {
     assert!(should_clear("one two", "one two"));
     assert!(!should_clear("one two", "one two three"));
     assert!(!should_clear("kept", ""));
+    assert!(should_clear("K7QM-4R2P-9HNX", "K7QM-4R2P-9HNX"));
+    assert!(!should_clear("typed over", "K7QM-4R2P-9HNX"));
     covered.push("words");
 
     a.set_wrote(false);
@@ -458,12 +460,10 @@ fn assert_rule(session: &Session, words: &[String; 12]) {
     );
     if let Some(kind) = keys::kind(session.dir()) {
         let bytes = fs::read(keys::path(session.dir())).unwrap_or_default();
-        if kind == "file" {
-            assert!(keys::is_private(session.dir()));
-        } else {
-            let text = String::from_utf8_lossy(&bytes);
-            assert!(!text.contains("OMACUS-DEVICE"));
-        }
+        assert_ne!(kind, "file", "the device key was stored in a plain file");
+        assert!(keys::is_private(session.dir()));
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("OMACUS-DEVICE"));
     }
     walk_clean(session.dir(), words);
 }

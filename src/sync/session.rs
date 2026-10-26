@@ -559,13 +559,18 @@ impl Session {
             return Err("Copy didn't work. Write the words down.".into());
         };
         let text = numbered(words);
-        match arboard::Clipboard::new().and_then(|mut clip| clip.set_text(text.clone())) {
-            Ok(()) => {
-                arm_clear(text.clone());
-                Ok(text)
-            }
-            Err(_) => Err("Copy didn't work. Write the words down.".into()),
+        copy_secret(&text, "Copy didn't work. Write the words down.")
+    }
+
+    pub fn copy_invite(&mut self) -> Result<String, String> {
+        let code = self.invite_code.clone();
+        if code.is_empty() {
+            return Err("Copy didn't work. Type the code on the other device.".into());
         }
+        copy_secret(
+            &code,
+            "Copy didn't work. Type the code on the other device.",
+        )
     }
 
     pub fn print_words(&mut self) -> Result<PrintJob, String> {
@@ -2476,6 +2481,16 @@ fn random_bytes<const N: usize>() -> Result<[u8; N], String> {
     let mut buf = [0u8; N];
     getrandom::getrandom(&mut buf).map_err(|_| "Try again in a moment.".to_string())?;
     Ok(buf)
+}
+
+fn copy_secret(text: &str, miss: &str) -> Result<String, String> {
+    match arboard::Clipboard::new().and_then(|mut clip| clip.set_text(text.to_string())) {
+        Ok(()) => {
+            arm_clear(text.to_string());
+            Ok(text.to_string())
+        }
+        Err(_) => Err(miss.into()),
+    }
 }
 
 fn arm_clear(copied: String) {

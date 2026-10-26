@@ -355,7 +355,7 @@ Turn on sync in the desktop sidebar opens in this window. The dialog is 440px wi
 
 When sync is on, the sidebar uses the set name, then the pages in the set, then On this computer. An empty On this computer says "Pages you move here stay on this computer." Turn on sync is hidden. The page menu offers Move to My pages or Move to this computer. Moving asks first. Undo puts the page back. The chip says Synced, Syncing only after about a second, Offline, Sync paused, or Not saved in the danger color. It stays quiet before setup, during the invite words and the word check, and after turn off. A removed computer still says Sync paused.
 
-The device key stays on this computer. Linux uses Secret Service when a keyring is running, and otherwise a file only this user can read. Windows uses DPAPI for this user. Mac uses the Keychain for this device only.
+The device key stays in the system key store, not in a plain file. Linux uses Secret Service. Windows uses DPAPI for this user, and the file next to the library is that ciphertext. Mac uses the Keychain for this device only, not iCloud. A computer with no keyring does not save a key.
 
 The other sync screens use the same words as the web app.
 
