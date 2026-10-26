@@ -1,9 +1,11 @@
 // Sync. A device file stays in this browser. The server receives a sealed record.
+// The engine needs those key bytes, so the file cannot be a non-exportable
+// WebCrypto key. The page's strict policy is what keeps other scripts out.
 import { SYNC_URL } from "./sync-config.js";
 import { beginSave, finishSave, noteLocalEdit, pagesDiffer, pollWait, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
-import { pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
+import { deviceListNote, pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
 import {
   activeVault,
   bookJson,
@@ -112,6 +114,8 @@ export async function mountSync(api) {
     removing: null,
     removed: false,
     notice: "",
+    listNote: "",
+    seenDeviceIds: "",
     selfId: "",
     selfName: "",
     selfRev: 1,
@@ -226,6 +230,9 @@ export async function mountSync(api) {
     if (deviceWaiting() && mode !== "ask") {
       text = "Device waiting";
       mode = "ask";
+    } else if (state.listNote && mode === "on") {
+      text = "List changed";
+      mode = "list";
     }
     if (text === "Sync paused" && freshSetup()) {
       hideChip();
@@ -244,6 +251,7 @@ export async function mountSync(api) {
     chip.dataset.state = next;
     chip.setAttribute("aria-label", label);
     if (next === "offline") chip.title = "Edits saved here.";
+    else if (next === "list") chip.title = state.listNote;
     else chip.removeAttribute("title");
     paintEntry();
   }
@@ -274,10 +282,13 @@ export async function mountSync(api) {
       if (chip.dataset.state !== "ask") setChip("Device waiting", "ask");
       return;
     }
-    if (chip.dataset.state !== "ask") return;
+    const settle = chip.dataset.state === "ask" || chip.dataset.state === "list"
+      || (state.listNote && chip.dataset.state === "on");
+    if (!settle) return;
     if (navigator.onLine === false && state.account) setChip("Offline", "offline");
     else if (state.removed || pausedFlag()) setChip("Sync paused", "off");
     else if (state.saveError) setChip("Not saved", "error");
+    else if (state.listNote && state.member && state.account) setChip("List changed", "list");
     else if (state.member && state.account) setChip("Synced", "on");
     else hideChip();
   }
@@ -355,6 +366,21 @@ export async function mountSync(api) {
     state.selfId = vault?.selfId || api.storeGet("sync-self-id") || "";
     state.deviceNames = readJson(vault?.names || api.storeGet("sync-names"), []);
     state.membership = readJson(vault?.membership || api.storeGet("sync-membership"), []);
+    state.seenDeviceIds = String(api.storeGet("sync-device-ids") || "");
+  }
+
+  function rememberDevices(ids) {
+    const next = [...new Set(ids.map((id) => String(id || "").trim()).filter(Boolean))].sort().join(",");
+    state.seenDeviceIds = next;
+    state.listNote = "";
+    api.storeSet("sync-device-ids", next);
+  }
+
+  // This phone just wrote the list, so it already knows. The other phones
+  // still see the change the next time they read it.
+  function acceptListed() {
+    rememberDevices(state.devices.map((device) => device.id));
+    refreshCue();
   }
 
   function readJson(text, fallback) {
@@ -925,6 +951,14 @@ export async function mountSync(api) {
       + JSON.stringify(state.membership);
     const changed = listed !== state.listed;
     state.listed = listed;
+    if (list.ok) {
+      const ids = state.devices.map((device) => device.id).filter(Boolean);
+      if (!state.seenDeviceIds) {
+        if (ids.length) rememberDevices(ids);
+      } else {
+        state.listNote = deviceListNote(state.seenDeviceIds, ids);
+      }
+    }
     if (!list.ok) {
       showPlaces();
       return;
@@ -941,6 +975,7 @@ export async function mountSync(api) {
       state.removed = false;
     }
     showPlaces();
+    refreshCue();
     if (changed && state.screen === "linked" && !panel.hidden) draw();
   }
 
@@ -1825,6 +1860,7 @@ export async function mountSync(api) {
       state.error = "";
       state.screen = "linked";
       await refreshDevices();
+      acceptListed();
       calm();
     } catch (error) {
       if (published) {
@@ -1929,6 +1965,7 @@ export async function mountSync(api) {
     try {
       await push();
       await refreshDevices();
+      acceptListed();
     } catch (error) {
       state.error = plainError(error.message);
     }
@@ -2290,6 +2327,7 @@ export async function mountSync(api) {
         ["Print", () => printWords()],
         ["Copy", () => copyWords()],
       ]),
+      el("p", { class: "sync-hint" }, ["A clipboard history may keep these words. Printing them, or writing them down, is safest."]),
     );
   }
 
@@ -2486,7 +2524,7 @@ export async function mountSync(api) {
     const heading = !name || name === "Phone or computer" ? "Remove this phone or computer?" : `Remove ${name}?`;
     panel.append(
       el("h2", {}, [heading]),
-      el("p", { class: "setting-help" }, ["It will stop getting your pages. Pages already on it stay there."]),
+      el("p", { class: "setting-help" }, ["It stops getting new pages. Pages it already saved stay readable on it. New edits stay with the phones and computers that are still linked."]),
       actionButton("Remove", "danger", () => removeDevice(state.removing?.id), state.busy || !state.removing || state.removing.self),
       quietLinks([["Keep it", () => { state.screen = "linked"; state.removing = null; state.error = ""; draw(); }, state.busy]]),
     );
@@ -2623,6 +2661,14 @@ export async function mountSync(api) {
       backLink(() => api.openSettings("settings"), state.busy),
       el("h2", {}, ["Sync is on"]),
     );
+    if (state.listNote) {
+      home.append(el("p", { class: "sync-note", role: "alert", "data-sync-list": "" }, [state.listNote]));
+      home.append(quietLinks([["Got it", () => {
+        rememberDevices(state.devices.map((device) => device.id));
+        draw();
+        refreshCue();
+      }]]));
+    }
     if (state.notice) {
       home.append(el("p", { class: "sync-note", role: "status", "data-sync-note": "" }, [state.notice]));
     }
@@ -2656,7 +2702,7 @@ export async function mountSync(api) {
       list.append(row);
     }
     if (others) {
-      list.append(el("p", { class: "setting-help" }, ["Remove stops that phone or computer from getting new changes. Pages already there stay there. Rename changes the name on every phone and computer."]));
+      list.append(el("p", { class: "setting-help" }, ["Remove stops that phone or computer from getting new changes. Pages it already saved stay readable on it. New edits stay with the phones and computers that are still linked. Rename changes the name on every phone and computer."]));
     }
     home.append(list);
     const actions = actionButton(state.busy ? "Working…" : "Add a phone or computer", "primary", () => startInvite(), state.busy);
@@ -2850,7 +2896,7 @@ function cloudIcon(mode) {
   if (mode === "on") add("m9.2 13.1 1.9 1.9 3.9-4.1", true);
   else if (mode === "offline") add("M5 19 19 5", true);
   else if (mode === "off") add("M10.2 11.5v4M13.8 11.5v4", true);
-  else if (mode === "ask") add("M12 13.2h.01", true);
+  else if (mode === "ask" || mode === "list") add("M12 13.2h.01", true);
   else if (mode === "error") {
     add("M12 10.4v3.4", true);
     add("M12 16.6h.01", true);

@@ -92,6 +92,21 @@ export function parseJoinPayload(raw) {
   return { origin: lines[1], account: lines[2], code: lines[3] };
 }
 
+export const DEVICE_LIST_NOTE = "The list of phones and computers changed. One that was removed can still read pages it already saved. New pages stay with the ones still linked. Your recovery words can put the list back.";
+
+export function deviceListNote(previous, next) {
+  const before = deviceIds(previous);
+  const after = deviceIds(next);
+  if (!before.length) return "";
+  if (before.length === after.length && before.every((id, index) => id === after[index])) return "";
+  return DEVICE_LIST_NOTE;
+}
+
+function deviceIds(value) {
+  const rows = Array.isArray(value) ? value : String(value || "").split(",");
+  return [...new Set(rows.map((id) => String(id || "").trim()).filter(Boolean))].sort();
+}
+
 let pending = null;
 
 export function captureSyncLink(loc = globalThis.location, historyObj = globalThis.history) {

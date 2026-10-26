@@ -10,6 +10,8 @@ const create = document.querySelector("[data-create]");
 const once = document.querySelector("[data-once]");
 const codes = document.querySelector("[data-codes]");
 const counts = document.querySelector("[data-counts]");
+const storageAlert = document.querySelector("[data-storage-alert]");
+const storageNoted = document.querySelector("[data-storage-noted]");
 const activity = document.querySelector("[data-activity]");
 const copyLine = document.querySelector("[data-copy]");
 const storage = document.querySelector("[data-storage]");
@@ -268,6 +270,16 @@ async function refresh() {
   pause.textContent = stats.paused ? "Resume new signups" : "Pause new signups";
   const count = (value) => (Number.isInteger(value) ? value : 0);
   counts.textContent = `Accounts ${count(stats.accounts)}. Devices ${count(stats.devices)}. Storage ${count(stats.bytes)} bytes.`;
+  const jump = stats.storageAlert;
+  if (jump && Number.isInteger(jump.grew)) {
+    storageAlert.hidden = false;
+    storageAlert.textContent = `Storage grew by ${jump.grew} bytes since the last quiet check. It was ${jump.previous} bytes and it is ${jump.bytes} bytes.`;
+    storageNoted.hidden = false;
+  } else {
+    storageAlert.hidden = true;
+    storageAlert.textContent = "";
+    storageNoted.hidden = true;
+  }
   activity.textContent = `Active in the last day ${count(stats.activeDay)}. Active in the last week ${count(stats.activeWeek)}. New accounts in the last week ${count(stats.signupsWeek)}.`;
   renderCopy(stats.copy);
   renderCodes(listed.codes || []);
@@ -325,6 +337,18 @@ pause.addEventListener("click", async () => {
     keyError.textContent = error.message;
   } finally {
     pause.disabled = false;
+  }
+});
+
+storageNoted.addEventListener("click", async () => {
+  storageNoted.disabled = true;
+  try {
+    await api("POST", "/v1/admin/storage-alert", {});
+    await refresh();
+  } catch (error) {
+    keyError.textContent = error.message;
+  } finally {
+    storageNoted.disabled = false;
   }
 });
 

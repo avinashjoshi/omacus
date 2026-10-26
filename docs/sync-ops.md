@@ -83,7 +83,7 @@ For the command line, create a service token in Access and export `CF_ACCESS_CLI
 
 ## Invite codes
 
-The admin command talks to `https://sync.omacus.com`. It prints that the command is aimed at the production sync host. Set `SYNC_URL` only when you mean to point it somewhere else.
+The admin command talks to `https://sync.omacus.com`. It prints that the command is aimed at the production sync host. Set `SYNC_URL` only when you mean to point it somewhere else. A new code expires after 30 days when no expiry is given. Pass `--expires YYYY-MM-DD` for a different day.
 
 ```
 read -s ADMIN_KEY && export ADMIN_KEY

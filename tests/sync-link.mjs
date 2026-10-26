@@ -3,7 +3,9 @@
 import { createServer } from "node:http";
 import {
   captureSyncLink,
+  DEVICE_LIST_NOTE,
   decodeFragment,
+  deviceListNote,
   encodeFragment,
   joinLink,
   pageOrigin,
@@ -23,6 +25,10 @@ function assert(cond, message) {
   if (!cond) throw new Error(message);
 }
 
+assert(deviceListNote("", ["a"]) === "", "the first list is not a change");
+assert(deviceListNote(["a"], ["a"]) === "", "the same list is quiet");
+assert(deviceListNote("a", "a,b") === DEVICE_LIST_NOTE, "an added phone is announced");
+assert(deviceListNote(["b", "a"], ["a"]) === DEVICE_LIST_NOTE, "a removed phone is announced");
 assert(encodeFragment(PHRASE) === TOKEN, "the recovery encoding drifted");
 assert(decodeFragment(TOKEN) === PHRASE, "the recovery fragment did not decode");
 

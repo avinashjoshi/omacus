@@ -23,6 +23,7 @@ const PROTOCOL_PHRASES: &[&[u8]] = &[
     b"\"state\"",
     b"\"account\"",
     b"the other device",
+    b"That copy could not be read.",
 ];
 
 fn without_protocol(hay: &[u8]) -> Vec<u8> {
@@ -521,6 +522,8 @@ fn a_protocol_label_is_not_a_recovery_word() {
     assert!(!leaked_word(b"{\"state\":\"pending\"}", b"state"));
     assert!(!leaked_word(b"{\"account\":\"ab\"}", b"account"));
     assert!(!leaked_word(b"Check it on the other device.", b"other"));
+    assert!(!leaked_word(b"That copy could not be read.", b"could"));
+    assert!(leaked_word(b" could ", b"could"));
     assert!(leaked_word(b" recovery ", b"recovery"));
     assert!(leaked_word(b"\0state\0", b"state"));
     assert!(!leaked_word(b"xxrecoveryyy", b"recovery"));
@@ -787,8 +790,14 @@ fn a_full_page_set_stays_sealed_and_a_reload_stays_linked() {
         assert!(!holds(&wire, secret), "the wire holds a page or a key");
     }
     for word in words {
-        assert!(!holds_word(&kept, word.as_bytes()));
-        assert!(!holds_word(&wire, word.as_bytes()));
+        assert!(
+            !leaked_word(&kept, word.as_bytes()),
+            "stored copy holds a recovery word"
+        );
+        assert!(
+            !leaked_word(&wire, word.as_bytes()),
+            "the wire holds a recovery word"
+        );
     }
 }
 

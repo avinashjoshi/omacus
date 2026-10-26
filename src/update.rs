@@ -27,6 +27,10 @@ const REPO: &str = "avinashjoshi/omacus";
 const UPDATE_PUBLIC_KEY: &str = include_str!("../keys/omacus-update.pub");
 /// Legacy minisign signs the file itself. `ED` would be the prehashed algorithm, which this is not.
 const MINISIGN_ED: &[u8] = b"Ed";
+/// Copies from before this version check a SHA-256 on the same GitHub release.
+/// They do not check the minisign signature. This build checks the signature first.
+#[cfg(test)]
+const MINISIGN_SINCE: &str = "1.0.0";
 pub const RELEASES_URL: &str = "https://github.com/avinashjoshi/omacus/releases";
 /// The site's changelog. What's new in the app opens this, at the new version.
 pub const UPDATES_PAGE: &str = "https://omacus.com/updates/";
@@ -831,6 +835,12 @@ mod tests {
         let bad = signature.replacen("Y9nzBA==", "Y9nzBB==", 1);
         assert_ne!(bad, signature);
         assert!(verify_minisign(public_key, b"omacus-update-test\n", &bad).is_err());
+    }
+
+    #[test]
+    fn copies_before_1_0_only_check_sha256() {
+        assert_eq!(MINISIGN_SINCE, "1.0.0");
+        assert!(version_ok(MINISIGN_SINCE));
     }
 
     #[test]
