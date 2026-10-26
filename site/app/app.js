@@ -809,9 +809,30 @@ function showBuildHash() {
   node.textContent = /^[0-9a-f]{64}$/i.test(hash) ? hash : "Not a published build.";
 }
 
+let settingsOpener = null;
+
+const SETTINGS_FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function settingsFocusable(root) {
+  if (!root) return [];
+  return [...root.querySelectorAll(SETTINGS_FOCUSABLE)].filter((node) => !node.closest("[hidden]"));
+}
+
+function nestedDialogOpen() {
+  return [el.switcher, el.lock, el.syncMove, el.syncDest, el.move, el.rename, el.handleDialog, el.pick, el.confirm, el.rowMenu]
+    .some((node) => node && !node.hidden);
+}
+
+function focusSettingsDialog() {
+  const card = el.settings && el.settings.querySelector(".settings-card");
+  const items = settingsFocusable(card);
+  if (items[0]) items[0].focus();
+}
+
 function openSettings(tab = "settings") {
   closeMenu();
   if (!el.settings) return;
+  const opening = el.settings.hidden;
   const select = $("[data-setting=theme]", el.settings);
   const hide = $("[data-setting=hide-answers]", el.settings);
   if (select) select.value = settings.theme;
@@ -822,11 +843,36 @@ function openSettings(tab = "settings") {
   showBuildHash();
   showSettingsTab(tab);
   el.settings.hidden = false;
+  if (opening) {
+    settingsOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    focusSettingsDialog();
+  }
 }
 
 function closeSettings() {
-  if (el.settings) el.settings.hidden = true;
+  if (!el.settings || el.settings.hidden) return;
+  el.settings.hidden = true;
+  const back = settingsOpener;
+  settingsOpener = null;
+  if (back && document.contains(back)) back.focus();
 }
+
+addEventListener("keydown", (event) => {
+  if (event.key !== "Tab" || !el.settings || el.settings.hidden || nestedDialogOpen()) return;
+  const items = settingsFocusable(el.settings);
+  if (!items.length) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  const active = document.activeElement;
+  const inside = el.settings.contains(active);
+  if (event.shiftKey && (!inside || active === first)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (!inside || active === last)) {
+    event.preventDefault();
+    first.focus();
+  }
+}, true);
 
 function toggleAnswers() {
   settings.hideAnswers = !settings.hideAnswers;

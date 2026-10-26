@@ -66,6 +66,7 @@ check(js.includes('setAttribute("aria-expanded", String(open))'), "the sheets bu
 check(js.includes("Recently deleted"), "deleted sheets can be restored from Recently deleted");
 check(js.includes("r.hint"), "name hints are marked so they can wait out typing");
 check(html.includes("data-settings"), "settings dialog is in the page");
+check(js.includes("settingsOpener") && js.includes('event.key !== "Tab"') && js.includes("nestedDialogOpen"), "settings traps tab and returns focus to the opener");
 check(html.includes('data-action="settings"'), "the menu opens settings");
 check(js.includes("hideAnswers"), "the answers column can be hidden");
 check(tokens.includes("#f6f1e7") && tokens.includes("#1c2433"), "paper and dusk match the desktop themes");
