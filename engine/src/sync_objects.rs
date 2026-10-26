@@ -512,11 +512,10 @@ pub fn plan(
             key.zeroize();
         }
     }
-    let drop_ids = previous
-        .iter()
-        .filter(|prev| !slots.iter().any(|slot| slot.object_id == prev.object_id))
-        .map(|prev| prev.object_id)
-        .collect();
+    // A page missing from this device is not a delete. Its object stays on
+    // the server so the other phone can still open it. A signed tombstone is
+    // what removes an object. Replacing a page keeps the same object id.
+    let drop_ids = Vec::new();
     let folders = folders_of(&set.doc);
     let manifest = encode_manifest(&set.meta, &slots, &folders, generation)?;
     let sealed_manifest =
@@ -750,6 +749,12 @@ mod tests {
         assert!(
             third.objects.is_empty(),
             "rotation reseals the manifest only"
+        );
+        let only_pantry = sample_set(vec![("pantry".into(), "oats\n".into())]);
+        let narrowed = plan(&vault, 1, &only_pantry, &first.slots, 2).unwrap();
+        assert!(
+            narrowed.drop_ids.is_empty(),
+            "a page missing from this copy was dropped"
         );
         let incoming: Vec<Incoming> = second
             .objects
