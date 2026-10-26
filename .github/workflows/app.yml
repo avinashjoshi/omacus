@@ -20,8 +20,8 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # Approval lives on the GitHub environment `app` (Avi is the required
-    # reviewer). Repo settings create that rule; this file only names it.
+    # The job names the environment `app`. There is no required reviewer.
+    # Deploys are limited to the branch `main` and tags `v*`.
     environment: app
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

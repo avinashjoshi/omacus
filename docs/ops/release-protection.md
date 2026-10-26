@@ -1,74 +1,46 @@
 # Release and hosting protection
 
-These settings are not in the workflow files. Create them before the next release or web deploy. The workflows name the environments `app` and `release`. The first run of a missing environment creates it with no reviewer, so create the rules first.
+The environments `app` and `release` exist. Neither has a required reviewer. Each one allows deployments only from the branch `main` and from tags matching `v*`.
 
 Hardware 2FA is not part of this change.
 
-The account that approves is Avi (`avinashjoshi`, user id `172230`).
+The deployment policy on both environments is:
+
+```json
+{
+  "wait_timer": 0,
+  "prevent_self_review": false,
+  "reviewers": [],
+  "deployment_branch_policy": {
+    "protected_branches": false,
+    "custom_branch_policies": true
+  }
+}
+```
+
+The custom policies are a branch named `main` and a tag pattern `v*`.
 
 ## Web app deploy
 
-The App workflow's deploy job uses the environment `app`. Put the Cloudflare token and account id on that environment, then remove the repository copies after one approved deploy has succeeded. Until the repository copies are removed, another workflow can still read them.
+The App workflow's deploy job uses the environment `app`.
 
-```
-gh api --method PUT repos/avinashjoshi/omacus/environments/app --input - <<'JSON'
-{
-  "wait_timer": 0,
-  "prevent_self_review": false,
-  "reviewers": [{ "type": "User", "id": 172230 }],
-  "deployment_branch_policy": {
-    "protected_branches": true,
-    "custom_branch_policies": false
-  }
-}
-JSON
+`CLOUDFLARE_API_TOKEN` is a secret on that environment. `CLOUDFLARE_ACCOUNT_ID` stays a repository secret. The deploy job can still read it. An environment secret of the same name would override the repository secret, so the account id is not copied onto `app`.
 
-gh secret set CLOUDFLARE_API_TOKEN --env app --repo avinashjoshi/omacus
-gh secret set CLOUDFLARE_ACCOUNT_ID --env app --repo avinashjoshi/omacus
-```
-
-After a deploy has been approved and has finished:
-
-```
-gh secret delete CLOUDFLARE_API_TOKEN --repo avinashjoshi/omacus
-gh secret delete CLOUDFLARE_ACCOUNT_ID --repo avinashjoshi/omacus
-```
+Deleting a repository copy of `CLOUDFLARE_API_TOKEN` is optional. The environment secret is the one this job uses.
 
 ## Desktop release signing
 
-The publish job uses the environment `release`. `MINISIGN_SECRET_KEY` has to live there. The version tag is pushed with `RELEASE_TOKEN`, which has to be a token for Avi, with permission to write contents. A missing token stops the tag.
+The publish job uses the environment `release`. `MINISIGN_SECRET_KEY` is a secret on that environment. The job still stops if that secret is missing.
 
-```
-gh api --method PUT repos/avinashjoshi/omacus/environments/release --input - <<'JSON'
-{
-  "wait_timer": 0,
-  "prevent_self_review": false,
-  "reviewers": [{ "type": "User", "id": 172230 }],
-  "deployment_branch_policy": {
-    "protected_branches": true,
-    "custom_branch_policies": false
-  }
-}
-JSON
+The version tag is pushed with the job's `GITHUB_TOKEN`. The checkout keeps its credentials, and the job has `contents: write`. A missing `RELEASE_TOKEN` does not stop the tag. The tag step does not read `RELEASE_TOKEN`, so a stale token cannot take the push.
 
-gh secret set MINISIGN_SECRET_KEY --env release --repo avinashjoshi/omacus
-gh secret set RELEASE_TOKEN --env release --repo avinashjoshi/omacus
-```
-
-After a signed release has been approved and has finished:
-
-```
-gh secret delete MINISIGN_SECRET_KEY --repo avinashjoshi/omacus
-```
-
-Leave a repository `RELEASE_TOKEN` in place only if the prepare job should still open the release pull request without an approval. The tag push reads the environment secret of the same name, which wins over the repository secret.
+An optional repository `RELEASE_TOKEN` can still open the prepare pull request as that account. The prepare job falls back to `GITHUB_TOKEN` when it is absent. Do not put `RELEASE_TOKEN` on the `release` environment.
 
 ## Version tags
 
-This ruleset blocks creating, moving, and deleting `v*` tags except for Avi. It does not grant a bypass to GitHub Actions. The publish job pushes the tag as `RELEASE_TOKEN`, so that token has to be Avi's.
+The ruleset `Protect v tags` is active. It covers `refs/tags/v*`. It blocks updating a tag, deleting a tag, and a force-push (non-fast-forward). Creating a tag is allowed, so the publish job can create `v*` with `GITHUB_TOKEN`. Repository admins bypass the ruleset. The publish job still refuses to move a tag that already points at a different commit.
 
-```
-gh api --method POST repos/avinashjoshi/omacus/rulesets --input - <<'JSON'
+```json
 {
   "name": "Protect v tags",
   "target": "tag",
@@ -80,16 +52,14 @@ gh api --method POST repos/avinashjoshi/omacus/rulesets --input - <<'JSON'
     }
   },
   "rules": [
-    { "type": "creation" },
     { "type": "update" },
-    { "type": "deletion" }
-  ],
-  "bypass_actors": [
-    { "actor_id": 172230, "actor_type": "User", "bypass_mode": "always" }
+    { "type": "deletion" },
+    { "type": "non_fast_forward" }
   ]
 }
-JSON
 ```
+
+The bypass actor is the repository admin role.
 
 ## HSTS
 
