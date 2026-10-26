@@ -102,7 +102,7 @@
      "name": "macOS says it can't verify the app.",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "That's because Omacus isn't notarized by Apple yet. Install with the one-line installer to avoid the prompt, or allow it once under System Settings → Privacy & Security → Open Anyway."
+      "text": "That's because Omacus isn't notarized by Apple yet. On macOS 15 or later, open it once, then System Settings → Privacy & Security → Open Anyway. On an older Mac, right-click the app and choose Open."
      }
     },
     {
@@ -202,12 +202,7 @@
     <p>Installs <code>Omacus.app</code> into <code>/Applications</code> (or <code>~/Applications</code>) and links the command-line tool at <code>~/.local/bin/omacus</code>. Apps installed this way open without a security prompt.</p>
     <p>Or with Homebrew, which also opens without a prompt:</p>
     <pre>brew install --cask avinashjoshi/tap/omacus</pre>
-    <p>You can also <a href="/download/#mac">download the .dmg</a> for your Mac's chip and drag Omacus to Applications. Omacus isn't notarized by Apple yet, so the first time macOS blocks it:</p>
-    <ol>
-      <li>Open Omacus once. macOS says it can't verify it; click <strong>Done</strong>.</li>
-      <li>Open <strong>System Settings → Privacy &amp; Security</strong>, scroll down, and click <strong>Open Anyway</strong> next to Omacus.</li>
-    </ol>
-    <p>Or in Terminal: <code>xattr -dr com.apple.quarantine /Applications/Omacus.app</code>. You only do this once.</p>
+    <p>You can also <a href="/download/#mac">download the .dmg</a> for your Mac's chip and drag Omacus to Applications. The app isn't notarized yet. On macOS 15 or later, open it once, then <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>. On an older Mac, right-click the app and choose Open.</p>
 
     <h3 id="windows">Windows</h3>
     <pre>irm https://omacus.com/install.ps1 | iex</pre>
@@ -631,7 +626,7 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
     <h3>Does it need the internet?</h3>
     <p>Only to refresh exchange rates and to check for a new version when it starts and every few hours (which you can turn off; see <a href="#updating">Updating</a>). Everything else is calculated on your computer, and cached rates keep currency math working offline.</p>
     <h3>macOS says it can't verify the app.</h3>
-    <p>That's because Omacus isn't notarized by Apple yet. Install with the <a href="#mac">one-line installer</a> to avoid the prompt, or allow it once under <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>.</p>
+    <p>That's because Omacus isn't notarized by Apple yet. On macOS 15 or later, open it once, then <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>. On an older Mac, right-click the app and choose Open.</p>
     <h3>Windows SmartScreen warns about an unknown publisher.</h3>
     <p>Choose <strong>More info → Run anyway</strong>. The warning appears because the executable isn't code-signed yet.</p>
     <h3>Who can see a page I share?</h3>

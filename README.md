@@ -209,10 +209,7 @@ prompt. Or with Homebrew:
 brew install --cask avinashjoshi/tap/omacus
 ```
 
-Or download the .dmg for your chip ([omacus.com/download](https://omacus.com/download/#mac)) and drag Omacus to
-Applications; the app isn't notarized yet, so the first time, open it once, then go to
-**System Settings → Privacy & Security** and click **Open Anyway**
-(or run `xattr -dr com.apple.quarantine /Applications/Omacus.app`).
+Or download the .dmg for your chip ([omacus.com/download](https://omacus.com/download/#mac)) and drag Omacus to Applications. The app isn't notarized yet. On macOS 15 or later, open it once, then **System Settings → Privacy & Security → Open Anyway**. On an older Mac, right-click the app and choose Open.
 
 ### Windows
 

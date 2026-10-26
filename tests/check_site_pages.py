@@ -47,6 +47,17 @@ class SitePages(unittest.TestCase):
             self.assertIn(SENTENCE, path.read_text(), path)
             self.assertNotIn("Turn on sync in the sidebar explains sync and continues", path.read_text())
 
+    def test_the_mac_download_says_how_to_open_it(self):
+        note = "On macOS 15 or later, open it once, then"
+        older = "On an older Mac, right-click the app and choose Open."
+        download = (SITE / "download" / "index.html").read_text()
+        docs = (SITE / "docs" / "index.html").read_text()
+        self.assertIn(note, download)
+        self.assertIn(older, download)
+        self.assertIn("Privacy &amp; Security → Open Anyway", download)
+        self.assertEqual(docs.count(note), 3)
+        self.assertEqual(docs.count(older), 3)
+
     def test_the_home_faq_names_what_you_do_not_make(self):
         text = (SITE / "index.html").read_text()
         self.assertEqual(text.count(FAQ), 2)

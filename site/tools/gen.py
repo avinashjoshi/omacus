@@ -507,7 +507,7 @@ def download_cards(indent):
       {btn(f"{DL}/omacus-macos-arm64.dmg", "download", "Apple Silicon .dmg", attrs=' data-arch="arm64"')}
       {btn(f"{DL}/omacus-macos-x86_64.dmg", "download", "Intel .dmg", attrs=' data-arch="x86_64"')}
     </div>
-    <p class="note">Not sure which? Apple menu → About This Mac shows the chip. From a .dmg, macOS asks once: open the app, then <b>System Settings → Privacy &amp; Security → Open Anyway</b>.</p>
+    <p class="note">Not sure which? Apple menu → About This Mac shows the chip. The app isn't notarized yet. On macOS 15 or later, open it once, then <b>System Settings → Privacy &amp; Security → Open Anyway</b>. On an older Mac, right-click the app and choose Open.</p>
   </article>
 
   <article class="dl" id="windows">

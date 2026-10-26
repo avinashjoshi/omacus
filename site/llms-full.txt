@@ -33,12 +33,7 @@ Or with Homebrew, which also opens without a prompt:
 brew install --cask avinashjoshi/tap/omacus
 ```
 
-You can also [download the .dmg](https://omacus.com/download/#mac) for your Mac's chip and drag Omacus to Applications. Omacus isn't notarized by Apple yet, so the first time macOS blocks it:
-
-- Open Omacus once. macOS says it can't verify it; click **Done**.
-- Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to Omacus.
-
-Or in Terminal: `xattr -dr com.apple.quarantine /Applications/Omacus.app`. You only do this once.
+You can also [download the .dmg](https://omacus.com/download/#mac) for your Mac's chip and drag Omacus to Applications. The app isn't notarized yet. On macOS 15 or later, open it once, then **System Settings → Privacy & Security → Open Anyway**. On an older Mac, right-click the app and choose Open.
 
 ### Windows
 
@@ -487,7 +482,7 @@ Only to refresh exchange rates and to check for a new version when it starts and
 
 ### macOS says it can't verify the app.
 
-That's because Omacus isn't notarized by Apple yet. Install with the [one-line installer](https://omacus.com/docs/#mac) to avoid the prompt, or allow it once under **System Settings → Privacy & Security → Open Anyway**.
+That's because Omacus isn't notarized by Apple yet. On macOS 15 or later, open it once, then **System Settings → Privacy & Security → Open Anyway**. On an older Mac, right-click the app and choose Open.
 
 ### Windows SmartScreen warns about an unknown publisher.
 
