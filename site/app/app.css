@@ -1283,14 +1283,14 @@ body.answers-inline .res {
   box-shadow: 0 20px 60px color-mix(in srgb, var(--black) 60%, transparent);
 }
 
-.settings-card > header .icon-btn {
+.settings-card > .settings-head .icon-btn {
   width: 28px;
   height: 28px;
   border: 1px solid var(--app-line);
   border-radius: 7px;
 }
 
-.settings-card header {
+.settings-card .settings-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3219,7 +3219,7 @@ body.answers-inline .md .pill {
     overflow: hidden;
   }
 
-  .settings-card:has(.sync-panel:not([hidden]) .sync-devices) > header,
+  .settings-card:has(.sync-panel:not([hidden]) .sync-devices) > .settings-head,
   .settings-card:has(.sync-panel:not([hidden]) .sync-devices) > .settings-tabs {
     flex: none;
   }

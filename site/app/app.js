@@ -3040,6 +3040,8 @@ const editorExtensions = [
     autocapitalize: "off",
     autocorrect: "off",
     autocomplete: "off",
+    // The scroller is not a tab stop. The page itself is, so a keyboard can scroll it.
+    tabindex: "0",
     "aria-label": "Page",
   }),
 ];
