@@ -9,6 +9,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+#[cfg(all(unix, not(target_os = "macos")))]
 use std::time::{Duration, Instant};
 
 const MARK: &[u8] = b"OMACUS-LOCAL/1\n";
