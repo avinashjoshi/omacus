@@ -810,7 +810,7 @@ mod link_tests {
     #[test]
     fn the_invite_picture_is_the_fragment_link() {
         let account = "ab".repeat(32);
-        let secret = b64_encode(&[7, 7, 7, 7, 7]);
+        let secret = b64_encode(&[7, 7, 7, 7, 7, 7, 7, 7]);
         let page = "https://app.omacus.com";
         let relay = "https://sync.omacus.com";
         let made: serde_json::Value =
