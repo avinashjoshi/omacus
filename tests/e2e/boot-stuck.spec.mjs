@@ -157,6 +157,22 @@ async function seedLibrary(page) {
 }
 
 async function storedPages(page) {
+  // WebKit can reload while a service worker takes over. Read again after that.
+  let last;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await readStoredPages(page);
+    } catch (error) {
+      last = error;
+      const text = String(error && error.message ? error.message : error);
+      if (attempt === 2 || !/destroyed|navigation/i.test(text)) throw error;
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+    }
+  }
+  throw last;
+}
+
+function readStoredPages(page) {
   return page.evaluate(() => new Promise((resolve) => {
     const req = indexedDB.open("omacus");
     req.onerror = () => resolve([]);

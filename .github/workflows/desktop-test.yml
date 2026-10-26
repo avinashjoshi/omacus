@@ -1,0 +1,76 @@
+name: Desktop test
+
+# Unsigned apps for trying sync against sync-test.omacus.com.
+# A prerelease, not a release of Omacus. Desktop sync in the real app
+# stays a later version. This workflow does not run on main.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cursor/phase-2-relay-29c8
+    paths:
+      - "relay/desktop-test/**"
+      - ".github/workflows/desktop-test.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: true
+      - name: Build omacus Test for Mac
+        run: bash relay/desktop-test/build-mac.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: omacus-test-mac
+          path: relay/desktop-test/dist/omacus-test-mac.zip
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install WebKitGTK
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+      - name: Build omacus Test for Linux
+        run: bash relay/desktop-test/build-linux.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: omacus-test-linux
+          path: relay/desktop-test/dist/omacus-test-linux-x86_64.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: [mac, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish the prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -f dist/omacus-test-mac.zip
+          test -f dist/omacus-test-linux-x86_64.tar.gz
+          gh release delete omacus-test-desktop --yes --cleanup-tag || true
+          gh release create omacus-test-desktop \
+            dist/omacus-test-mac.zip \
+            dist/omacus-test-linux-x86_64.tar.gz \
+            --prerelease \
+            --latest=false \
+            --target "$GITHUB_SHA" \
+            --title "omacus Test (not a release)" \
+            --notes-file relay/desktop-test/NOTES.txt

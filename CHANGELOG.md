@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0
+
+<!-- upcoming: the app version changes when 1.0 ships -->
+
+**Sync is in the web app**
+
+Your pages can open on your other phones and computers. They are encrypted on your device, and the server cannot read them. [Sync](/sync/) explains how it works. [Privacy](/privacy/) lists what is sent. This is the upcoming 1.0 release.
+
 ## 0.2.21
 
 **Behind-the-scenes improvements**

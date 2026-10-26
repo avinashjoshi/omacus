@@ -85,6 +85,8 @@ async function frame(page) {
       barH: bar.getBoundingClientRect().height,
       barTop: bar.getBoundingClientRect().top,
       barPadTop: parseFloat(barCs.paddingTop),
+      shellPad: parseFloat(getComputedStyle(shell).paddingTop),
+      sideTop: side.getBoundingClientRect().top,
       barBg: barCs.backgroundColor,
       pageBg: getComputedStyle(shell).backgroundColor,
       htmlBg: getComputedStyle(document.documentElement).backgroundColor,
@@ -163,6 +165,85 @@ test.describe("installed iPhone", () => {
         await page.evaluate(() => document.body.classList.remove("drawer"));
       }
     }
+  });
+
+  test("the bar stays on the clock when the installed page is scrolled", async ({ page }) => {
+    await openApp(page);
+    const after = await page.evaluate(() => {
+      const scroller = document.querySelector(".cm-scroller");
+      if (scroller) {
+        const filler = document.createElement("div");
+        filler.style.height = "2400px";
+        scroller.append(filler);
+        scroller.scrollTop = 900;
+      }
+      window.scrollTo(0, 480);
+      document.documentElement.scrollTop = 480;
+      document.body.scrollTop = 480;
+      const bar = document.querySelector(".bar");
+      const shell = document.querySelector(".app-page");
+      const cs = getComputedStyle(bar);
+      const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--standalone-gap")) || 0;
+      return {
+        position: cs.position,
+        top: bar.getBoundingClientRect().top,
+        left: bar.getBoundingClientRect().left,
+        right: bar.getBoundingClientRect().right,
+        blur: cs.backdropFilter,
+        barBg: cs.backgroundColor,
+        pageBg: getComputedStyle(shell).backgroundColor,
+        pad: parseFloat(getComputedStyle(shell).paddingTop),
+        barH: bar.getBoundingClientRect().height,
+        scrollY: window.scrollY,
+        shellBottom: shell.getBoundingClientRect().bottom,
+        innerHeight: window.innerHeight,
+        innerWidth: window.innerWidth,
+        gap,
+        editorTop: scroller ? scroller.scrollTop : 0,
+      };
+    });
+    expect(after.position).toBe("fixed");
+    expect(Math.abs(after.top)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after.left)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after.right - after.innerWidth)).toBeLessThanOrEqual(1);
+    expect(after.blur).toBe("none");
+    expect(after.barBg).toBe(after.pageBg);
+    expect(after.scrollY).toBe(0);
+    expect(after.editorTop).toBeGreaterThan(0);
+    expect(Math.abs(after.shellBottom - (after.innerHeight + after.gap))).toBeLessThanOrEqual(1);
+
+    const followed = await page.evaluate(() => {
+      document.documentElement.style.setProperty("--vv-top", "18px");
+      return document.querySelector(".bar").getBoundingClientRect().top;
+    });
+    expect(Math.abs(followed - 18)).toBeLessThanOrEqual(1);
+  });
+
+  test("the collapsed rail in landscape still takes a tap", async ({ page }) => {
+    await page.setViewportSize({ width: 844, height: 390 });
+    await openApp(page);
+    const hit = await page.evaluate(() => {
+      document.querySelector(".workspace").classList.add("collapsed");
+      const gear = document.querySelector(".rail-settings");
+      const box = gear.getBoundingClientRect();
+      const x = box.left + box.width / 2;
+      const y = box.top + box.height / 2;
+      const el = document.elementFromPoint(x, y);
+      const bar = document.querySelector(".bar").getBoundingClientRect();
+      return {
+        display: getComputedStyle(gear).display,
+        gear: !!el?.closest(".rail-settings"),
+        y,
+        barBottom: bar.bottom,
+        w: box.width,
+        h: box.height,
+      };
+    });
+    expect(hit.display).not.toBe("none");
+    expect(hit.w).toBeGreaterThan(0);
+    expect(hit.h).toBeGreaterThan(0);
+    expect(hit.y).toBeGreaterThan(hit.barBottom);
+    expect(hit.gear).toBe(true);
   });
 
   test("Selection deleted stays off the page and in the tree", async ({ page }) => {

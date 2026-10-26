@@ -1,8 +1,8 @@
 //! New releases: checking for them, and installing them.
 //!
-//! On launch, and every few hours while it stays open, Omacus asks GitHub for the
-//! latest release tag on a background thread. The answer is cached, so reopening
-//! the app within the hour makes no request.
+//! On launch, and every few hours while it stays open, Omacus downloads the latest
+//! signed update manifest on a background thread. The answer is cached, so reopening
+//! the app within the hour makes no request. An unsigned release tag is not a version.
 //! Nothing about the user or their pages is sent. Turn it off in Settings,
 //! or with `check_for_updates = false` in `settings.toml` in the config folder.
 //!
@@ -11,16 +11,22 @@
 //! untouched. On Windows, where Omacus is a single portable .exe, the new one is
 //! swapped in next to the running one (Windows allows renaming a running .exe).
 
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use base64::{Engine, engine::general_purpose::STANDARD};
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
-const LATEST_URL: &str = "https://api.github.com/repos/avinashjoshi/omacus/releases/latest";
 const REPO: &str = "avinashjoshi/omacus";
+/// Minisign public key for update manifests. The matching secret is not in the repository.
+const UPDATE_PUBLIC_KEY: &str = include_str!("../keys/omacus-update.pub");
+/// Legacy minisign signs the file itself. `ED` would be the prehashed algorithm, which this is not.
+const MINISIGN_ED: &[u8] = b"Ed";
 pub const RELEASES_URL: &str = "https://github.com/avinashjoshi/omacus/releases";
 /// The site's changelog. What's new in the app opens this, at the new version.
 pub const UPDATES_PAGE: &str = "https://omacus.com/updates/";
@@ -51,8 +57,9 @@ struct Cache {
 }
 
 #[derive(Deserialize)]
-struct Release {
-    tag_name: String,
+struct UpdateManifest {
+    version: String,
+    files: BTreeMap<String, String>,
 }
 
 /// A check started from About, so its result can be shown there.
@@ -353,42 +360,41 @@ pub fn cli() -> i32 {
     }
 }
 
-/// A file from a release, checked against that release's SHA256SUMS.txt. Both come
-/// from GitHub over HTTPS for the exact version, so a damaged or swapped download is
+/// A file from a release, checked against the signed update manifest. The manifest
+/// and its minisign signature come from GitHub over HTTPS for that exact version.
+/// A damaged download, or a release that was not signed with the update key, is
 /// refused rather than run.
 fn release_file(version: &str, name: &str) -> Result<Vec<u8>, String> {
-    let url = |file: &str| format!("https://github.com/{REPO}/releases/download/v{version}/{file}");
-    let get = |file: &str| -> Result<Vec<u8>, String> {
-        let mut bytes = Vec::new();
-        crate::rates::http()
-            .get(url(file))
-            .header("User-Agent", concat!("omacus/", env!("CARGO_PKG_VERSION")))
-            .call()
-            .map_err(|e| format!("download failed: {e}"))?
-            .into_body()
-            .with_config()
-            .limit(64 * 1024 * 1024)
-            .reader()
-            .read_to_end(&mut bytes)
-            .map_err(|e| format!("download failed: {e}"))?;
-        Ok(bytes)
-    };
-    let sums = String::from_utf8(get("SHA256SUMS.txt")?)
-        .map_err(|_| "unreadable checksums".to_string())?;
-    let expected = sums
-        .lines()
-        .find_map(|line| {
-            let (hash, file) = line.split_once(char::is_whitespace)?;
-            (file.trim().trim_start_matches('*') == name).then(|| hash.to_ascii_lowercase())
-        })
-        .ok_or_else(|| format!("{name} isn't in the release's checksums"))?;
-    let bytes = get(name)?;
+    let version = version.trim_start_matches('v');
+    let base = format!("https://github.com/{REPO}/releases/download/v{version}");
+    let manifest = signed_manifest_at(&base).map_err(|e| e.to_string())?;
+    let expected = expected_checksum(&manifest, version, name)?;
+    let bytes = download(&format!("{base}/{name}"), 64 * 1024 * 1024).map_err(|e| e.to_string())?;
     if sha256_hex(&bytes) != expected {
         return Err(format!(
             "{name} didn't match its checksum; not installing it"
         ));
     }
     Ok(bytes)
+}
+
+fn expected_checksum(
+    manifest: &UpdateManifest,
+    version: &str,
+    name: &str,
+) -> Result<String, String> {
+    if manifest.version != version {
+        return Err("the signed update is for a different version".into());
+    }
+    let hash = manifest
+        .files
+        .get(name)
+        .ok_or_else(|| format!("{name} isn't in the signed update"))?
+        .to_ascii_lowercase();
+    if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(format!("{name} has no checksum in the signed update"));
+    }
+    Ok(hash)
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -537,13 +543,139 @@ fn enabled() -> bool {
     crate::settings::updates_enabled()
 }
 
-/// The latest version, from GitHub's API. The API allows 60 requests an hour per
-/// IP address, which a shared office network can use up; then fall back to the
-/// "latest release" page, which redirects to the newest tag.
+/// The latest version, from the signed manifest on the latest release.
+/// An unsigned tag is not a version.
 fn fetch_latest() -> Result<String, Box<dyn std::error::Error>> {
-    from_api().or_else(|_| from_latest_page())
+    Ok(signed_manifest_at(&format!("{RELEASES_URL}/latest/download"))?.version)
 }
 
+fn signed_manifest_at(base: &str) -> Result<UpdateManifest, Box<dyn std::error::Error>> {
+    let body = download(&format!("{base}/omacus-update.json"), 64 * 1024)?;
+    let sig = download(&format!("{base}/omacus-update.json.minisig"), 8 * 1024)?;
+    let sig = String::from_utf8(sig).map_err(|_| fail("unreadable update signature"))?;
+    verify_minisign(UPDATE_PUBLIC_KEY, &body, &sig).map_err(fail)?;
+    let manifest: UpdateManifest =
+        serde_json::from_slice(&body).map_err(|_| fail("unreadable update manifest"))?;
+    if !version_ok(&manifest.version) {
+        return Err(fail("the signed update names no version"));
+    }
+    Ok(manifest)
+}
+
+fn version_ok(version: &str) -> bool {
+    let parts: Vec<&str> = version.split('.').collect();
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+}
+
+fn download(url: &str, limit: u64) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut bytes = Vec::new();
+    crate::rates::http()
+        .get(url)
+        .header("User-Agent", concat!("omacus/", env!("CARGO_PKG_VERSION")))
+        .call()
+        .map_err(|e| fail(format!("download failed: {e}")))?
+        .into_body()
+        .with_config()
+        .limit(limit)
+        .reader()
+        .read_to_end(&mut bytes)
+        .map_err(|e| fail(format!("download failed: {e}")))?;
+    Ok(bytes)
+}
+
+fn fail(msg: impl Into<String>) -> Box<dyn std::error::Error> {
+    std::io::Error::other(msg.into()).into()
+}
+
+/// A minisign legacy (Ed) signature over `message`, including the trusted comment.
+fn verify_minisign(public_key: &str, message: &[u8], signature: &str) -> Result<(), String> {
+    let (key_id, pk) = parse_public_key(public_key)?;
+    let parsed = parse_signature(signature)?;
+    if parsed.key_id != key_id {
+        return Err("the update signature is for a different key".into());
+    }
+    let vk = VerifyingKey::from_bytes(&pk).map_err(|_| "the update key is not a public key")?;
+    let sig = Signature::from_slice(&parsed.sig).map_err(|_| "unreadable update signature")?;
+    vk.verify(message, &sig)
+        .map_err(|_| "the update signature doesn't match")?;
+    let mut global_msg = parsed.sig.to_vec();
+    global_msg.extend_from_slice(parsed.trusted.as_bytes());
+    let global =
+        Signature::from_slice(&parsed.global).map_err(|_| "unreadable update signature")?;
+    vk.verify(&global_msg, &global)
+        .map_err(|_| "the update signature's trusted comment doesn't match")?;
+    Ok(())
+}
+
+struct ParsedSignature {
+    key_id: [u8; 8],
+    sig: [u8; 64],
+    global: [u8; 64],
+    trusted: String,
+}
+
+fn parse_public_key(text: &str) -> Result<([u8; 8], [u8; 32]), String> {
+    let line = text
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with("untrusted comment:"))
+        .ok_or("unreadable update key")?;
+    let raw = decode_b64(line)?;
+    if raw.len() != 42 || &raw[..2] != MINISIGN_ED {
+        return Err("the update key is not a minisign Ed key".into());
+    }
+    let mut id = [0u8; 8];
+    let mut pk = [0u8; 32];
+    id.copy_from_slice(&raw[2..10]);
+    pk.copy_from_slice(&raw[10..42]);
+    Ok((id, pk))
+}
+
+fn parse_signature(text: &str) -> Result<ParsedSignature, String> {
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    if lines.len() != 4 || !lines[0].starts_with("untrusted comment:") {
+        return Err("unreadable update signature".into());
+    }
+    let Some(trusted) = lines[2].strip_prefix("trusted comment: ") else {
+        return Err("unreadable update signature".into());
+    };
+    if trusted.is_empty() {
+        return Err("unreadable update signature".into());
+    }
+    let raw = decode_b64(lines[1])?;
+    let global = decode_b64(lines[3])?;
+    if raw.len() != 74 || &raw[..2] != MINISIGN_ED || global.len() != 64 {
+        return Err("the update signature is not a minisign Ed signature".into());
+    }
+    let mut key_id = [0u8; 8];
+    let mut sig = [0u8; 64];
+    let mut global_sig = [0u8; 64];
+    key_id.copy_from_slice(&raw[2..10]);
+    sig.copy_from_slice(&raw[10..74]);
+    global_sig.copy_from_slice(&global);
+    Ok(ParsedSignature {
+        key_id,
+        sig,
+        global: global_sig,
+        trusted: trusted.to_string(),
+    })
+}
+
+fn decode_b64(text: &str) -> Result<Vec<u8>, String> {
+    STANDARD
+        .decode(text.trim().as_bytes())
+        .map_err(|_| "unreadable update signature".to_string())
+}
+
+/// The release page, for the ignored network test. The app does not trust it.
+#[cfg(test)]
 fn from_latest_page() -> Result<String, Box<dyn std::error::Error>> {
     use ureq::ResponseExt;
     let response = crate::rates::http()
@@ -555,18 +687,6 @@ fn from_latest_page() -> Result<String, Box<dyn std::error::Error>> {
         .rsplit_once("/tag/")
         .map(|(_, tag)| tag)
         .ok_or_else(|| format!("unexpected release page: {path}"))?;
-    Ok(tag.trim_start_matches('v').to_string())
-}
-
-fn from_api() -> Result<String, Box<dyn std::error::Error>> {
-    let body = crate::rates::http()
-        .get(LATEST_URL)
-        .header("User-Agent", concat!("omacus/", env!("CARGO_PKG_VERSION")))
-        .header("Accept", "application/vnd.github+json")
-        .call()?
-        .body_mut()
-        .read_to_string()?;
-    let tag = serde_json::from_str::<Release>(&body)?.tag_name;
     Ok(tag.trim_start_matches('v').to_string())
 }
 
@@ -692,10 +812,57 @@ mod tests {
 
     #[test]
     #[ignore = "network"]
-    fn downloads_and_verifies_a_release_file() {
-        let script = release_file("0.1.5", "install.sh").unwrap();
-        assert!(script.starts_with(b"#!/usr/bin/env bash"));
-        assert!(release_file("0.1.5", "no-such-file").is_err());
+    fn refuses_a_release_without_a_signature() {
+        let err = release_file("0.1.5", "install.sh").unwrap_err();
+        assert!(
+            err.contains("download failed")
+                || err.contains("signature")
+                || err.contains("manifest"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn a_signed_manifest_verifies_and_a_changed_byte_does_not() {
+        let public_key = include_str!("../tests/fixtures/omacus-update-test.pub");
+        let signature = include_str!("../tests/fixtures/omacus-update-test.minisig");
+        verify_minisign(public_key, b"omacus-update-test\n", signature).unwrap();
+        assert!(verify_minisign(public_key, b"omacus-update-tesT\n", signature).is_err());
+        let bad = signature.replacen("Y9nzBA==", "Y9nzBB==", 1);
+        assert_ne!(bad, signature);
+        assert!(verify_minisign(public_key, b"omacus-update-test\n", &bad).is_err());
+    }
+
+    #[test]
+    fn the_shipped_update_key_is_a_minisign_ed_key() {
+        let (id, pk) = parse_public_key(UPDATE_PUBLIC_KEY).unwrap();
+        assert_ne!(id, [0u8; 8]);
+        let fixture = include_str!("../tests/fixtures/omacus-update-test.pub");
+        assert_ne!(id, parse_public_key(fixture).unwrap().0);
+        VerifyingKey::from_bytes(&pk).unwrap();
+    }
+
+    #[test]
+    fn a_checksum_has_to_be_for_this_version() {
+        let hash = "ab".repeat(32);
+        let manifest = UpdateManifest {
+            version: "0.2.21".into(),
+            files: BTreeMap::from([("install.sh".into(), hash.clone())]),
+        };
+        assert_eq!(
+            expected_checksum(&manifest, "0.2.21", "install.sh").unwrap(),
+            hash
+        );
+        assert!(expected_checksum(&manifest, "0.2.20", "install.sh").is_err());
+        assert!(expected_checksum(&manifest, "0.2.21", "missing").is_err());
+        let short = UpdateManifest {
+            version: "0.2.21".into(),
+            files: BTreeMap::from([("install.sh".into(), "abcd".into())]),
+        };
+        assert!(expected_checksum(&short, "0.2.21", "install.sh").is_err());
+        assert!(version_ok("0.2.21"));
+        assert!(!version_ok("0.2"));
+        assert!(!version_ok("1.0.0-beta"));
     }
 
     #[test]

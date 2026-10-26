@@ -36,9 +36,7 @@
     </button>
     <a class="brand" href="https://omacus.com/"><img src="/img/icon.svg" alt="" width="24" height="24">omacus</a>
     <span class="bar-title" data-title></span>
-    <button class="private-chip" type="button" data-action="privacy" aria-label="Private: your pages stay on this device">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span>Private</span>
-    </button>
+    <button class="sync-setup" type="button" data-turn-on-sync data-action="turn-on-sync">Turn on sync</button>
     <div class="bar-actions">
       <button class="btn small rename-bar" type="button" data-action="rename" hidden>Rename</button>
       <div class="menu">
@@ -53,7 +51,7 @@
             <button role="menuitem" data-action="handle">Handle…</button>
             <button role="menuitem" data-action="lock">Lock…</button>
             <button role="menuitem" data-action="remove-lock" hidden>Remove lock…</button>
-            <button role="menuitem" data-action="move-folder">Move to folder…</button>
+            <button role="menuitem" data-action="move-folder">Move to…</button>
             <hr>
             <button role="menuitem" data-action="delete" class="danger">Delete this page</button>
           </div>
@@ -75,6 +73,8 @@
         <button class="side-btn" type="button" data-action="expand-side" aria-label="Expand sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/></svg></button>
         <button class="side-btn" type="button" data-action="new-folder" aria-label="New folder" title="New folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 8.5h6l2-2.2h9v11.2h-17z"/></svg></button>
         <button class="side-btn" type="button" data-action="new" aria-label="New page" title="New page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button>
+        <button class="side-btn" type="button" data-turn-on-sync data-action="turn-on-sync" aria-label="Turn on sync" title="Turn on sync"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 18.5H9a5.5 5.5 0 1 1 5.3-7h1.4a3.6 3.6 0 1 1 0 7Z"/></svg></button>
+        <button class="side-btn" type="button" data-device-waiting data-action="device-waiting" hidden aria-label="Device waiting" title="Device waiting"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 18.5H9a5.5 5.5 0 1 1 5.3-7h1.4a3.6 3.6 0 1 1 0 7Z"/></svg></button>
         <button class="side-btn rail-settings" type="button" data-action="settings" aria-label="Settings" title="Settings (Ctrl+,)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3.2v2.3M12 18.5v2.3M3.2 12h2.3M18.5 12h2.3M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/></svg></button>
         <img src="/img/icon.svg" alt="" width="20" height="20">
       </div>
@@ -83,6 +83,14 @@
         <nav class="sheet-list" data-sheets aria-label="Pages"></nav>
         <div class="deleted" hidden data-deleted></div>
         <div class="side-tools">
+          <button class="side-foot-row" type="button" data-turn-on-sync data-action="turn-on-sync">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 18.5H9a5.5 5.5 0 1 1 5.3-7h1.4a3.6 3.6 0 1 1 0 7Z"/></svg>
+            <span>Turn on sync</span>
+          </button>
+          <button class="side-foot-row" type="button" data-device-waiting data-action="device-waiting" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 18.5H9a5.5 5.5 0 1 1 5.3-7h1.4a3.6 3.6 0 1 1 0 7Z"/></svg>
+            <span>Device waiting</span>
+          </button>
           <button class="side-foot-row" type="button" data-action="settings">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3.2v2.3M12 18.5v2.3M3.2 12h2.3M18.5 12h2.3M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/></svg>
             <span>Settings</span>
@@ -192,6 +200,21 @@
           <button class="btn small" type="button" data-action="close-lock">Cancel</button>
         </div>
       </div>
+      <div class="confirm" hidden data-sync-dest role="dialog" aria-modal="true" aria-labelledby="sync-dest-title">
+        <p id="sync-dest-title">Move to…</p>
+        <div class="move-list" data-sync-dest-list></div>
+        <div>
+          <button class="btn small" type="button" data-sync-dest-cancel>Cancel</button>
+        </div>
+      </div>
+      <div class="confirm" hidden data-sync-move role="dialog" aria-modal="true" aria-labelledby="sync-move-title">
+        <p id="sync-move-title" data-sync-move-title></p>
+        <p class="confirm-note" data-sync-move-detail></p>
+        <div>
+          <button class="btn small primary" type="button" data-sync-move-yes>Move</button>
+          <button class="btn small" type="button" data-sync-move-no>Not now</button>
+        </div>
+      </div>
       <div class="confirm" hidden data-rename role="dialog" aria-modal="true" aria-labelledby="rename-title">
         <p id="rename-title">Rename folder</p>
         <input data-rename-input type="text" maxlength="80" autocomplete="off" spellcheck="false" aria-label="Folder name">
@@ -208,7 +231,6 @@
           <div class="switcher-hits" data-switcher-hits></div>
         </div>
       </div>
-      <div class="menu-list row-menu" hidden data-row-menu role="menu"></div>
       <p class="loading" data-loading>Loading the engine…</p>
       <div class="boot-fail" hidden data-boot-fail>
         <p data-boot-message>Omacus couldn't start. Your pages are still in this browser.</p>
@@ -222,12 +244,12 @@
 
   <a class="embed-open" hidden data-embed-open target="_blank" rel="noopener">Open in the web app <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></a>
   <div class="settings" hidden data-settings>
-    <button class="settings-scrim" type="button" data-action="close-settings" aria-label="Close"></button>
+    <button class="settings-scrim" type="button" data-action="close-settings" tabindex="-1" aria-hidden="true" aria-label="Close"></button>
     <div class="settings-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <header>
+      <div class="settings-head">
         <h2 id="settings-title">Settings</h2>
         <button class="icon-btn small" type="button" data-action="close-settings" aria-label="Close">×</button>
-      </header>
+      </div>
       <div class="settings-tabs" role="tablist">
         <button type="button" role="tab" data-settings-tab="settings" aria-selected="true">Settings</button>
         <button type="button" role="tab" data-settings-tab="about" aria-selected="false">About</button>
@@ -303,13 +325,14 @@
         </div>
         <section class="settings-group">
           <h3>Private by design</h3>
-          <p class="setting-help">Pages stay in this browser. Nothing is uploaded. Export a copy from Settings. On iPhone and iPad, add Omacus to the Home Screen so Safari keeps them.</p>
+          <p class="setting-help">Pages stay in this browser, on this device. With sync on, a sealed copy can go to your other phones and computers. A share link carries the page after the #, which browsers don't send to any server. Export a copy from Settings. On iPhone and iPad, add Omacus to the Home Screen so Safari keeps them.</p>
           <p class="settings-note" data-persist-note hidden>This browser may clear saved pages. Export a copy from Settings to keep one.</p>
         </section>
         <p class="about-links"><a href="https://omacus.com">Website</a><a href="https://omacus.com/docs/">Docs</a><a href="https://omacus.com/updates/">What's new</a><a href="https://omacus.com/privacy/">Privacy</a><a href="https://github.com/avinashjoshi/omacus">Source</a></p>
       </div>
     </div>
   </div>
+  <div class="menu-list row-menu" hidden data-row-menu role="menu" popover="manual"></div>
   <div class="toast" role="status" aria-live="polite" hidden data-toast></div>
   <input type="file" accept=".txt,.zip,text/plain,application/zip" multiple hidden data-import>
 

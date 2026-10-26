@@ -81,7 +81,7 @@ Pages can sit in folders, two levels deep. Drag a page onto a folder, or choose 
 
 Each page has a short handle, taken from its title (Trip Budget is `trip`). **Handle…** changes it. Another page reads a value with `@handle.variable`, so `@trip.total` is the last assignment of `total` on that page. Typing `@` lists pages. Renaming a variable with F2 updates `@handle.name` on the other pages too.
 
-End-to-end encrypted sync, with named vaults and a recovery phrase, is described at [omacus.com/sync](https://omacus.com/sync/). It is not in this version. Pages stay on this device.
+End-to-end encrypted sync, with 12 recovery words, is in the web app. Turn on sync is in the sidebar, and on a wide window it is also in the top bar. A short explanation comes first, then the setup screens. It is described at [omacus.com/sync](https://omacus.com/sync/). The desktop app shows the same entry. Set up continues in the web app. Pages in the desktop window stay in a folder on this computer.
 
 ### Sharing and the web app
 
@@ -209,10 +209,7 @@ prompt. Or with Homebrew:
 brew install --cask avinashjoshi/tap/omacus
 ```
 
-Or download the .dmg for your chip ([omacus.com/download](https://omacus.com/download/#mac)) and drag Omacus to
-Applications; the app isn't notarized yet, so the first time, open it once, then go to
-**System Settings → Privacy & Security** and click **Open Anyway**
-(or run `xattr -dr com.apple.quarantine /Applications/Omacus.app`).
+Or download the .dmg for your chip ([omacus.com/download](https://omacus.com/download/#mac)) and drag Omacus to Applications. The app isn't notarized yet. On macOS 15 or later, open it once, then **System Settings → Privacy & Security → Open Anyway**. On an older Mac, right-click the app and choose Open.
 
 ### Windows
 

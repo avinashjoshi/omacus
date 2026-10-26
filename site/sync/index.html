@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; media-src 'self'; frame-src 'self' https://app.omacus.com; worker-src 'self'; manifest-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sync: end-to-end encrypted vaults for Omacus</title>
-  <meta name="description" content="Coming soon. End-to-end encrypted sync for Omacus: named vaults, a 24-word recovery phrase, and devices that stay unlocked once linked. Not in this version. No sign-up.">
+  <title>Sync: end-to-end encrypted pages for Omacus</title>
+  <meta name="description" content="How Omacus sync works. Pages are encrypted on your device. The server cannot read them. Twelve recovery words, linking a phone, and a nightly sealed copy. Sync is invite-only. The notepad needs no sign-up.">
   <meta name="author" content="Avinash Joshi">
   <link rel="canonical" href="https://omacus.com/sync/">
   <meta name="theme-color" content="#090909">
@@ -12,15 +13,16 @@
   <meta property="og:site_name" content="Omacus">
   <meta property="og:url" content="https://omacus.com/sync/">
   <meta property="og:title" content="Sync">
-  <meta property="og:description" content="Coming soon. End-to-end encrypted sync for Omacus. Not in this version.">
-  <meta property="og:image" content="https://omacus.com/img/og.png?v=2">
+  <meta property="og:description" content="Pages are encrypted on your device. The server cannot read them. Twelve recovery words open them again.">
+  <meta property="og:image" content="https://omacus.com/img/og-sync.png?v=2">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="Omacus: a notepad calculator with answers beside each line">
+  <meta property="og:image:alt" content="Omacus Sync: pages encrypted on your device. The notepad needs no sign-up. Sync is invite-only.">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Sync">
-  <meta name="twitter:description" content="Coming soon. End-to-end encrypted sync for Omacus. Not in this version.">
-  <meta name="twitter:image" content="https://omacus.com/img/og.png?v=2">
+  <meta name="twitter:description" content="Pages are encrypted on your device. The server cannot read them. Twelve recovery words open them again.">
+  <meta name="twitter:image" content="https://omacus.com/img/og-sync.png?v=2">
+  <meta name="twitter:image:alt" content="Omacus Sync: pages encrypted on your device. The notepad needs no sign-up. Sync is invite-only.">
   <link rel="manifest" href="/site.webmanifest">
   <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
   <link rel="icon" href="/img/favicon-32.png" sizes="32x32">
@@ -40,6 +42,8 @@
         <a href="/guides/">Guides</a>
         <a href="/docs/">Docs</a>
         <a href="/updates/">Updates</a>
+        <a href="/story/">Story</a>
+        <a href="/sync/" aria-current="page">Sync</a>
         <a href="https://app.omacus.com">Web app</a>
         <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
       </div>
@@ -54,50 +58,45 @@
   <nav class="toc" aria-label="On this page">
     <p>On this page</p>
     <a href="#encrypted">Encrypted</a>
-    <a href="#vaults">Vaults</a>
-    <a href="#phrase">Recovery phrase</a>
-    <a href="#devices">Devices</a>
+    <a href="#server">What the server sees</a>
+    <a href="#phrase">Recovery words</a>
+    <a href="#devices">Linking</a>
     <a href="#offline">Offline</a>
-    <a href="#history">History</a>
+    <a href="#nights">Nightly copies</a>
   </nav>
   <article class="prose page-body">
     <span class="kicker">// sync</span>
     <h1>Sync</h1>
-    <p class="lead"><span class="soon-mark">Coming soon</span> End-to-end encrypted sync for your pages. This version does not sync. There is no sign-up on this page, and nothing here is collected.</p>
+    <p class="lead">Pages can open on your other phones and computers. They are encrypted on your device before they leave, and the server cannot read them. The notepad needs no sign-up. Sync is invite-only.</p>
 
     <h2 id="encrypted">Nobody else can read them</h2>
-    <p>Pages are encrypted on your device before they leave it. The server stores ciphertext. Omacus cannot read your pages. The company that hosts the server cannot read them either, and cannot get the keys. A share link is a different thing: that page travels inside the link, and only the people you give it to can open it.</p>
+    <p><a href="https://app.omacus.com">Turn on sync in the web app</a>. It is in the sidebar, and on a wide window it is also in the top bar. A short explanation comes first. Then you start fresh, or you join pages that are already on another phone.</p>
+    <p>Each page is encrypted on that phone or computer before it is sent. The server stores the sealed copy. Omacus cannot read the pages. The company that hosts the server cannot read them either. A share link is a different thing: that page travels inside the link, and only the people you give it to can open it.</p>
+    <p>The desktop app keeps pages in a folder on this computer. The <strong>Turn on sync</strong> button in the sidebar explains sync, then continues in the web app. Those desktop pages are not uploaded.</p>
 
-    <h2 id="vaults">Named vaults</h2>
-    <p>A vault is a library of pages with its own name. Personal, Family, and Work can live side by side. A page in one vault is not mixed into another.</p>
-    <div class="vaults">
-      <article class="vault"><b>Personal</b><span>Trip Budget · Groceries</span></article>
-      <article class="vault"><b>Family</b><span>Cooking · Time zones</span></article>
-      <article class="vault"><b>Work</b><span>Monthly budget</span></article>
-    </div>
+    <h2 id="server">What the server can see</h2>
+    <p>The server can see that a sealed copy exists, how large it is, when it was saved, and how many phones and computers are linked. It can see the sealed bytes.</p>
+    <p>It cannot see the page text, the page names, the recovery words, or the keys. It cannot open a page. There is no email and no password for an Omacus account.</p>
 
-    <h2 id="phrase">A recovery phrase</h2>
-    <p>Twenty-four words restore every vault on a new device. Write them down and keep them somewhere safe. Anyone with the phrase can open the vaults. Omacus does not keep a copy, so a lost phrase cannot be reset.</p>
+    <h2 id="phrase">Twelve recovery words</h2>
+    <p>Twelve words open the pages on a new phone or computer. Write them down and keep them somewhere safe. Anyone with the words can open the pages. Omacus does not keep a copy, so lost words cannot be reset.</p>
     <div class="phrase" aria-hidden="true">
       <span>1 amber</span><span>2 birch</span><span>3 cedar</span><span>4 drift</span>
       <span>5 ember</span><span>6 fern</span><span>7 grove</span><span>8 harbor</span>
       <span>9 iris</span><span>10 juniper</span><span>11 kettle</span><span>12 lantern</span>
-      <span>13 meadow</span><span>14 north</span><span>15 orchard</span><span>16 pebble</span>
-      <span>17 quartz</span><span>18 river</span><span>19 spruce</span><span>20 timber</span>
-      <span>21 umber</span><span>22 valley</span><span>23 willow</span><span>24 yarrow</span>
     </div>
     <p class="sync-note">Example words, so you can see the shape. Yours will be different. This page never asks for them.</p>
 
-    <h2 id="devices">Linked once</h2>
-    <p>The first time a computer or phone joins a vault, it unlocks with the phrase. After that it stays unlocked. You do not type the phrase on every launch.</p>
+    <h2 id="devices">Link a phone or computer</h2>
+    <p>On a phone that already has the pages, you show a code. On the new phone you type that code. Both sides show the same six numbers, and you confirm they match before the new phone can open the pages. After that, it stays linked. You do not type the recovery words on every launch.</p>
 
     <h2 id="offline">Offline, then caught up</h2>
-    <p>A linked device keeps working with no connection. Edits wait on that device and sync when it is back online. The same page, open on two devices, keeps both copies of a conflict so neither one is thrown away.</p>
+    <p>A linked phone keeps working with no connection. Edits wait on that phone and sync when it is back online. A line typed on two phones at the same time is kept on both.</p>
 
-    <h2 id="history">History and restore</h2>
-    <p>Each vault keeps earlier copies of a page. Restore brings one back. Delete still moves a page to Recently deleted first, the same as it does today.</p>
+    <h2 id="nights">A sealed copy each night</h2>
+    <p>Each night the server saves another sealed copy, and keeps those copies for about 30 days. The nightly copy is the same sealed bytes. It is not opened. If a copy has to be put back, what returns is still sealed, and only your phones can read it.</p>
 
-    <p>Until sync ships, pages stay on the device: plain text on the desktop, and the browser's own storage for <a href="https://app.omacus.com">the web app</a>. <a href="/privacy/">Privacy</a> lists what this version sends, which is exchange rates and a version check.</p>
+    <p>One set of pages syncs in this version. You can name it. It starts as My pages. <a href="/privacy/">Privacy</a> lists what is sent.</p>
   </article>
 </main>
 

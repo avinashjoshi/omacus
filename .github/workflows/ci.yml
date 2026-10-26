@@ -35,7 +35,7 @@ jobs:
         run: python3 site/tools/test_story.py
       - name: Release notes
         if: runner.os == 'Linux'
-        run: python3 tests/check_release_notes.py && python3 tests/check_release_workflow.py
+        run: python3 tests/check_release_notes.py && python3 tests/check_release_workflow.py && python3 tests/check_update_signature.py && python3 tests/check_site_pages.py && python3 tests/check_sync_health.py
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: clippy
@@ -45,7 +45,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libwayland-dev libx11-dev
       - name: Design tokens
         if: runner.os == 'Linux'
-        run: python3 tests/check_design.py
+        run: python3 tests/check_design.py && python3 tests/check_sync_devices.py && python3 tests/check_desktop_test.py
       - name: Audit dependencies
         if: runner.os == 'Linux'
         run: |
@@ -119,7 +119,7 @@ jobs:
           targets: wasm32-unknown-unknown
           components: clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-      - run: cargo clippy -p omacus-engine -p omacus-web --target wasm32-unknown-unknown --locked -- -D warnings
+      - run: cargo clippy -p omacus-engine -p omacus-web -p omacus-sync-web --target wasm32-unknown-unknown --locked -- -D warnings
       - name: Web app mobile layout
         run: |
           node tests/folders.mjs
@@ -127,7 +127,16 @@ jobs:
           node tests/migrate.mjs
           node tests/seed.mjs
           node tests/backup.mjs
+          node tests/sync-save.mjs
+          node tests/sync-vaults.mjs
+          node tests/sync-leader.mjs
+          node tests/device-name.mjs
+          node tests/sync-link.mjs
+          node tests/preview-server.mjs
           node tests/web-mobile.mjs
+          node --import ./relay/worker/register-cf.mjs relay/worker/link-limits.test.mjs
+          node --import ./relay/worker/register-cf.mjs relay/worker/leave.test.mjs
+          node --import ./relay/worker/register-cf.mjs relay/worker/routing.test.mjs
       - name: Web app offline
         run: |
           cargo install wasm-bindgen-cli --version 0.2.129 --locked

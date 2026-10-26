@@ -33,12 +33,7 @@ Or with Homebrew, which also opens without a prompt:
 brew install --cask avinashjoshi/tap/omacus
 ```
 
-You can also [download the .dmg](https://omacus.com/download/#mac) for your Mac's chip and drag Omacus to Applications. Omacus isn't notarized by Apple yet, so the first time macOS blocks it:
-
-- Open Omacus once. macOS says it can't verify it; click **Done**.
-- Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to Omacus.
-
-Or in Terminal: `xattr -dr com.apple.quarantine /Applications/Omacus.app`. You only do this once.
+You can also [download the .dmg](https://omacus.com/download/#mac) for your Mac's chip and drag Omacus to Applications. The app isn't notarized yet. On macOS 15 or later, open it once, then **System Settings → Privacy & Security → Open Anyway**. On an older Mac, right-click the app and choose Open.
 
 ### Windows
 
@@ -292,7 +287,7 @@ The first time Omacus opens, and only when you have no pages yet, it adds the we
 
 - **Handles.** Each page has a short name taken from its title, so Trip Budget is `trip`. Handle… changes it. Another page reads a value with `@handle.variable`. `@trip.total` is the last assignment of `total` on that page. Typing `@` lists pages. F2 renames a variable on this page and in `@handle.name` on the others.
 
-End-to-end encrypted sync, with named vaults and a recovery phrase, is described at [Sync](https://omacus.com/sync/). It is not in this version. Pages stay on this device.
+End-to-end encrypted sync is in the web app. Turn on sync is in the sidebar. Twelve recovery words open the pages again. The server cannot read them. The desktop app does not upload pages yet. [Sync](https://omacus.com/sync/) explains how it works.
 
 ## Sharing & the web app
 
@@ -487,7 +482,7 @@ Only to refresh exchange rates and to check for a new version when it starts and
 
 ### macOS says it can't verify the app.
 
-That's because Omacus isn't notarized by Apple yet. Install with the [one-line installer](https://omacus.com/docs/#mac) to avoid the prompt, or allow it once under **System Settings → Privacy & Security → Open Anyway**.
+That's because Omacus isn't notarized by Apple yet. On macOS 15 or later, open it once, then **System Settings → Privacy & Security → Open Anyway**. On an older Mac, right-click the app and choose Open.
 
 ### Windows SmartScreen warns about an unknown publisher.
 
@@ -499,7 +494,7 @@ Anyone you give the link to. The page is inside the link itself, after the `#`, 
 
 ### Is my data sent anywhere?
 
-Pages stay on your disk. This version does not sync. Omacus makes two kinds of request: one for exchange rates, and a check of the latest version number on GitHub. Neither sends anything about you or your pages, and the version check can be turned off with `check_for_updates = false` in `settings.toml` (see [Where files live](https://omacus.com/docs/#files)). [Sync](https://omacus.com/sync/) describes a later, end-to-end encrypted way to keep vaults across devices. It is not in this version.
+Desktop pages stay on your disk. The desktop app does not upload them. The web app can send a sealed copy when you turn on sync. The server cannot read the pages. Omacus also fetches exchange rates, and on the desktop it checks the latest version number on GitHub. Neither of those sends anything from your pages, and the version check can be turned off with `check_for_updates = false` in `settings.toml` (see [Where files live](https://omacus.com/docs/#files)). [Sync](https://omacus.com/sync/) explains the sealed copy.
 
 ## How it works
 

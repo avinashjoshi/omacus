@@ -3,9 +3,20 @@
 // missing or the browser will not grant persistent storage. The old copy is not
 // removed until the new one has been read back.
 
-const DB_NAME = "omacus";
+function syncTest() {
+  try {
+    if (typeof location !== "undefined" && location.hostname === "sync-test.omacus.com") return true;
+    if (typeof document !== "undefined" && document.documentElement?.dataset?.syncTest === "1") return true;
+  } catch {
+    // The published app keeps its own store.
+  }
+  return false;
+}
+
+const DB_NAME = syncTest() ? "omacus-sync-test" : "omacus";
 const STORE = "kv";
-export const PREFIX = "omacus:";
+export const PREFIX = syncTest() ? "omacus-sync-test:" : "omacus:";
+export const CHANNEL = syncTest() ? "omacus-sync-test" : "omacus";
 
 const memory = new Map();
 let db = null;
@@ -21,7 +32,7 @@ export const selfTab = Math.random().toString(36).slice(2);
 function pageChannel() {
   if (channel || typeof window === "undefined" || typeof BroadcastChannel === "undefined") return channel;
   try {
-    channel = new BroadcastChannel("omacus");
+    channel = new BroadcastChannel(CHANNEL);
   } catch {
     channel = null;
   }
@@ -196,7 +207,7 @@ async function writeThrough(key, value) {
 
 export function remove(key) {
   memory.delete(key);
-  if (useIdb && db) idbDelete(db, key);
+  const dropped = useIdb && db ? idbDelete(db, key) : Promise.resolve(false);
   try {
     localStorage.removeItem(PREFIX + key);
   } catch {
@@ -207,6 +218,7 @@ export function remove(key) {
   } catch {
     // See writeThrough.
   }
+  return dropped;
 }
 
 export function drained() {
@@ -333,12 +345,17 @@ function confirmPut(database, key, value) {
 }
 
 function idbDelete(database, key) {
-  try {
-    const tx = database.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).delete(key);
-  } catch {
-    // The key is already gone from memory.
-  }
+  return new Promise((resolve) => {
+    try {
+      const tx = database.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).delete(key);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
+    } catch {
+      resolve(false);
+    }
+  });
 }
 
 function idbAll(database) {

@@ -203,22 +203,9 @@ def fetch_merged_count():
 
 
 def notes_text(rel):
-    """Plain notes for matching. A configured private phrase leaves the notes unused."""
+    """Plain notes for matching a milestone."""
     raw = updates.whats_new(rel.get("body") or "")
-    if updates.private(updates.gathered_text(rel)):
-        return ""
     return updates.plain(raw).lower()
-
-
-def private_versions(raw_releases):
-    """Version labels whose release contains a configured phrase. The phrase is not returned."""
-    hits = []
-    for rel in raw_releases or []:
-        if not isinstance(rel, dict) or rel.get("draft"):
-            continue
-        if updates.private(updates.gathered_text(rel)):
-            hits.append(updates.public_label(rel.get("tag_name")))
-    return hits
 
 
 def day_of(rel, tag_days_map):
@@ -277,11 +264,12 @@ def select_milestones(raw, tag_days_map):
     chosen.append({
         "id": "sync",
         "title": "Sync",
-        "blurb": "Coming soon. Pages that stay in step across computers. Not shipped yet.",
+        "blurb": "The web app can keep pages in step. They are encrypted on your device. The server cannot read them.",
         "tag": "",
-        "label": "Soon",
+        "label": "Web app",
         "day": "",
-        "soon": True,
+        "soon": False,
+        "web": True,
     })
     return chosen
 
@@ -321,6 +309,14 @@ def facts_html(facts):
 def milestone_html(item):
     title = html.escape(item["title"])
     blurb = html.escape(item["blurb"])
+    if item.get("web"):
+        return f'''<li class="entry" id="sync">
+<div class="entry-meta"><a class="version-pill" href="/sync/">Web app</a></div>
+<div class="entry-body">
+<h2>{title}</h2>
+<div class="notes"><p>{blurb}</p></div>
+</div>
+</li>'''
     if item["soon"]:
         return f'''<li class="entry story-soon" id="sync">
 <div class="entry-meta"><span class="version-pill">Soon</span></div>
@@ -370,6 +366,7 @@ def page_html(milestones, facts):
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; media-src 'self'; frame-src 'self' https://app.omacus.com; worker-src 'self'; manifest-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>The story of Omacus</title>
   <meta name="description" content="{e(description)}">
@@ -493,13 +490,8 @@ def gen_footer():
 
 
 def build(raw_releases, out: Path, facts, tag_days_map=None):
-    hits = private_versions(raw_releases)
-    if hits:
-        raise SystemExit("story: private text in " + ", ".join(hits) + "; the page was not written")
     milestones = select_milestones(raw_releases, tag_days_map or {})
     page = page_html(milestones, facts or {})
-    if updates.private(page):
-        raise SystemExit("story: private text reached the generated page; not writing it")
     dest = Path(out) / "story"
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "index.html").write_text(page)

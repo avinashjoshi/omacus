@@ -14,10 +14,19 @@ base64 = "0.22"
 chacha20poly1305 = "0.10"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std", "wasmbind"] }
 chrono-tz = "0.10.4"
+ed25519-dalek = "3.0.0"
 fend-core = "1.5.8"
 getrandom = "0.2"
+hkdf = "0.13.0"
 miniz_oxide = "0.8"
 regex = { version = "1.13.1", default-features = false, features = ["std", "perf", "unicode-perl", "unicode-case"] }
+sha2 = "0.11.1"
+omacus-doc = { path = "../doc" }
+# `static_secrets` so a device receive key can be built from our own random
+# bytes. The crate's `getrandom` feature calls a newer getrandom than this
+# crate uses, so keys are filled with getrandom 0.2 and loaded with `From`.
+x25519-dalek = { version = "3.0.0", features = ["static_secrets"] }
+zeroize = "1.9.1"
 
 # `getrandom` on wasm32 needs the browser's crypto. The feature is target-gated
 # so the desktop build does not pull in wasm-bindgen.

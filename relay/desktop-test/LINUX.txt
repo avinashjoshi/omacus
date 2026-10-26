@@ -1,0 +1,23 @@
+omacus Test is a separate Linux app for trying sync at https://sync-test.omacus.com/. It is not a release of Omacus.
+
+The app is named omacus Test. Its id is dev.omacus.OmacusTest. Pages stay in ~/.local/share/omacus-test and ~/.cache/omacus-test. They are not the pages in Omacus.
+
+It does not register the omacus:// link, and it does not write ~/.local/share/applications/omacus.desktop.
+
+Install WebKit, then run the program in this folder:
+
+sudo pacman -S --needed webkit2gtk-4.1
+./omacus-test
+
+webkit2gtk-4.1 pulls in gtk3. On Wayland, including Hyprland, the window uses Wayland on its own. If the window stays blank, quit and run:
+
+WEBKIT_DISABLE_DMABUF_RENDERER=1 ./omacus-test
+
+dev.omacus.OmacusTest.desktop is a launcher with no omacus:// handler. Copy it to ~/.local/share/applications/dev.omacus.OmacusTest.desktop if you want a menu entry, and set Exec to the full path of omacus-test. Do not name that file omacus.desktop.
+
+Remove this app, its pages, and that launcher:
+
+rm -rf "$HOME/omacus-test-linux" "$HOME/.local/share/omacus-test" "$HOME/.cache/omacus-test"
+rm -f "$HOME/.local/share/applications/dev.omacus.OmacusTest.desktop"
+
+That leaves the installed Omacus app, its settings, and its omacus:// handler in place.

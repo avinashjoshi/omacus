@@ -2,13 +2,16 @@
 // so a reload — including one that bypasses the HTTP cache — still opens offline.
 // A new version waits. The page saves the open edit, then asks this worker to take over.
 
-const CACHE = "omacus-app-12";
+const CACHE = "omacus-app-28";
+const SYNC_TEST = self.location.hostname === "sync-test.omacus.com";
+const CACHE_NAME = SYNC_TEST ? "omacus-sync-test-19" : CACHE;
 
 const APP_FILES = [
   "./",
   "index.html",
   "app.js",
   "tree.js",
+  "layer.js",
   "seed.js",
   "examples.js",
   "app.css",
@@ -19,6 +22,13 @@ const APP_FILES = [
   "frame.js",
   "recover.js",
   "backup.js",
+  "sync.js",
+  "sync-config.js",
+  "sync-link.mjs",
+  "device-name.js",
+  "sync-save.mjs",
+  "sync-vaults.mjs",
+  "sync-leader.mjs",
   "migrate.js",
   "migrate-client.js",
   "migrate-protocol.js",
@@ -41,8 +51,12 @@ const SHARED = [
 
 function shellUrls() {
   const base = new URL("./", self.location);
+  const extra = SYNC_TEST
+    ? ["pkg/omacus_sync_web.js", "pkg/omacus_sync_web_bg.wasm", "words.txt"]
+    : [];
   return [
     ...APP_FILES.map((path) => new URL(path, base).href),
+    ...extra.map((path) => new URL(path, base).href),
     ...SHARED.map((path) => new URL(path, self.location.origin).href),
   ];
 }
@@ -55,7 +69,7 @@ self.addEventListener("activate", (e) => {
   e.waitUntil(
     (async () => {
       const keys = await caches.keys();
-      await Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)));
+      await Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)));
       await self.clients.claim();
     })(),
   );
@@ -74,20 +88,63 @@ function honest(res, req) {
   return !(res.headers.get("content-type") || "").includes("text/html");
 }
 
+// One cache operation at a time. A write that is still reading a socket holds
+// WebKit's cache lock, and the next match never answers, so a reload stays on
+// the loading line.
+let cacheQueue = Promise.resolve();
+
+function enqueue(task) {
+  const run = cacheQueue.then(task, task);
+  cacheQueue = run.then(() => {}, () => {});
+  return run;
+}
+
+// Read the whole body before anything is stored. A socket the server dropped
+// must not be the body of a cache write.
+function fetchFresh(url, ms) {
+  const ctrl = new AbortController();
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      ctrl.abort();
+      reject(new Error("timed out"));
+    }, ms);
+  });
+  const done = (async () => {
+    const res = await fetch(url, { signal: ctrl.signal });
+    const body = await res.arrayBuffer();
+    // fetch already decoded the bytes. Keeping the encoded length or encoding
+    // would make the stored body unread, and the next launch would sit on the
+    // loading line.
+    const skip = new Set(["content-encoding", "content-length", "transfer-encoding", "connection", "keep-alive"]);
+    const headers = new Headers();
+    res.headers.forEach((value, name) => {
+      if (skip.has(name)) return;
+      try { headers.set(name, value); } catch { /* A hop-by-hop header cannot be stored. */ }
+    });
+    return new Response(body, { status: res.status, statusText: res.statusText, headers });
+  })();
+  done.catch(() => {});
+  return Promise.race([done, timeout]).finally(() => clearTimeout(timer));
+}
+
+async function matchAny(cache, req) {
+  return enqueue(async () => (await cache.match(req)) || (await cache.match(req, { ignoreSearch: true })));
+}
+
 async function keep(cache, url) {
   const req = new Request(url);
-  const hit = await cache.match(req);
-  if (hit && honest(hit, req)) return;
+  if (await matchAny(cache, req).then((hit) => hit && honest(hit, req))) return;
   try {
-    const res = await fetch(req);
-    if (honest(res, req)) await cache.put(req, res);
+    const res = await fetchFresh(req, 15000);
+    if (honest(res, req)) await enqueue(() => cache.put(req, res));
   } catch {
     // The shell can be short a file. Pages in the browser are a different store.
   }
 }
 
 async function precache(extra = []) {
-  const cache = await caches.open(CACHE);
+  const cache = await caches.open(CACHE_NAME);
   const urls = [...new Set([...shellUrls(), ...extra])];
   await Promise.all(urls.map((url) => keep(cache, url)));
   return cache;
@@ -113,53 +170,51 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  if (url.pathname === "/v1" || url.pathname.startsWith("/v1/")) return;
   if (req.mode === "navigate") {
     if (isAppNavigation(url.pathname)) e.respondWith(networkFirstPage());
     return;
   }
-  const cachePromise = caches.open(CACHE);
-  const fetched = fetchFresh(req)
-    .then(async (res) => {
-      if (!honest(res, req)) return null;
-      const cache = await cachePromise;
-      await cache.put(req, res.clone());
+  const cachePromise = caches.open(CACHE_NAME);
+  // A cached file is the answer. The fresh copy is stored only after its body
+  // has arrived, so a dropped connection cannot sit in the cache.
+  const refresh = cachePromise.then(async (cache) => {
+    try {
+      const res = await fetchFresh(req, 15000);
+      if (honest(res, req)) await enqueue(() => cache.put(req, res.clone()));
       return res;
-    })
-    .catch(() => null);
-  e.waitUntil(fetched.then(() => {}));
+    } catch {
+      return null;
+    }
+  });
+  e.waitUntil(refresh.then(() => {}));
   e.respondWith(
     (async () => {
       const cache = await cachePromise;
-      const hit = (await cache.match(req)) || (await cache.match(req, { ignoreSearch: true }));
+      const hit = await matchAny(cache, req);
       if (hit && honest(hit, req)) return hit;
-      return (await fetched) || (hit && honest(hit, req) ? hit : null) || offline();
+      return (await refresh) || offline();
     })(),
   );
 });
-
-function fetchFresh(url) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 2500);
-  return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
-}
 
 // Fresh when the network answers; the cached shell when it does not. A reload
 // that skips the HTTP cache still comes through here, including with no connection.
 async function networkFirstPage() {
   const key = new URL("./", self.location).href;
-  const cache = await caches.open(CACHE);
+  const cache = await caches.open(CACHE_NAME);
   if (self.navigator.onLine !== false) {
     try {
-      const res = await fetchFresh(key);
+      const res = await fetchFresh(key, 2500);
       if (res.ok) {
-        await cache.put(key, res.clone());
+        await enqueue(() => cache.put(key, res.clone()));
         return res;
       }
     } catch {
       // Offline, or the reload could not reach the network.
     }
   }
-  const cached = (await cache.match(key)) || (await cache.match(new URL("index.html", self.location).href));
+  const cached = (await matchAny(cache, key)) || (await matchAny(cache, new URL("index.html", self.location).href));
   if (!cached) return offline();
   const headers = new Headers(cached.headers);
   headers.set("X-Omacus-Offline", "1");
@@ -171,6 +226,21 @@ self.addEventListener("message", (e) => {
     self.skipWaiting();
     return;
   }
+  if (e.data?.type === "shell-status") {
+    const source = e.source;
+    const port = e.ports[0];
+    e.waitUntil(
+      (async () => {
+        const cache = await caches.open(CACHE_NAME);
+        const keys = new Set((await enqueue(() => cache.keys())).map((req) => req.url));
+        const missing = shellUrls().filter((url) => !keys.has(url));
+        const reply = { type: "shell-status", ready: missing.length === 0, missing };
+        if (port) port.postMessage(reply);
+        else source?.postMessage(reply);
+      })(),
+    );
+    return;
+  }
   if (e.data?.type !== "cache") return;
   const extra = Array.isArray(e.data.urls) ? e.data.urls : [];
   const keep = new Set([...shellUrls(), ...extra]);
@@ -178,9 +248,9 @@ self.addEventListener("message", (e) => {
     (async () => {
       const cache = await precache(extra);
       const base = new URL("./", self.location).pathname;
-      for (const req of await cache.keys()) {
+      for (const req of await enqueue(() => cache.keys())) {
         const path = new URL(req.url).pathname;
-        if (path !== base && !keep.has(req.url)) await cache.delete(req);
+        if (path !== base && !keep.has(req.url)) await enqueue(() => cache.delete(req));
       }
     })(),
   );

@@ -499,10 +499,23 @@ impl Store {
         for text in bundled_examples().iter().rev() {
             self.new_sheet_in(Some(&folder), text);
         }
-        if let Some(id) = welcome_id
-            && let Some(i) = self.sheets.iter().position(|s| s.id == id)
-        {
-            self.active = i;
+        if let Some(id) = welcome_id {
+            if let Some(pos) = self
+                .tree
+                .iter()
+                .position(|node| matches!(node, Node::Page { id: page } if page == &id))
+                && pos != 0
+            {
+                let node = self.tree.remove(pos);
+                self.tree.insert(0, node);
+            }
+            if let Some(i) = self.sheets.iter().position(|s| s.id == id) {
+                if i != 0 {
+                    let sheet = self.sheets.remove(i);
+                    self.sheets.insert(0, sheet);
+                }
+                self.active = 0;
+            }
         }
         self.seeded = true;
         self.state_dirty = true;
@@ -3704,6 +3717,14 @@ mod tests {
         assert_eq!(store.current().heading(), "Welcome to Omacus");
         let welcome_id = store.current().id.clone();
         assert!(store.folder_of(&welcome_id).is_none());
+        match &store.side_entries()[0].kind {
+            SideKind::Page { id } => assert_eq!(id, &welcome_id),
+            other => panic!("welcome is not the first sidebar row: {other:?}"),
+        }
+        match &store.side_entries()[1].kind {
+            SideKind::Folder { name, .. } => assert_eq!(name, "Examples"),
+            other => panic!("Examples is not under welcome: {other:?}"),
+        }
         let names: Vec<_> = store.folders().into_iter().map(|f| f.name).collect();
         assert_eq!(names, ["Examples"]);
         let titles: Vec<_> = store.sheets.iter().map(Sheet::heading).collect::<Vec<_>>();

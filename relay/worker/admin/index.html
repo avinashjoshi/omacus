@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en" data-app-theme="dark">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sync</title>
+    <link rel="stylesheet" href="/css/tokens.css">
+    <link rel="stylesheet" href="/admin/admin.css">
+  </head>
+  <body>
+    <main class="admin">
+      <h1>Sync</h1>
+      <p class="lede">This page can pause new signups, set the limits, mint an invite code, copy a sealed account, and restore one. It cannot open a page.</p>
+
+      <form class="key" data-key>
+        <label>Admin key <input name="key" type="password" autocomplete="current-password" required></label>
+        <button class="primary" type="submit">Unlock</button>
+      </form>
+      <p class="alert" data-key-error role="alert"></p>
+
+      <div data-app hidden>
+        <section class="block">
+          <p data-signups>New signups are on.</p>
+          <button class="quiet" type="button" data-pause>Pause new signups</button>
+        </section>
+
+        <section class="block">
+          <h2>Create a code</h2>
+          <form class="create" data-create>
+            <label>Label <input name="label" maxlength="40" autocomplete="off"></label>
+            <label>Uses <input name="uses" type="number" min="1" max="20" value="1" required></label>
+            <label>Expiry <input name="expires" type="date"> <span class="hint">Optional.</span></label>
+            <button class="primary" type="submit">Create code</button>
+          </form>
+          <div class="once" data-once hidden></div>
+        </section>
+
+        <section class="block">
+          <h2>Codes</h2>
+          <div data-codes></div>
+        </section>
+
+        <section class="block">
+          <h2>Limits</h2>
+          <p>These limits apply on this server. A signup past the account limit is refused, and the invite code is not used.</p>
+          <form class="limits" data-limits>
+            <label>Max accounts <input name="maxAccounts" type="number" min="1" max="1000000" required></label>
+            <label>Max storage per account, in bytes <input name="maxStorage" type="number" min="1024" required></label>
+            <label>Max devices <input name="maxDevices" type="number" min="1" max="64" required></label>
+            <label>Requests per account <input name="accountRate" type="number" min="1" required></label>
+            <label>Requests per address <input name="ipRate" type="number" min="1" required></label>
+            <label>Code guesses per address <input name="guessRate" type="number" min="1" required></label>
+            <label>Join attempts per address <input name="joinRate" type="number" min="1" required></label>
+            <label>Reads per account <input name="readAccountRate" type="number" min="1" required></label>
+            <label>Reads per address <input name="readIpRate" type="number" min="1" required></label>
+            <button class="quiet" type="submit">Save limits</button>
+          </form>
+          <p class="hint">Each rate is for 60 seconds.</p>
+          <p class="alert" data-limits-note role="status"></p>
+        </section>
+
+        <section class="block">
+          <h2>Stats</h2>
+          <p data-counts></p>
+          <p data-activity></p>
+          <p data-copy></p>
+          <h3>Storage</h3>
+          <p class="hint">Requests are for the last day. The exact time shows on hover.</p>
+          <div class="scroll" data-storage></div>
+          <h3>Recent errors</h3>
+          <div data-errors></div>
+        </section>
+
+        <section class="block">
+          <h2>Nightly copies</h2>
+          <p data-backups-ready>A nightly copy of each sealed account. A phone merges that copy with the pages it already has.</p>
+          <button class="quiet" type="button" data-backup>Copy now</button>
+          <div data-backups></div>
+          <div data-backup-accounts></div>
+          <div data-backup-errors></div>
+          <form class="remove" data-restore>
+            <label>Account id <input name="account" autocomplete="off" spellcheck="false"> <span class="hint">Leave this empty to restore every account.</span></label>
+            <label>Day <input name="date" type="date" required></label>
+            <button class="danger" type="submit">Restore</button>
+          </form>
+          <div data-restore-confirm hidden>
+            <p data-restore-ask></p>
+            <button class="danger" type="button" data-restore-yes>Restore sealed copy</button>
+            <button class="quiet" type="button" data-restore-no>Cancel</button>
+          </div>
+          <p class="alert" data-restore-note role="status"></p>
+        </section>
+
+        <section class="block">
+          <h2>Remove a sealed copy</h2>
+          <p>Type the account id to confirm.</p>
+          <form class="remove" data-remove>
+            <label>Account id <input name="account" autocomplete="off" spellcheck="false" required></label>
+            <button class="danger" type="submit">Remove sealed copy</button>
+          </form>
+          <p class="alert" data-remove-note role="status"></p>
+        </section>
+      </div>
+    </main>
+    <script type="module" src="/admin/admin.js"></script>
+  </body>
+</html>

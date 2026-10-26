@@ -30,9 +30,9 @@ check(lib.active === "ex-welcome", "welcome is the open page");
 check(lib.texts["ex-welcome"] === welcome, "welcome text is kept");
 check(lib.handles["ex-welcome"] === "welcome", "welcome gets a handle");
 
-const folder = lib.tree[0];
-const welcomeNode = lib.tree[1];
-check(lib.tree.length === 2, "the root holds the folder and the welcome page");
+const welcomeNode = lib.tree[0];
+const folder = lib.tree[1];
+check(lib.tree.length === 2, "the root holds the welcome page, then the folder");
 check(folder.type === "folder" && folder.name === "Examples", "the folder is named Examples");
 check(folder.children.length === PAGES.length, "every example page is in the folder");
 check(welcomeNode.type === "page" && welcomeNode.id === "ex-welcome", "welcome stays at the root");

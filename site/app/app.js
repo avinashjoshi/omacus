@@ -19,10 +19,13 @@ import {
   insertNode, moveSibling, pageIds, pagesUnder, place, removeNode, renameFolder, sanitize, siblingEnds, toggleFolder, validDrop,
   visible,
 } from "./tree.js";
+import { placeRowMenu, swallowDrawerTap } from "./layer.js";
 import {
   ready as storeReady, get as storeGet, set as storeSet, remove as storeRemove, adopt as storeAdopt,
-  drained as storeDrained, keys as storeKeys, persistGranted, selfTab,
+  drained as storeDrained, keys as storeKeys, persistGranted, selfTab, PREFIX, CHANNEL,
 } from "./store.js";
+import { mountSync } from "./sync.js";
+import { captureSyncLink } from "./sync-link.mjs";
 import { allocateHandle, freshLibrary, seedAction } from "./seed.js";
 import { backupEntries, mergeBackup, parseBackup, unzipNamed, zipBytes } from "./backup.js";
 
@@ -35,8 +38,20 @@ if (bootLoading) bootLoading.hidden = false;
 
 const WASM = new URL("pkg/omacus_web_bg.wasm", import.meta.url).href;
 const WORKER = new URL("./worker.js", import.meta.url).href;
-const PREFIX = "omacus:";
 const RATES_URL = "https://open.er-api.com/v6/latest/USD";
+// Units per 1 USD, so the welcome page can answer ¥ before the live rates arrive.
+const FALLBACK_RATES = {
+  USD: 1,
+  EUR: 0.92,
+  GBP: 0.78,
+  JPY: 150,
+  CAD: 1.36,
+  AUD: 1.52,
+  INR: 83,
+  CNY: 7.2,
+  CHF: 0.88,
+  KRW: 1350,
+};
 const RATES_MAX_AGE = 12 * 60 * 60 * 1000;
 const KEYWORDS = new Set(["prev", "sum", "total", "avg", "average", "mean", "min", "max", "today", "now",
   "tomorrow", "yesterday", "plus", "minus", "times", "mod"]);
@@ -61,7 +76,6 @@ days until Christmas
 #ff8800 in hsl
 
 // Click an answer to copy it. Share link sends this page to anyone.
-// Private: your pages are saved in this browser only. Nothing is uploaded.
 `;
 
 // Embedded in omacus.com's homepage (/app/?embed#v1.…): just the editor, on the sheet
@@ -108,6 +122,11 @@ const el = {
   pagePreviewBody: $("[data-page-preview-body]"),
   move: $("[data-move]"),
   moveList: $("[data-move-list]"),
+  syncDest: $("[data-sync-dest]"),
+  syncDestList: $("[data-sync-dest-list]"),
+  syncMove: $("[data-sync-move]"),
+  syncMoveTitle: $("[data-sync-move-title]"),
+  syncMoveDetail: $("[data-sync-move-detail]"),
   rename: $("[data-rename]"),
   renameInput: $("[data-rename-input]"),
   switcher: $("[data-switcher]"),
@@ -769,15 +788,18 @@ function updateThemeNote() {
 }
 
 function showSettingsTab(name) {
-  const tab = name === "about" ? "about" : "settings";
+  const panels = [...document.querySelectorAll("[data-settings-panel]")];
+  const known = new Set(panels.map((panel) => panel.dataset.settingsPanel));
+  const tab = known.has(name) ? name : "settings";
   for (const button of document.querySelectorAll("[data-settings-tab]")) {
     button.setAttribute("aria-selected", String(button.dataset.settingsTab === tab));
   }
-  for (const panel of document.querySelectorAll("[data-settings-panel]")) {
+  for (const panel of panels) {
     panel.hidden = panel.dataset.settingsPanel !== tab;
   }
   const title = document.getElementById("settings-title");
-  if (title) title.textContent = tab === "about" ? "About" : "Settings";
+  const titles = { about: "About", sync: "Sync" };
+  if (title) title.textContent = titles[tab] || "Settings";
 }
 
 function showBuildHash() {
@@ -787,9 +809,34 @@ function showBuildHash() {
   node.textContent = /^[0-9a-f]{64}$/i.test(hash) ? hash : "Not a published build.";
 }
 
+let settingsOpener = null;
+
+const SETTINGS_FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function settingsFocusable(root) {
+  if (!root) return [];
+  return [...root.querySelectorAll(SETTINGS_FOCUSABLE)].filter((node) => {
+    if (node.closest("[hidden]")) return false;
+    // The backdrop stays clickable, and it is not a tab stop.
+    return node.getAttribute("tabindex") !== "-1";
+  });
+}
+
+function nestedDialogOpen() {
+  return [el.switcher, el.lock, el.syncMove, el.syncDest, el.move, el.rename, el.handleDialog, el.pick, el.confirm, el.rowMenu]
+    .some((node) => node && !node.hidden);
+}
+
+function focusSettingsDialog() {
+  const card = el.settings && el.settings.querySelector(".settings-card");
+  const items = settingsFocusable(card);
+  if (items[0]) items[0].focus();
+}
+
 function openSettings(tab = "settings") {
   closeMenu();
   if (!el.settings) return;
+  const opening = el.settings.hidden;
   const select = $("[data-setting=theme]", el.settings);
   const hide = $("[data-setting=hide-answers]", el.settings);
   if (select) select.value = settings.theme;
@@ -800,11 +847,37 @@ function openSettings(tab = "settings") {
   showBuildHash();
   showSettingsTab(tab);
   el.settings.hidden = false;
+  if (opening) {
+    settingsOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    focusSettingsDialog();
+  }
 }
 
 function closeSettings() {
-  if (el.settings) el.settings.hidden = true;
+  if (!el.settings || el.settings.hidden) return;
+  el.settings.hidden = true;
+  const back = settingsOpener;
+  settingsOpener = null;
+  if (back && document.contains(back)) back.focus();
 }
+
+addEventListener("keydown", (event) => {
+  if (event.key !== "Tab" || !el.settings || el.settings.hidden || nestedDialogOpen()) return;
+  const card = el.settings.querySelector(".settings-card");
+  const items = settingsFocusable(card);
+  if (!items.length) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  const active = document.activeElement;
+  const inside = !!(card && card.contains(active));
+  if (event.shiftKey && (!inside || active === first)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (!inside || active === last)) {
+    event.preventDefault();
+    first.focus();
+  }
+}, true);
 
 function toggleAnswers() {
   settings.hideAnswers = !settings.hideAnswers;
@@ -910,10 +983,215 @@ function installLibrary(lib) {
   saveIndex();
 }
 
+let syncTouched = () => {};
+let applyingRemote = false;
+let syncPlaces = null;
+const sideCollapsed = { vault: false, local: false };
+let sidePick = new Set();
+let sideAnchor = "";
+let pendingMove = null;
+
+function setSyncPlaces(places) {
+  syncPlaces = places || null;
+  if (!syncPlaces) sidePick.clear();
+  renderSidebar();
+}
+
+if (document.documentElement.dataset.syncTest === "1") globalThis.omacusShowPlaces = setSyncPlaces;
+
+function filterSyncedTree(nodes, local) {
+  const out = [];
+  for (const node of nodes || []) {
+    if (!node) continue;
+    if (node.type === "page") {
+      if (!local.has(node.id)) out.push(node);
+    } else if (node.type === "folder") {
+      const children = filterSyncedTree(node.children, local);
+      if (children.length) out.push({ ...node, children });
+    }
+  }
+  return out;
+}
+
+function sideCaption(text, kind, count) {
+  const row = document.createElement("div");
+  row.className = "side-sync-label";
+  row.dataset.syncSection = kind;
+  row.dataset.dropSection = kind;
+  const open = !sideCollapsed[kind];
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "side-section";
+  button.setAttribute("aria-expanded", String(open));
+  button.setAttribute("aria-label", `${open ? "Collapse" : "Expand"} ${text}`);
+  const mark = document.createElement("span");
+  mark.className = "chevron";
+  mark.append(chevronIcon());
+  const label = document.createElement("span");
+  label.textContent = `${text} · ${count}`;
+  button.append(mark, label);
+  row.append(button);
+  if (kind === "local" && count === 0) {
+    const hint = document.createElement("p");
+    hint.className = "side-sync-hint";
+    hint.textContent = `Pages you move here stay on ${herePhrase()}.`;
+    row.append(hint);
+  }
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    sideCollapsed[kind] = !sideCollapsed[kind];
+    renderSidebar();
+  });
+  return row;
+}
+
+function sidePickNote() {
+  const row = document.createElement("div");
+  row.className = "side-sync-label";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "side-section";
+  button.textContent = sidePick.size === 1 ? "1 selected · Clear" : `${sidePick.size} selected · Clear`;
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    sidePick.clear();
+    renderSidebar();
+  });
+  row.append(button);
+  return row;
+}
+
+function syncSectionOf(id) {
+  if (!syncPlaces) return null;
+  return (syncPlaces.localIds || []).includes(id) ? "local" : "vault";
+}
+
+function herePhrase() {
+  const raw = String(syncPlaces?.here || "On this computer").replace(/^On\s+/i, "");
+  const place = raw.replace(/^(this\s+)+/i, "");
+  return `this ${place}`.replace(/\s+/g, " ").trim();
+}
+
+function closeSyncDest() {
+  if (el.syncDest) el.syncDest.hidden = true;
+}
+
+function closeSyncMove() {
+  if (el.syncMove) el.syncMove.hidden = true;
+  pendingMove = null;
+}
+
+function syncDestinations() {
+  if (!syncPlaces) return [];
+  return [
+    { id: "vault", label: syncPlaces.vaultName || "My pages" },
+    { id: "local", label: syncPlaces.here || "On this computer" },
+  ];
+}
+
+function openMoveTo(ids) {
+  const unique = [...new Set(ids)].filter((id) => pageIds(state.tree).includes(id));
+  if (!unique.length) return;
+  if (syncPlaces && typeof syncPlaces.move === "function") {
+    openSyncDest(unique);
+    return;
+  }
+  if (unique.length === 1) openMove(unique[0]);
+}
+
+function openSyncDest(ids) {
+  const unique = [...new Set(ids)].filter((id) => pageIds(state.tree).includes(id));
+  if (!unique.length || !el.syncDest || !el.syncDestList) return;
+  const places = new Set(unique.map(syncSectionOf));
+  el.syncDestList.replaceChildren();
+  for (const dest of syncDestinations()) {
+    if (places.size === 1 && places.has(dest.id)) continue;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = dest.label;
+    button.addEventListener("click", () => {
+      closeSyncDest();
+      askSyncMove(unique, dest.id === "vault");
+    });
+    el.syncDestList.append(button);
+  }
+  for (const folder of folders(state.tree)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = folder.name;
+    button.addEventListener("click", () => {
+      closeSyncDest();
+      for (const id of unique) {
+        if (folderOf(state.tree, id) !== folder.id) applyPlace(id, { kind: "into", id: folder.id });
+      }
+      renderSidebar();
+    });
+    el.syncDestList.append(button);
+  }
+  if (!el.syncDestList.childElementCount) {
+    if (unique.length === 1) openMove(unique[0]);
+    return;
+  }
+  el.syncDest.hidden = false;
+  el.syncDestList.querySelector("button")?.focus();
+}
+
+function askSyncMove(ids, inVault) {
+  const unique = [...new Set(ids)].filter((id) => pageIds(state.tree).includes(id));
+  if (!unique.length || !syncPlaces || !el.syncMove) return;
+  const name = syncPlaces.vaultName || "My pages";
+  const place = herePhrase();
+  const many = unique.length > 1;
+  pendingMove = { ids: unique, inVault };
+  if (inVault) {
+    el.syncMoveTitle.textContent = many
+      ? `Move ${unique.length} pages into ${name}?`
+      : `Move “${pageLabel(unique[0])}” into ${name}?`;
+    el.syncMoveDetail.textContent = many
+      ? `They join ${name}. Other phones and computers get these copies. If they already have one, it stays one page. Nothing is deleted. You can move them back.`
+      : `It joins ${name}. Other phones and computers get this copy. If they already have it, it stays one page. Nothing is deleted. You can move it back.`;
+  } else {
+    el.syncMoveTitle.textContent = many
+      ? `Move ${unique.length} pages out of ${name}?`
+      : `Move “${pageLabel(unique[0])}” out of ${name}?`;
+    el.syncMoveDetail.textContent = many
+      ? `They stay on ${place}. Other phones and computers take them out of ${name}. The copy already there stays there and will not get later changes. Nothing is deleted. You can move them back.`
+      : `It stays on ${place}. Other phones and computers take it out of ${name}. The copy already there stays there and will not get later changes. Nothing is deleted. You can move it back.`;
+  }
+  el.syncMove.hidden = false;
+  $("[data-sync-move-yes]")?.focus();
+}
+
+function commitSyncMove() {
+  if (!pendingMove || typeof syncPlaces?.move !== "function") {
+    closeSyncMove();
+    return;
+  }
+  const { ids, inVault } = pendingMove;
+  closeSyncMove();
+  syncPlaces.move(ids, inVault);
+  sidePick.clear();
+  const where = inVault ? (syncPlaces.vaultName || "My pages") : (syncPlaces.here || "On this computer");
+  const message = ids.length === 1
+    ? `Moved ${pageLabel(ids[0])} to ${where}.`
+    : `Moved ${ids.length} pages to ${where}.`;
+  toast(message, {
+    label: "Undo",
+    run: () => syncPlaces.move(ids, !inVault),
+  }, 10000);
+  renderSidebar();
+}
+function noteSyncEdit() {
+  if (!applyingRemote) syncTouched();
+}
+
 function saveSheet(id) {
   if (id === "shared" || !id) return Promise.resolve(false);
   const saved = store.set("page:" + id, state.texts.get(id) ?? "");
   const noted = noteDocPage(id);
+  noteSyncEdit();
   return Promise.all([saved, noted]).then(([ok]) => ok);
 }
 
@@ -1455,7 +1733,7 @@ addEventListener("storage", (e) => {
   onStoreWrite(e.key.slice(PREFIX.length), e.newValue);
 });
 try {
-  const pagesChannel = new BroadcastChannel("omacus");
+  const pagesChannel = new BroadcastChannel(CHANNEL);
   pagesChannel.onmessage = (e) => {
     if (!e.data || typeof e.data.key !== "string" || e.data.tab === selfTab) return;
     onStoreWrite(e.data.key, e.data.value);
@@ -1552,6 +1830,26 @@ function onInput() {
 const editorStates = new Map();
 let shownId = null;
 
+// The open editor is the copy the person just typed. A sync refresh can
+// replace the saved text for another page; it must not throw this one away.
+function rememberOpenEditor() {
+  if (!view || shownId == null) return;
+  editorStates.set(shownId, view.state);
+  if (applyingRemote || shownId === "shared" || pageConcealed(shownId)) return;
+  const live = view.state.doc.toString();
+  if (keyFor(shownId)) {
+    plains.set(shownId, live);
+    const sealed = reseal(shownId, live);
+    if (sealed) state.texts.set(shownId, sealed);
+    return;
+  }
+  if ((state.texts.get(shownId) ?? "") === live) return;
+  state.texts.set(shownId, live);
+  clearTimeout(pendingSave);
+  pendingSave = null;
+  saveSheet(shownId);
+}
+
 function showSheet() {
   switchingPage = true;
   closeRename();
@@ -1562,7 +1860,9 @@ function showSheet() {
   refDismissed = false;
   closePagePreview();
   clearPreview();
-  if (shownId !== null) editorStates.set(shownId, view.state);
+  const leaving = shownId !== state.active;
+  if (leaving) rememberOpenEditor();
+  else if (shownId !== null) editorStates.set(shownId, view.state);
   shownId = state.active;
   results = [];
   resultsText = "";
@@ -1623,8 +1923,31 @@ addEventListener("pagehide", () => {
 function renderSidebar() {
   const rows = [];
   if (state.shared) rows.push(pageRow("shared", state.shared.text, true, 0));
-  for (const entry of visible(state.tree)) {
-    rows.push(entry.type === "folder" ? folderRow(entry) : pageRow(entry.id, shownPlain(entry.id), false, entry.depth));
+  if (!syncPlaces) {
+    for (const entry of visible(state.tree)) {
+      rows.push(entry.type === "folder" ? folderRow(entry) : pageRow(entry.id, shownPlain(entry.id), false, entry.depth));
+    }
+  } else {
+    const local = new Set(syncPlaces.localIds || []);
+    const known = new Set(pageIds(state.tree));
+    for (const id of sidePick) if (!known.has(id)) sidePick.delete(id);
+    const vaultIds = [];
+    const hereIds = [];
+    for (const id of pageIds(state.tree)) {
+      if (!state.texts.has(id)) continue;
+      (local.has(id) ? hereIds : vaultIds).push(id);
+    }
+    if (sidePick.size) rows.push(sidePickNote());
+    rows.push(sideCaption(syncPlaces.vaultName || "My pages", "vault", vaultIds.length));
+    if (!sideCollapsed.vault) {
+      for (const entry of visible(filterSyncedTree(state.tree, local))) {
+        rows.push(entry.type === "folder" ? folderRow(entry) : pageRow(entry.id, shownPlain(entry.id), false, entry.depth, "synced"));
+      }
+    }
+    rows.push(sideCaption(syncPlaces.here || "On this computer", "local", hereIds.length));
+    if (!sideCollapsed.local) {
+      for (const id of hereIds) rows.push(pageRow(id, shownPlain(id), false, 0, "local"));
+    }
   }
   const fill = document.createElement("div");
   fill.className = "side-fill";
@@ -1701,7 +2024,7 @@ function moreButton(label) {
   return button;
 }
 
-function pageRow(id, text, shared, depth) {
+function pageRow(id, text, shared, depth, place) {
   const row = sideRow(shared ? "shared" : "page", id, depth);
   const name = document.createElement("button");
   name.type = "button";
@@ -1724,6 +2047,8 @@ function pageRow(id, text, shared, depth) {
     name.append(tag);
   }
   row.append(name);
+  if (!shared && place) row.dataset.place = place === "local" ? "local" : "synced";
+  if (!shared && sidePick.has(id)) row.dataset.picked = "1";
   if (!shared) row.append(moreButton("Page menu"));
   if (id === state.active && !preview) row.setAttribute("aria-current", "true");
   return row;
@@ -2697,9 +3022,13 @@ const editorExtensions = [
     // completionStatus wants the state; passing the view throws, which used to
     // skip this and leave the new line blank and the lines below it dimmed.
     if (update.docChanged) {
-      noteCrossUndo(update);
-      if (!committingTyped && !switchingPage) {
-        noteDefinitionEdit(update.view, update.startState.doc.toString(), update.state.doc.toString());
+      try {
+        noteCrossUndo(update);
+        if (!committingTyped && !switchingPage) {
+          noteDefinitionEdit(update.view, update.startState.doc.toString(), update.state.doc.toString());
+        }
+      } catch {
+        // The rename offer can fail. The typed line still has to be kept.
       }
       onInput();
     }
@@ -2711,6 +3040,8 @@ const editorExtensions = [
     autocapitalize: "off",
     autocorrect: "off",
     autocomplete: "off",
+    // The scroller is not a tab stop. The page itself is, so a keyboard can scroll it.
+    tabindex: "0",
     "aria-label": "Page",
   }),
 ];
@@ -3065,6 +3396,10 @@ async function share() {
 }
 
 async function openShared() {
+  if (captureSyncLink()) {
+    if (typeof globalThis.omacusOpenSyncLink === "function") await globalThis.omacusOpenSyncLink();
+    return;
+  }
   const hash = decodeURIComponent(location.hash.slice(1));
   if (!hash) return;
   const text = shareDecode(hash);
@@ -3141,6 +3476,7 @@ async function loadRates() {
   const age = Number.isFinite(cached?.at) ? Date.now() - cached.at : Infinity;
   if (have && age < RATES_MAX_AGE) {
     setRatesNote("fresh");
+    evaluate();
     return;
   }
   try {
@@ -3216,7 +3552,7 @@ async function action(name) {
   } else if (name === "new-folder") {
     addFolder(null);
   } else if (name === "move-folder") {
-    if (state.active && state.active !== "shared" && pageIds(state.tree).includes(state.active)) openMove(state.active);
+    if (state.active && state.active !== "shared" && pageIds(state.tree).includes(state.active)) openMoveTo([state.active]);
     else toast("Open a page to move it.");
   } else if (name === "close-move") {
     closeMove();
@@ -3260,14 +3596,18 @@ async function action(name) {
     setDrawer(false);
   } else if (name === "expand-side") {
     setSide(true);
+  } else if (name === "turn-on-sync") {
+    setDrawer(false);
+    globalThis.omacusTurnOnSync?.();
+  } else if (name === "device-waiting") {
+    setDrawer(false);
+    globalThis.omacusShowJoin?.();
   } else if (name === "settings") {
     openSettings("settings");
   } else if (name === "about") {
     openSettings("about");
   } else if (name === "close-settings") {
     closeSettings();
-  } else if (name === "privacy") {
-    toast(privacyNote(), null, 7000);
   }
 }
 
@@ -3648,16 +3988,28 @@ function followSwitcher(hit) {
   else if (hit.id) select(hit.id);
 }
 
-function closeRowMenu() {
-  if (el.rowMenu) el.rowMenu.hidden = true;
+function mountRowMenu() {
+  const menu = el.rowMenu;
+  if (!menu) return;
+  if (menu.parentElement !== document.body) document.body.append(menu);
+  if (typeof menu.showPopover === "function") menu.setAttribute("popover", "manual");
 }
 
-function openMenu(x, y, items) {
-  if (!el.rowMenu) return;
-  el.rowMenu.replaceChildren();
+function closeRowMenu() {
+  const menu = el.rowMenu;
+  if (!menu) return;
+  if (typeof menu.hidePopover === "function" && menu.matches(":popover-open")) menu.hidePopover();
+  menu.hidden = true;
+}
+
+function openMenu(x, y, items, anchor) {
+  const menu = el.rowMenu;
+  if (!menu) return;
+  mountRowMenu();
+  menu.replaceChildren();
   for (const item of items) {
     if (item === "sep") {
-      el.rowMenu.append(document.createElement("hr"));
+      menu.append(document.createElement("hr"));
       continue;
     }
     const button = document.createElement("button");
@@ -3670,14 +4022,21 @@ function openMenu(x, y, items) {
       closeRowMenu();
       item.run();
     });
-    el.rowMenu.append(button);
+    menu.append(button);
   }
-  el.rowMenu.hidden = false;
-  el.rowMenu.style.left = "0px";
-  el.rowMenu.style.top = "0px";
-  const rect = el.rowMenu.getBoundingClientRect();
-  el.rowMenu.style.left = `${Math.min(Math.max(8, x), window.innerWidth - rect.width - 8)}px`;
-  el.rowMenu.style.top = `${Math.min(Math.max(8, y), window.innerHeight - rect.height - 8)}px`;
+  menu.hidden = false;
+  menu.style.visibility = "hidden";
+  menu.style.margin = "0";
+  menu.style.right = "auto";
+  menu.style.bottom = "auto";
+  menu.style.left = "0px";
+  menu.style.top = "0px";
+  if (typeof menu.showPopover === "function" && !menu.matches(":popover-open")) menu.showPopover();
+  const size = menu.getBoundingClientRect();
+  const placed = placeRowMenu(x, y, size, { width: window.innerWidth, height: window.innerHeight }, anchor);
+  menu.style.left = `${placed.left}px`;
+  menu.style.top = `${placed.top}px`;
+  menu.style.visibility = "";
 }
 
 function openBlankMenu(x, y) {
@@ -3694,7 +4053,7 @@ function nudge(id, step) {
   renderSidebar();
 }
 
-function openRowMenu(row, x, y) {
+function openRowMenu(row, x, y, anchor) {
   if (!row) return;
   const id = row.dataset.id;
   if (row.dataset.kind === "folder") {
@@ -3711,14 +4070,28 @@ function openRowMenu(row, x, y) {
     }
     if (anyUnlocked()) items.push({ label: "Lock now", run: () => lockNow() });
     items.push("sep", { label: "Delete folder", danger: true, run: () => deleteFolder(id) });
-    openMenu(x, y, items);
+    openMenu(x, y, items, anchor);
     return;
   }
   const ends = siblingEnds(state.tree, id);
   const items = [];
   if (!ends.first) items.push({ label: "Move up", run: () => nudge(id, -1) });
   if (!ends.last) items.push({ label: "Move down", run: () => nudge(id, 1) });
-  items.push({ label: "Move to folder…", run: () => openMove(id) });
+  items.push({
+    label: "Move to…",
+    run: () => openMoveTo(sidePick.has(id) ? [...sidePick] : [id]),
+  });
+  if (syncPlaces && typeof syncPlaces.move === "function") {
+    items.push({
+      label: sidePick.has(id) ? "Deselect" : "Select",
+      run: () => {
+        if (sidePick.has(id)) sidePick.delete(id);
+        else sidePick.add(id);
+        sideAnchor = id;
+        renderSidebar();
+      },
+    });
+  }
   items.push("sep");
   const covered = !!(coveringLock(state.tree, id) && !individualLock(id));
   const choice = pageLockChoice(id);
@@ -3730,7 +4103,7 @@ function openRowMenu(row, x, y) {
   } else if (choice === "relock") items.push({ label: "Lock now", run: () => lockNow() });
   if (ownPageLock(id)) items.push({ label: "Remove lock…", run: () => openLock("remove-page", id) });
   items.push("sep", { label: "Delete page", danger: true, run: () => deletePage(id) });
-  openMenu(x, y, items);
+  openMenu(x, y, items, anchor);
 }
 
 let drag = null;
@@ -3750,9 +4123,12 @@ function ensureChip() {
 
 function showChip() {
   const chip = ensureChip();
-  chip.textContent = drag.kind === "folder"
-    ? folders(state.tree).find((folder) => folder.id === drag.id)?.name || "Folder"
-    : pageLabel(drag.id);
+  const count = drag.kind === "page" && sidePick.has(drag.id) ? sidePick.size : 1;
+  chip.textContent = count > 1
+    ? `${count} pages`
+    : drag.kind === "folder"
+      ? folders(state.tree).find((folder) => folder.id === drag.id)?.name || "Folder"
+      : pageLabel(drag.id);
   chip.hidden = false;
 }
 
@@ -3774,7 +4150,12 @@ function paintDrop() {
   for (const row of el.sheets.querySelectorAll(".side-row")) {
     row.classList.remove("drop-before", "drop-after", "drop-into");
   }
+  for (const label of el.sheets.querySelectorAll(".side-sync-label")) label.classList.remove("drop-into");
   if (!drag?.active || !drag.spot) return;
+  if (drag.spot.kind === "sync") {
+    el.sheets.querySelector(`[data-drop-section="${drag.spot.section}"]`)?.classList.add("drop-into");
+    return;
+  }
   if (drag.spot.kind === "root") {
     el.sheets.classList.add("drop-end");
     return;
@@ -3801,6 +4182,17 @@ function chooseSpot(row, clientY) {
 function spotAt(x, y) {
   const hit = document.elementFromPoint(x, y);
   const row = hit?.closest?.(".side-row");
+  if (syncPlaces && drag?.kind === "page") {
+    const sectionNode = hit?.closest?.("[data-drop-section]");
+    let target = sectionNode && el.sheets.contains(sectionNode) ? sectionNode.dataset.dropSection : null;
+    if (!target && row && el.sheets.contains(row) && row.dataset.kind === "page") {
+      target = row.dataset.place === "local" ? "local" : row.dataset.place === "synced" ? "vault" : null;
+    }
+    const fill = hit?.closest?.(".side-fill");
+    if (!target && fill && el.sheets.contains(fill)) target = "local";
+    const from = syncSectionOf(drag.id);
+    if (target && from && target !== from) return { kind: "sync", section: target };
+  }
   if (row && el.sheets.contains(row) && row.dataset.kind !== "shared") return chooseSpot(row, y);
   if (hit?.closest?.("[data-sheets]") && validDrop(state.tree, drag.id, { kind: "root" })) return { kind: "root" };
   return null;
@@ -3873,8 +4265,16 @@ function onSidePointerUp(e) {
   hideChip();
   document.body.classList.remove("dragging-side");
   if (e.type === "pointercancel" || !finished.active) return;
+  // The click that finishes the drag must not also open the page. A later
+  // click, after the confirm dialog, still opens the page it lands on.
   ignoreClick = true;
-  if (finished.spot) applyPlace(finished.id, finished.spot);
+  setTimeout(() => {
+    ignoreClick = false;
+  }, 0);
+  if (finished.spot?.kind === "sync") {
+    const ids = finished.kind === "page" && sidePick.has(finished.id) ? [...sidePick] : [finished.id];
+    askSyncMove(ids, finished.spot.section === "vault");
+  } else if (finished.spot) applyPlace(finished.id, finished.spot);
   renderSidebar();
 }
 
@@ -3889,11 +4289,31 @@ function onSideClick(e) {
     e.preventDefault();
     const row = more.closest(".side-row");
     const rect = more.getBoundingClientRect();
-    openRowMenu(row, rect.left, rect.bottom + 4);
+    openRowMenu(row, rect.left, rect.bottom + 4, rect);
     return;
   }
   const row = e.target.closest?.(".side-row");
   if (!row) return;
+  if (row.dataset.kind === "page" && syncPlaces && (e.ctrlKey || e.metaKey)) {
+    if (sidePick.has(row.dataset.id)) sidePick.delete(row.dataset.id);
+    else sidePick.add(row.dataset.id);
+    sideAnchor = row.dataset.id;
+    renderSidebar();
+    return;
+  }
+  if (row.dataset.kind === "page" && syncPlaces && e.shiftKey && sideAnchor) {
+    const order = [...el.sheets.querySelectorAll(".side-row[data-kind='page']")].map((item) => item.dataset.id);
+    const from = order.indexOf(sideAnchor);
+    const to = order.indexOf(row.dataset.id);
+    if (from >= 0 && to >= 0) {
+      const [lo, hi] = from < to ? [from, to] : [to, from];
+      sidePick = new Set(order.slice(lo, hi + 1));
+      renderSidebar();
+      return;
+    }
+  }
+  if (row.dataset.kind === "page" && sidePick.size && !e.shiftKey && !e.ctrlKey && !e.metaKey) sidePick.clear();
+  if (row.dataset.kind === "page") sideAnchor = row.dataset.id;
   if (row.dataset.kind === "folder") {
     toggleFolder(state.tree, row.dataset.id);
     saveIndex();
@@ -3952,6 +4372,82 @@ el.switcherQuery?.addEventListener("keydown", (e) => {
   }
 });
 
+// A tap beside the open phone drawer closes it when the finger lifts.
+// The press is swallowed, so the editor underneath does not take a caret,
+// a selection, or the keyboard.
+let drawerTap = null;
+let drawerSwallowUntil = 0;
+
+function caretSnapshot() {
+  const main = view.state.selection.main;
+  return { anchor: main.anchor, head: main.head, focused: view.hasFocus };
+}
+
+function restoreCaret(snap) {
+  if (!snap) return;
+  const main = view.state.selection.main;
+  if (main.anchor !== snap.anchor || main.head !== snap.head) {
+    const max = view.state.doc.length;
+    view.dispatch({
+      selection: { anchor: Math.min(snap.anchor, max), head: Math.min(snap.head, max) },
+    });
+  }
+  if (snap.focused) return;
+  const blurEditor = () => {
+    const active = document.activeElement;
+    if (view.hasFocus || active === view.contentDOM || (active && view.dom.contains(active))) view.contentDOM.blur();
+  };
+  blurEditor();
+  window.setTimeout(blurEditor, 0);
+  window.setTimeout(blurEditor, 320);
+}
+
+function takeDrawerTap(event) {
+  if (drawerTap) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  const node = event.target instanceof Element ? event.target : event.target?.parentElement;
+  if (!swallowDrawerTap(node, {
+    drawer: el.page.classList.contains("drawer"),
+    narrow: matchMedia("(max-width: 760px)").matches,
+  })) return;
+  drawerTap = caretSnapshot();
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+function finishDrawerTap(event) {
+  if (!drawerTap) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const snap = drawerTap;
+  drawerTap = null;
+  drawerSwallowUntil = performance.now() + 400;
+  closeRowMenu();
+  if (el.page.classList.contains("drawer")) setDrawer(false);
+  restoreCaret(snap);
+  el.page.classList.add("drawer-swallow");
+  window.setTimeout(() => el.page.classList.remove("drawer-swallow"), 450);
+}
+
+document.addEventListener("touchstart", takeDrawerTap, { capture: true, passive: false });
+document.addEventListener("pointerdown", takeDrawerTap, { capture: true, passive: false });
+document.addEventListener("mousedown", takeDrawerTap, { capture: true, passive: false });
+document.addEventListener("touchend", finishDrawerTap, { capture: true, passive: false });
+document.addEventListener("pointerup", finishDrawerTap, { capture: true, passive: false });
+document.addEventListener("pointercancel", finishDrawerTap, { capture: true, passive: false });
+
+document.addEventListener("click", (event) => {
+  if (!drawerTap && performance.now() >= drawerSwallowUntil) return;
+  const node = event.target instanceof Element ? event.target : event.target?.parentElement;
+  if (node?.closest(".side, .sheets-toggle, .bar, [data-row-menu], .settings")) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (el.page.classList.contains("drawer")) setDrawer(false);
+}, true);
+
 document.addEventListener("click", (e) => {
   if (!e.target.closest?.("[data-row-menu]")) closeRowMenu();
   const button = e.target.closest?.("[data-action]");
@@ -3981,22 +4477,6 @@ document.addEventListener("click", (e) => {
   if (e.target.closest?.(".sheets-toggle")) setDrawer(!el.page.classList.contains("drawer"));
   else if (e.target.closest?.("[data-scrim]")) setDrawer(false);
 });
-
-// A tap on the sheet while the phone drawer is open dismisses it, and does not
-// also move the cursor in the editor underneath.
-document.addEventListener(
-  "pointerdown",
-  (e) => {
-    if (!el.page.classList.contains("drawer")) return;
-    if (!matchMedia("(max-width: 760px)").matches) return;
-    const target = e.target instanceof Element ? e.target : e.target.parentElement;
-    if (target?.closest(".side, .sheets-toggle, .bar")) return;
-    setDrawer(false);
-    e.preventDefault();
-    e.stopPropagation();
-  },
-  { capture: true, passive: false },
-);
 
 function showMenuPanel(name) {
   if (!el.menu) return;
@@ -4088,7 +4568,7 @@ addEventListener(
     if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if ((el.confirm && !el.confirm.hidden) || (el.pick && !el.pick.hidden) || (el.rename && !el.rename.hidden) || (el.move && !el.move.hidden) || (el.switcher && !el.switcher.hidden)) return;
+      if ((el.confirm && !el.confirm.hidden) || (el.pick && !el.pick.hidden) || (el.rename && !el.rename.hidden) || (el.move && !el.move.hidden) || (el.syncMove && !el.syncMove.hidden) || (el.syncDest && !el.syncDest.hidden) || (el.switcher && !el.switcher.hidden)) return;
       if (state.active && state.active !== "shared") {
         e.preventDefault();
         e.stopPropagation();
@@ -4120,6 +4600,14 @@ addEventListener("keydown", (e) => {
     }
     if (el.lock && !el.lock.hidden) {
       closeLock();
+      return;
+    }
+    if (el.syncMove && !el.syncMove.hidden) {
+      closeSyncMove();
+      return;
+    }
+    if (el.syncDest && !el.syncDest.hidden) {
+      closeSyncDest();
       return;
     }
     if (el.move && !el.move.hidden) {
@@ -4226,6 +4714,9 @@ el.handleInput?.addEventListener("keydown", (event) => {
 $("[data-handle-save]")?.addEventListener("click", commitHandle);
 $("[data-handle-cancel]")?.addEventListener("click", closeHandleDialog);
 
+$("[data-sync-move-yes]")?.addEventListener("click", commitSyncMove);
+$("[data-sync-move-no]")?.addEventListener("click", closeSyncMove);
+$("[data-sync-dest-cancel]")?.addEventListener("click", closeSyncDest);
 $("[data-confirm-yes]")?.addEventListener("click", commitDelete);
 $("[data-confirm-no]")?.addEventListener("click", () => {
   if (el.confirm) el.confirm.hidden = true;
@@ -4408,20 +4899,6 @@ function desktopMissing() {
   return span;
 }
 
-function privacyNote() {
-  const span = document.createElement("span");
-  const title = document.createElement("b");
-  title.textContent = "Private. ";
-  span.append(title, "Pages are saved in this browser, on this device, and never uploaded. A share link carries the page after the #, which browsers don't send to any server. ");
-  const link = document.createElement("a");
-  link.href = "https://omacus.com/privacy/";
-  link.target = "_blank";
-  link.rel = "noopener";
-  link.textContent = "Privacy";
-  span.append(link);
-  return span;
-}
-
 let toastTimer = 0;
 function toast(message, undo, ms) {
   const span = document.createElement("span");
@@ -4577,6 +5054,136 @@ async function goOffline() {
 // ---------------------------------------------------------------------------------
 // Start.
 
+function syncSnapshotPages() {
+  const pages = [];
+  for (const [id, text] of state.texts) {
+    if (!id || id === "shared") continue;
+    pages.push([id, text ?? ""]);
+  }
+  return pages;
+}
+
+async function takeSyncSnapshot() {
+  if (pendingSave) {
+    clearTimeout(pendingSave);
+    pendingSave = null;
+    applyingRemote = true;
+    try {
+      await saveSheet(state.active);
+    } finally {
+      applyingRemote = false;
+    }
+  }
+  return {
+    pages: syncSnapshotPages(),
+    doc: docBytes && docBytes.length ? new Uint8Array(docBytes) : new Uint8Array(),
+  };
+}
+
+async function backupBeforeRemote() {
+  const version = document.querySelector('meta[name="omacus-version"]')?.content || "";
+  let index = {};
+  try {
+    index = JSON.parse(store.get("index") || "{}");
+  } catch {
+    index = {};
+  }
+  const zip = zipBytes(backupEntries({
+    version,
+    library: index,
+    settings,
+    trash: loadTrash(),
+    pages: libraryPages(),
+  }));
+  const backup = bytesToB64(zip);
+  await store.set("sync-remote-backup", backup);
+  if (store.get("sync-remote-backup") !== backup) throw new Error("The backup could not be saved.");
+}
+
+function orderPagesLike(nodes, pages) {
+  const rank = new Map();
+  (pages || []).forEach((row, index) => {
+    if (Array.isArray(row) && row[0] && !rank.has(row[0])) rank.set(row[0], index);
+  });
+  if (!rank.size) return nodes;
+  const walk = (list) => {
+    const pagesHere = [];
+    const slots = (list || []).map((node) => {
+      if (!node) return node;
+      if (node.type === "folder") return { ...node, children: walk(node.children) };
+      if (node.type === "page" && rank.has(node.id)) {
+        pagesHere.push(node);
+        return null;
+      }
+      return node;
+    });
+    pagesHere.sort((a, b) => rank.get(a.id) - rank.get(b.id));
+    let at = 0;
+    return slots.map((slot) => (slot === null ? pagesHere[at++] : slot));
+  };
+  return walk(nodes);
+}
+
+async function applyRemoteLibrary(nextDoc, pages) {
+  await backupBeforeRemote();
+  applyingRemote = true;
+  try {
+    // `nextDoc` is already the merged document. Folding it into the copy
+    // already on this device would put a deleted line back.
+    let doc = nextDoc && nextDoc.length ? nextDoc : (docBytes && docBytes.length ? docBytes : null);
+    const stay = new Set(syncPlaces?.localIds || []);
+    const activeBefore = state.active && state.active !== "shared" ? (state.texts.get(state.active) ?? "") : null;
+    for (const [id, text] of pages) {
+      if (!id || id === "shared") continue;
+      if (stay.has(id) && state.texts.has(id)) continue;
+      const body = typeof text === "string" ? text : "";
+      if (doc && doc.length && !isLock(body)) {
+        let shown = "";
+        try {
+          shown = docSnapshot(doc, id) || "";
+        } catch {
+          shown = "";
+        }
+        if (shown !== body) {
+          try {
+            doc = docApply(doc, id, body);
+          } catch {
+            // The page text is still kept below.
+          }
+        }
+      }
+      if (!state.texts.has(id)) {
+        state.texts.set(id, body);
+        if (!pageIds(state.tree).includes(id)) state.tree.push({ type: "page", id });
+        const taken = new Set([...state.handles.values()].map((handle) => handle.toLowerCase()));
+        if (!state.handles.has(id)) state.handles.set(id, allocateHandle(heading(body), taken));
+      } else if ((state.texts.get(id) ?? "") !== body) {
+        state.texts.set(id, body);
+        if (plains.has(id) && !isLock(body)) plains.set(id, body);
+      }
+    }
+    if (doc && doc.length) {
+      docBytes = doc;
+      const encoded = bytesToB64(doc);
+      docSaved = encoded;
+      await store.set("library-doc", encoded);
+    }
+    for (const [id, text] of state.texts) {
+      if (id && id !== "shared") await store.set("page:" + id, text ?? "");
+    }
+    state.tree = orderPagesLike(state.tree, pages);
+    syncOrder();
+    if (state.active !== "shared" && !state.order.includes(state.active)) state.active = state.order[0] ?? state.active;
+    saveIndex();
+    renderSidebar();
+    const activeAfter = state.active && state.active !== "shared" ? (state.texts.get(state.active) ?? "") : null;
+    if (activeBefore !== activeAfter && state.active && state.active !== "shared") showSheet();
+    showDocConflicts();
+  } finally {
+    applyingRemote = false;
+  }
+}
+
 async function start() {
   await storeReady();
   settings = loadSettings();
@@ -4606,6 +5213,7 @@ async function start() {
   await init({ module_or_path: WASM });
   engineReady = true;
   calc = new Calc();
+  setRates(JSON.stringify(FALLBACK_RATES));
   if (!EMBED) await ensureLibraryDoc();
   if (typeof Worker !== "undefined") startWorker();
   el.loading.remove();
@@ -4613,6 +5221,26 @@ async function start() {
   if (state.active !== "shared") showSheet();
   loadRates();
   if (!EMBED) goOffline();
+  if (!EMBED) {
+    const syncTest = location.hostname === "sync-test.omacus.com" || document.documentElement.dataset.syncTest === "1";
+    await mountSync({
+      syncTest,
+      openSettings: (tab) => openSettings(tab),
+      closeSettings: () => closeSettings(),
+      snapshot: takeSyncSnapshot,
+      apply: applyRemoteLibrary,
+      bytesToB64,
+      b64ToBytes,
+      docUnion,
+      storeGet: (key) => store.get(key),
+      storeSet: (key, value) => store.set(key, value),
+      storeRemove: (key) => store.remove(key),
+      onEdit: (fn) => {
+        syncTouched = fn;
+      },
+      setSyncPlaces,
+    });
+  }
   if (matchMedia("(min-width: 761px)").matches) view.focus();
 }
 

@@ -181,6 +181,7 @@ def llms_full():
 
 NAV = [("/#features", "Features"), ("/use-cases/", "Use cases"), ("/guides/", "Guides"),
        ("/docs/", "Docs"), ("/updates/", "Updates"), ("/story/", "Story"),
+       ("/sync/", "Sync"),
        ("https://app.omacus.com", "Web app"),
        ("https://github.com/avinashjoshi/omacus", "GitHub")]
 FOOTER = [("/docs/", "Docs"), ("/guides/", "Guides"), ("/use-cases/", "Use cases"),
@@ -359,6 +360,7 @@ def head(meta, faq):
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; media-src 'self'; frame-src 'self' https://app.omacus.com; worker-src 'self'; manifest-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{e(meta["title"])}</title>
   <meta name="description" content="{e(meta["description"])}">
@@ -492,32 +494,32 @@ def btn(href, icon, label, cls="btn", attrs=""):
 def download_cards(indent):
     cards = f'''<div class="downloads">
   <article class="dl" id="omarchy">
-    <header><svg aria-hidden="true"><use href="/img/sprite.svg#archlinux"/></svg><h3>Omarchy <small>&amp; Arch</small></h3></header>
+    <header><svg aria-hidden="true"><use href="/img/sprite.svg#archlinux"/></svg><h2>Omarchy <small>&amp; Arch</small></h2></header>
     <p>Installs the app, then offers a keybind (<kbd>Super Ctrl Alt =</kbd> by default, checked against yours) and a floating window.</p>
     {INSTALL_CMD}
     <p class="note">Colors follow your Omarchy theme automatically.</p>
   </article>
 
   <article class="dl" id="mac">
-    <header><svg aria-hidden="true"><use href="/img/sprite.svg#apple"/></svg><h3>macOS <small>Apple Silicon &amp; Intel</small></h3></header>
+    <header><svg aria-hidden="true"><use href="/img/sprite.svg#apple"/></svg><h2>macOS <small>Apple Silicon &amp; Intel</small></h2></header>
     <p>The one-liner picks the build for your Mac's chip, installs <code>Omacus.app</code> into Applications and opens without a security prompt.</p>
     {INSTALL_CMD}
     <div class="links">
       {btn(f"{DL}/omacus-macos-arm64.dmg", "download", "Apple Silicon .dmg", attrs=' data-arch="arm64"')}
       {btn(f"{DL}/omacus-macos-x86_64.dmg", "download", "Intel .dmg", attrs=' data-arch="x86_64"')}
     </div>
-    <p class="note">Not sure which? Apple menu → About This Mac shows the chip. From a .dmg, macOS asks once: open the app, then <b>System Settings → Privacy &amp; Security → Open Anyway</b>.</p>
+    <p class="note">Not sure which? Apple menu → About This Mac shows the chip. The app isn't notarized yet. On macOS 15 or later, open it once, then <b>System Settings → Privacy &amp; Security → Open Anyway</b>. On an older Mac, right-click the app and choose Open.</p>
   </article>
 
   <article class="dl" id="windows">
-    <header><svg aria-hidden="true"><use href="/img/sprite.svg#windows"/></svg><h3>Windows <small>64-bit</small></h3></header>
+    <header><svg aria-hidden="true"><use href="/img/sprite.svg#windows"/></svg><h2>Windows <small>64-bit</small></h2></header>
     <p>The installer puts Omacus in Start and opens it, with no admin prompt. It updates itself. A portable <code>omacus.exe</code> is there too.</p>
     <div class="links">{btn(f"{DL}/omacus-windows-x86_64-setup.exe", "download", "Download installer", "btn primary")}{btn(f"{DL}/omacus-windows-x86_64.zip", "download", "Portable .zip")}</div>
     <p class="note">Omacus isn't signed yet, so a downloaded installer may get a SmartScreen warning: choose <b>More info → Run anyway</b>.</p>
   </article>
 
   <article class="dl" id="linux">
-    <header><svg aria-hidden="true"><use href="/img/sprite.svg#linux"/></svg><h3>Other Linux <small>x86_64</small></h3></header>
+    <header><svg aria-hidden="true"><use href="/img/sprite.svg#linux"/></svg><h2>Other Linux <small>x86_64</small></h2></header>
     <p>The same one-liner works on any distribution, or use a package:</p>
     <div class="links">
       {btn(f"{DL}/omacus-linux-x86_64.deb", "ubuntu", ".deb")}
@@ -586,6 +588,7 @@ def fill_downloads():
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; media-src 'self'; frame-src 'self' https://app.omacus.com; worker-src 'self'; manifest-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Download Omacus</title>
   <meta name="robots" content="noindex">

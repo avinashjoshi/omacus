@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; media-src 'self'; frame-src 'self' https://app.omacus.com; worker-src 'self'; manifest-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Omacus: free notepad calculator for Linux, macOS and Windows</title>
   <meta name="description" content="Free, open-source notepad calculator for Linux, macOS and Windows. Write math in plain words: units, currencies, time zones and percentages, answered as you type.">
@@ -155,7 +156,7 @@
      "name": "Is Omacus free?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "Yes. Omacus is free and open source under the MIT license. The app has no account, no ads and no tracking. This website only counts visits, with Cloudflare's cookieless analytics."
+      "text": "Yes. Omacus is free and open source under the MIT license. The notepad needs no sign-up, no email, no password, no ads and no tracking. Sync is invite-only. This website only counts visits, with Cloudflare's cookieless analytics."
      }
     },
     {
@@ -203,7 +204,7 @@
      "name": "Where are my pages stored?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "As plain text files on your own disk, so you can search them or back them up. Nothing is uploaded. This version does not sync. Encrypted sync is described at omacus.com/sync and is not built yet."
+      "text": "On the desktop, as plain text files on your own disk. In the web app, in that browser until you turn on sync. The sealed copy is described at omacus.com/sync. The server cannot read it."
      }
     }
    ]
@@ -225,6 +226,7 @@
         <a href="/docs/">Docs</a>
         <a href="/updates/">Updates</a>
         <a href="/story/">Story</a>
+        <a href="/sync/">Sync</a>
         <a href="https://app.omacus.com">Web app</a>
         <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
       </div>
@@ -280,7 +282,7 @@
           <button type="button" data-mode="watch" aria-pressed="true"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>Watch</button>
           <button type="button" data-mode="try" aria-pressed="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13 7l4 4"/></svg>Try it yourself</button>
         </div>
-        <div class="window" aria-label="Omacus, showing a page being typed with results appearing on the right">
+        <div class="window" role="region" aria-label="Omacus, showing a page being typed with results appearing on the right">
           <aside class="win-side" aria-hidden="true">
             <div class="side-head"><span>PAGES</span><span>+</span></div>
             <div data-sheets></div>
@@ -308,6 +310,7 @@
         <video controls playsinline preload="none" poster="/media/omacus-launch.jpg" width="1920" height="1080"
           aria-label="Omacus in one minute: time zones, currencies, percentages, variables, pages and themes, with narration and captions">
           <source src="/media/omacus-launch.mp4" type="video/mp4">
+          <track kind="captions" src="/media/omacus-launch.vtt" srclang="en" label="English" default>
         </video>
       </figure>
     </div>
@@ -532,7 +535,7 @@
       <div class="section-head center reveal">
         <span class="kicker">// private by design</span>
         <h2>Your pages stay <em class="serif">yours</em>.</h2>
-        <p>No account, and no tracking in the app. This version keeps every page on your device. What you write never leaves unless you send it.</p>
+        <p>No tracking in the app. Pages stay on your device until you turn on sync. A sealed copy can then be stored, and the server cannot read it.</p>
       </div>
       <div class="privacy reveal">
         <article>
@@ -543,7 +546,7 @@
         <article>
           <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></svg>
           <h3>In your browser</h3>
-          <p>The web app saves pages in that browser, on that device. Nothing is uploaded, and there's no server that could see them.</p>
+          <p>The web app saves pages in that browser. Turn on sync to open them on your other phones and computers. The server stores a sealed copy and cannot read it.</p>
         </article>
         <article>
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>
@@ -554,15 +557,14 @@
       <p class="privacy-note reveal">The only things Omacus fetches are exchange rates, and on the desktop, a check for new versions. Neither carries anything you've written. <a href="/privacy/">All of it, in plain words</a></p>
       <div class="soon reveal">
         <div>
-          <span class="soon-mark">Coming soon</span>
           <h3>Your pages, on every device you link.</h3>
-          <p>End-to-end encrypted sync is on the way. Named vaults such as Personal, Family, and Work. A 24-word recovery phrase restores them on a new device. Nobody, including Omacus, can read the pages or the keys. It is not in this version.</p>
-          <p><a class="btn" href="/sync/">Read how sync will work <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a></p>
+          <p>Turn on sync in the web app. Pages are encrypted on your device before they leave. The server cannot read them. Twelve recovery words are the way back in. A sealed copy is saved each night.</p>
+          <p><a class="btn" href="/sync/">Read how sync works <svg aria-hidden="true"><use href="/img/sprite.svg#arrow"/></svg></a></p>
         </div>
         <div class="vaults" aria-hidden="true">
-          <article class="vault"><b>Personal</b><span>Trip Budget · Groceries</span></article>
-          <article class="vault"><b>Family</b><span>Cooking · Time zones</span></article>
-          <article class="vault"><b>Work</b><span>Monthly budget</span></article>
+          <article class="vault"><b>Encrypted</b><span>The server cannot read a page</span></article>
+          <article class="vault"><b>12 words</b><span>The way back in, on paper</span></article>
+          <article class="vault"><b>Each night</b><span>A sealed copy, still unreadable</span></article>
         </div>
       </div>
     </div>
@@ -582,7 +584,7 @@
         </div>
         <div>
           <h3>Is Omacus free?</h3>
-          <p>Yes. Omacus is free and open source under the MIT license. The app has no account, no ads and no tracking. This website only counts visits, with Cloudflare's cookieless analytics.</p>
+          <p>Yes. Omacus is free and open source under the MIT license. The notepad needs no sign-up, no email, no password, no ads and no tracking. Sync is invite-only. This website only counts visits, with Cloudflare's cookieless analytics.</p>
         </div>
         <div>
           <h3>Which systems does it run on?</h3>
@@ -606,7 +608,7 @@
         </div>
         <div>
           <h3>Where are my pages stored?</h3>
-          <p>As plain text files on your own disk, so you can search them or back them up. Nothing is uploaded. This version does not sync. <a href="/sync/">Encrypted sync</a> is described separately, and it is not built yet.</p>
+          <p>On the desktop, as plain text files on your own disk. In the web app, in that browser until you turn on sync. The sealed copy is described on <a href="/sync/">Sync</a>. The server cannot read it.</p>
         </div>
       </div>
       <p class="faq-more reveal">More in the <a href="/guides/">guides</a> and <a href="/docs/">docs</a>, real pages in <a href="/use-cases/">use cases</a>, or <a href="https://github.com/avinashjoshi/omacus/issues/new/choose">ask on GitHub</a>.</p>

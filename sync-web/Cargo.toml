@@ -1,0 +1,20 @@
+[package]
+name = "omacus-sync-web"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Private sync test for the browser. Not the app."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+omacus-engine = { path = "../engine" }
+# Pinned exactly: the generated JS glue must match the wasm-bindgen CLI version.
+wasm-bindgen = "=0.2.129"
+serde_json = "1.0.154"
+base64 = "0.22"
+hmac = "0.13"
+qrcode = { version = "0.14", default-features = false }
+sha2 = "0.11"

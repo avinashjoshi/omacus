@@ -48,11 +48,24 @@ if ! command -v wasm-bindgen >/dev/null 2>&1; then
 fi
 
 cargo build -p omacus-web --release --locked --target wasm32-unknown-unknown
+cargo build -p omacus-sync-web --release --locked --target wasm32-unknown-unknown
+
+# The page loads both engines. A missing sync package would hide Sync and Turn on sync.
+bind_engines() {
+  local dest="$1"
+  mkdir -p "$dest"
+  wasm-bindgen --target web --no-typescript --out-dir "$dest" \
+    target/wasm32-unknown-unknown/release/omacus_web.wasm
+  wasm-bindgen --target web --no-typescript --out-dir "$dest" \
+    target/wasm32-unknown-unknown/release/omacus_sync_web.wasm
+  test -s "$dest/omacus_web.js"
+  test -s "$dest/omacus_web_bg.wasm"
+  test -s "$dest/omacus_sync_web.js"
+  test -s "$dest/omacus_sync_web_bg.wasm"
+}
 
 if [[ "$mode" == "site" ]]; then
-  mkdir -p site/app/pkg
-  wasm-bindgen --target web --no-typescript --out-dir site/app/pkg \
-    target/wasm32-unknown-unknown/release/omacus_web.wasm
+  bind_engines site/app/pkg
   hash="$(sha256sum site/app/pkg/omacus_web_bg.wasm | awk '{print $1}')"
   printf '%s\n' "$hash" > site/app/build-hash.txt
   echo "$hash"
@@ -60,13 +73,12 @@ if [[ "$mode" == "site" ]]; then
 fi
 
 rm -rf "$out"
-mkdir -p "$out/pkg" "$out/css" "$out/fonts" "$out/img"
-wasm-bindgen --target web --no-typescript --out-dir "$out/pkg" \
-  target/wasm32-unknown-unknown/release/omacus_web.wasm
+mkdir -p "$out/css" "$out/fonts" "$out/img"
+bind_engines "$out/pkg"
 cp site/app/index.html site/app/app.js site/app/app.css site/app/editor.js \
-  site/app/worker.js site/app/tree.js site/app/store.js site/app/sw.js \
+  site/app/worker.js site/app/tree.js site/app/layer.js site/app/store.js site/app/sw.js \
   site/app/trust.js site/app/recover.js site/app/frame.js site/app/backup.js \
-  site/app/seed.js site/app/examples.js \
+  site/app/seed.js site/app/examples.js site/app/sync.js site/app/sync-link.mjs site/app/device-name.js site/app/sync-save.mjs site/app/sync-vaults.mjs site/app/sync-leader.mjs site/app/sync-config.js \
   site/app/manifest.webmanifest site/app/migrate.js site/app/migrate.html \
   site/app/migrate-client.js site/app/migrate-protocol.js site/app/_headers "$out/"
 cp site/css/site.css site/css/tokens.css "$out/css/"
@@ -99,6 +111,8 @@ short="$(sha256sum "$out/editor.js" | cut -c1-10)"
 sed -i "s#\"./editor.js\"#\"./editor.js?v=$short\"#" "$out/app.js"
 short="$(sha256sum "$out/tree.js" | cut -c1-10)"
 sed -i "s#\"./tree.js\"#\"./tree.js?v=$short\"#" "$out/app.js"
+short="$(sha256sum "$out/layer.js" | cut -c1-10)"
+sed -i "s#\"./layer.js\"#\"./layer.js?v=$short\"#" "$out/app.js"
 short="$(sha256sum "$out/store.js" | cut -c1-10)"
 sed -i "s#\"./store.js\"#\"./store.js?v=$short\"#" "$out/app.js" "$out/migrate.js"
 short="$(sha256sum "$out/backup.js" | cut -c1-10)"
@@ -119,6 +133,30 @@ short="$(sha256sum "$out/frame.js" | cut -c1-10)"
 sed -i "s#\"frame.js\"#\"frame.js?v=$short\"#" "$out/index.html"
 short="$(sha256sum "$out/recover.js" | cut -c1-10)"
 sed -i "s#\"recover.js\"#\"recover.js?v=$short\"#" "$out/index.html"
+python3 - "$out/sync-config.js" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+old = 'export const SYNC_URL = "";'
+new = 'export const SYNC_URL = "https://sync.omacus.com";'
+if old not in text:
+    raise SystemExit("sync-config.js has no empty SYNC_URL")
+path.write_text(text.replace(old, new, 1))
+PY
+short="$(sha256sum "$out/sync-link.mjs" | cut -c1-10)"
+sed -i "s#\"./sync-link.mjs\"#\"./sync-link.mjs?v=$short\"#" "$out/sync.js" "$out/app.js"
+short="$(sha256sum "$out/device-name.js" | cut -c1-10)"
+sed -i "s#\"./device-name.js\"#\"./device-name.js?v=$short\"#" "$out/sync.js"
+short="$(sha256sum "$out/sync-vaults.mjs" | cut -c1-10)"
+sed -i "s#\"./sync-vaults.mjs\"#\"./sync-vaults.mjs?v=$short\"#" "$out/sync.js"
+short="$(sha256sum "$out/sync-config.js" | cut -c1-10)"
+sed -i "s#\"./sync-config.js\"#\"./sync-config.js?v=$short\"#" "$out/sync.js"
+short="$(sha256sum "$out/pkg/omacus_sync_web_bg.wasm" | cut -c1-10)"
+sed -i "s#omacus_sync_web_bg.wasm'#omacus_sync_web_bg.wasm?v=$short'#" "$out/pkg/omacus_sync_web.js"
+short="$(sha256sum "$out/pkg/omacus_sync_web.js" | cut -c1-10)"
+sed -i "s#\./pkg/omacus_sync_web.js\"#./pkg/omacus_sync_web.js?v=$short\"#" "$out/sync.js"
+short="$(sha256sum "$out/sync.js" | cut -c1-10)"
+sed -i "s#\"./sync.js\"#\"./sync.js?v=$short\"#" "$out/app.js"
 short="$(sha256sum "$out/app.js" | cut -c1-10)"
 sed -i "s#\"app.js\"#\"app.js?v=$short\"#" "$out/index.html"
 
@@ -126,7 +164,13 @@ test -f "$out/_headers"
 grep -q "wasm-unsafe-eval" "$out/_headers"
 grep -q "require-trusted-types-for" "$out/_headers"
 grep -q "open.er-api.com" "$out/_headers"
+grep -q "https://sync.omacus.com" "$out/_headers"
+! grep -q "https://sync-test.omacus.com" "$out/_headers"
+grep -q 'https://sync.omacus.com' "$out/sync-config.js"
+grep -q 'omacus_sync_web.js?v=' "$out/sync.js"
+grep -q 'omacus_sync_web_bg.wasm?v=' "$out/pkg/omacus_sync_web.js"
 ! grep -q "unsafe-inline" "$out/_headers"
+! grep -q "1.0.0-beta" "$out/index.html"
 grep -q "name=\"omacus-build\" content=\"$hash\"" "$out/index.html"
 test -s "$out/seed.js"
 test -s "$out/examples.js"

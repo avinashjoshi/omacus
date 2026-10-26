@@ -9,6 +9,7 @@ import { createServer } from "node:http";
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
+import { placeRowMenu, swallowDrawerTap } from "../site/app/layer.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const site = join(root, "site");
@@ -19,6 +20,8 @@ const js = readFileSync(join(site, "app/app.js"), "utf8");
 const seed = readFileSync(join(site, "app/seed.js"), "utf8");
 const html = readFileSync(join(site, "app/index.html"), "utf8");
 const sw = readFileSync(join(site, "app/sw.js"), "utf8");
+const layerJs = readFileSync(join(site, "app/layer.js"), "utf8");
+const syncJs = readFileSync(join(site, "app/sync.js"), "utf8");
 const recover = readFileSync(join(site, "app/recover.js"), "utf8");
 const buildWeb = readFileSync(join(root, ".github/scripts/build-web.sh"), "utf8");
 const siteJs = readFileSync(join(site, "js/site.js"), "utf8");
@@ -50,12 +53,27 @@ check(/\.app-page\.drawer \.drawer-scrim \{\s*display: block/.test(css), "the sc
 
 check(js.includes("function setDrawer(open)"), "opening and closing the drawer share one path");
 check(/closest\?\.\("\[data-scrim\]"\)\) setDrawer\(false\)/.test(js), "a scrim click closes the drawer");
-check(/pointerdown[\s\S]*setDrawer\(false\)[\s\S]*preventDefault\(\)/.test(js), "the outside tap is cancelled before it edits");
-check(/closest\("\.side, \.sheets-toggle, \.bar"\)/.test(js), "taps on the drawer itself do not dismiss it");
+check(js.includes("document.body.append(menu)"), "the row menu is portaled onto the body");
+check(js.includes('setAttribute("popover", "manual")') && js.includes("menu.showPopover()"), "the row menu opens in the top layer");
+check(js.includes("placeRowMenu("), "the row menu is kept on screen");
+check(/addEventListener\(\s*"touchstart", takeDrawerTap, \{ capture: true, passive: false \}\)/.test(js), "touchstart swallows the tap that closes the drawer");
+const takeDrawer = js.slice(js.indexOf("function takeDrawerTap"), js.indexOf("function finishDrawerTap"));
+check(takeDrawer.includes("preventDefault()") && !takeDrawer.includes("setDrawer"), "the outside tap is cancelled before the drawer closes");
+const finishDrawer = js.slice(js.indexOf("function finishDrawerTap"), js.indexOf('document.addEventListener("touchstart", takeDrawerTap'));
+check(finishDrawer.includes("setDrawer(false)") && finishDrawer.includes("restoreCaret"), "the drawer closes when the tap ends and the caret stays");
+check(layerJs.includes('.side, .sheets-toggle, .bar, [data-row-menu]'), "taps on the drawer, the bar, and the row menu do not dismiss it");
 check(js.includes('setAttribute("aria-expanded", String(open))'), "the sheets button reflects the drawer");
 check(js.includes("Recently deleted"), "deleted sheets can be restored from Recently deleted");
 check(js.includes("r.hint"), "name hints are marked so they can wait out typing");
 check(html.includes("data-settings"), "settings dialog is in the page");
+check(js.includes("settingsOpener") && js.includes('event.key !== "Tab"') && js.includes("nestedDialogOpen"), "settings traps tab and returns focus to the opener");
+check(js.includes('node.getAttribute("tabindex") !== "-1"') && js.includes('querySelector(".settings-card")'), "the settings trap stays inside the dialog");
+check(/class="settings-scrim"[^>]*tabindex="-1"[^>]*aria-hidden="true"/.test(html), "the settings backdrop is not a tab stop");
+check(syncJs.includes('const FIELD_ERROR_ID = "sync-field-error"') && syncJs.includes("aria-describedby") && syncJs.includes("errorBesideField"), "a field error is tied to its field");
+check(syncJs.includes('role: "group"') && syncJs.includes('for: "sync-recovery-words"') && syncJs.includes('aria-label": "Recovery words"'), "recovery words have a visible label and a name");
+check(syncJs.includes('autocorrect: "off"') && syncJs.includes('autocapitalize: "none"') && syncJs.includes('spellcheck: "false"') && syncJs.includes('autocomplete: "off"'), "the recovery field does not correct or complete");
+const recoverStart = syncJs.slice(syncJs.indexOf("async function startRecovery("), syncJs.indexOf("state.busy = true;", syncJs.indexOf("async function startRecovery(")));
+check(recoverStart.includes('state.phraseMsg = ""') && !recoverStart.includes("state.phraseMsg = check.message"), "a recovery error is shown once");
 check(html.includes('data-action="settings"'), "the menu opens settings");
 check(js.includes("hideAnswers"), "the answers column can be hidden");
 check(tokens.includes("#f6f1e7") && tokens.includes("#1c2433"), "paper and dusk match the desktop themes");
@@ -92,14 +110,97 @@ check(html.includes("data-build-hash"), "settings shows the build hash");
 check(js.includes("Add to Home Screen"), "iPhone gets an Add to Home Screen prompt");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-12"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('const CACHE = "omacus-app-28"'), "the app cache name moved past the cache-first shell");
+check(sw.includes("arrayBuffer") && sw.includes("shell-status") && sw.includes("cacheQueue"), "a dropped download is not left open in the cache");
 check(html.includes("data-pick"), "a same-line conflict can ask which line to keep");
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
-check(!sw.includes("omacus-app-2"), "the old app cache name is gone");
+check(sw.includes('"layer.js"'), "the row menu placement is part of the offline shell");
+check(syncJs.includes('setChip("Synced", "on")') && !syncJs.includes('setChip("", "on")'), "a quiet sync says Synced, not an empty pill");
+check(syncJs.includes('setChip("Syncing", "wait")') && !syncJs.includes("Saving…"), "a long save says Syncing");
+{
+  const arm = syncJs.slice(syncJs.indexOf("function armSaving"), syncJs.indexOf("function guessDeviceName"));
+  check(arm.includes("1000") && arm.includes("Syncing") && arm.includes("navigator.onLine === false"), "Syncing waits about a second and stays off while offline");
+}
+check(syncJs.includes('setChip("Offline", "offline")') && syncJs.includes("Offline. Edits saved here."), "offline names the cloud and says the edits are saved here");
+check(syncJs.includes('setChip("Sync paused", "off")') && syncJs.includes('setChip("Not saved", "error")'), "paused sync and a failed save are different statuses");
+check(syncJs.includes('api.openSettings("sync")'), "tapping the status opens Sync");
+check(syncJs.includes('setChip("Device waiting", "ask")') && html.includes("data-device-waiting") && html.includes(">Device waiting<"), "a waiting phone shows on the status and in the sidebar");
+check(css.includes('.sync-chip[data-state="ask"] .sync-chip-word') && css.includes("display: inline"), "Device waiting stays readable on a phone");
+check(!syncJs.includes("innerHTML") && !syncJs.includes("insertAdjacentHTML"), "the sync status builds nodes without HTML strings");
+{
+  const chipCss = css.slice(css.indexOf(".sync-chip {"), css.indexOf(".sync-beta"));
+  check(chipCss.includes("width: auto") && !chipCss.includes("7.5rem") && !chipCss.includes("::before"), "the sync status sizes to its words and has no dot");
+}
+check(/@media \(max-width: 760px\) \{[\s\S]*?\.sync-chip-word \{\s*display: none;/.test(css), "a narrow phone keeps the cloud and hides the word");
+check(!html.includes("private-chip") && !html.includes('data-action="privacy"'), "the top bar has no Private pill");
+check(html.includes("Private by design") && html.includes("on this device"), "About says pages stay on this device");
+check(syncJs.includes("function hideChip") && syncJs.includes('storeGet("sync-paused")') && syncJs.includes('dataset.ready = "1"'), "a fresh copy hides the status cloud until sync is on or paused");
+check(syncJs.includes('return ["intro", "access", "save", "confirm"].includes(state.screen);') && syncJs.includes('text === "Sync paused" && freshSetup()') && syncJs.includes("if (freshSetup()) hideChip();"), "an unfinished setup does not say Sync paused");
+{
+  const off = syncJs.slice(syncJs.indexOf("async function leaveList("), syncJs.indexOf("async function startInvite("));
+  check(off.includes("sync.removeDevice") && off.includes("hideChip()") && !off.includes('setChip("Sync paused"'), "turning sync off removes this phone and leaves the status quiet");
+  check(syncJs.includes("If this is the last one, that is fine.") && syncJs.includes("Just turn off here") && syncJs.includes("Another phone or computer can still remove this one."), "turning sync off says the words still open the pages");
+}
+check(syncJs.includes("takeSyncLink") && syncJs.includes('found.kind === "recover"') && syncJs.includes("pageOrigin()") && !syncJs.includes("captureSyncLink") && !syncJs.includes("console."), "the sync screen reads a recovery link and does not record it");
+check(js.includes("captureSyncLink") && js.includes("history.replaceState"), "a recovery link is taken out of the address bar before a share link");
+check(syncJs.includes("How sync works") && syncJs.includes("Set up sync") && syncJs.includes("showTurnOnSync"), "Turn on sync opens a short explanation before setup");
+check(syncJs.includes("This is my first device") && syncJs.includes("My pages already sync on another device") && syncJs.includes("← Back"), "setup offers two choices and a back link");
+check(syncJs.includes("Code you were given") && syncJs.includes("K7QM-4R2P-9HNX") && syncJs.includes("Not the code from another device."), "the invite code and the join code show their real shapes");
+check(syncJs.includes("I wrote these down") && syncJs.includes("data-saved-words") && syncJs.includes("!state.wroteWords") && !syncJs.includes("Or scan this to recover") && !syncJs.includes("This picture is as secret as the words.") && !syncJs.includes("Scan the paper instead"), "saving the words waits until they are written down, with no recovery picture");
+{
+  const save = syncJs.slice(syncJs.indexOf("function drawSave"), syncJs.indexOf("function drawConfirm"));
+  check(save.includes("sync-words-grid") && save.includes("I saved them") && save.includes('"Print"') && save.includes('"Copy"') && !save.includes("qrNode") && !save.includes("sync-qr"), "the words screen is the grid, the checkbox, and print and copy");
+  const printed = syncJs.slice(syncJs.indexOf("function printWords"), syncJs.indexOf("function frame"));
+  check(printed.includes('heading.textContent = "Recovery words"') && printed.includes('createElement("ol")') && !printed.includes("svg") && !printed.includes("qr"), "print is the words only");
+}
+check(syncJs.includes("Or scan this picture") && syncJs.includes('qrNode(state.invite?.qr, "Join code")'), "linking a phone still shows the join picture");
+check(syncJs.includes("Use recovery words") && syncJs.includes("✓ Sync is on") && syncJs.includes("Step ${step} of 4"), "join and the first device use the new screens");
+{
+  const join = syncJs.slice(syncJs.indexOf("function scanCodeButton"), syncJs.indexOf("function drawJoinScan"));
+  check(join.includes("Scan the QR code it shows, or type the code.") && join.includes("12 characters · or tap the scan button to scan the QR code") && join.includes("Lost your other devices?") && join.includes("Use recovery words →") && join.includes('aria-label": "Scan QR code"') && join.includes("scanJoin()") && !join.includes("quietLinks") && !join.includes("Scan QR code instead"), "join puts the scan button beside the code and keeps recovery in the row");
+}
+check(css.includes(".sync-card") && css.includes(".sync-progress") && css.includes(".sync-sheet") && css.includes(".sync-words-grid"), "the setup screens use cards, a progress bar, and a phone sheet");
+check(css.includes(".sync-panel [data-sync-set] > .sync-name") && css.includes(".sync-panel [data-sync-set] > .sync-actions") && /\.sync-actions \.sync-links \{[^}]*margin-top:\s*var\(--space-4\)/.test(css), "the sync home screen leaves 16px around the device list and above Turn sync off");
+{
+  const quiet = css.slice(css.indexOf(".sync-quiet {"), css.indexOf(".sync-quiet {") + 240);
+  check(quiet.includes("white-space: pre-wrap"), "the device row keeps the spaces around the dot");
+}
+check(syncJs.includes("` · this ${onPhone() ? \"phone\" : \"computer\"}`"), "the device row writes a space on each side of the dot");
+check(html.includes('data-turn-on-sync') && html.includes(">Turn on sync<"), "the sidebar offers Turn on sync before setup");
+check(css.includes(".bar .sync-setup") && css.includes("display: none"), "a narrow phone keeps Turn on sync in the pages list");
+check(css.includes(".sync-chip[hidden]"), "a hidden sync status stays off the bar");
+check(buildWeb.includes("site/app/layer.js"), "the published app includes the row menu placement");
+check(buildWeb.includes("omacus-sync-web") && buildWeb.includes("omacus_sync_web_bg.wasm"), "the published build ships the sync engine");
+{
+  const boot = js.slice(js.indexOf("calc = new Calc()"), js.indexOf("loadRates();"));
+  check(js.includes("FALLBACK_RATES") && js.includes("JPY: 150") && boot.includes("setRates") && boot.indexOf("setRates") < boot.indexOf("showSheet"), "bundled rates answer the hotel line before the live rates load");
+}
+
+{
+  const fitted = placeRowMenu(248, 180, { width: 180, height: 160 }, { width: 1280, height: 800 }, { top: 148 });
+  check(fitted.left === 248 && fitted.top === 180, `menu left the button (${fitted.left},${fitted.top})`);
+  const shifted = placeRowMenu(260, 200, { width: 180, height: 220 }, { width: 390, height: 844 }, { top: 168 });
+  check(shifted.left === 202 && shifted.left + 180 <= 390 - 8, `menu crossed the right edge (${shifted.left})`);
+  const flipped = placeRowMenu(40, 700, { width: 180, height: 200 }, { width: 390, height: 844 }, { top: 668 });
+  check(flipped.top === 464, `menu did not flip above the button (${flipped.top})`);
+  const clamped = placeRowMenu(-20, -10, { width: 100, height: 40 }, { width: 400, height: 800 });
+  check(clamped.left === 8 && clamped.top === 8, `menu left the screen (${clamped.left},${clamped.top})`);
+  const hit = (name) => ({ closest: (sel) => (name && sel.includes(name) ? {} : null) });
+  check(swallowDrawerTap(hit(""), { drawer: true, narrow: true }) === true, "a tap on the page is swallowed");
+  check(swallowDrawerTap(hit(".side"), { drawer: true, narrow: true }) === false, "a tap on the drawer is kept");
+  check(swallowDrawerTap(hit(".bar"), { drawer: true, narrow: true }) === false, "a tap on the bar is kept");
+  check(swallowDrawerTap(hit(".sheets-toggle"), { drawer: true, narrow: true }) === false, "the pages button is kept");
+  check(swallowDrawerTap(hit("[data-row-menu]"), { drawer: true, narrow: true }) === false, "the row menu is kept");
+  check(swallowDrawerTap(hit(".settings"), { drawer: true, narrow: true }) === false, "a tap in Settings is kept");
+  check(swallowDrawerTap(hit(""), { drawer: false, narrow: true }) === false, "a closed drawer does not swallow taps");
+  check(swallowDrawerTap(hit(""), { drawer: true, narrow: false }) === false, "a wide window does not swallow taps");
+}
+check(!/omacus-app-2(?!\d)/.test(sw), "the old app cache name is gone");
 check(sw.includes("!res.ok") && sw.includes("function honest") && sw.includes("cache.put"), "only a successful response is stored for offline");
-check(sw.includes("e.waitUntil(fetched"), "the shell is refreshed in the background");
+check(sw.includes("e.waitUntil(refresh.then"), "the shell is refreshed in the background");
 check(sw.includes('"pkg/omacus_web_bg.wasm"'), "the engine is precached for offline");
+check(sw.includes('"sync-config.js"'), "the sync address is part of the offline shell");
 check(sw.includes("ignoreSearch"), "a hashed asset still matches the cached shell");
 check(sw.includes("text/html"), "a page served in place of a script is not kept as the script");
 check(buildWeb.includes("site/app/seed.js") && buildWeb.includes("site/app/examples.js"), "the published app includes the pages that start it");
@@ -154,6 +255,11 @@ check(
   "the drawer scrim is a dim over the page",
 );
 check(/\.app-page\.drawer \.empty-hint \{\s*visibility: hidden/.test(css), "the empty hint does not show beside an open drawer");
+check(/\.row-menu \{[^}]*z-index: 70/.test(css), "the row menu paints above the sidebar");
+check(/\.row-menu \{[^}]*inset: auto/.test(css), "the top layer does not stretch the row menu");
+check(css.includes(".row-menu:popover-open"), "an open row menu stays a menu in the top layer");
+check(/\.app-page\.drawer \.cm-content \{[^}]*user-select: none/.test(css), "an open drawer does not select page text");
+check(css.includes(".app-page.drawer-swallow .cm-editor"), "a closing tap cannot fall through to the editor");
 check(/name === "new"[\s\S]{0,240}setDrawer\(false\)/.test(js), "a new page closes the phone drawer");
 check(html.includes('<meta name="theme-color" content="#1a1b26" media="(prefers-color-scheme: dark)">'), "dark theme-color matches the page");
 check(html.includes('<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">'), "light theme-color matches the page");
@@ -192,7 +298,8 @@ check(/\.drawer-scrim \{[^}]*z-index: 35/.test(css) && /\.bar \{[^}]*z-index: 50
 check(css.includes("clip-path: inset(50%)"), "the screen reader line stays off the page");
 check(!html.includes("Saved in this browser"), "the sidebar footer does not repeat where pages are saved");
 check(!html.includes("side-note"), "the sidebar has no privacy paragraph");
-check(html.includes("Pages stay in this browser. Nothing is uploaded."), "About says pages stay in this browser");
+check(html.includes("Pages stay in this browser, on this device. With sync on, a sealed copy can go to your other phones and computers."), "About says pages stay in this browser");
+check(!html.includes("Nothing is uploaded."), "About does not say nothing is uploaded");
 check(html.includes("Home Screen so Safari keeps them."), "About mentions the Home Screen");
 check(html.indexOf("data-persist-note") > html.indexOf('data-settings-panel="about"'), "a refused save is explained in About");
 check(/<div class="side-foot">\s*<a class="side-version"/.test(html), "the sidebar footer is the version");
@@ -259,6 +366,7 @@ const types = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css",
   ".js": "text/javascript",
+  ".mjs": "text/javascript",
   ".wasm": "application/wasm",
   ".woff2": "font/woff2",
   ".svg": "image/svg+xml",
@@ -519,6 +627,7 @@ check(mobile.scrim === "block", `scrim display is ${mobile.scrim} while the draw
 check(mobile.position === "fixed", `phone drawer position is ${mobile.position}`);
 check(mobile.blurred.length === 0, `backdrop-filter is set on ${mobile.blurred.join(", ")}`);
 check(mobile.htmlBg === mobile.painted && mobile.bodyBg === mobile.painted, `document ${mobile.htmlBg}/${mobile.bodyBg} != page ${mobile.painted}`);
+await assertRowMenuClearsSidebar("phone", true);
 
 const shots = process.env.OMACUS_SHOTS;
 if (shots) {
@@ -586,6 +695,40 @@ const collapsed = await evalJson(`(() => {
 check(/^52px/.test(collapsed.cols), `collapsed columns are ${collapsed.cols}`);
 check(collapsed.rail === "flex", `collapsed rail display is ${collapsed.rail}`);
 check(collapsed.body === "none", `collapsed sheet list display is ${collapsed.body}`);
+await assertRowMenuClearsSidebar("desktop");
+if (shots) {
+  const themeBefore = await evalJson(`document.documentElement.dataset.appTheme || ""`);
+  await evalJson(`(() => {
+    const list = document.querySelector("[data-sheets]");
+    list.replaceChildren();
+    for (const name of ["Trip Budget", "Groceries", "Monthly budget"]) {
+      const row = document.createElement("div");
+      row.className = "side-row";
+      row.dataset.kind = "page";
+      if (name === "Groceries") row.setAttribute("aria-current", "true");
+      const label = document.createElement("button");
+      label.type = "button";
+      label.className = "side-name";
+      const text = document.createElement("span");
+      text.textContent = name;
+      label.append(text);
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "row-more";
+      more.textContent = "···";
+      row.append(label, more);
+      list.append(row);
+    }
+  })()`);
+  await evalJson(`document.documentElement.dataset.appTheme = "light"`);
+  await openRowMenuPreview();
+  await plainShot(join(shots, "menu-after-light.png"));
+  await evalJson(`document.documentElement.dataset.appTheme = "dark"`);
+  await plainShot(join(shots, "menu-after-dark.png"));
+  await evalJson(`document.documentElement.dataset.appTheme = ${JSON.stringify(themeBefore)}`);
+  await closeRowMenuPreview();
+  await evalJson(`document.querySelector("[data-sheets]").replaceChildren()`);
+}
 
 // iPhone landscape is a wide window with a notch on the left. The rail has to
 // stay hit-testable once that inset is real. Chrome reports the inset as 0,
@@ -603,7 +746,7 @@ const railHits = await evalJson(`(() => {
   document.body.style.setProperty("--sab", "21px");
   const workspace = document.querySelector(".workspace");
   workspace.classList.add("collapsed");
-  const buttons = [...document.querySelectorAll(".rail .side-btn")];
+  const buttons = [...document.querySelectorAll(".rail .side-btn")].filter((button) => !button.hidden);
   const hits = buttons.map((button) => {
     const r = button.getBoundingClientRect();
     const x = r.left + r.width / 2;
@@ -641,7 +784,7 @@ check(railHits.blurred.length === 0, `backdrop-filter is set on ${railHits.blurr
 check(Math.abs(railHits.sideLeft) <= 1, `landscape sidebar starts at ${railHits.sideLeft}`);
 check(Math.abs(railHits.sideBottom - railHits.innerHeight) <= 1, `landscape sidebar bottom ${railHits.sideBottom} != ${railHits.innerHeight}`);
 check(Math.abs(railHits.editorBottom - railHits.innerHeight) <= 1, `landscape editor bottom ${railHits.editorBottom} != ${railHits.innerHeight}`);
-check(railHits.hits.length === 4, `landscape rail has ${railHits.hits.length} buttons`);
+check(railHits.hits.length === 5, `landscape rail has ${railHits.hits.length} buttons`);
 for (const hit of railHits.hits) {
   check(hit.hit, `landscape ${hit.label} at ${hit.x},${hit.y} hit ${hit.hitName}`);
   check(hit.left >= 59 - 1, `landscape ${hit.label} starts at ${hit.left}, inside the notch`);
@@ -1300,6 +1443,65 @@ if (pkg) {
   check(after.expanded === "false", "sheets button still says expanded");
   check(after.scrim === "none", `scrim stayed up (${after.scrim}) and would block typing`);
 
+  // A finger on the page closes the drawer only when it lifts, and does not
+  // move the caret or focus the editor. Wait until the welcome page is in
+  // place, so a late load is not mistaken for the tap editing the page.
+  await waitFor(`(document.querySelector(".cm-content")?.textContent || "").includes("Welcome to Omacus")`, 15000);
+  const beforeCaret = await evalJson(`(() => {
+    const cm = document.querySelector(".cm-content");
+    const text = cm.textContent;
+    cm.focus();
+    const line = cm.querySelector(".cm-line") || cm;
+    const node = line.firstChild && line.firstChild.nodeType === 3 ? line.firstChild : line;
+    const range = document.createRange();
+    const offsetAt = node.nodeType === 3 ? Math.min(4, node.length) : 0;
+    range.setStart(node, offsetAt);
+    range.collapse(true);
+    const sel = getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    const offset = sel.anchorOffset;
+    const selected = sel.toString();
+    cm.blur();
+    return { text, offset, selected };
+  })()`);
+  await evalJson(`document.querySelector(".sheets-toggle").click()`);
+  await waitFor(`document.body.classList.contains("drawer") && document.querySelector(".side").getBoundingClientRect().left >= -1`);
+  await page("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ x: point.x, y: point.y, id: 1 }],
+  });
+  const mid = await evalJson(`({
+    open: document.body.classList.contains("drawer"),
+    focused: !!document.querySelector(".cm-editor.cm-focused"),
+    active: document.activeElement?.className || document.activeElement?.tagName || "",
+  })`);
+  check(mid.open === true, "the drawer closed before the finger lifted");
+  check(mid.focused === false, `the press focused the editor (${mid.active})`);
+  await page("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await waitFor(`!document.body.classList.contains("drawer")`);
+  const lifted = await evalJson(`(() => {
+    const cm = document.querySelector(".cm-content");
+    const focused = !!document.querySelector(".cm-editor.cm-focused");
+    cm.focus();
+    const sel = getSelection();
+    const offset = sel.anchorOffset;
+    const selected = sel.toString();
+    cm.blur();
+    return {
+      open: document.body.classList.contains("drawer"),
+      focused,
+      active: document.activeElement?.className || "",
+      text: cm.textContent,
+      offset,
+      selected,
+    };
+  })()`);
+  check(lifted.open === false, "lifting the finger left the drawer open");
+  check(lifted.focused === false, `the tap focused the editor (${lifted.active})`);
+  check(lifted.text === beforeCaret.text, "the tap changed the page");
+  check(lifted.offset === beforeCaret.offset && lifted.selected === beforeCaret.selected, `the caret moved (${beforeCaret.offset}/${beforeCaret.selected} -> ${lifted.offset}/${lifted.selected})`);
+
   // A tap on the drawer's own heading keeps it open. Wait out the slide-in so
   // the hit test isn't still the sheet behind it.
   await evalJson(`document.querySelector(".sheets-toggle").click()`);
@@ -1346,6 +1548,20 @@ if (pkg) {
   });
   await navigate(`http://127.0.0.1:${port}/app/?sw=1`);
   await waitFor(`document.querySelector(".cm-content")`, 20000);
+  await waitFor(`[...document.querySelectorAll(".side-row .side-name span")].some((node) => node.textContent === "Welcome to Omacus")`, 20000);
+  const freshBar = await evalJson(`(() => {
+    const names = [...document.querySelectorAll(".side-row")].slice(0, 2).map((row) => row.querySelector(".side-name span")?.textContent || "");
+    const open = document.querySelector(".side-row[aria-current='true'] .side-name span")?.textContent || "";
+    return {
+      names,
+      open,
+      editor: document.querySelector(".cm-content")?.textContent || "",
+      privateChip: !!document.querySelector(".private-chip"),
+    };
+  })()`);
+  check(freshBar.names[0] === "Welcome to Omacus" && freshBar.names[1] === "Examples", `fresh sidebar was ${freshBar.names.join(" | ")}`);
+  check(freshBar.open === "Welcome to Omacus" && freshBar.editor.includes("Welcome to Omacus"), `welcome was not the open page (${freshBar.open})`);
+  check(freshBar.privateChip === false, "the Private pill is still in the top bar");
   await waitForAppCache();
   stopServer();
   await navigate(`http://127.0.0.1:${port}/app/?sw=1`);
@@ -1468,6 +1684,100 @@ async function openMobile() {
 async function tap(x, y) {
   await page("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
   await page("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+}
+
+async function openRowMenuPreview(forceDrawer = false) {
+  return evalJson(`(() => {
+    if (${forceDrawer ? "true" : "false"}) document.body.classList.add("drawer");
+    const menu = document.querySelector("[data-row-menu]");
+    const side = document.querySelector(".side");
+    menu.replaceChildren();
+    for (const label of ["Move up", "Move down", "Move to…", "Select", "Lock…", "Delete page"]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.setAttribute("role", "menuitem");
+      button.textContent = label;
+      if (label === "Delete page") button.className = "danger";
+      menu.append(button);
+    }
+    menu.hidden = false;
+    menu.style.visibility = "hidden";
+    menu.style.margin = "0";
+    menu.style.right = "auto";
+    menu.style.bottom = "auto";
+    menu.style.left = "0px";
+    menu.style.top = "0px";
+    if (typeof menu.showPopover === "function" && !menu.matches(":popover-open")) menu.showPopover();
+    if (${forceDrawer ? "true" : "false"}) document.body.classList.add("drawer");
+    const natural = menu.getBoundingClientRect();
+    const sideR = side.getBoundingClientRect();
+    const margin = 8;
+    let left = Math.max(margin, sideR.right - 36);
+    let top = Math.max(margin, Math.min(sideR.top + 96, innerHeight - natural.height - margin));
+    if (left + natural.width > innerWidth - margin) left = Math.max(margin, innerWidth - natural.width - margin);
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
+    menu.style.visibility = "";
+    const r = menu.getBoundingClientRect();
+    const samples = [...menu.querySelectorAll("button")].map((button) => {
+      const b = button.getBoundingClientRect();
+      const x = b.left + 6;
+      const y = b.top + Math.min(b.height / 2, b.height - 2);
+      const hit = document.elementFromPoint(x, y);
+      return {
+        label: button.textContent,
+        inMenu: !!(hit && menu.contains(hit)),
+        hit: (hit?.textContent || hit?.className || hit?.tagName || "").slice(0, 40),
+      };
+    });
+    const style = getComputedStyle(menu);
+    return {
+      parent: menu.parentElement === document.body,
+      inSheet: !!menu.closest(".sheet"),
+      popover: menu.matches(":popover-open"),
+      z: Number(style.zIndex),
+      position: style.position,
+      left: r.left,
+      right: r.right,
+      top: r.top,
+      bottom: r.bottom,
+      width: r.width,
+      sideRight: sideR.right,
+      onScreen: r.left >= -1 && r.top >= -1 && r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1,
+      overlapsSide: r.left < sideR.right - 1 && r.right > sideR.left + 1,
+      drawer: document.body.classList.contains("drawer"),
+      sideTransform: getComputedStyle(side).transform,
+      samples,
+    };
+  })()`);
+}
+
+async function closeRowMenuPreview() {
+  await evalJson(`(() => {
+    const menu = document.querySelector("[data-row-menu]");
+    if (!menu) return;
+    if (typeof menu.hidePopover === "function" && menu.matches(":popover-open")) menu.hidePopover();
+    menu.hidden = true;
+    menu.replaceChildren();
+  })()`);
+}
+
+async function assertRowMenuClearsSidebar(where, forceDrawer = false) {
+  if (forceDrawer) {
+    await evalJson(`document.body.classList.add("drawer")`);
+    await waitFor(`document.querySelector(".side").getBoundingClientRect().right > 40`);
+  }
+  const menu = await openRowMenuPreview(forceDrawer);
+  try {
+    check(menu.parent === true && menu.inSheet === false, `${where} row menu stayed inside the page`);
+    check(menu.popover === true, `${where} row menu did not reach the top layer`);
+    check(menu.position === "fixed" && menu.z >= 70, `${where} row menu position ${menu.position} z ${menu.z}`);
+    check(menu.onScreen === true, `${where} row menu left the screen (${Math.round(menu.left)},${Math.round(menu.top)} ${Math.round(menu.right)}x${Math.round(menu.bottom)})`);
+    check(menu.overlapsSide === true, `${where} row menu did not overlap the sidebar (left ${Math.round(menu.left)}, side ${Math.round(menu.sideRight)}, drawer ${menu.drawer}, transform ${menu.sideTransform})`);
+    check(menu.samples.length >= 6 && menu.samples.every((sample) => sample.inMenu), `${where} row menu was covered (${JSON.stringify(menu.samples)})`);
+  } finally {
+    await closeRowMenuPreview();
+  }
 }
 
 async function plainShot(path) {

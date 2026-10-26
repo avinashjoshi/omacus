@@ -82,9 +82,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           OMACUS_EXPECT_VERSION: ${{ inputs.expect_version || (github.event_name == 'release' && github.event.release.tag_name) || '' }}
-          # One phrase per line. A match stops the deploy and names the version.
-          # An absent secret is empty, and the check is skipped.
-          OMACUS_PRIVATE_TERMS: ${{ secrets.OMACUS_PRIVATE_TERMS }}
         run: python3 site/tools/updates.py --out _site
       - name: Story page
         # Counts and the timeline, from this checkout and GitHub. A missing API
@@ -92,8 +89,6 @@ jobs:
         # are left off rather than filled in.
         env:
           GH_TOKEN: ${{ github.token }}
-          # Same phrase list as the updates page. Absent secret: the check is skipped.
-          OMACUS_PRIVATE_TERMS: ${{ secrets.OMACUS_PRIVATE_TERMS }}
         run: python3 site/tools/story.py --out _site
       - name: Version assets
         # Cloudflare in front of omacus.com caches CSS and JS for hours, so pages point

@@ -343,6 +343,35 @@ jobs:
             echo "ENDTITLE"
           } >> "$GITHUB_OUTPUT"
           cat notes.md
+      - name: Sign the update manifest
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${MINISIGN_SECRET_KEY}" ]]; then
+            echo "MINISIGN_SECRET_KEY is not set. Refusing to publish an unsigned update."
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          files = {}
+          for line in Path("dist/SHA256SUMS.txt").read_text().splitlines():
+              line = line.strip()
+              if not line:
+                  continue
+              digest, name = line.split(None, 1)
+              name = name.lstrip("*").strip()
+              if name in {"omacus-update.json", "SHA256SUMS.txt"} or name.endswith(".minisig"):
+                  raise SystemExit(f"{name} must not be inside the signed manifest")
+              files[name] = digest
+          Path("dist/omacus-update.json").write_text(
+              json.dumps({"version": os.environ["VERSION"], "files": files}, indent=2) + "\n"
+          )
+          PY
+          node scripts/sign-update.mjs dist/omacus-update.json
+          test -s dist/omacus-update.json.minisig
       - name: Point the tag at the built commit
         # Creating the release with target_commitish asks the Releases API to
         # make the tag. If main has moved and a workflow file differs, that

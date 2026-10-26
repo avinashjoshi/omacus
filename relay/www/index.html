@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" data-app-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>Omacus sync 1.0.0</title>
+  <link rel="stylesheet" href="./tokens.css">
+  <link rel="stylesheet" href="./app.css">
+</head>
+<body>
+  <div class="app">
+    <header class="bar">
+      <button class="menu" type="button" data-act="home" aria-label="Pages"><i></i></button>
+      <a class="brand" href="./"><img src="./img/icon.svg" alt="">omacus</a>
+      <span class="title" id="page-title">Trip Budget</span>
+    </header>
+    <div class="workspace">
+      <aside class="side">
+        <div class="side-head">Pages <button type="button" aria-label="New page" data-act="home">+</button></div>
+        <div class="row on">Trip Budget</div>
+        <div class="row">Groceries</div>
+        <div class="side-foot">
+          <button class="row" type="button" data-act="theme">Theme</button>
+          <a class="ver">omacus 1.0.0</a>
+        </div>
+      </aside>
+      <div class="stage" id="stage"></div>
+    </div>
+  </div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
