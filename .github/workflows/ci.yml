@@ -17,6 +17,8 @@ permissions:
 
 jobs:
   test:
+    # The slowest recent green run was 21 minutes, on macOS.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -35,7 +37,7 @@ jobs:
         run: python3 site/tools/test_story.py
       - name: Release notes
         if: runner.os == 'Linux'
-        run: python3 tests/check_release_notes.py && python3 tests/check_release_workflow.py && python3 tests/check_update_signature.py && python3 tests/check_site_pages.py && python3 tests/check_sync_health.py && python3 tests/check_security_review.py
+        run: python3 tests/check_release_notes.py && python3 tests/check_release_workflow.py && python3 tests/check_update_signature.py && python3 tests/check_site_pages.py && python3 tests/check_sync_health.py && python3 tests/check_security_review.py && python3 tests/check_ci_browser.py
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: clippy
@@ -109,6 +111,8 @@ jobs:
   # WebKit) checks that a reload still opens the app with no connection.
   wasm:
     runs-on: ubuntu-latest
+    # A healthy run is about 10 minutes. This stops a hung browser install.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -138,10 +142,20 @@ jobs:
           node --import ./relay/worker/register-cf.mjs relay/worker/leave.test.mjs
           node --import ./relay/worker/register-cf.mjs relay/worker/routing.test.mjs
           node --import ./relay/worker/register-cf.mjs relay/worker/admin.test.mjs
+      # Chromium and WebKit are already in the Playwright image that matches
+      # @playwright/test. Installing them here with --with-deps apt-gets
+      # gstreamer from the Ubuntu mirror, which has held this step for an hour.
       - name: Web app offline
         run: |
           cargo install wasm-bindgen-cli --version 0.2.129 --locked
           .github/scripts/build-web.sh --into site
-          npm ci
-          npx playwright install --with-deps chromium webkit
-          npx playwright test
+          docker run --rm --init --ipc=host \
+            -e CI=true \
+            -e HOME=/tmp \
+            -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+            -e PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -w /work \
+            mcr.microsoft.com/playwright:v1.56.1-noble@sha256:f1e7e01021efd65dd1a2c56064be399f3e4de00fd021ac561325f2bfbb2b837a \
+            bash -c 'npm ci && npx playwright test'
+          sudo chown -R "$(id -u):$(id -g)" node_modules
