@@ -23,7 +23,7 @@ Do these in this order.
 4. Publish the sync build to `https://app.omacus.com`. The Release workflow does that after the tag, by calling `.github/workflows/app.yml`. A push to `main` does not publish the app. To publish this commit without a desktop release, start the App workflow by hand (`workflow_dispatch`) on the merged commit. `app.yml` runs `.github/scripts/build-web.sh`.
 5. Smoke test the app: the same phone opens `https://app.omacus.com`, turns sync on, and reaches the worker from step 3.
 
-`site/_headers` sends HSTS and the content security policy for omacus.com. Each page also carries that policy, so it still applies when the host does not read `_headers`. `/app` on this origin keeps the bridge rules, including the engine.
+`site/_headers` is the content security policy and HSTS text for omacus.com. GitHub Pages does not send that file, so those lines are not the live headers. Each page also carries the policy in a meta tag. The live headers are a Cloudflare response rule, and HSTS is the zone setting. The exact clicks and the API body are in `docs/ops/cloudflare-headers.json` and `docs/ops/release-protection.md`. `/app` on this origin keeps the bridge rules, including the engine. app.omacus.com sends its policy from `site/app/_headers`, including HSTS.
 
 The health workflow below expects the label `1.0.0`. Until this worker is deployed, the first scheduled run opens an issue. Close that issue after the deploy.
 
@@ -35,6 +35,10 @@ The health workflow below expects the label `1.0.0`. Until this worker is deploy
 
 Each desktop release publishes `omacus-update.json` and `omacus-update.json.minisig`. The signature is minisign's legacy algorithm, `Ed`: it signs the file itself. The app checks that signature, then checks the file's sha256 from the manifest, before it installs. An unsigned tag is not a version. The one-line installer still checks `SHA256SUMS.txt`.
 
-The signing secret is the GitHub Actions secret `MINISIGN_SECRET_KEY`. It is three lines: `omacus-update-key-v1`, the 16 hex key id, and the 64 hex seed. It is not in this repository. The public key is `keys/omacus-update.pub`, and that key is compiled into the app. The release stops if the secret is missing. Replacing the public key takes an app release, because copies already installed keep the key they were built with.
+The signing secret is `MINISIGN_SECRET_KEY` on the GitHub environment `release`, not a plain repository secret. It is three lines: `omacus-update-key-v1`, the 16 hex key id, and the 64 hex seed. It is not in this repository. The public key is `keys/omacus-update.pub`, and that key is compiled into the app. The release stops if the secret is missing. Replacing the public key takes an app release, because copies already installed keep the key they were built with.
+
+Copies from 0.2.x check a SHA-256 published on the same GitHub release. They do not check the minisign signature. A person who can replace that release can ship those copies a new build. 1.0 and later check `omacus-update.json.minisig` before they trust a hash. Those older copies get that check when they install 1.0 or later. The one-line installer checks the signature when `minisign` is installed, and otherwise checks `SHA256SUMS.txt` and says so.
+
+If you suspect the admin key leaked, rotate `ADMIN_KEY` on the worker. The admin key alone cannot read pages. It also needs a Cloudflare Access login, and admin still sees counts and limits only.
 
 Mac builds are still ad-hoc signed (`codesign --force --deep --sign -` in the release workflow) and are not notarized. Notarizing needs an Apple Developer ID Application certificate, notarytool credentials (`APPLE_ID`, `APPLE_TEAM_ID`, and an app-specific password or an App Store Connect API key), then replacing that ad-hoc sign, `xcrun notarytool submit`, and `xcrun stapler staple`.

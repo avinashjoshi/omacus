@@ -2,11 +2,11 @@
 
 ## Unreleased
 
-**Behind-the-scenes improvements**
+**A removed phone keeps its old pages**
 
-Nothing you see in the app changed.
+Removing a phone or computer stops it from getting new pages. Pages it already saved stay readable on it. When that list changes, Omacus says so. The recovery words can put the list back.
 
-<!-- internal -->
+A new invite code lasts 30 days unless a different day is set. Settings shows a build hash, and a public file lists every file in that web build. Copies from before 1.0 check a checksum only. This version checks a signature before it installs an update.
 
 ## 1.0.0
 

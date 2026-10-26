@@ -1,4 +1,5 @@
 /*
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
   Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://open.er-api.com https://sync.omacus.com https://cloudflareinsights.com; worker-src 'self'; manifest-src 'self'; frame-ancestors 'self' https://omacus.com https://www.omacus.com; base-uri 'self'; object-src 'none'; form-action 'self'; require-trusted-types-for 'script'; trusted-types omacus
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin

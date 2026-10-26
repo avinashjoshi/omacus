@@ -176,4 +176,9 @@ test -s "$out/seed.js"
 test -s "$out/examples.js"
 grep -q 'seed.js?v=' "$out/app.js"
 grep -q 'examples.js?v=' "$out/seed.js"
+(
+  cd "$out"
+  find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum
+) > "$out/SHA256SUMS.txt"
+grep -q "omacus_web_bg.wasm" "$out/SHA256SUMS.txt"
 echo "$hash"

@@ -3,8 +3,11 @@
 #   irm https://omacus.com/install.ps1 | iex
 #
 # Downloads the latest installer from GitHub, checks it against the release's
-# SHA256SUMS.txt, installs Omacus for you (no admin prompt) into
+# SHA256SUMS.txt, and installs Omacus for you (no admin prompt) into
 # %LOCALAPPDATA%\Programs\Omacus with a Start menu entry, and opens it.
+# Copies before 1.0 only check that checksum. The app from 1.0 on also checks
+# the minisign signature before it installs an update. This script has no
+# minisign command, so it keeps the checksum check.
 # Running it again updates Omacus. Settings > Apps uninstalls it.
 #
 # For testing: $env:OMACUS_RELEASE_URL points at another folder of release files.

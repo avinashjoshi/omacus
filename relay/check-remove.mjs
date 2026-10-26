@@ -91,7 +91,7 @@ try {
   await removes.click();
   await pageA.getByRole("heading", { name: "Remove this phone or computer?" }).waitFor();
   const help = await pageA.locator("[data-settings-panel='sync']").innerText();
-  if (!help.includes("It will stop getting your pages. Pages already on it stay there.")) {
+  if (!help.includes("It stops getting new pages. Pages it already saved stay readable on it. New edits stay with the phones and computers that are still linked.")) {
     throw new Error(`confirm copy missing: ${help}`);
   }
   if (await pageA.locator(".sync-code").count() !== 0) throw new Error("the remove screen still shows the six numbers");

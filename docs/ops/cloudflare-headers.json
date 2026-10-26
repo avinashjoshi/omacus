@@ -1,0 +1,60 @@
+{
+  "zone_id": "232a20ef78c41a58eb56f2d7ae03d15d",
+  "phase": "http_response_headers_transform",
+  "description": "Live headers for omacus.com. GitHub Pages does not send site/_headers. app.omacus.com already sends its policy from site/app/_headers; this rule adds the same HSTS there.",
+  "rules": [
+    {
+      "description": "Security headers for omacus.com",
+      "expression": "(http.host eq \"omacus.com\" or http.host eq \"www.omacus.com\") and not starts_with(http.request.uri.path, \"/app\")",
+      "action": "rewrite",
+      "action_parameters": {
+        "headers": {
+          "Strict-Transport-Security": {
+            "operation": "set",
+            "value": "max-age=31536000; includeSubDomains"
+          },
+          "Content-Security-Policy": {
+            "operation": "set",
+            "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; media-src 'self'; frame-src 'self' https://app.omacus.com; worker-src 'self'; manifest-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'"
+          },
+          "X-Content-Type-Options": { "operation": "set", "value": "nosniff" },
+          "Referrer-Policy": { "operation": "set", "value": "strict-origin-when-cross-origin" },
+          "Permissions-Policy": { "operation": "set", "value": "interest-cohort=()" }
+        }
+      }
+    },
+    {
+      "description": "Security headers for the omacus.com/app bridge",
+      "expression": "(http.host eq \"omacus.com\" or http.host eq \"www.omacus.com\") and starts_with(http.request.uri.path, \"/app\")",
+      "action": "rewrite",
+      "action_parameters": {
+        "headers": {
+          "Strict-Transport-Security": {
+            "operation": "set",
+            "value": "max-age=31536000; includeSubDomains"
+          },
+          "Content-Security-Policy": {
+            "operation": "set",
+            "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://open.er-api.com https://sync.omacus.com https://cloudflareinsights.com; worker-src 'self'; frame-src 'self' https://app.omacus.com; manifest-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'"
+          },
+          "X-Content-Type-Options": { "operation": "set", "value": "nosniff" },
+          "Referrer-Policy": { "operation": "set", "value": "strict-origin-when-cross-origin" },
+          "Permissions-Policy": { "operation": "set", "value": "interest-cohort=()" }
+        }
+      }
+    },
+    {
+      "description": "HSTS for app.omacus.com",
+      "expression": "http.host eq \"app.omacus.com\"",
+      "action": "rewrite",
+      "action_parameters": {
+        "headers": {
+          "Strict-Transport-Security": {
+            "operation": "set",
+            "value": "max-age=31536000; includeSubDomains"
+          }
+        }
+      }
+    }
+  ]
+}

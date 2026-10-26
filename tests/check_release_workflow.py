@@ -27,6 +27,10 @@ if sign_at < 0 or tag_at < 0 or sign_at > tag_at:
     errors.append("publish must sign the update manifest before pushing the tag")
 if "MINISIGN_SECRET_KEY is not set" not in publish:
     errors.append("publish must refuse an unsigned update")
+if "environment: release" not in publish:
+    errors.append("publish must use the release environment")
+if "RELEASE_TOKEN is not set on the release environment" not in publish:
+    errors.append("publish must refuse a version tag without RELEASE_TOKEN")
 if tag_at < 0 or release_at < 0 or tag_at > release_at:
     errors.append("publish must push the tag before creating the GitHub release")
 if "persist-credentials: true" not in publish:

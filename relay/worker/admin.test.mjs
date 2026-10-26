@@ -2,7 +2,18 @@
 // The code is shown once. Storage keeps a hash. Stats keep sizes, not pages.
 import { readFile } from "node:fs/promises";
 import worker, { Mailboxes } from "./worker.js";
-import { clearAdminCaches, deviceCount, expiryMs, linkedDevices, sameSecret } from "./admin.js";
+import {
+  CODE_TTL_MS,
+  applyStorageAlert,
+  clearAdminCaches,
+  codeExpiry,
+  deviceCount,
+  expiryMs,
+  linkedDevices,
+  noteStorage,
+  sameSecret,
+  storageJump,
+} from "./admin.js";
 import { DEFAULT_SYNC_URL } from "./admin.mjs";
 
 const SECRET = "omacus-access-test-secret";
@@ -182,6 +193,31 @@ if (sameSecret(ADMIN, ADMIN + "x")) throw new Error("long secret matched");
 if (sameSecret("", "")) throw new Error("empty secret matched");
 if (expiryMs("2026-12-31") !== Date.UTC(2026, 11, 31, 23, 59, 59, 999)) throw new Error("expiry day");
 if (expiryMs("") !== 0) throw new Error("empty expiry");
+if (codeExpiry("", 1_000) !== 1_000 + CODE_TTL_MS) throw new Error("blank expiry is 30 days");
+if (codeExpiry("2099-01-01", 1_000) !== Date.UTC(2099, 0, 1, 23, 59, 59, 999)) throw new Error("named expiry");
+if (storageJump(0, 1024 * 1024 * 1024) !== null) throw new Error("the first reading is not a jump");
+if (storageJump(100, 200) !== null) throw new Error("a small growth is not a jump");
+{
+  const jump = storageJump(100, 100 + 1024 * 1024 * 1024);
+  if (!jump || jump.grew !== 1024 * 1024 * 1024) throw new Error("a gigabyte growth is a jump");
+}
+{
+  const box = new Storage();
+  if (await applyStorageAlert(box, 10, 1) !== null) throw new Error("baseline is quiet");
+  const alert = await applyStorageAlert(box, 10 + 1024 * 1024 * 1024, 2);
+  if (!alert || alert.grew !== 1024 * 1024 * 1024) throw new Error("storage alert missing");
+  await noteStorage(box, alert.bytes, 3);
+  if (await applyStorageAlert(box, alert.bytes, 4) !== null) throw new Error("noted storage stayed quiet");
+}
+{
+  const { storage, env } = harness();
+  const before = Date.now();
+  const made = await call(env, "POST", "/v1/admin/codes", { uses: 1, label: "Week" });
+  assert(made.status === 200, `default expiry ${made.status} ${made.text}`);
+  const row = await storage.get("a:" + made.json.hash);
+  const after = Date.now();
+  assert(row.expires >= before + CODE_TTL_MS && row.expires <= after + CODE_TTL_MS, "blank expiry is 30 days");
+}
 if (expiryMs("2026-13-40") !== null) throw new Error("bad date");
 
 const record = sealedRecord();
