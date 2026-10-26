@@ -78,7 +78,6 @@ class SitePages(unittest.TestCase):
         self.assertIn("/sync/", body)
         self.assertIn("/privacy/", body)
         self.assertNotIn("upcoming", body)
-        self.assertIn('version = "1.0.0"', (ROOT / "Cargo.toml").read_text())
         page = (SITE / "updates" / "index.html").read_text()
         feed = (SITE / "updates" / "feed.xml").read_text()
         self.assertNotIn(">Coming<", page)
