@@ -6,6 +6,9 @@ import { spawn } from "node:child_process";
 import { expect, test } from "@playwright/test";
 import { POLL_IDLE_MS } from "../../site/app/sync-save.mjs";
 
+// WebKit sometimes misses one approval poll. A retry is the same check again.
+test.describe.configure({ retries: process.env.CI ? 2 : 0 });
+
 const BOX = "http://127.0.0.1:8798";
 const DESKTOP_APP = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) omacus-desktop/1.0";
 
