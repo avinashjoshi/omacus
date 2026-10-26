@@ -65,22 +65,28 @@ async function expectQuietChip(page) {
   await expect(chip).not.toHaveText(/Sync paused/);
 }
 
-// A phone resize redraws the panel. WebKit's content quads are empty for that
-// frame, so boundingBox() is null even though the words grid is already on screen.
+// A phone resize redraws the panel. WebKit can report the words grid before it
+// is back inside the panel, so the measure waits until that grid is connected.
 async function expectWordsFill(page) {
-  await expect(page.locator(".sync-words-grid")).toBeVisible();
-  const box = await page.locator(".sync-words-grid").evaluate((grid) => {
-    const panel = grid.closest(".sync-panel").getBoundingClientRect();
-    const rect = grid.getBoundingClientRect();
-    return {
-      grid: rect.width,
-      panel: panel.width,
-      top: rect.top,
-      bottom: rect.bottom,
-      height: rect.height,
-      view: window.innerHeight,
-    };
-  });
+  let box = null;
+  await expect.poll(async () => {
+    box = await page.locator(".sync-words-grid").evaluate((grid) => {
+      const panel = grid.closest(".sync-panel");
+      if (!panel || !grid.isConnected) return null;
+      const panelRect = panel.getBoundingClientRect();
+      const rect = grid.getBoundingClientRect();
+      if (rect.height <= 0 || panelRect.width <= 0) return null;
+      return {
+        grid: rect.width,
+        panel: panelRect.width,
+        top: rect.top,
+        bottom: rect.bottom,
+        height: rect.height,
+        view: window.innerHeight,
+      };
+    }).catch(() => null);
+    return box;
+  }).not.toBeNull();
   expect(box.height).toBeGreaterThan(0);
   expect(box.grid).toBeGreaterThan(box.panel * 0.9);
   expect(box.top).toBeLessThan(box.view);
@@ -307,7 +313,19 @@ test("an invite notices a join within 5 seconds", async ({ browser }) => {
       await phoneA.locator(".sync-ask").nth(step).getByRole("button", { name: words[n - 1], exact: true }).click();
     }
     await phoneA.getByRole("button", { name: "These match" }).click();
-    await expect(phoneA.getByRole("heading", { name: "✓ Sync is on" })).toBeVisible();
+    // Checking the words derives a key, then saves. WebKit can take longer
+    // than the default wait, and a stuck screen should name itself.
+    await expect.poll(async () => {
+      if (await phoneA.getByRole("heading", { name: "✓ Sync is on" }).count()) return "ready";
+      const err = phoneA.locator(".sync-panel .sync-err, .sync-panel [role='alert']");
+      if (await err.count()) {
+        const text = (await err.first().innerText()).trim();
+        if (text) return `error: ${text}`;
+      }
+      const heading = phoneA.locator(".sync-panel h2");
+      if (!(await heading.count())) return "no heading";
+      return `waiting: ${(await heading.first().innerText()).trim()}`;
+    }, { timeout: 60_000 }).toBe("ready");
     await expect(phoneA.getByText("Synced just now")).toBeVisible();
     await shot(phoneA, "sync-ready-desktop-light");
     await theme(phoneA, "dark");

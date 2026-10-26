@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
 
 pub mod desk;
-mod invite;
+pub mod invite;
 use desk::{Desk, b64_decode, b64_encode};
 
 thread_local! {

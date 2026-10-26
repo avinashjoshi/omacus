@@ -17,6 +17,7 @@ mod preview;
 mod rates;
 mod settings;
 mod sheets;
+mod sync;
 mod theme;
 mod update;
 

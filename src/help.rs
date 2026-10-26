@@ -641,10 +641,10 @@ fn about(
         ui.add_space(theme::token::SPACE_1);
         ui.label(
             RichText::new(
-                "Your pages stay on this computer, as plain text files. There's no account and \
-             no tracking. Omacus goes online for two things only: exchange rates, about \
-             twice a day and saved for offline use, and checking GitHub for a new version. \
-             Neither sends anything you've written.",
+                "Your pages stay on this computer, as plain text files. With sync on, a sealed \
+             copy can leave, and the server cannot read it. There's no account and no \
+             tracking. Omacus also goes online for exchange rates, about twice a day and \
+             saved for offline use, and to check GitHub for a new version.",
             )
             .size(theme::token::TYPE_BODY)
             .color(theme.text_secondary()),

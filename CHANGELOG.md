@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+**Sync on this computer**
+
+Pages in the desktop app can sync with a phone. Turn on sync stays in this window. The server still cannot read the pages. The sync key stays in the system key store. On a Linux computer with no keyring, you choose a passphrase, and the key stays in a locked file on that computer. Copying the recovery words says that a clipboard history may keep them. Printing them, or writing them down, is safest. Quitting the app clears those words if they are still on the clipboard. Removing a phone or computer stops it from getting new pages. Pages it already saved stay readable on it. When that list changes, this window says so.
+
 **A removed phone keeps its old pages**
 
 Removing a phone or computer stops it from getting new pages. Pages it already saved stay readable on it. When that list changes, Omacus says so. The recovery words can put the list back.
