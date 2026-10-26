@@ -156,6 +156,8 @@ test("turning sync off drops this phone from the other list within one poll", as
     await phoneB.evaluate(() => { document.documentElement.dataset.appTheme = "light"; });
     await phoneB.getByRole("button", { name: "Turn sync off", exact: true }).click();
     await expect(phoneB.getByRole("heading", { name: "Turn on sync" })).toBeVisible({ timeout: 20000 });
+    // The saving timer is about a second. It used to show Syncing again after turn-off.
+    await phoneB.waitForTimeout(1200);
     await expect(phoneB.locator(".sync-chip")).toBeHidden();
     await expect(phoneB.locator(".sync-chip")).not.toHaveText(/Sync paused/);
     await expect(phoneB.locator("[data-turn-on-sync]").first()).toBeVisible();

@@ -313,8 +313,14 @@ export async function mountSync(api) {
     }
   }
 
+  function dropSaving() {
+    saveWanted = false;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+
   function armSaving() {
-    if (saveWanted) return;
+    if (!state.account || !state.member || saveWanted) return;
     if (navigator.onLine === false) {
       setChip("Offline", "offline");
       return;
@@ -322,7 +328,7 @@ export async function mountSync(api) {
     saveWanted = true;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      if (!saveWanted) return;
+      if (!saveWanted || !state.account || !state.member) return;
       if (navigator.onLine === false) {
         saveWanted = false;
         setChip("Offline", "offline");
@@ -1381,6 +1387,8 @@ export async function mountSync(api) {
       state.error = "";
       state.screen = "off";
       state.busy = false;
+      // A save started by the last edit must not put Syncing back after this.
+      dropSaving();
       hideChip();
       draw();
     });
