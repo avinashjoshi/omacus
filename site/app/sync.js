@@ -2,6 +2,7 @@
 // The engine needs those key bytes, so the file cannot be a non-exportable
 // WebCrypto key. The page's strict policy is what keeps other scripts out.
 import { SYNC_URL } from "./sync-config.js";
+import { APP_VERSION } from "./version.js";
 import { beginSave, finishSave, noteLocalEdit, pagesDiffer, pollWait, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
@@ -15,7 +16,7 @@ import {
   upsertVault,
 } from "./sync-vaults.mjs";
 
-const LABEL = "omacus 1.0.0";
+const LABEL = `omacus v${APP_VERSION}`;
 const FIELD_ERROR_ID = "sync-field-error";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
@@ -38,9 +39,14 @@ export async function mountSync(api) {
     const mod = await import("./pkg/omacus_sync_web.js");
     await mod.default();
     sync = mod;
+    if (typeof sync.appVersion === "function") {
+      const reported = sync.appVersion();
+      if (reported) document.documentElement.dataset.syncVersion = reported;
+    }
   } catch {
     return;
   }
+  if (typeof api.settle === "function") api.settle(() => settleBeforeUpdate());
 
   const root = document.querySelector("[data-settings-panel='settings']")?.parentElement;
   const tabs = document.querySelector(".settings-tabs");
@@ -72,9 +78,6 @@ export async function mountSync(api) {
     bar.insertBefore(beta, barActions);
     bar.insertBefore(chip, barActions);
   }
-  const version = document.querySelector("[data-app-version]");
-  if (version) version.textContent = LABEL;
-
   const state = {
     screen: "off",
     desk: null,
@@ -898,6 +901,18 @@ export async function mountSync(api) {
     }
     if (opened.slots) state.slots = opened.slots;
     if ((opened.republish || opened.legacy) && opened.replace !== false && state.member && depth < 1) await push();
+  }
+
+  async function settleBeforeUpdate() {
+    const deadline = Date.now() + 8000;
+    while (ticking && Date.now() < deadline) await sleep(40);
+    if (!state.account || !state.member || !state.dirty) return;
+    if (navigator.onLine === false) return;
+    try {
+      await push();
+    } catch {
+      // Pages stay in this browser. Reloading does not remove them.
+    }
   }
 
   async function push() {

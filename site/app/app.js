@@ -8,7 +8,9 @@ import init, {
   bindingAt, renameVariable, definitionChange, pageRefAt, rewriteVarRefs, renameBlurb, propagateRename, propagateHandle,
   lockCreate, lockWrap, lockSeal, lockOpen, lockUnwrap, lockOpenPassword, lockIs,
   docMigrate, docSnapshot, docApply, docMergeDisk, docConflicts, docPick, docRemove, docSetFolders, docUnion,
+  appVersion,
 } from "./pkg/omacus_web.js";
+import { APP_VERSION } from "./version.js";
 import {
   EditorState, StateField, StateEffect, RangeSetBuilder, Prec, EditorView, Decoration, WidgetType, keymap, hoverTooltip,
   defaultKeymap, history as undoHistory, historyKeymap, autocompletion, acceptCompletion, closeCompletion,
@@ -35,6 +37,10 @@ const bootFail = document.querySelector("[data-boot-fail]");
 if (bootFail) bootFail.hidden = true;
 const bootLoading = document.querySelector("[data-loading]");
 if (bootLoading) bootLoading.hidden = false;
+
+document.documentElement.dataset.runningVersion = APP_VERSION;
+const versionLink = document.querySelector("[data-app-version]");
+if (versionLink) versionLink.textContent = `omacus v${APP_VERSION}`;
 
 const WASM = new URL("pkg/omacus_web_bg.wasm", import.meta.url).href;
 const WORKER = new URL("./worker.js", import.meta.url).href;
@@ -5004,10 +5010,14 @@ function standalone() {
 
 let applyingUpdate = false;
 let waitingUpdate = null;
+let settleSync = async () => {};
 
-function offerUpdate(reg) {
-  if (!navigator.serviceWorker.controller || !reg?.waiting) return;
-  waitingUpdate = reg;
+function offerUpdate(reg, mismatch) {
+  if (!navigator.serviceWorker.controller) return;
+  // The first install activates on its own. A banner is for a version that is
+  // waiting, or for a shell the network has that this page is not running.
+  if (!mismatch && !reg?.waiting) return;
+  if (reg) waitingUpdate = reg;
   const banner = $("[data-update-banner]");
   if (banner) banner.hidden = false;
 }
@@ -5022,18 +5032,66 @@ function watchUpdate(reg) {
   if (reg.waiting) offerUpdate(reg);
 }
 
+function waitForWorker(worker) {
+  if (!worker || worker.state === "installed" || worker.state === "activated") return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => resolve();
+    worker.addEventListener("statechange", () => {
+      if (worker.state === "installed" || worker.state === "activated" || worker.state === "redundant") done();
+    });
+    setTimeout(done, 8000);
+  });
+}
+
 async function applyUpdate() {
   applyingUpdate = true;
+  const button = $('[data-action="apply-update"]');
+  if (button) button.disabled = true;
   await flushSave();
   await storeDrained();
+  try {
+    await settleSync();
+  } catch {
+    // Pages stay in this browser. Reloading does not remove them.
+  }
   const reg = waitingUpdate || (await navigator.serviceWorker.getRegistration());
-  const waiting = reg?.waiting;
+  try {
+    await reg?.update();
+  } catch {
+    // The reload still asks the network for the shell.
+  }
+  const current = await navigator.serviceWorker.getRegistration();
+  await waitForWorker(current?.installing);
+  const waiting = (await navigator.serviceWorker.getRegistration())?.waiting;
   if (!waiting) {
     location.reload();
     return;
   }
   waiting.postMessage({ type: "skip-waiting" });
-  setTimeout(() => location.reload(), 1500);
+  await new Promise((resolve) => {
+    const done = () => resolve();
+    navigator.serviceWorker.addEventListener("controllerchange", done, { once: true });
+    setTimeout(done, 1500);
+  });
+  location.reload();
+}
+
+const UPDATE_CHECK_MS = 30000;
+
+async function lookForUpdate() {
+  if (!("serviceWorker" in navigator)) return;
+  const reg = await navigator.serviceWorker.getRegistration();
+  if (!reg) return;
+  try { await reg.update(); } catch { /* Offline. The next open tries again. */ }
+  let remote = "";
+  try {
+    const res = await fetch(new URL("version.json", document.baseURI), { cache: "no-store" });
+    if (res.ok) remote = String((await res.json())?.version || "");
+  } catch {
+    // The worker check above is the other way an open copy notices.
+  }
+  if (reg.waiting) offerUpdate(reg);
+  else if (remote && remote !== APP_VERSION) offerUpdate(reg, true);
 }
 
 async function goOffline() {
@@ -5048,7 +5106,7 @@ async function goOffline() {
     return;
   }
   try {
-    const reg = await navigator.serviceWorker.register(scriptURL(new URL("sw.js", import.meta.url).href), { scope: "./" });
+    const reg = await navigator.serviceWorker.register(scriptURL(new URL("sw.js", document.baseURI).href), { scope: "./" });
     navigator.serviceWorker.addEventListener("controllerchange", () => {
       if (applyingUpdate) location.reload();
     });
@@ -5059,6 +5117,13 @@ async function goOffline() {
     }
     await navigator.serviceWorker.ready;
     watchUpdate(reg);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") lookForUpdate();
+    });
+    window.addEventListener("focus", () => lookForUpdate());
+    window.addEventListener("pageshow", () => lookForUpdate());
+    setInterval(() => lookForUpdate(), UPDATE_CHECK_MS);
+    lookForUpdate();
     const base = new URL("./", import.meta.url).href;
     const urls = [
       ...new Set([
@@ -5237,6 +5302,11 @@ async function start() {
     else if (action === "mark") saveIndex();
   }
   await init({ module_or_path: WASM });
+  try {
+    document.documentElement.dataset.wasmVersion = appVersion();
+  } catch {
+    // The shell version above is the copy this page is running.
+  }
   engineReady = true;
   calc = new Calc();
   setRates(JSON.stringify(FALLBACK_RATES));
@@ -5263,6 +5333,9 @@ async function start() {
       storeRemove: (key) => store.remove(key),
       onEdit: (fn) => {
         syncTouched = fn;
+      },
+      settle: (fn) => {
+        settleSync = fn;
       },
       setSyncPlaces,
     });

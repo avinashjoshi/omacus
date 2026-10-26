@@ -2818,7 +2818,7 @@ dependencies = [
 
 [[package]]
 name = "omacus"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "arboard",
  "base64 0.22.1",
@@ -2857,7 +2857,7 @@ dependencies = [
 
 [[package]]
 name = "omacus-doc"
-version = "0.0.0"
+version = "1.0.2"
 dependencies = [
  "automerge",
  "sha2",
@@ -2865,7 +2865,7 @@ dependencies = [
 
 [[package]]
 name = "omacus-engine"
-version = "0.0.0"
+version = "1.0.2"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -2886,7 +2886,7 @@ dependencies = [
 
 [[package]]
 name = "omacus-relay"
-version = "0.0.0"
+version = "1.0.2"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -2901,7 +2901,7 @@ dependencies = [
 
 [[package]]
 name = "omacus-sync-web"
-version = "0.0.0"
+version = "1.0.2"
 dependencies = [
  "base64 0.22.1",
  "hmac",
@@ -2914,7 +2914,7 @@ dependencies = [
 
 [[package]]
 name = "omacus-web"
-version = "0.0.0"
+version = "1.0.2"
 dependencies = [
  "omacus-doc",
  "omacus-engine",

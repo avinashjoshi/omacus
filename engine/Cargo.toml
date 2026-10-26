@@ -1,10 +1,10 @@
 [package]
 name = "omacus-engine"
-version = "0.0.0"
+version.workspace = true
 edition = "2024"
 description = "The Omacus math engine: notepad conventions on top of fend, dates, time zones and more"
 license = "MIT"
-publish = false  # internal; the app's version is the one in ../Cargo.toml
+publish = false  # internal; the version is the workspace version in ../Cargo.toml
 
 # Pure computation, no files, network or UI, so the same code runs in the desktop
 # app and, compiled to WebAssembly, in the browser.

@@ -75,7 +75,7 @@ fi
 rm -rf "$out"
 mkdir -p "$out/css" "$out/fonts" "$out/img"
 bind_engines "$out/pkg"
-cp site/app/index.html site/app/app.js site/app/app.css site/app/editor.js \
+cp site/app/index.html site/app/app.js site/app/app.css site/app/editor.js site/app/version.js site/app/version.json \
   site/app/worker.js site/app/tree.js site/app/layer.js site/app/store.js site/app/sw.js \
   site/app/trust.js site/app/recover.js site/app/frame.js site/app/backup.js \
   site/app/seed.js site/app/examples.js site/app/sync.js site/app/sync-link.mjs site/app/device-name.js site/app/sync-save.mjs site/app/sync-vaults.mjs site/app/sync-leader.mjs site/app/sync-config.js \
@@ -143,6 +143,8 @@ if old not in text:
     raise SystemExit("sync-config.js has no empty SYNC_URL")
 path.write_text(text.replace(old, new, 1))
 PY
+short="$(sha256sum "$out/version.js" | cut -c1-10)"
+sed -i "s#\"./version.js\"#\"./version.js?v=$short\"#" "$out/app.js" "$out/sync.js"
 short="$(sha256sum "$out/sync-link.mjs" | cut -c1-10)"
 sed -i "s#\"./sync-link.mjs\"#\"./sync-link.mjs?v=$short\"#" "$out/sync.js" "$out/app.js"
 short="$(sha256sum "$out/device-name.js" | cut -c1-10)"
@@ -176,6 +178,68 @@ test -s "$out/seed.js"
 test -s "$out/examples.js"
 grep -q 'seed.js?v=' "$out/app.js"
 grep -q 'examples.js?v=' "$out/seed.js"
+python3 - "$out" <<'PY'
+import pathlib, re, shutil, sys
+out = pathlib.Path(sys.argv[1])
+html = (out / "index.html").read_text()
+version = re.search(r'name="omacus-version" content="([^"]+)"', html).group(1)
+blob = []
+for path in out.rglob("*"):
+    if path.is_file() and path.suffix.lower() in {".js", ".mjs", ".html", ".css"}:
+        blob.append(path.read_text(encoding="utf-8", errors="ignore"))
+blob = "\n".join(blob)
+
+def query_for(name):
+    found = set()
+    for candidate in dict.fromkeys((name, name.split("/")[-1])):
+        found.update(re.findall(re.escape(candidate) + r"\?v=([0-9a-f]{10})", blob))
+    if len(found) > 1:
+        raise SystemExit(f"{name} is published with more than one hash: {sorted(found)}")
+    return next(iter(found), "")
+
+sw_path = out / "sw.js"
+sw = sw_path.read_text()
+match = re.search(r"const APP_FILES = \[[\s\S]*?\];", sw)
+if not match:
+    raise SystemExit("sw.js has no shell list")
+names = re.findall(r'"([^"]+)"', match.group(0))
+dest_root = out / "v" / version
+replacements = {}
+for name in names:
+    if name in {"./", "index.html"}:
+        continue
+    src = out / name
+    if not src.is_file():
+        raise SystemExit(f"shell file missing from the build: {name}")
+    target = dest_root / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, target)
+    query = query_for(name)
+    published = f"v/{version}/{name}" + (f"?v={query}" if query else "")
+    replacements[name] = published
+
+def rewrite_list(found):
+    chunk = found.group(0)
+    for name, published in replacements.items():
+        chunk = chunk.replace(f'"{name}"', f'"{published}"', 1)
+    return chunk
+
+sw_path.write_text(re.sub(r"const APP_FILES = \[[\s\S]*?\];", rewrite_list, sw, count=1))
+html_path = out / "index.html"
+page = html_path.read_text()
+for name, published in replacements.items():
+    query = query_for(name)
+    if query and f'"{name}?v={query}"' in page:
+        page = page.replace(f'"{name}?v={query}"', f'"{published}"', 1)
+html_path.write_text(page)
+page = html_path.read_text()
+sw = sw_path.read_text()
+app = f'"v/{version}/app.js?v='
+if app not in page or app not in sw:
+    raise SystemExit("the published page and the worker do not share a versioned app.js")
+if not (out / "version.json").is_file():
+    raise SystemExit("version.json was not published")
+PY
 (
   cd "$out"
   find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum

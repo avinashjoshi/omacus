@@ -11,6 +11,7 @@ const site = join(fileURLToPath(new URL("../../site/", import.meta.url)));
 const headers = readFileSync(join(site, "app/_headers"), "utf8");
 const csp = headers.match(/Content-Security-Policy:\s*(.+)/)[1].trim();
 const genPath = process.env.OMACUS_SW_GEN || "/tmp/omacus-e2e-sw-gen";
+const sourceVersion = readFileSync(join(site, "app/version.js"), "utf8").match(/APP_VERSION = "([^"]+)"/)[1];
 
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -68,8 +69,9 @@ const server = createServer((req, res) => {
       return;
     }
     let body = readFileSync(file);
-    if (path.endsWith("/sw.js")) {
-      const text = body.toString("utf8").replaceAll("omacus-app-28", `omacus-app-e2e-${generation()}`);
+    if (path.endsWith("/sw.js") || path.endsWith("/version.js") || path.endsWith("/version.json")) {
+      const stamped = `${sourceVersion}-e2e${generation()}`;
+      const text = body.toString("utf8").replaceAll(sourceVersion, stamped);
       body = Buffer.from(text);
       common["cache-control"] = "no-cache, no-store";
     }

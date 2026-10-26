@@ -64,9 +64,11 @@ auto-merge (`.github/workflows/freshen.yml`) instead of pushing to `main`.
 
 The web app at app.omacus.com stays on the same version as the desktop app.
 `site/app/index.html` carries that version (`omacus-version`, and the sidebar
-link `omacus vX.Y.Z`). It must match `version` in `Cargo.toml`. A push to
-`main` does not deploy the web app. The Release workflow deploys it after the
-tag is published, from that same commit (`.github/workflows/app.yml` is only
-called from the release, or retried by hand). The same run deploys omacus.com,
+link `omacus vX.Y.Z`). `site/app/version.js`, `site/app/version.json`, the
+service worker cache, and every crate use that same version. `tests/check_versions.py`
+fails when they drift. A push to `main` does not deploy the web app. The Release
+workflow deploys it in the same run as the desktop app, after the tag is published,
+from that same commit. The job uses the `app` environment. `.github/workflows/app.yml`
+is only a way to retry that deploy by hand. The same run deploys omacus.com,
 including the updates page, after the tag exists, so that page does not have
 to outwait the desktop builds.

@@ -9,6 +9,12 @@ use omacus_engine::{Engine, Kind, LineResult, Rates, Sheet, complete};
 use serde_json::json;
 use wasm_bindgen::prelude::*;
 
+/// The release this engine was built from. The page compares it with the shell.
+#[wasm_bindgen(js_name = appVersion)]
+pub fn app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 extern "C" {

@@ -110,7 +110,7 @@ check(html.includes("data-build-hash"), "settings shows the build hash");
 check(js.includes("Add to Home Screen"), "iPhone gets an Add to Home Screen prompt");
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
-check(sw.includes('const CACHE = "omacus-app-28"'), "the app cache name moved past the cache-first shell");
+check(sw.includes('const APP_VERSION = "') && sw.includes("omacus-app-${APP_VERSION}"), "the app cache is named from the release version");
 check(sw.includes("arrayBuffer") && sw.includes("shell-status") && sw.includes("cacheQueue"), "a dropped download is not left open in the cache");
 check(html.includes("data-pick"), "a same-line conflict can ask which line to keep");
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
@@ -198,10 +198,13 @@ check(buildWeb.includes("omacus-sync-web") && buildWeb.includes("omacus_sync_web
 }
 check(!/omacus-app-2(?!\d)/.test(sw), "the old app cache name is gone");
 check(sw.includes("!res.ok") && sw.includes("function honest") && sw.includes("cache.put"), "only a successful response is stored for offline");
-check(sw.includes("e.waitUntil(refresh.then"), "the shell is refreshed in the background");
+check(sw.includes("await storeShell") && sw.includes("caches.delete(CACHE)"), "a new shell is stored as a set, and a short set is thrown away");
 check(sw.includes('"pkg/omacus_web_bg.wasm"'), "the engine is precached for offline");
 check(sw.includes('"sync-config.js"'), "the sync address is part of the offline shell");
-check(sw.includes("ignoreSearch"), "a hashed asset still matches the cached shell");
+check(!sw.includes("ignoreSearch"), "the cached file is the address the page requested");
+check(sw.includes('cache: "no-store"') && sw.includes("version.json"), "the version check is not answered from the shell");
+check(!sw.includes("indexedDB") && !sw.includes("localStorage"), "an update does not open saved pages");
+check(sw.includes('"version.js"'), "the release version is part of the offline shell");
 check(sw.includes("text/html"), "a page served in place of a script is not kept as the script");
 check(buildWeb.includes("site/app/seed.js") && buildWeb.includes("site/app/examples.js"), "the published app includes the pages that start it");
 check(/seed\.js\?v=/.test(buildWeb) && /examples\.js\?v=/.test(buildWeb), "those files are named in the published imports");
@@ -216,7 +219,9 @@ check(css.includes(".cm-announced"), "the screen reader line is not drawn on the
 check(sw.includes('type === "skip-waiting"') && sw.includes("self.skipWaiting()"), "a new version waits until the page asks");
 check(!sw.includes("self.registration.unregister"), "the worker stays registered so an offline check can use it");
 check(html.includes("Update ready") && html.includes('data-action="apply-update"'), "an update offers a reload");
-check(js.includes("async function applyUpdate") && js.includes("await flushSave()"), "reload waits until the open edit is saved");
+check(js.includes("async function applyUpdate") && js.includes("await flushSave()") && js.includes("await storeDrained()") && js.includes("settleSync"), "reload saves the open edit and lets sync finish");
+check(js.includes("lookForUpdate") && js.includes("visibilitychange") && js.includes("version.json"), "an open copy looks for a new version");
+check(js.includes('new URL("sw.js", document.baseURI)'), "the worker stays at the page address when the script moves");
 check(!js.includes("previewHtml"), "the preview is not assigned as HTML");
 check(!siteJs.includes("innerHTML") && !siteJs.includes("insertAdjacentHTML"), "the marketing site builds nodes without HTML strings");
 check(siteJs.includes("migrateStoredPages"), "a visit to the site copies saved pages to the app");

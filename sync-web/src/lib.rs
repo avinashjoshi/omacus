@@ -9,6 +9,12 @@ use omacus_engine::sync_keys::SyncKeyError;
 use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
 
+/// The release this engine was built from. The page compares it with the shell.
+#[wasm_bindgen(js_name = appVersion)]
+pub fn app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 pub mod desk;
 pub mod invite;
 use desk::{Desk, b64_decode, b64_encode};

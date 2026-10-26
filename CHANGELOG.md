@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+**The phone offers the new version**
+
+An installed copy notices a new version and asks before it reloads. The page you have open is saved first. Pages already on this phone stay on this phone.
+
 ## 1.0.1
 
 **Sync on this computer**
