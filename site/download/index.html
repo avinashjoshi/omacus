@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; media-src 'self'; frame-src 'self' https://app.omacus.com; worker-src 'self'; manifest-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Download Omacus: free notepad calculator for Linux, macOS and Windows</title>
   <meta name="description" content="Download Omacus, the free and open-source notepad calculator: a one-line installer for Omarchy, Linux and macOS, .dmg for Apple Silicon and Intel Macs, a one-click Windows installer, and .deb, .rpm and .tar.gz packages.">
@@ -121,14 +122,14 @@
 
   <div class="downloads">
     <article class="dl" id="omarchy">
-      <header><svg aria-hidden="true"><use href="/img/sprite.svg#archlinux"/></svg><h3>Omarchy <small>&amp; Arch</small></h3></header>
+      <header><svg aria-hidden="true"><use href="/img/sprite.svg#archlinux"/></svg><h2>Omarchy <small>&amp; Arch</small></h2></header>
       <p>Installs the app, then offers a keybind (<kbd>Super Ctrl Alt =</kbd> by default, checked against yours) and a floating window.</p>
       <div class="cmd"><span class="prompt">$</span><code>curl -fsSL https://omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL https://omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
       <p class="note">Colors follow your Omarchy theme automatically.</p>
     </article>
 
     <article class="dl" id="mac">
-      <header><svg aria-hidden="true"><use href="/img/sprite.svg#apple"/></svg><h3>macOS <small>Apple Silicon &amp; Intel</small></h3></header>
+      <header><svg aria-hidden="true"><use href="/img/sprite.svg#apple"/></svg><h2>macOS <small>Apple Silicon &amp; Intel</small></h2></header>
       <p>The one-liner picks the build for your Mac's chip, installs <code>Omacus.app</code> into Applications and opens without a security prompt.</p>
       <div class="cmd"><span class="prompt">$</span><code>curl -fsSL https://omacus.com/install | bash</code><button class="copy" data-copy="curl -fsSL https://omacus.com/install | bash"><svg aria-hidden="true"><use href="/img/sprite.svg#copy"/></svg>Copy</button></div>
       <p class="or-ps">Or with Homebrew:</p>
@@ -141,7 +142,7 @@
     </article>
 
     <article class="dl" id="windows">
-      <header><svg aria-hidden="true"><use href="/img/sprite.svg#windows"/></svg><h3>Windows <small>64-bit</small></h3></header>
+      <header><svg aria-hidden="true"><use href="/img/sprite.svg#windows"/></svg><h2>Windows <small>64-bit</small></h2></header>
       <p>The installer puts Omacus in Start and opens it, with no admin prompt. It updates itself.</p>
       <div class="links">
         <a class="btn primary" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-windows-x86_64-setup.exe"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download installer</a>
@@ -153,7 +154,7 @@
     </article>
 
     <article class="dl" id="linux">
-      <header><svg aria-hidden="true"><use href="/img/sprite.svg#linux"/></svg><h3>Other Linux <small>x86_64</small></h3></header>
+      <header><svg aria-hidden="true"><use href="/img/sprite.svg#linux"/></svg><h2>Other Linux <small>x86_64</small></h2></header>
       <p>The same one-liner works on any distribution, or use a package:</p>
       <div class="links">
         <a class="btn" href="https://github.com/avinashjoshi/omacus/releases/latest/download/omacus-linux-x86_64.deb"><svg aria-hidden="true"><use href="/img/sprite.svg#ubuntu"/></svg>.deb</a>

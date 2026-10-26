@@ -1738,12 +1738,12 @@ kbd {
   color: var(--text-2);
 }
 
-.dl h3 {
+.dl h2 {
   font-size: 21px;
   letter-spacing: -0.02em;
 }
 
-.dl h3 small {
+.dl h2 small {
   margin-left: 6px;
   color: var(--muted);
   font: 500 13px var(--sans);
@@ -1829,6 +1829,11 @@ kbd {
 
 .release-facts a {
   color: var(--accent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.release-facts a:hover {
+  border-bottom-color: var(--accent);
 }
 
 .feature-link {
@@ -1967,6 +1972,22 @@ kbd {
   .phone-note {
     display: block;
   }
+
+  /* On a phone the homepage leads with the web app. Desktop stays install, then "or". */
+  .hero .wrap {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .hero .eyebrow { order: 1; }
+  .hero h1 { order: 2; }
+  .hero .lede { order: 3; }
+  .hero .try-web { order: 4; }
+  .hero .install { order: 5; }
+  .hero .stage { order: 6; }
+
+  .hero .try-web .web-app-link { order: 1; }
+  .hero .try-web .or { order: 2; }
 }
 
 .cta .try-web {

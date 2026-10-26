@@ -99,7 +99,7 @@ Danger is `#f7768e` on dark themes, `#a61b1b` on paper, `#b42318` on the plain l
 
 Gold `#f0a12a` on near-black `#090909`. Text `#ecebe8`, secondary `#b8b6b1`, muted `#9a9893`. Use `--bg`, `--text`, `--line`, `--panel`, `--accent`. Don't point marketing chrome at `--app-*`.
 
-The updates page follows the system. In light mode the same roles sit on warm paper (`#f6f5f2`), and the gold is darkened (`#9e660a`, links `#8a5608`) so a label on the button and a link on the page both clear WCAG AA. Those values live in `tokens.css` on `html[data-page="updates"]`. The rest of the marketing site stays on near-black.
+The updates page follows the system. In light mode the same roles sit on warm paper (`#f6f5f2`), and the gold is darkened (`#965f09`, links `#8a5608`) so a label on the button and a link on the page both clear WCAG AA. Those values live in `tokens.css` on `html[data-page="updates"]`. The rest of the marketing site stays on near-black.
 
 ### Print and PDF
 

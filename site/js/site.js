@@ -453,4 +453,21 @@
   // Copy saved pages to app.omacus.com in the background. The copy here stays.
   // /app does the same handoff, then opens the app.
   import("/app/migrate-client.js").then((mod) => mod.migrateStoredPages()).catch(() => {});
+
+  // A line that scrolls sideways is a region a keyboard can reach.
+  const markScrollers = () => {
+    for (const el of $$(".cmd code, pre, .annot")) {
+      const overflows = el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1;
+      if (overflows) {
+        el.tabIndex = 0;
+        el.dataset.scrollFocus = "1";
+      } else if (el.dataset.scrollFocus === "1") {
+        el.removeAttribute("tabindex");
+        delete el.dataset.scrollFocus;
+      }
+    }
+  };
+  markScrollers();
+  document.fonts?.ready.then(markScrollers);
+  addEventListener("resize", markScrollers);
 })();

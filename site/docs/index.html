@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; media-src 'self'; frame-src 'self' https://app.omacus.com; worker-src 'self'; manifest-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Omacus docs: syntax, units, currencies, time zones and CLI</title>
   <meta name="description" content="How to install and use Omacus, the free notepad calculator: syntax, percentages, units, currencies, time zones, dates, pages, shortcuts, themes, the command line and Omarchy setup.">
@@ -184,6 +185,7 @@
     <a href="#contributing">Contributing</a>
   </nav>
 
+  <main>
   <article class="prose">
     <h1>Omacus docs</h1>
     <p class="lead">Omacus is a notepad calculator. You type on the left, in words and numbers; the answer to each line appears on the right as you type. This page covers everything it understands and every way to use it.</p>
@@ -670,6 +672,7 @@ o.window("^omacus$", { float = true, size = { 980, 600 }, center = true })</pre>
 </div>
     <p>Releases are automatic: bumping <code>version</code> in <code>Cargo.toml</code> on <code>main</code> runs the tests on Linux, macOS and Windows, builds every package, and publishes a GitHub release with notes. Omacus is <a href="https://github.com/avinashjoshi/omacus/blob/main/LICENSE">MIT licensed</a>.</p>
   </article>
+  </main>
 </div>
 
 <footer class="site-footer">
