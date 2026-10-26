@@ -445,19 +445,17 @@ fn assert_rule(session: &Session, words: &[String; 12]) {
         assert!(!sent.contains(needle), "{needle} left this computer");
     }
     for body in session.sent_bodies() {
-        assert!(
-            word_leak(body, words).is_none(),
-            "a recovery word left this computer"
-        );
+        if let Some(found) = word_leak(body, words) {
+            panic!("a recovery word left this computer: {found}");
+        }
     }
     let book = fs::read_to_string(session.dir().join("sync").join("book.json")).unwrap_or_default();
     assert!(!book.contains("OMACUS-DEVICE"));
     assert!(!book.contains("pier 12"));
     assert!(!book.contains("ferry = 40"));
-    assert!(
-        word_leak(&book, words).is_none(),
-        "a recovery word was written into the sync book"
-    );
+    if let Some(found) = word_leak(&book, words) {
+        panic!("a recovery word was written into the sync book: {found}");
+    }
     if let Some(kind) = keys::kind(session.dir()) {
         let bytes = fs::read(keys::path(session.dir())).unwrap_or_default();
         assert_ne!(kind, "file", "the device key was stored in a plain file");
@@ -501,63 +499,79 @@ fn walk_clean(dir: &Path, words: &[String; 12]) {
         if bytes.contains(&0) || path.extension().and_then(|ext| ext.to_str()) == Some("bin") {
             continue;
         }
-        assert!(
-            word_leak(&text, words).is_none(),
-            "{} contains a recovery word",
-            path.display()
-        );
+        if let Some(found) = word_leak(&text, words) {
+            panic!("{} contains a recovery word: {found}", path.display());
+        }
     }
 }
 
 /// The phrase, and each word where a person could read it.
 ///
-/// Field names are ordinary protocol words (`account`, `state`). Sealed
-/// hex and base64 are not the words either, so those are skipped. A base64
-/// value is decoded first, which still catches the words if they were packed
-/// into a field instead of sealed.
+/// Field names are ordinary protocol words (`account`, `state`). A sealed
+/// record is base64 of ciphertext plus a few protocol bytes, including the
+/// signer id `recovery-signer`. That blob is not text: a word inside it is
+/// the id or the cipher, not the phrase. Short base64 that decodes to
+/// readable text is still checked, and the whole phrase is checked in every
+/// decoded field.
 fn word_leak(raw: &str, words: &[String; 12]) -> Option<String> {
     let phrase = words.join(" ");
     if !phrase.is_empty() && raw.contains(&phrase) {
         return Some(phrase);
     }
-    let readable = match serde_json::from_str::<serde_json::Value>(raw) {
-        Ok(value) => {
-            let mut out = String::new();
-            collect_readable(&value, &mut out);
-            out
-        }
-        Err(_) => strip_opaque(raw),
+    let mut readable = String::new();
+    let mut blobs = Vec::new();
+    match serde_json::from_str::<serde_json::Value>(raw) {
+        Ok(value) => collect_readable(&value, &mut readable, &mut blobs),
+        Err(_) => collect_runs(raw, &mut readable, &mut blobs),
     };
+    if !phrase.is_empty()
+        && (readable.contains(&phrase)
+            || blobs
+                .iter()
+                .any(|blob| contains_bytes(blob, phrase.as_bytes())))
+    {
+        return Some(phrase);
+    }
     words
         .iter()
         .find(|word| readable.contains(word.as_str()))
         .cloned()
 }
 
-fn collect_readable(value: &serde_json::Value, out: &mut String) {
+fn collect_readable(value: &serde_json::Value, out: &mut String, blobs: &mut Vec<Vec<u8>>) {
     match value {
-        serde_json::Value::String(text) => append_readable(text, out),
+        serde_json::Value::String(text) => append_readable(text, out, blobs),
         serde_json::Value::Array(items) => {
             for item in items {
-                collect_readable(item, out);
+                collect_readable(item, out, blobs);
             }
         }
         serde_json::Value::Object(map) => {
             for item in map.values() {
-                collect_readable(item, out);
+                collect_readable(item, out, blobs);
             }
         }
         _ => {}
     }
 }
 
-fn append_readable(text: &str, out: &mut String) {
+fn append_readable(text: &str, out: &mut String, blobs: &mut Vec<Vec<u8>>) {
     match opaque(text) {
         Some(Opaque::Hex) => {}
         Some(Opaque::Base64) => {
-            if let Some(clear) = decode_base64(text) {
+            let Some(bytes) = decode_base64(text) else {
+                return;
+            };
+            if let Ok(clear) = std::str::from_utf8(&bytes)
+                && !clear.is_empty()
+                && clear
+                    .chars()
+                    .all(|c| c.is_ascii_graphic() || c.is_ascii_whitespace())
+            {
                 out.push('\n');
-                out.push_str(&clear);
+                out.push_str(clear);
+            } else {
+                blobs.push(bytes);
             }
         }
         None => {
@@ -565,6 +579,13 @@ fn append_readable(text: &str, out: &mut String) {
             out.push_str(text);
         }
     }
+}
+
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    !needle.is_empty()
+        && haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
 }
 
 enum Opaque {
@@ -594,7 +615,7 @@ fn opaque(text: &str) -> Option<Opaque> {
     }
 }
 
-fn decode_base64(text: &str) -> Option<String> {
+fn decode_base64(text: &str) -> Option<Vec<u8>> {
     use base64::Engine;
     let engines = [
         base64::engine::general_purpose::STANDARD,
@@ -602,32 +623,27 @@ fn decode_base64(text: &str) -> Option<String> {
         base64::engine::general_purpose::URL_SAFE,
         base64::engine::general_purpose::URL_SAFE_NO_PAD,
     ];
-    engines.into_iter().find_map(|engine| {
-        engine
-            .decode(text)
-            .ok()
-            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-    })
+    engines
+        .into_iter()
+        .find_map(|engine| engine.decode(text).ok())
 }
 
-fn strip_opaque(text: &str) -> String {
-    let mut out = String::new();
+fn collect_runs(text: &str, out: &mut String, blobs: &mut Vec<Vec<u8>>) {
     let mut run = String::new();
     for c in text.chars() {
         if c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=' | '-' | '_') {
             run.push(c);
         } else {
-            flush_run(&mut run, &mut out);
+            flush_run(&mut run, out, blobs);
             out.push(c);
         }
     }
-    flush_run(&mut run, &mut out);
-    out
+    flush_run(&mut run, out, blobs);
 }
 
-fn flush_run(run: &mut String, out: &mut String) {
+fn flush_run(run: &mut String, out: &mut String, blobs: &mut Vec<Vec<u8>>) {
     if !run.is_empty() {
-        append_readable(run, out);
+        append_readable(run, out, blobs);
         run.clear();
     }
 }
@@ -650,4 +666,20 @@ fn a_field_name_is_not_a_recovery_word_leaving() {
     let phrase = words.join(" ");
     let pasted = format!(r#"{{"note":"{phrase}"}}"#);
     assert!(word_leak(&pasted, &words).is_some());
+    words[3] = "recovery".into();
+    let mut sealed = b"OMACUS-SYNC/2\npersonal".to_vec();
+    sealed.extend_from_slice(b"recovery-signer\0");
+    sealed.extend_from_slice(&[0xff, 0x01, 0x10]);
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&sealed);
+    let record = format!(r#"{{"record":"{encoded}"}}"#);
+    assert!(
+        word_leak(&record, &words).is_none(),
+        "the signer id is not the recovery phrase"
+    );
+    let phrase = words.join(" ");
+    let mut hidden = phrase.as_bytes().to_vec();
+    hidden.push(0);
+    let packed = base64::engine::general_purpose::STANDARD.encode(&hidden);
+    let leaked = format!(r#"{{"record":"{packed}"}}"#);
+    assert_eq!(word_leak(&leaked, &words).as_deref(), Some(phrase.as_str()));
 }
