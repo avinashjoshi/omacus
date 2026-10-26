@@ -319,7 +319,124 @@ pre {
 
 .nav-links {
   display: flex;
+  align-items: center;
   gap: 4px;
+}
+
+.nav-phone-app,
+.nav-phone-download {
+  display: none;
+}
+
+.nav a.nav-github {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text-2);
+}
+
+.nav-github svg {
+  width: 18px;
+  height: 18px;
+}
+
+.nav-github-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.nav-learn {
+  position: relative;
+}
+
+.nav-learn-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font: 500 14.5px/1 var(--sans);
+  cursor: pointer;
+  list-style: none;
+}
+
+.nav-learn-btn::-webkit-details-marker {
+  display: none;
+}
+
+.nav-learn-btn::marker {
+  content: "";
+}
+
+.nav-learn-btn:hover,
+.nav-learn[open] > .nav-learn-btn {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.nav-chevron {
+  width: 14px;
+  height: 14px;
+  transition: transform var(--dur) var(--ease);
+}
+
+.nav-learn[open] > .nav-learn-btn .nav-chevron {
+  transform: rotate(180deg);
+}
+
+.nav-learn-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  min-width: 196px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.nav-learn[open] > .nav-learn-menu {
+  display: grid;
+}
+
+.nav-learn-kicker {
+  margin: 6px 10px 4px;
+  color: var(--muted);
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nav-learn-menu a {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--text-2);
+  font-size: 14.5px;
+}
+
+.nav-learn-menu a:hover,
+.nav-learn-menu a[aria-current="page"] {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .menu-toggle {
@@ -374,16 +491,16 @@ pre {
   transform: translateY(-5.5px) rotate(-45deg);
 }
 
-/* Phones and narrow windows: the links fold into a sheet under the header;
-   Download stays in view. Story makes eight links, so this starts a little
-   sooner than the rest of the layout. */
-@media (max-width: 1120px) {
+/* Narrow windows: the links fold into a sheet under the header.
+   Open the web app and Download lead that sheet. */
+@media (max-width: 1099px) {
   .menu-toggle {
     display: block;
   }
 
-  .nav .btn {
-    margin-left: 0;
+  .nav-open,
+  .nav-download {
+    display: none;
   }
 
   .nav-links {
@@ -393,6 +510,7 @@ pre {
     right: 0;
     height: calc(100dvh - 64px);
     flex-direction: column;
+    align-items: stretch;
     gap: 0;
     padding: 12px var(--gutter) 24px;
     background: var(--bg);
@@ -436,20 +554,91 @@ pre {
     background: none;
   }
 
-  /* Links settle in one after another. */
   .site-header.open .nav-links a {
     opacity: 1;
     transform: none;
   }
 
-  .site-header.open .nav-links a:nth-child(1) { transition-delay: 0.04s; }
-  .site-header.open .nav-links a:nth-child(2) { transition-delay: 0.08s; }
-  .site-header.open .nav-links a:nth-child(3) { transition-delay: 0.12s; }
-  .site-header.open .nav-links a:nth-child(4) { transition-delay: 0.16s; }
-  .site-header.open .nav-links a:nth-child(5) { transition-delay: 0.2s; }
-  .site-header.open .nav-links a:nth-child(6) { transition-delay: 0.24s; }
-  .site-header.open .nav-links a:nth-child(7) { transition-delay: 0.28s; }
-  .site-header.open .nav-links a:nth-child(8) { transition-delay: 0.32s; }
+  .nav-links a.btn {
+    justify-content: center;
+    margin: 0 0 8px;
+    padding: 14px 16px;
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    font: 600 16px/1 var(--sans);
+    letter-spacing: 0;
+    opacity: 0;
+  }
+
+  .nav-links a.nav-phone-app {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+
+  .nav-links a.nav-phone-download {
+    background: var(--panel-2);
+    color: var(--text);
+  }
+
+  .nav-learn {
+    display: block;
+  }
+
+  .nav-learn-btn {
+    display: none;
+  }
+
+  .nav-learn:not([open]) > .nav-learn-menu,
+  .nav-learn-menu {
+    display: grid;
+    position: static;
+    min-width: 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .nav-learn-kicker {
+    margin: 18px 4px 0;
+    padding-top: 8px;
+  }
+
+  .nav-learn-menu a {
+    padding: 15px 4px;
+    border-radius: 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 19px;
+    font-family: var(--display);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+
+  .nav a.nav-github {
+    width: auto;
+    height: auto;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 15px 4px;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+    color: var(--text);
+  }
+
+  .nav-github-label {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+    font: 500 19px/1 var(--display);
+    letter-spacing: -0.02em;
+  }
 
   .site-header.open {
     background: var(--bg);
@@ -514,6 +703,18 @@ pre {
 .btn svg {
   width: 16px;
   height: 16px;
+}
+
+.nav a.nav-phone-app,
+.nav a.nav-phone-download {
+  display: none;
+}
+
+@media (max-width: 1099px) {
+  .nav a.nav-phone-app,
+  .nav a.nav-phone-download {
+    display: inline-flex;
+  }
 }
 
 /* ---------- Hero ---------- */
@@ -3528,25 +3729,36 @@ html[data-page="updates"] .nav a:hover {
 }
 
 /* ---------- Story (omacus.com/story) ---------- */
-/* Marketing tokens only. Counts and dates are filled in by site/tools/story.py. */
+/* Marketing tokens only. Counts and dates are filled in by site/tools/story.py.
+   The column and title match the sync page. Section gaps and paragraph
+   spacing are a step tighter. The homepage's 120px section padding does not
+   apply here. */
+
+.story-page section {
+  padding: 0;
+}
+
+.story-page .page-body {
+  max-width: 780px;
+  font-size: 16.5px;
+  color: var(--text-2);
+}
 
 .story-hero {
-  max-width: 40rem;
-  margin-bottom: var(--space-2);
+  margin-bottom: 0;
 }
 
 .story-hero h1 {
-  font-size: clamp(40px, 6vw, 64px);
+  font-size: clamp(36px, 5vw, 54px);
   color: var(--text);
-  margin: 0 0 var(--space-4);
+  margin: 0 0 14px;
 }
 
 .story-lead {
-  margin: 0;
-  max-width: 36rem;
+  margin: 0 0 var(--space-2);
   color: var(--text-2);
-  font-size: 18px;
-  line-height: 1.55;
+  font-size: 19px;
+  line-height: 1.6;
 }
 
 .story-say {
@@ -3562,11 +3774,12 @@ html[data-page="updates"] .nav a:hover {
 }
 
 .story-page .page-body > section > h2 {
-  margin: calc(var(--space-6) * 2) 0 var(--prose-gap);
+  margin: 48px 0 var(--space-2);
+  padding-top: 0;
   color: var(--text);
-  font-size: clamp(var(--type-display), 3vw, 32px);
-  line-height: 1.2;
-  letter-spacing: -0.03em;
+  font-size: 30px;
+  line-height: 1.05;
+  letter-spacing: -0.035em;
 }
 
 .story-page .entry h2 {
@@ -3581,12 +3794,11 @@ html[data-page="updates"] .nav a:hover {
 .story-page .story-lessons p {
   color: var(--text-2);
   font-size: 16.5px;
-  line-height: 1.65;
+  line-height: 1.6;
 }
 
 .story-page .page-body > section > p {
-  margin: 0 0 var(--prose-gap);
-  max-width: 40rem;
+  margin: 0 0 var(--space-2);
 }
 
 .story-page .page-body > section > p a,
@@ -3604,9 +3816,8 @@ html[data-page="updates"] .nav a:hover {
 
 .story-net {
   list-style: none;
-  margin: 0 0 var(--prose-gap);
+  margin: 0 0 var(--space-2);
   padding: 0;
-  max-width: 40rem;
 }
 
 .story-net li {
@@ -3631,7 +3842,6 @@ html[data-page="updates"] .nav a:hover {
   list-style: none;
   margin: var(--space-5) 0 0;
   padding: 0;
-  max-width: 40rem;
 }
 
 .story-stats li {
@@ -3658,7 +3868,6 @@ html[data-page="updates"] .nav a:hover {
 
 .story-page .timeline {
   margin-top: var(--space-5);
-  max-width: 40rem;
 }
 
 .story-soon .version-pill {
@@ -3678,7 +3887,6 @@ html[data-page="updates"] .nav a:hover {
   padding: 0;
   display: grid;
   gap: var(--space-3);
-  max-width: 40rem;
 }
 
 .story-lessons li {

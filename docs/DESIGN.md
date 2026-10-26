@@ -328,12 +328,19 @@ Don't: point the page at `--app-*`, or put a hex color in `site.css`. Light mode
 
 ### Story
 
-`omacus.com/story` is a first-person account of why Omacus exists and how it is built. The counts and the timeline are filled in when the site is built (`site/tools/story.py`), from the repository and the release list. A figure that cannot be counted is left off. Sync is in the published web app. Turn on sync is in the sidebar.
+`omacus.com/story` is a third-person account of why Omacus exists and how it is built. Ajith and Avinash are named when the sentence is about both of them. Avinash is the name when the sentence is about one founder. There are no profile links. The counts and the timeline are filled in when the site is built (`site/tools/story.py`), from the repository and the release list. A figure that cannot be counted is left off. Sync is in the published web app. Turn on sync is in the sidebar.
 
-The page uses the same marketing frame as the updates page: a kicker, a serif word in the title, version pills, and the timeline. It stays on the near-black marketing palette.
+The page uses the same marketing frame as the sync page: a kicker, a serif word in the title, version pills, the timeline, and the on-this-page rail. It stays on the near-black marketing palette. The column is 780px. The title uses the sync page's size. A section heading is 30px, with 48px above it and `--space-2` below. Paragraphs on this page use `--space-2`. The homepage's 120px section padding does not apply.
 
-Do: use the marketing tokens. Follow the 4px spacing scale and the radius scale. Paragraphs use `--prose-gap`; a section heading stays on the larger steps. Keep one accent. Write in the first person, plain and short.
-Don't: hardcode a count or a date in the page, point the page at `--app-*`, or put a hex color in `site.css`.
+Do: use the marketing tokens. Follow the 4px spacing scale and the radius scale. Keep one accent. Write in the third person, plain and short.
+Don't: hardcode a count or a date in the page, point the page at `--app-*`, put a hex color in `site.css`, or link a founder's name to another site.
+
+### Site header
+
+Features, Docs, Sync, and Story stay in the bar. Use cases, Guides, and Updates sit under Learn. GitHub is an icon, and its name is GitHub. Open app and Download are separate buttons. On a phone the menu leads with Open the web app, then Download, then the same links. Learn is a group there, not a second bar.
+
+Do: use the marketing tokens. The Learn menu uses the panel, the line, and the medium radius.
+Don't: put the web app and the download on one button.
 
 ### Sync page
 

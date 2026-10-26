@@ -39,7 +39,7 @@ RULES = [
     (
         "first",
         "First version",
-        "A notepad for math, on Linux, macOS, and Windows from the first version. I was already using it, and so was Ajith, on his Mac.",
+        "A notepad for math, on Linux, macOS, and Windows from the first version. Avinash was already using it, and so was Ajith, on his Mac.",
         lambda notes: True,
     ),
     (
@@ -350,7 +350,7 @@ def toc_html(include_numbers):
         items.append(("numbers", "By the numbers"))
     items.extend([
         ("timeline", "Timeline"),
-        ("learned", "What I learned"),
+        ("learned", "What Avinash learned"),
         ("contribute", "Contribute"),
     ])
     links = "\n".join(f'<a href="#{i}">{html.escape(label)}</a>' for i, label in items)
@@ -361,7 +361,7 @@ def page_html(milestones, facts):
     numbers = facts_html(facts)
     timeline = "\n".join(milestone_html(item) for item in milestones)
     e = html.escape
-    description = "Why Omacus exists, and how it was built. A personal project, written in the first person."
+    description = "Why Omacus exists, and how it was built. A personal project."
     return f'''<!doctype html>
 <html lang="en">
 <head>
@@ -402,31 +402,31 @@ def page_html(milestones, facts):
     <header class="story-hero">
       <span class="kicker">// story</span>
       <h1>A side <em class="serif">quest</em></h1>
-      <p class="story-lead">I missed a notepad calculator, so I built one. This is why, and how.</p>
+      <p class="story-lead">Avinash missed a notepad calculator, so he built one. This is why, and how.</p>
       <p class="story-say">Said <span>oh-MAH-kus</span>.</p>
     </header>
 
     <section id="why">
       <h2>Why it exists</h2>
-      <p>Ajith and I were talking through numbers. I used to use Numi, a notepad calculator, on a Mac. After I moved to Linux, on Omarchy, I missed it.</p>
-      <p>I wrote down what I missed, in a single prompt. About 30 minutes later I had a first version that worked. Then I kept refining it, because I was using it.</p>
-      <p>Ajith is on a Mac, and he wanted to use Omacus too. So it runs on Linux on Omarchy, on macOS, on Windows, and on the web. We both use it every day.</p>
-      <p>I built it for myself. I open-sourced it, under the MIT license, in case someone else wanted it too.</p>
+      <p>Ajith and Avinash were talking through numbers. Avinash used to use Numi, a notepad calculator, on a Mac. After he moved to Linux, on Omarchy, he missed it.</p>
+      <p>Avinash wrote down what he missed, in a single prompt. About 30 minutes later he had a first version that worked. Then he kept refining it, because he was using it.</p>
+      <p>Ajith is on a Mac, and he wanted to use Omacus too. So it runs on Linux on Omarchy, on macOS, on Windows, and on the web. They both use it every day.</p>
+      <p>Avinash built it for himself. He open-sourced it, under the MIT license, in case someone else wanted it too.</p>
     </section>
 
     <section id="built">
       <h2>How it was built</h2>
-      <p>I didn't hand-write the code. I set the direction, made the decisions, and reviewed what came back. AI agents wrote every line.</p>
+      <p>Avinash didn't hand-write the code. He set the direction, made the decisions, and reviewed what came back. AI agents wrote every line.</p>
       <p>It started with Claude. It now runs on Grok Bot. Grok Bot plans the work and runs cloud coding agents. Those agents open pull requests. Grok Bot watches the checks and ships the releases.</p>
       <p>What makes that safe enough:</p>
       <ul class="story-net">
         <li><strong>Protected main.</strong> A change only lands through a pull request.</li>
-        <li><strong>Checks on every system we ship.</strong> Linux, macOS, Windows, and the browser build all have to pass.</li>
+        <li><strong>Checks on every system they ship.</strong> Linux, macOS, Windows, and the browser build all have to pass.</li>
         <li><strong>A release is a pull request.</strong> When the checks pass, it merges on its own, and the new version goes out.</li>
         <li><strong>One design guide.</strong> <a href="https://github.com/{REPO}/blob/main/docs/DESIGN.md">docs/DESIGN.md</a> is what keeps the app and the site looking like the same product.</li>
         <li><strong>Notes for people using it.</strong> Release notes say what changed for you, in plain words.</li>
       </ul>
-      <p>My part is taste, decisions, and review.</p>
+      <p>Avinash's part is taste, decisions, and review.</p>
     </section>
 
     {numbers}
@@ -440,24 +440,24 @@ def page_html(milestones, facts):
     </section>
 
     <section id="learned">
-      <h2>What I learned</h2>
+      <h2>What Avinash learned</h2>
       <p>Personal notes. Not a method, and not advice.</p>
       <ol class="story-lessons">
         <li>
           <h3>The short part was the start</h3>
-          <p>Getting from "I wish this existed" to a version I could type into was fast. Almost everything I kept came after that.</p>
+          <p>Getting from wishing this existed to a version he could type into was fast. Almost everything he kept came after that.</p>
         </li>
         <li>
           <h3>The safety net matters more than the prompt</h3>
-          <p>A prompt gets a draft. I trust the result because main is protected, the checks cover every system we ship, and the notes are written for someone using Omacus.</p>
+          <p>A prompt gets a draft. Avinash trusts the result because main is protected, the checks cover every system they ship, and the notes are written for someone using Omacus.</p>
         </li>
         <li>
           <h3>Taste is the job</h3>
-          <p>Agents can fill a screen. Choosing what should be quiet, what a sentence should say, and what to leave out is still on me.</p>
+          <p>Agents can fill a screen. Choosing what should be quiet, what a sentence should say, and what to leave out is still on Avinash.</p>
         </li>
         <li>
           <h3>One person kept it smaller</h3>
-          <p>If I wouldn't use a feature on a page of my own, it stayed out.</p>
+          <p>If Avinash wouldn't use a feature on a page of his own, it stayed out.</p>
         </li>
       </ol>
     </section>
@@ -465,7 +465,7 @@ def page_html(milestones, facts):
     <section id="contribute">
       <h2>Contribute</h2>
       <p>The code is MIT licensed. If something is wrong, or missing, open an issue. If you want to change it, send a pull request.</p>
-      <p>You can use AI agents too. I do. The same bar applies: the checks have to pass, the design guide is the look, and the notes should make sense to someone using Omacus.</p>
+      <p>You can use AI agents too. Avinash does. The same bar applies: the checks have to pass, the design guide is the look, and the notes should make sense to someone using Omacus.</p>
       <p class="story-links"><a href="https://github.com/{REPO}">Source code</a><a href="https://github.com/{REPO}/issues">Issues</a><a href="https://github.com/{REPO}/blob/main/CONTRIBUTING.md">Contributing</a></p>
     </section>
   </article>

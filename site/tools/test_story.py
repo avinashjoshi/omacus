@@ -2,6 +2,7 @@
 """The story page: counts and milestones."""
 
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -135,10 +136,13 @@ class StoryPage(unittest.TestCase):
         page, _out = self.write(sample_releases(), {"v0.1.0": "2026-10-16", "v0.1.10": "2026-10-17",
                                                     "v0.2.11": "2026-10-23", "v0.2.12": "2026-10-23"},
                                 {"days": 7})
-        for phrase in ("Ajith", "Numi", "on a Mac", "Omarchy", "every day", "macOS", "Windows",
+        for phrase in ("Ajith and Avinash", "Numi", "on a Mac", "Omarchy", "every day", "macOS", "Windows",
                        "MIT", "Claude", "Grok Bot", "docs/DESIGN.md",
-                       "oh-MAH-kus", "CONTRIBUTING.md", "taste, decisions, and review"):
+                       "oh-MAH-kus", "CONTRIBUTING.md", "Avinash's part is taste, decisions, and review"):
             self.assertIn(phrase, page)
+        self.assertIsNone(re.search(r"Ajith and Avi(?!nash)", page))
+        self.assertNotIn("Ajith and I", page)
+        self.assertNotIn("linkedin", page.lower())
         self.assertIn('aria-current="page"', page)
         self.assertIn('>Story</a>', page)
 

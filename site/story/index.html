@@ -5,7 +5,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; media-src 'self'; frame-src 'self' https://app.omacus.com; worker-src 'self'; manifest-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>The story of Omacus</title>
-  <meta name="description" content="Why Omacus exists, and how it was built. A personal project, written in the first person.">
+  <meta name="description" content="Why Omacus exists, and how it was built. A personal project.">
   <meta name="author" content="Avinash Joshi">
   <link rel="canonical" href="https://omacus.com/story/">
   <meta name="theme-color" content="#090909">
@@ -13,11 +13,11 @@
   <meta property="og:site_name" content="Omacus">
   <meta property="og:url" content="https://omacus.com/story/">
   <meta property="og:title" content="The story of Omacus">
-  <meta property="og:description" content="Why Omacus exists, and how it was built. A personal project, written in the first person.">
+  <meta property="og:description" content="Why Omacus exists, and how it was built. A personal project.">
   <meta property="og:image" content="https://omacus.com/img/og.png?v=2">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="The story of Omacus">
-  <meta name="twitter:description" content="Why Omacus exists, and how it was built. A personal project, written in the first person.">
+  <meta name="twitter:description" content="Why Omacus exists, and how it was built. A personal project.">
   <meta name="twitter:image" content="https://omacus.com/img/og.png?v=2">
   <link rel="manifest" href="/site.webmanifest">
   <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
@@ -34,17 +34,25 @@
     <a class="brand" href="/"><img src="/img/icon.svg" alt="" width="28" height="28">omacus</a>
     <nav class="nav" aria-label="Main">
       <div class="nav-links" id="site-nav">
+        <a class="nav-phone-app btn primary" href="https://app.omacus.com">Open the web app</a>
+        <a class="nav-phone-download btn" href="/download/"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>
         <a href="/#features">Features</a>
+        <a href="/docs/">Docs</a>
+        <a href="/sync/">Sync</a>
+        <a href="/story/" aria-current="page">Story</a>
+        <details class="nav-learn">
+          <summary class="nav-learn-btn">Learn <svg class="nav-chevron" aria-hidden="true"><use href="/img/sprite.svg#chevron"/></svg></summary>
+          <div class="nav-learn-menu" id="nav-learn-menu">
+            <p class="nav-learn-kicker">Learn</p>
         <a href="/use-cases/">Use cases</a>
         <a href="/guides/">Guides</a>
-        <a href="/docs/">Docs</a>
         <a href="/updates/">Updates</a>
-        <a href="/story/" aria-current="page">Story</a>
-        <a href="/sync/">Sync</a>
-        <a href="https://app.omacus.com">Web app</a>
-        <a href="https://github.com/avinashjoshi/omacus">GitHub</a>
+          </div>
+        </details>
+        <a class="nav-github" href="https://github.com/avinashjoshi/omacus"><svg aria-hidden="true"><use href="/img/sprite.svg#github"/></svg><span class="nav-github-label">GitHub</span></a>
       </div>
-      <a class="btn primary" href="/download/"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>
+      <a class="btn nav-open" href="https://app.omacus.com">Open app</a>
+      <a class="btn primary nav-download" href="/download/"><svg aria-hidden="true"><use href="/img/sprite.svg#download"/></svg>Download</a>
       <button class="menu-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="Menu"><span></span><span></span><span></span></button>
     </nav>
   </div>
@@ -58,38 +66,38 @@
 <a href="#built">How it was built</a>
 <a href="#numbers">By the numbers</a>
 <a href="#timeline">Timeline</a>
-<a href="#learned">What I learned</a>
+<a href="#learned">What Avinash learned</a>
 <a href="#contribute">Contribute</a>
 </nav>
   <article class="page-body">
     <header class="story-hero">
       <span class="kicker">// story</span>
       <h1>A side <em class="serif">quest</em></h1>
-      <p class="story-lead">I missed a notepad calculator, so I built one. This is why, and how.</p>
+      <p class="story-lead">Avinash missed a notepad calculator, so he built one. This is why, and how.</p>
       <p class="story-say">Said <span>oh-MAH-kus</span>.</p>
     </header>
 
     <section id="why">
       <h2>Why it exists</h2>
-      <p>Ajith and I were talking through numbers. I used to use Numi, a notepad calculator, on a Mac. After I moved to Linux, on Omarchy, I missed it.</p>
-      <p>I wrote down what I missed, in a single prompt. About 30 minutes later I had a first version that worked. Then I kept refining it, because I was using it.</p>
-      <p>Ajith is on a Mac, and he wanted to use Omacus too. So it runs on Linux on Omarchy, on macOS, on Windows, and on the web. We both use it every day.</p>
-      <p>I built it for myself. I open-sourced it, under the MIT license, in case someone else wanted it too.</p>
+      <p>Ajith and Avinash were talking through numbers. Avinash used to use Numi, a notepad calculator, on a Mac. After he moved to Linux, on Omarchy, he missed it.</p>
+      <p>Avinash wrote down what he missed, in a single prompt. About 30 minutes later he had a first version that worked. Then he kept refining it, because he was using it.</p>
+      <p>Ajith is on a Mac, and he wanted to use Omacus too. So it runs on Linux on Omarchy, on macOS, on Windows, and on the web. They both use it every day.</p>
+      <p>Avinash built it for himself. He open-sourced it, under the MIT license, in case someone else wanted it too.</p>
     </section>
 
     <section id="built">
       <h2>How it was built</h2>
-      <p>I didn't hand-write the code. I set the direction, made the decisions, and reviewed what came back. AI agents wrote every line.</p>
+      <p>Avinash didn't hand-write the code. He set the direction, made the decisions, and reviewed what came back. AI agents wrote every line.</p>
       <p>It started with Claude. It now runs on Grok Bot. Grok Bot plans the work and runs cloud coding agents. Those agents open pull requests. Grok Bot watches the checks and ships the releases.</p>
       <p>What makes that safe enough:</p>
       <ul class="story-net">
         <li><strong>Protected main.</strong> A change only lands through a pull request.</li>
-        <li><strong>Checks on every system we ship.</strong> Linux, macOS, Windows, and the browser build all have to pass.</li>
+        <li><strong>Checks on every system they ship.</strong> Linux, macOS, Windows, and the browser build all have to pass.</li>
         <li><strong>A release is a pull request.</strong> When the checks pass, it merges on its own, and the new version goes out.</li>
         <li><strong>One design guide.</strong> <a href="https://github.com/avinashjoshi/omacus/blob/main/docs/DESIGN.md">docs/DESIGN.md</a> is what keeps the app and the site looking like the same product.</li>
         <li><strong>Notes for people using it.</strong> Release notes say what changed for you, in plain words.</li>
       </ul>
-      <p>My part is taste, decisions, and review.</p>
+      <p>Avinash's part is taste, decisions, and review.</p>
     </section>
 
     <section id="numbers">
@@ -114,7 +122,7 @@
 </div>
 <div class="entry-body">
 <h2>First version</h2>
-<div class="notes"><p>A notepad for math, on Linux, macOS, and Windows from the first version. I was already using it, and so was Ajith, on his Mac.</p></div>
+<div class="notes"><p>A notepad for math, on Linux, macOS, and Windows from the first version. Avinash was already using it, and so was Ajith, on his Mac.</p></div>
 </div>
 </li>
 <li class="entry" id="story-v0.1.10">
@@ -158,24 +166,24 @@
     </section>
 
     <section id="learned">
-      <h2>What I learned</h2>
+      <h2>What Avinash learned</h2>
       <p>Personal notes. Not a method, and not advice.</p>
       <ol class="story-lessons">
         <li>
           <h3>The short part was the start</h3>
-          <p>Getting from "I wish this existed" to a version I could type into was fast. Almost everything I kept came after that.</p>
+          <p>Getting from wishing this existed to a version he could type into was fast. Almost everything he kept came after that.</p>
         </li>
         <li>
           <h3>The safety net matters more than the prompt</h3>
-          <p>A prompt gets a draft. I trust the result because main is protected, the checks cover every system we ship, and the notes are written for someone using Omacus.</p>
+          <p>A prompt gets a draft. Avinash trusts the result because main is protected, the checks cover every system they ship, and the notes are written for someone using Omacus.</p>
         </li>
         <li>
           <h3>Taste is the job</h3>
-          <p>Agents can fill a screen. Choosing what should be quiet, what a sentence should say, and what to leave out is still on me.</p>
+          <p>Agents can fill a screen. Choosing what should be quiet, what a sentence should say, and what to leave out is still on Avinash.</p>
         </li>
         <li>
           <h3>One person kept it smaller</h3>
-          <p>If I wouldn't use a feature on a page of my own, it stayed out.</p>
+          <p>If Avinash wouldn't use a feature on a page of his own, it stayed out.</p>
         </li>
       </ol>
     </section>
@@ -183,7 +191,7 @@
     <section id="contribute">
       <h2>Contribute</h2>
       <p>The code is MIT licensed. If something is wrong, or missing, open an issue. If you want to change it, send a pull request.</p>
-      <p>You can use AI agents too. I do. The same bar applies: the checks have to pass, the design guide is the look, and the notes should make sense to someone using Omacus.</p>
+      <p>You can use AI agents too. Avinash does. The same bar applies: the checks have to pass, the design guide is the look, and the notes should make sense to someone using Omacus.</p>
       <p class="story-links"><a href="https://github.com/avinashjoshi/omacus">Source code</a><a href="https://github.com/avinashjoshi/omacus/issues">Issues</a><a href="https://github.com/avinashjoshi/omacus/blob/main/CONTRIBUTING.md">Contributing</a></p>
     </section>
   </article>
