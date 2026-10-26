@@ -1,0 +1,35 @@
+name: Cancel stuck release
+
+# One-off. Cancels the hung v1.0.1 release run and starts it again.
+on:
+  push:
+    branches: [cursor/cancel-stuck-release-29c8]
+
+permissions:
+  actions: write
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Cancel the hung release and rerun it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh run cancel 40390839227 || true
+          for _ in $(seq 1 30); do
+            status="$(gh run view 40390839227 --json status --jq .status)"
+            echo "release run status: $status"
+            if [[ "$status" != "in_progress" && "$status" != "queued" && "$status" != "waiting" && "$status" != "pending" ]]; then
+              break
+            fi
+            sleep 10
+          done
+          if ! gh run rerun 40390839227 --failed; then
+            echo "failed-job rerun did not start; rerunning the wasm job"
+            gh api -X POST repos/avinashjoshi/omacus/actions/jobs/121811166464/rerun
+          fi
+          gh run view 40390839227 --json status,conclusion,url
