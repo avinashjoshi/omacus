@@ -14,6 +14,7 @@ import {
 } from "./sync-vaults.mjs";
 
 const LABEL = "omacus 1.0.0";
+const FIELD_ERROR_ID = "sync-field-error";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
 const APPROVAL_POLL_MS = 4000;
@@ -2067,6 +2068,17 @@ export async function mountSync(api) {
     }, APPROVAL_POLL_MS);
   }
 
+  function errorBesideField() {
+    return state.screen === "access" || state.screen === "join-start" || state.screen === "join-type" || state.screen === "recover";
+  }
+
+  function fieldError(input) {
+    if (!state.error || !input) return null;
+    input.setAttribute("aria-invalid", "true");
+    input.setAttribute("aria-describedby", FIELD_ERROR_ID);
+    return el("p", { class: "sync-err", id: FIELD_ERROR_ID, role: "alert" }, [plainError(state.error)]);
+  }
+
   function draw() {
     if (naming) return;
     if (state.screen !== "approve") {
@@ -2076,7 +2088,7 @@ export async function mountSync(api) {
     panel.replaceChildren();
     panel.classList.toggle("sync-sheet", state.screen === "save");
     panel.append(el("p", { class: "sync-label" }, [LABEL]));
-    if (state.error && state.screen !== "recover") {
+    if (state.error && !errorBesideField()) {
       panel.append(el("p", { class: "sync-err", role: "alert" }, [plainError(state.error)]));
     }
     if (state.screen === "intro") drawIntro();
@@ -2213,6 +2225,7 @@ export async function mountSync(api) {
     });
     field.placeholder = "Code you were given";
     const inviteLabel = el("label", { class: "sync-field sync-code-label" }, ["Invite code"]);
+    const accessError = fieldError(field);
     panel.append(
       progressBar(1),
       backLink(() => { state.screen = "off"; state.error = ""; draw(); }, state.busy),
@@ -2222,6 +2235,7 @@ export async function mountSync(api) {
       el("p", { class: "sync-hint" }, ["Shown on your other devices so you can tell them apart."]),
       inviteLabel,
       field,
+      ...(accessError ? [accessError] : []),
       el("p", { class: "sync-hint" }, ["omacus sync is invite-only for now."]),
       el("p", { class: "sync-hint" }, ["Not the code from another device."]),
       actionButton(state.busy ? "Working…" : "Continue", "primary", () => checkAccess(), state.busy),
@@ -2366,6 +2380,7 @@ export async function mountSync(api) {
     field.addEventListener("input", () => {
       state.joinCode = field.value;
     });
+    const joinFieldError = fieldError(field);
     panel.append(
       backLink(() => { stopScan(); state.screen = state.removed ? "removed" : "off"; state.error = ""; draw(); }, state.busy),
       el("h2", {}, ["Join your synced pages"]),
@@ -2376,6 +2391,7 @@ export async function mountSync(api) {
       ]),
       el("label", { class: "sync-field sync-code-label" }, ["Join code"]),
       el("div", { class: "sync-code-row" }, [field, scanCodeButton()]),
+      ...(joinFieldError ? [joinFieldError] : []),
       el("p", { class: "sync-hint" }, ["12 characters · or tap the scan button to scan the QR code"]),
       recoveryRow(),
       ...deviceNameControl(),
@@ -2475,9 +2491,6 @@ export async function mountSync(api) {
     phrase.value = state.phrase;
     phrase.addEventListener("input", onPhrase);
     const bits = [el("h2", {}, ["Use your recovery words"])];
-    if (state.error) {
-      bits.push(el("p", { class: "sync-note", role: "alert", "data-sync-note": "" }, [plainError(state.error)]));
-    }
     const recoverName = el("input", {
       class: "sync-name",
       "aria-label": "Name this phone or computer",
@@ -2494,7 +2507,10 @@ export async function mountSync(api) {
     );
     const merged = mergeLine();
     if (merged) bits.push(el("p", { class: "setting-help" }, [merged]));
-    bits.push(phrase, el("p", { class: "sync-msg", "data-sync-phrase": "", "data-ok": state.phraseOk ? "1" : "0" }, [state.phraseMsg]));
+    const recoverError = fieldError(phrase);
+    bits.push(phrase);
+    if (recoverError) bits.push(recoverError);
+    bits.push(el("p", { class: "sync-msg", "data-sync-phrase": "", "data-ok": state.phraseOk ? "1" : "0" }, [state.phraseMsg]));
     bits.unshift(backLink(() => { stopScan(); state.screen = "join-type"; draw(); }, state.busy));
     bits.push(
       actionButton(state.busy ? "Checking the words…" : "Open my pages", "primary", () => startRecovery(), state.busy),
