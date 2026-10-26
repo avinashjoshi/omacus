@@ -8,10 +8,22 @@ Production is the worker `omacus-sync` at `https://sync.omacus.com`. The notepad
 
 Follow "Before the first production deploy" in `docs/sync-ops.md`. In short:
 
-- Set `ACCESS_SECRET`, `ADMIN_KEY`, and `ACCESS_AUD` on `omacus-sync`. Do not set `ALLOW_NO_ACCESS`.
-- Turn on point-in-time recovery for the production `Mailboxes` namespace, and the R2 lifecycle rule on `omacus-sync-backups` (prefix `nights/`, delete after 30 days).
-- Deploy with `npx wrangler deploy --env production` from `relay/worker` only when you mean to.
+- Set `ACCESS_SECRET`, `ADMIN_KEY`, and `ACCESS_AUD` on `omacus-sync`. Do not set `ALLOW_NO_ACCESS`. `ACCESS_TEAM_DOMAIN` is already `omacus.cloudflareaccess.com` in `relay/worker/wrangler.jsonc`. It is not a secret.
+- Turn on point-in-time recovery for the production Durable Object class `Mailboxes` (binding `MAILBOXES`). That class is in `relay/worker/wrangler.jsonc`. It is not a KV namespace, and the file is not `wrangler.toml`. The R2 binding is `BACKUPS`. The production bucket is `omacus-sync-backups` (prefix `nights/`, delete after 30 days). The nightly copy runs at 07:15 UTC (`15 7 * * *`).
+- From `relay/worker`, `./build.sh` then `npx wrangler deploy --env production`, and only when you mean to. That env is the worker `omacus-sync`. The same file without `--env` deploys `omacus-sync-test`.
 - After it is up, check `GET /v1/health`, that `GET /` redirects to the app, that admin is refused when signed out, and that a phone can create pages, link a second one, and save.
+
+## Go live
+
+Do these in this order.
+
+1. Merge to `main`.
+2. Deploy the production worker, as above.
+3. Smoke test that worker: `GET /v1/health` returns `{"label":"1.0.0"}`, `GET /` redirects to the app, admin is refused when signed out, and a phone can create pages, link a second one, and save.
+4. Publish the sync build to `https://app.omacus.com`. The Release workflow does that after the tag, by calling `.github/workflows/app.yml`. A push to `main` does not publish the app. To publish this commit without a desktop release, start the App workflow by hand (`workflow_dispatch`) on the merged commit. `app.yml` runs `.github/scripts/build-web.sh`.
+5. Smoke test the app: the same phone opens `https://app.omacus.com`, turns sync on, and reaches the worker from step 3.
+
+`site/_headers` sends HSTS and the content security policy for omacus.com. Each page also carries that policy, so it still applies when the host does not read `_headers`. `/app` on this origin keeps the bridge rules, including the engine.
 
 The health workflow below expects the label `1.0.0`. Until this worker is deployed, the first scheduled run opens an issue. Close that issue after the deploy.
 
