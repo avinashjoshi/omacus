@@ -10,7 +10,7 @@ mod session;
 mod ui;
 mod wire;
 
-pub use session::{Chip, LocalPages, Screen, Session, intro_lines};
+pub use session::{Chip, LocalPages, Screen, Session, intro_lines, release_clipboard};
 pub use ui::show;
 
 #[cfg(test)]

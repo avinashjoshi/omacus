@@ -16,6 +16,10 @@ const MEMORY_KIB: u32 = 19 * 1024;
 const ITERATIONS: u32 = 2;
 const LANES: u32 = 1;
 
+/// The device-key file. Heavier than a page lock: 64 MiB and 3 passes.
+const DEVICE_MEMORY_KIB: u32 = 64 * 1024;
+const DEVICE_ITERATIONS: u32 = 3;
+
 const SALT_LEN: usize = 16;
 const KEY_LEN: usize = 32;
 const NONCE_LEN: usize = 24;
@@ -184,20 +188,20 @@ impl std::fmt::Debug for SecretSeal {
     }
 }
 
-/// Argon2id once. Later seals reuse this key and salt.
+/// Argon2id once, at the device-key settings. Later seals reuse this key and salt.
 pub fn derive_passphrase(password: &str) -> Result<SecretSeal, LockError> {
     let salt = random_array()?;
-    let kek = derive(password, &salt, MEMORY_KIB, ITERATIONS, LANES)?;
+    let kek = derive_device(password, &salt, DEVICE_MEMORY_KIB, DEVICE_ITERATIONS, LANES)?;
     Ok(SecretSeal { salt, kek })
 }
 
-/// Encrypt `plain`. A new nonce each time. The salt and the strong parameters travel with the ciphertext.
+/// Encrypt `plain`. A new nonce each time. The salt and the device-key parameters travel with the ciphertext.
 pub fn seal_with_passphrase(seal: &SecretSeal, plain: &[u8]) -> Result<Vec<u8>, LockError> {
     let nonce = random_array::<NONCE_LEN>()?;
     let data = xcrypt(true, &seal.kek, &nonce, PASS_AAD, plain)?;
     let mut out = Vec::with_capacity(12 + SALT_LEN + NONCE_LEN + data.len());
-    out.extend_from_slice(&MEMORY_KIB.to_be_bytes());
-    out.extend_from_slice(&ITERATIONS.to_be_bytes());
+    out.extend_from_slice(&DEVICE_MEMORY_KIB.to_be_bytes());
+    out.extend_from_slice(&DEVICE_ITERATIONS.to_be_bytes());
     out.extend_from_slice(&LANES.to_be_bytes());
     out.extend_from_slice(&seal.salt);
     out.extend_from_slice(&nonce);
@@ -225,7 +229,7 @@ pub fn open_with_passphrase(
         .try_into()
         .map_err(|_| LockError::Corrupt)?;
     let data = &stored[header..];
-    let mut kek = derive(password, &salt, memory, iterations, lanes)?;
+    let mut kek = derive_device(password, &salt, memory, iterations, lanes)?;
     let plain = match xcrypt(false, &kek, &nonce, PASS_AAD, data) {
         Ok(plain) => plain,
         Err(error) => {
@@ -332,14 +336,37 @@ fn derive(
     iterations: u32,
     lanes: u32,
 ) -> Result<[u8; KEY_LEN], LockError> {
+    if memory_kib != MEMORY_KIB || iterations != ITERATIONS || lanes != LANES {
+        return Err(LockError::Corrupt);
+    }
+    hash_password(password, salt, memory_kib, iterations, lanes)
+}
+
+/// The device-key file only. Page-lock parameters, and anything weaker, are refused.
+fn derive_device(
+    password: &str,
+    salt: &[u8],
+    memory_kib: u32,
+    iterations: u32,
+    lanes: u32,
+) -> Result<[u8; KEY_LEN], LockError> {
+    if memory_kib != DEVICE_MEMORY_KIB || iterations != DEVICE_ITERATIONS || lanes != LANES {
+        return Err(LockError::Corrupt);
+    }
+    hash_password(password, salt, memory_kib, iterations, lanes)
+}
+
+fn hash_password(
+    password: &str,
+    salt: &[u8],
+    memory_kib: u32,
+    iterations: u32,
+    lanes: u32,
+) -> Result<[u8; KEY_LEN], LockError> {
     if password.is_empty() {
         return Err(LockError::EmptyPassword);
     }
-    if memory_kib != MEMORY_KIB
-        || iterations != ITERATIONS
-        || lanes != LANES
-        || salt.len() != SALT_LEN
-    {
+    if salt.len() != SALT_LEN {
         return Err(LockError::Corrupt);
     }
     let params = Params::new(memory_kib, iterations, lanes, Some(KEY_LEN))
@@ -463,6 +490,18 @@ mod tests {
         assert!(is_envelope(&outer));
         assert!(!is_lock(&outer));
         assert!(is_envelope(&inner));
+    }
+
+    #[test]
+    fn a_weaker_device_seal_is_refused() {
+        let mut stored = vec![0u8; 12 + 16 + 24 + 16];
+        stored[0..4].copy_from_slice(&MEMORY_KIB.to_be_bytes());
+        stored[4..8].copy_from_slice(&ITERATIONS.to_be_bytes());
+        stored[8..12].copy_from_slice(&LANES.to_be_bytes());
+        assert_eq!(
+            open_with_passphrase("lantern-dock-42", &stored).unwrap_err(),
+            LockError::Corrupt
+        );
     }
 
     #[test]

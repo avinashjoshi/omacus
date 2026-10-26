@@ -1206,7 +1206,15 @@ export async function mountSync(api) {
     draw();
     await frame();
     if (!state.account) {
-      const saved = JSON.parse(sync.confirmSaved(state.desk, JSON.stringify(chosen)));
+      let saved;
+      try {
+        saved = JSON.parse(sync.confirmSaved(state.desk, JSON.stringify(chosen)));
+      } catch (error) {
+        state.busy = false;
+        state.error = plainError(error && error.message ? error.message : "Those words could not be checked.");
+        draw();
+        return;
+      }
       if (!saved.ok) {
         state.busy = false;
         state.error = "Those are not the three words.";
@@ -2290,6 +2298,7 @@ export async function mountSync(api) {
         ["Print", () => printWords()],
         ["Copy", () => copyWords()],
       ]),
+      el("p", { class: "sync-hint" }, ["A clipboard history may keep these words. Printing them, or writing them down, is safest."]),
     );
   }
 
@@ -2695,7 +2704,18 @@ export async function mountSync(api) {
   }
 
   function frame() {
-    return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      // WebKit can stop delivering frames after a resize. The paint still
+      // happens when a frame arrives, and the check does not wait on one.
+      requestAnimationFrame(() => requestAnimationFrame(finish));
+      setTimeout(finish, 100);
+    });
   }
 
   api.onEdit(() => {

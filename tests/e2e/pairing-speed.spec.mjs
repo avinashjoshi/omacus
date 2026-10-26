@@ -313,7 +313,19 @@ test("an invite notices a join within 5 seconds", async ({ browser }) => {
       await phoneA.locator(".sync-ask").nth(step).getByRole("button", { name: words[n - 1], exact: true }).click();
     }
     await phoneA.getByRole("button", { name: "These match" }).click();
-    await expect(phoneA.getByRole("heading", { name: "✓ Sync is on" })).toBeVisible();
+    // Checking the words derives a key, then saves. WebKit can take longer
+    // than the default wait, and a stuck screen should name itself.
+    await expect.poll(async () => {
+      if (await phoneA.getByRole("heading", { name: "✓ Sync is on" }).count()) return "ready";
+      const err = phoneA.locator(".sync-panel .sync-err, .sync-panel [role='alert']");
+      if (await err.count()) {
+        const text = (await err.first().innerText()).trim();
+        if (text) return `error: ${text}`;
+      }
+      const heading = phoneA.locator(".sync-panel h2");
+      if (!(await heading.count())) return "no heading";
+      return `waiting: ${(await heading.first().innerText()).trim()}`;
+    }, { timeout: 60_000 }).toBe("ready");
     await expect(phoneA.getByText("Synced just now")).toBeVisible();
     await shot(phoneA, "sync-ready-desktop-light");
     await theme(phoneA, "dark");

@@ -828,9 +828,27 @@ function nestedDialogOpen() {
 }
 
 function focusSettingsDialog() {
-  const card = el.settings && el.settings.querySelector(".settings-card");
-  const items = settingsFocusable(card);
-  if (items[0]) items[0].focus();
+  let frames = 0;
+  const place = () => {
+    if (!el.settings || el.settings.hidden) return;
+    const card = el.settings.querySelector(".settings-card");
+    if (!card) return;
+    const active = document.activeElement;
+    if (active && card.contains(active)) return;
+    // Un-hiding and focusing in one turn is not enough for WebKit. A layout
+    // read makes the card focusable, and a few frames cover a click that
+    // puts focus back on the button that opened Settings.
+    void card.getBoundingClientRect();
+    const items = settingsFocusable(card);
+    if (items[0]) items[0].focus();
+    if (!card.contains(document.activeElement)) {
+      if (card.tabIndex < 0) card.tabIndex = -1;
+      card.focus();
+    }
+    frames += 1;
+    if (frames < 12 && !card.contains(document.activeElement)) requestAnimationFrame(place);
+  };
+  place();
 }
 
 function openSettings(tab = "settings") {
@@ -860,6 +878,14 @@ function closeSettings() {
   settingsOpener = null;
   if (back && document.contains(back)) back.focus();
 }
+
+addEventListener("focusin", () => {
+  if (!el.settings || el.settings.hidden || nestedDialogOpen()) return;
+  const card = el.settings.querySelector(".settings-card");
+  if (!card || card.contains(document.activeElement)) return;
+  const items = settingsFocusable(card);
+  if (items[0]) items[0].focus();
+}, true);
 
 addEventListener("keydown", (event) => {
   if (event.key !== "Tab" || !el.settings || el.settings.hidden || nestedDialogOpen()) return;

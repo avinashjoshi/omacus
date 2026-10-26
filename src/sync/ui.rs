@@ -6,7 +6,7 @@ use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, vec2};
 use crate::design;
 use crate::theme::{self, Theme};
 
-use super::session::{Screen, Session};
+use super::session::{CLIPBOARD_NOTE, Screen, Session};
 
 /// Draw the open sync screen. `Some(id)` asks the window to unlock that page
 /// with the password already on this computer.
@@ -337,6 +337,8 @@ fn words(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Stri
             session.error = error;
         }
     });
+    ui.add_space(8.0);
+    hint(ui, theme, CLIPBOARD_NOTE);
     None
 }
 

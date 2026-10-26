@@ -3,8 +3,10 @@
 //! macOS uses the Keychain for this device only, not iCloud. Windows wraps the
 //! key with DPAPI for this user. Linux uses Secret Service when it is running.
 //! When this computer has no keyring, the key stays in a file locked with a
-//! passphrase: Argon2id, then XChaCha20-Poly1305. That file is mode 0600. The
-//! passphrase is not written. A pointer file in the data folder records which
+//! passphrase: Argon2id at 64 MiB and 3 passes, then XChaCha20-Poly1305. That
+//! file is created mode 0600 and renamed into place, so a crash leaves the
+//! previous key. The passphrase is not written. A pointer file in the data
+//! folder records which
 //! store holds the key. On Windows that file is the DPAPI ciphertext. A plain
 //! key file is removed if one is found.
 
@@ -273,14 +275,22 @@ fn write_private(dir: &Path, sealed: &[u8]) -> Result<(), String> {
     if let Some(parent) = file.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let mut out = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&file)
-        .map_err(|e| e.to_string())?;
+    // A temp file in the same directory, created private, then renamed. A crash
+    // while writing leaves the previous device.bin in place.
+    let tmp = file.with_file_name("device.bin.tmp");
+    let _ = fs::remove_file(&tmp);
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut out = options.open(&tmp).map_err(|e| e.to_string())?;
     out.write_all(sealed).map_err(|e| e.to_string())?;
-    set_private(&file)
+    out.sync_all().map_err(|e| e.to_string())?;
+    drop(out);
+    fs::rename(&tmp, &file).map_err(|e| e.to_string())
 }
 
 fn pass_error(error: omacus_engine::lock::LockError) -> String {
@@ -291,19 +301,6 @@ fn pass_error(error: omacus_engine::lock::LockError) -> String {
         }
         omacus_engine::lock::LockError::Corrupt => "That copy could not be read.".into(),
     }
-}
-
-fn set_private(path: &Path) -> Result<(), String> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-    }
-    Ok(())
 }
 
 /// This device only. A key in iCloud Keychain would leave this computer.
@@ -363,7 +360,9 @@ fn keychain_delete() -> Result<(), String> {
 #[cfg(windows)]
 fn dpapi_seal(plain: &[u8]) -> Result<Vec<u8>, String> {
     use std::ptr;
-    use windows_sys::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CryptProtectData};
+    use windows_sys::Win32::Security::Cryptography::{
+        CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData,
+    };
     unsafe {
         let input = CRYPT_INTEGER_BLOB {
             cbData: plain.len() as u32,
@@ -379,7 +378,7 @@ fn dpapi_seal(plain: &[u8]) -> Result<Vec<u8>, String> {
             ptr::null(),
             ptr::null(),
             ptr::null(),
-            0,
+            CRYPTPROTECT_UI_FORBIDDEN,
             &mut output,
         );
         if ok == 0 || output.pbData.is_null() {
@@ -394,7 +393,9 @@ fn dpapi_seal(plain: &[u8]) -> Result<Vec<u8>, String> {
 #[cfg(windows)]
 fn dpapi_open(blob: &[u8]) -> Result<Vec<u8>, String> {
     use std::ptr;
-    use windows_sys::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CryptUnprotectData};
+    use windows_sys::Win32::Security::Cryptography::{
+        CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptUnprotectData,
+    };
     unsafe {
         let input = CRYPT_INTEGER_BLOB {
             cbData: blob.len() as u32,
@@ -410,7 +411,7 @@ fn dpapi_open(blob: &[u8]) -> Result<Vec<u8>, String> {
             ptr::null(),
             ptr::null(),
             ptr::null(),
-            0,
+            CRYPTPROTECT_UI_FORBIDDEN,
             &mut output,
         );
         if ok == 0 || output.pbData.is_null() {
@@ -422,9 +423,25 @@ fn dpapi_open(blob: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
+#[cfg(all(unix, not(target_os = "macos")))]
+const KEYRING_PROBE: Duration = Duration::from_secs(2);
+#[cfg(all(unix, not(target_os = "macos")))]
+const KEYRING_TRIES: u32 = 2;
+
 #[cfg_attr(test, allow(dead_code))]
 #[cfg(all(unix, not(target_os = "macos")))]
 fn keyring_up() -> bool {
+    for _ in 0..KEYRING_TRIES {
+        if probe_keyring() {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg_attr(test, allow(dead_code))]
+#[cfg(all(unix, not(target_os = "macos")))]
+fn probe_keyring() -> bool {
     let Ok(mut child) = std::process::Command::new("secret-tool")
         .args(["lookup", "app", "omacus", "kind", "probe"])
         .stdin(std::process::Stdio::null())
@@ -453,7 +470,7 @@ fn keyring_up() -> bool {
                     || err.contains("Cannot");
                 return status.success() || (status.code() == Some(1) && !down && err.is_empty());
             }
-            Ok(None) if start.elapsed() > Duration::from_millis(300) => {
+            Ok(None) if start.elapsed() > KEYRING_PROBE => {
                 let _ = child.kill();
                 return false;
             }
@@ -547,6 +564,36 @@ mod tests {
     }
 
     #[test]
+    fn a_half_written_temp_file_does_not_replace_the_key() {
+        let dir = std::env::temp_dir().join(format!("omacus-key-tmp-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let first = b"OMACUS-DEVICE/1\nfirst-key";
+        save(&dir, first).unwrap();
+        assert!(is_private(&dir));
+        let file = path(&dir);
+        let tmp = file.with_file_name("device.bin.tmp");
+        let kept = fs::read(&file).unwrap();
+        fs::write(&tmp, b"partial").unwrap();
+        assert_eq!(fs::read(&file).unwrap(), kept);
+        assert_eq!(load(&dir).unwrap().unwrap(), first);
+        let second = b"OMACUS-DEVICE/1\nsecond-key";
+        save(&dir, second).unwrap();
+        assert!(!tmp.exists());
+        assert!(is_private(&dir));
+        assert_eq!(load(&dir).unwrap().unwrap(), second);
+        remove(&dir);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn the_keyring_probe_waits_for_a_slow_login() {
+        assert!(KEYRING_PROBE >= Duration::from_secs(2));
+        assert_eq!(KEYRING_TRIES, 2);
+    }
+
+    #[test]
     fn a_passphrase_file_is_not_the_key() {
         let dir = std::env::temp_dir().join(format!("omacus-pass-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -558,6 +605,16 @@ mod tests {
         assert!(is_private(&dir));
         assert_eq!(kind(&dir), Some("pass"));
         let stored = fs::read(path(&dir)).unwrap();
+        let payload = stored
+            .strip_prefix(MARK)
+            .unwrap()
+            .strip_prefix(b"pass\n")
+            .unwrap();
+        assert_eq!(
+            u32::from_be_bytes(payload[0..4].try_into().unwrap()),
+            64 * 1024
+        );
+        assert_eq!(u32::from_be_bytes(payload[4..8].try_into().unwrap()), 3);
         assert!(
             !stored
                 .windows(b"OMACUS-DEVICE".len())

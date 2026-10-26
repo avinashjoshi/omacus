@@ -7,6 +7,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,8 @@ use super::qr;
 use super::wire::{self, Client};
 
 pub const CLIPBOARD_SECS: u64 = 60;
+pub const CLIPBOARD_NOTE: &str =
+    "A clipboard history may keep these words. Printing them, or writing them down, is safest.";
 pub const PARTIAL_NOTE: &str = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 
 pub const PARITY_ROWS: &[&str] = &[
@@ -2669,28 +2672,169 @@ fn random_bytes<const N: usize>() -> Result<[u8; N], String> {
     Ok(buf)
 }
 
-fn copy_secret(text: &str, miss: &str) -> Result<String, String> {
-    match arboard::Clipboard::new().and_then(|mut clip| clip.set_text(text.to_string())) {
-        Ok(()) => {
-            arm_clear(text.to_string());
-            Ok(text.to_string())
-        }
-        Err(_) => Err(miss.into()),
+struct ClipHold {
+    board: Option<ClipBoard>,
+    secret: Option<String>,
+    generation: u64,
+}
+
+enum ClipBoard {
+    /// Kept alive so Linux still serves the text after `set_text` returns.
+    Live(arboard::Clipboard),
+    #[cfg(test)]
+    Memory(String),
+}
+
+fn clip_hold() -> &'static Mutex<ClipHold> {
+    static HOLD: OnceLock<Mutex<ClipHold>> = OnceLock::new();
+    HOLD.get_or_init(|| {
+        Mutex::new(ClipHold {
+            board: None,
+            secret: None,
+            generation: 0,
+        })
+    })
+}
+
+fn open_board() -> Result<ClipBoard, String> {
+    match arboard::Clipboard::new() {
+        Ok(clip) => Ok(ClipBoard::Live(clip)),
+        #[cfg(test)]
+        Err(_) => Ok(ClipBoard::Memory(String::new())),
+        #[cfg(not(test))]
+        Err(error) => Err(error.to_string()),
     }
 }
 
-fn arm_clear(copied: String) {
+fn publish_live(clip: &mut arboard::Clipboard, text: &str) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        use arboard::SetExtLinux;
+        clip.set()
+            .exclude_from_history()
+            .text(text.to_string())
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        clip.set_text(text.to_string())
+            .map_err(|error| error.to_string())
+    }
+}
+
+fn publish(board: &mut ClipBoard, text: &str) -> Result<(), String> {
+    match board {
+        ClipBoard::Live(clip) => publish_live(clip, text),
+        #[cfg(test)]
+        ClipBoard::Memory(slot) => {
+            slot.clear();
+            slot.push_str(text);
+            Ok(())
+        }
+    }
+}
+
+fn read_board(board: &mut ClipBoard) -> Result<String, String> {
+    match board {
+        ClipBoard::Live(clip) => clip.get_text().map_err(|error| error.to_string()),
+        #[cfg(test)]
+        ClipBoard::Memory(slot) => Ok(slot.clone()),
+    }
+}
+
+fn clear_board(board: &mut ClipBoard) -> Result<(), String> {
+    match board {
+        ClipBoard::Live(clip) => clip.clear().map_err(|error| error.to_string()),
+        #[cfg(test)]
+        ClipBoard::Memory(slot) => {
+            slot.zeroize();
+            Ok(())
+        }
+    }
+}
+
+fn copy_secret(text: &str, miss: &str) -> Result<String, String> {
+    let mut hold = clip_hold().lock().map_err(|_| miss.to_string())?;
+    if hold.board.is_none() {
+        hold.board = Some(open_board().map_err(|_| miss.to_string())?);
+    }
+    let board = hold.board.as_mut().ok_or_else(|| miss.to_string())?;
+    publish(board, text).map_err(|_| miss.to_string())?;
+    if let Some(mut previous) = hold.secret.replace(text.to_string()) {
+        previous.zeroize();
+    }
+    hold.generation = hold.generation.wrapping_add(1);
+    let generation = hold.generation;
+    drop(hold);
+    arm_clear(generation);
+    Ok(text.to_string())
+}
+
+fn clear_generation(generation: u64) -> bool {
+    let Ok(mut hold) = clip_hold().lock() else {
+        return false;
+    };
+    if hold.generation != generation {
+        return false;
+    }
+    let Some(mut secret) = hold.secret.take() else {
+        return false;
+    };
+    let matches = hold
+        .board
+        .as_mut()
+        .and_then(|board| read_board(board).ok())
+        .is_some_and(|current| should_clear(&current, &secret));
+    if matches && let Some(board) = hold.board.as_mut() {
+        let _ = clear_board(board);
+    }
+    secret.zeroize();
+    matches
+}
+
+/// Clear a copied secret if the 60 second timer has not run yet, then drop the
+/// clipboard. Linux only keeps the text while this process still serves it.
+pub fn release_clipboard() {
+    let generation = clip_hold().lock().map(|hold| hold.generation).unwrap_or(0);
+    let _ = clear_generation(generation);
+    if let Ok(mut hold) = clip_hold().lock() {
+        hold.board = None;
+        if let Some(mut secret) = hold.secret.take() {
+            secret.zeroize();
+        }
+    }
+}
+
+#[cfg(not(test))]
+fn arm_clear(generation: u64) {
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(CLIPBOARD_SECS));
-        let mut owned = copied;
-        if let Ok(mut clip) = arboard::Clipboard::new()
-            && let Ok(current) = clip.get_text()
-            && should_clear(&current, &owned)
-        {
-            let _ = clip.clear();
-        }
-        owned.zeroize();
+        let _ = clear_generation(generation);
     });
+}
+
+#[cfg(test)]
+fn arm_clear(_generation: u64) {}
+
+#[cfg(test)]
+fn clipboard_text() -> String {
+    let Ok(mut hold) = clip_hold().lock() else {
+        return String::new();
+    };
+    hold.board
+        .as_mut()
+        .and_then(|board| read_board(board).ok())
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+fn overwrite_clipboard(text: &str) {
+    let Ok(mut hold) = clip_hold().lock() else {
+        return;
+    };
+    if let Some(board) = hold.board.as_mut() {
+        let _ = publish(board, text);
+    }
 }
 
 fn deliver_print(words: &str) -> Result<PrintJob, String> {
@@ -2786,5 +2930,28 @@ fn lock_exclusive(file: &File) -> bool {
                 &mut overlapped,
             ) != 0
         }
+    }
+}
+
+#[cfg(test)]
+mod clip_tests {
+    use super::*;
+
+    #[test]
+    fn a_copy_stays_after_the_call_and_quitting_clears_it() {
+        let text = "harbor words stay";
+        assert_eq!(copy_secret(text, "miss").unwrap(), text);
+        assert_eq!(clipboard_text(), text);
+        let generation = clip_hold().lock().unwrap().generation;
+        assert!(clear_generation(generation));
+        assert!(clipboard_text().is_empty());
+
+        assert_eq!(copy_secret(text, "miss").unwrap(), text);
+        overwrite_clipboard("typed over");
+        let generation = clip_hold().lock().unwrap().generation;
+        assert!(!clear_generation(generation));
+        assert_eq!(clipboard_text(), "typed over");
+        release_clipboard();
+        assert!(clipboard_text().is_empty());
     }
 }

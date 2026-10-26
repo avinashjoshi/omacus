@@ -5330,12 +5330,14 @@ impl eframe::App for OmacusApp {
     // (see Cargo.toml), and eframe's trait takes no context then.
     #[cfg(not(windows))]
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        sync::release_clipboard();
         self.store.lock_now();
         self.save();
     }
 
     #[cfg(windows)]
     fn on_exit(&mut self) {
+        sync::release_clipboard();
         self.store.lock_now();
         self.save();
     }
