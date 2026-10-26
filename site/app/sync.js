@@ -1294,7 +1294,7 @@ export async function mountSync(api) {
         draw();
         return;
       }
-      await submitJoin(parsed.code, parsed.origin);
+      await submitJoin(parsed.code, parsed.origin, parsed.account);
     }
   }
 
@@ -1426,7 +1426,7 @@ export async function mountSync(api) {
     schedule();
   }
 
-  async function submitJoin(code, origin) {
+  async function submitJoin(code, origin, account) {
     stopScan();
     state.joinCode = code || "";
     state.screen = "join-type";
@@ -1449,12 +1449,14 @@ export async function mountSync(api) {
     }
     const name = typedJoinName();
     try {
-      const created = await callServer("POST", "/v1/join", {
+      const body = {
         code,
         device: started.device,
         name,
         proof: proof.proof,
-      }, origin, "open");
+      };
+      if (/^[0-9a-f]{64}$/i.test(account || "")) body.account = String(account).toLowerCase();
+      const created = await callServer("POST", "/v1/join", body, origin, "open");
       state.desk = started.id;
       state.code = started.code;
       state.device = started.device;
@@ -1555,7 +1557,7 @@ export async function mountSync(api) {
               draw();
               return;
             }
-            submitJoin(parsed.code, parsed.origin);
+            submitJoin(parsed.code, parsed.origin, parsed.account);
             return;
           }
         }
@@ -1946,7 +1948,7 @@ export async function mountSync(api) {
     }
     const check = JSON.parse(sync.checkPhrase(state.phrase));
     if (!check.ok) {
-      state.phraseMsg = check.message;
+      state.phraseMsg = "";
       state.phraseOk = false;
       state.error = check.message;
       draw();
@@ -2494,7 +2496,10 @@ export async function mountSync(api) {
     const phrase = el("textarea", {
       id: "sync-recovery-words",
       class: "sync-phrase",
+      autocorrect: "off",
+      autocapitalize: "none",
       spellcheck: "false",
+      autocomplete: "off",
       "aria-label": "Recovery words",
     });
     phrase.value = state.phrase;

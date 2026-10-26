@@ -98,6 +98,13 @@ test("a recovery error sits on the words field", async ({ page }) => {
   await expect(page.locator("label[for='sync-recovery-words']")).toHaveText("Recovery words");
   await expect(field).toHaveAttribute("aria-invalid", "true");
   await expect(field).toHaveAttribute("aria-describedby", "sync-field-error");
-  await expect(page.locator("#sync-field-error")).toBeVisible();
+  await expect(field).toHaveAttribute("autocorrect", "off");
+  await expect(field).toHaveAttribute("autocapitalize", "none");
+  await expect(field).toHaveAttribute("spellcheck", "false");
+  await expect(field).toHaveAttribute("autocomplete", "off");
+  const text = "That's 0 words. Recovery words are 12.";
+  await expect(page.locator("#sync-field-error")).toHaveText(text);
+  await expect(page.locator("[data-sync-phrase]")).toHaveText("");
+  await expect(page.getByText(text)).toHaveCount(1);
   await expect(page.locator("[data-sync-note]")).toHaveCount(0);
 });

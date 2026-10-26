@@ -71,6 +71,9 @@ check(js.includes('node.getAttribute("tabindex") !== "-1"') && js.includes('quer
 check(/class="settings-scrim"[^>]*tabindex="-1"[^>]*aria-hidden="true"/.test(html), "the settings backdrop is not a tab stop");
 check(syncJs.includes('const FIELD_ERROR_ID = "sync-field-error"') && syncJs.includes("aria-describedby") && syncJs.includes("errorBesideField"), "a field error is tied to its field");
 check(syncJs.includes('role: "group"') && syncJs.includes('for: "sync-recovery-words"') && syncJs.includes('aria-label": "Recovery words"'), "recovery words have a visible label and a name");
+check(syncJs.includes('autocorrect: "off"') && syncJs.includes('autocapitalize: "none"') && syncJs.includes('spellcheck: "false"') && syncJs.includes('autocomplete: "off"'), "the recovery field does not correct or complete");
+const recoverStart = syncJs.slice(syncJs.indexOf("async function startRecovery("), syncJs.indexOf("state.busy = true;", syncJs.indexOf("async function startRecovery(")));
+check(recoverStart.includes('state.phraseMsg = ""') && !recoverStart.includes("state.phraseMsg = check.message"), "a recovery error is shown once");
 check(html.includes('data-action="settings"'), "the menu opens settings");
 check(js.includes("hideAnswers"), "the answers column can be hidden");
 check(tokens.includes("#f6f1e7") && tokens.includes("#1c2433"), "paper and dusk match the desktop themes");
