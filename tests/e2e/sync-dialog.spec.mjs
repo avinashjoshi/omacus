@@ -64,7 +64,8 @@ test("a recovery error sits on the words field", async ({ page }) => {
   await page.getByRole("button", { name: "My pages already sync on another device" }).click();
   await page.getByRole("button", { name: "Use recovery words →" }).click();
   await page.getByRole("button", { name: "Open my pages" }).click();
-  const field = page.locator("textarea.sync-phrase");
+  const field = page.getByRole("textbox", { name: "Recovery words" });
+  await expect(page.locator("label[for='sync-recovery-words']")).toHaveText("Recovery words");
   await expect(field).toHaveAttribute("aria-invalid", "true");
   await expect(field).toHaveAttribute("aria-describedby", "sync-field-error");
   await expect(page.locator("#sync-field-error")).toBeVisible();

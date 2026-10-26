@@ -68,6 +68,7 @@ check(js.includes("r.hint"), "name hints are marked so they can wait out typing"
 check(html.includes("data-settings"), "settings dialog is in the page");
 check(js.includes("settingsOpener") && js.includes('event.key !== "Tab"') && js.includes("nestedDialogOpen"), "settings traps tab and returns focus to the opener");
 check(syncJs.includes('const FIELD_ERROR_ID = "sync-field-error"') && syncJs.includes("aria-describedby") && syncJs.includes("errorBesideField"), "a field error is tied to its field");
+check(syncJs.includes('role: "group"') && syncJs.includes('for: "sync-recovery-words"') && syncJs.includes('aria-label": "Recovery words"'), "recovery words have a visible label and a name");
 check(html.includes('data-action="settings"'), "the menu opens settings");
 check(js.includes("hideAnswers"), "the answers column can be hidden");
 check(tokens.includes("#f6f1e7") && tokens.includes("#1c2433"), "paper and dusk match the desktop themes");

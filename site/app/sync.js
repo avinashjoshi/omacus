@@ -2244,7 +2244,7 @@ export async function mountSync(api) {
   }
 
   function drawSave() {
-    const words = el("div", { class: "sync-words" });
+    const words = el("div", { class: "sync-words", role: "group", "aria-label": "Recovery words" });
     state.words.forEach((word, index) => {
       const n = index + 1;
       words.append(el("div", { class: "sync-word", "data-n": String(n), "data-word": word }, [
@@ -2484,6 +2484,7 @@ export async function mountSync(api) {
 
   function drawRecover() {
     const phrase = el("textarea", {
+      id: "sync-recovery-words",
       class: "sync-phrase",
       spellcheck: "false",
       "aria-label": "Recovery words",
@@ -2508,7 +2509,7 @@ export async function mountSync(api) {
     const merged = mergeLine();
     if (merged) bits.push(el("p", { class: "setting-help" }, [merged]));
     const recoverError = fieldError(phrase);
-    bits.push(phrase);
+    bits.push(el("label", { class: "sync-field", for: "sync-recovery-words" }, ["Recovery words"]), phrase);
     if (recoverError) bits.push(recoverError);
     bits.push(el("p", { class: "sync-msg", "data-sync-phrase": "", "data-ok": state.phraseOk ? "1" : "0" }, [state.phraseMsg]));
     bits.unshift(backLink(() => { stopScan(); state.screen = "join-type"; draw(); }, state.busy));
