@@ -17,6 +17,10 @@ release even when its title does not look like a fix. A `<!-- internal -->`
 marker folds a release that has nothing new in the app, including a .0.
 Without a marker, a release stays on the timeline when it has a title, is a
 .0 version, carries a screenshot, or is not just a fix.
+
+A 1.0 section that is no longer marked upcoming is listed as that release
+until GitHub has the tag. The date is the commit that cut the notes, in UTC,
+the same clock as a release's published_at.
 """
 
 import argparse
@@ -66,6 +70,10 @@ DETAILS_LINE = re.compile(r"^\*\*Details:\*\*\s+\S+\s*$", re.I)
 FLAG = re.compile(r"<!--\s*(internal|minor|upcoming)\b.*?-->", re.I)
 COMMENT = re.compile(r"<!--.*?-->", re.S)
 MAX_IMAGE = 8_000_000
+
+# b5fb08b landed the 1.0 notes at 2026-10-25T21:19:51-07:00. The page shows
+# that instant in UTC until the v1.0.0 release is listed.
+SHIPPED_1_0_AT = "2026-10-26T04:19:51Z"
 
 
 class Item:
@@ -526,6 +534,47 @@ def upcoming_notes():
     return {"title": title, "blocks": parse_notes(body_text)}
 
 
+def shipped_v1():
+    """Published 1.0 notes from the changelog, or None while they are still upcoming.
+
+    The tag is not required. Once GitHub lists v1.0.0, that release replaces this.
+    """
+    path = Path(__file__).resolve().parents[2] / "CHANGELOG.md"
+    if not path.is_file():
+        return None
+    text = path.read_text()
+    match = re.search(r"^## 1\.0\.0[ \t]*$", text, re.M)
+    if not match:
+        return None
+    rest = text[match.end():]
+    nxt = re.search(r"^## ", rest, re.M)
+    body = (rest[:nxt.start()] if nxt else rest).strip()
+    cleaned, flags = strip_flags(body)
+    if "upcoming" in flags:
+        return None
+    title, body_text = split_title(cleaned)
+    if not title:
+        return None
+    published = SHIPPED_1_0_AT
+    return {
+        "tag": "v1.0.0",
+        "label": "v1.0.0",
+        "anchor": "v1.0.0",
+        "name": "1.0.0",
+        "published": published,
+        "date": fmt_date(published),
+        "short": fmt_short(published),
+        "day": published[:10],
+        "html_url": f"https://github.com/{REPO}/releases/tag/v1.0.0",
+        "compare": "",
+        "prerelease": False,
+        "blocks": parse_notes(body_text),
+        "images": [],
+        "title": title,
+        "minor": False,
+    }
+
+
 def upcoming_html(rel, images):
     body = render_blocks(rel["blocks"], images)
     return f'''<li class="entry" id="v1.0.0">
@@ -678,6 +727,11 @@ def build(raw_releases, out: Path, fetch=None, upcoming=False):
     coming = None
     if upcoming and not any(rel["label"] == "v1.0.0" for rel in prepared):
         coming = upcoming_notes()
+        if coming is None:
+            cut = shipped_v1()
+            if cut:
+                prepared.insert(0, cut)
+                entries = group(prepared)
     dest = out / "updates"
     dest.mkdir(parents=True, exist_ok=True)
     page = page_html(entries, images, coming=coming)

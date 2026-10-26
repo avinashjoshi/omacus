@@ -330,9 +330,9 @@ Don't: point the page at `--app-*`, or put a hex color in `site.css`. Light mode
 
 `omacus.com/story` is a first-person account of why Omacus exists and how it is built. The counts and the timeline are filled in when the site is built (`site/tools/story.py`), from the repository and the release list. A figure that cannot be counted is left off. Sync is in the published web app. Turn on sync is in the sidebar.
 
-The page uses the same marketing frame as the updates page: a kicker, a serif word in the title, version pills, and the timeline. It stays on the near-black marketing palette.
+The page uses the same marketing frame as the sync page: a kicker, a serif word in the title, version pills, the timeline, and the on-this-page rail. It stays on the near-black marketing palette. The column is 780px. The title uses the sync page's size. A section heading is 30px, with 72px above it and `--prose-gap` below. The homepage's 120px section padding does not apply.
 
-Do: use the marketing tokens. Follow the 4px spacing scale and the radius scale. Paragraphs use `--prose-gap`; a section heading stays on the larger steps. Keep one accent. Write in the first person, plain and short.
+Do: use the marketing tokens. Follow the 4px spacing scale and the radius scale. Paragraphs use `--prose-gap`. Keep one accent. Write in the first person, plain and short.
 Don't: hardcode a count or a date in the page, point the page at `--app-*`, or put a hex color in `site.css`.
 
 ### Sync page

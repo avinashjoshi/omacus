@@ -71,6 +71,16 @@ class SitePages(unittest.TestCase):
         self.assertIn("/privacy/", body)
         self.assertNotIn("upcoming", body)
         self.assertIn('version = "1.0.0"', (ROOT / "Cargo.toml").read_text())
+        page = (SITE / "updates" / "index.html").read_text()
+        feed = (SITE / "updates" / "feed.xml").read_text()
+        self.assertNotIn(">Coming<", page)
+        self.assertNotIn("Sync is in the web app", page)
+        self.assertNotIn("upcoming 1.0 release", page)
+        self.assertIn("<h2>Sync is here</h2>", page)
+        self.assertIn("invite-only for now", page)
+        self.assertIn('datetime="2026-10-26"', page)
+        self.assertIn("v1.0.0 — Sync is here", feed)
+        self.assertNotIn("Sync is in the web app", feed)
 
 if __name__ == "__main__":
     unittest.main()
