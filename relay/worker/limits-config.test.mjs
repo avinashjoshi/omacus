@@ -99,7 +99,7 @@ function cluster(serve) {
 
 let ips = 1;
 async function call(env, method, path, body, headers = {}) {
-  const request = new Request("https://sync-test.omacus.com" + path, {
+  const request = new Request("https://relay.example" + path, {
     method,
     headers: {
       "content-type": "application/json",
@@ -265,7 +265,7 @@ assert(listed === 2, `linked devices ${listed}`);
   };
   const statuses = [];
   for (let n = 0; n < 3; n += 1) {
-    const response = await box.fetch(new Request("https://sync-test.omacus.com/v1/access", {
+    const response = await box.fetch(new Request("https://relay.example/v1/access", {
       method: "POST",
       headers,
       body: "{}",
@@ -280,7 +280,7 @@ assert(listed === 2, `linked devices ${listed}`);
   const page = await readFile(new URL("./admin/index.html", import.meta.url), "utf8");
   const script = await readFile(new URL("./admin/admin.js", import.meta.url), "utf8");
   assert(wrangler.includes('"class_name": "Config"'), "config object is not bound");
-  assert((wrangler.match(/"tag": "v2"/g) || []).length === 2, "both workers need the config migration");
+  assert((wrangler.match(/"tag": "v2"/g) || []).length === 1, "the worker needs the config migration");
   assert(page.includes("Save limits") && page.includes("data-limits") && !page.includes("innerHTML"), "limits form");
   assert(script.includes("/v1/admin/limits") && !script.includes("innerHTML"), "limits request");
   assert(page.includes('class="quiet" type="submit">Save limits'), "save stays quiet");

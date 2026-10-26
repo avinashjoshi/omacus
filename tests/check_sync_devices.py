@@ -50,8 +50,10 @@ if "Name this" not in sync[off:join] or "deviceNameControl()" not in sync[sync.i
     errors.append("starting sync lost the name field")
 if 'from "./device-name.js"' not in sync:
     errors.append("the name guess left the shared helper")
-if "omacus-test" not in names or "omacus-desktop" not in names:
-    errors.append("the test app and the desktop app are unnamed")
+if "omacus-desktop" not in names:
+    errors.append("the desktop app is unnamed")
+if "omacus-test" in names:
+    errors.append("the retired test app still names itself")
 if "webkitMajor" in names or ">= 600" in names:
     errors.append("Chrome with WebKit is still called omacus Test")
 wait = sync[sync.index("async function waitForApproval("):sync.index("async function acceptJoin(")]
@@ -60,8 +62,10 @@ if "approvalPlan" in wait:
     errors.append("the waiting screen accepts the list before the numbers are checked")
 if "confirmLink" not in accept or "approvalPlan" not in accept or "These match" not in sync:
     errors.append("These match does not check the numbers before opening")
-if '"device-name.js"' not in sw or "omacus-sync-test-19" not in sw:
-    errors.append("the sync test cache missed the name helper")
+if '"device-name.js"' not in sw:
+    errors.append("the offline shell missed the name helper")
+if "sync-test.omacus.com" in sw or "omacus-sync-test" in sw:
+    errors.append("the offline shell still names the retired sync host")
 if "site/app/device-name.js" not in build or "./device-name.js?v=" not in build:
     errors.append("the published app missed the name helper")
 if 'const CACHE = "omacus-app-28"' not in sw:

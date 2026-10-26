@@ -5,7 +5,6 @@
 
 function syncTest() {
   try {
-    if (typeof location !== "undefined" && location.hostname === "sync-test.omacus.com") return true;
     if (typeof document !== "undefined" && document.documentElement?.dataset?.syncTest === "1") return true;
   } catch {
     // The published app keeps its own store.

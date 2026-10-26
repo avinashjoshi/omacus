@@ -26,7 +26,7 @@ function assert(cond, message) {
 assert(encodeFragment(PHRASE) === TOKEN, "the recovery encoding drifted");
 assert(decodeFragment(TOKEN) === PHRASE, "the recovery fragment did not decode");
 
-for (const page of ["https://app.omacus.com", "https://sync-test.omacus.com"]) {
+for (const page of ["https://app.omacus.com", "https://relay.example"]) {
   const link = recoveryLink(page, PHRASE);
   const hash = link.indexOf("#");
   assert(hash > 0, "the recovery picture is not a link");
@@ -54,7 +54,7 @@ assert(parsed && parsed.code === CODE && parsed.account === ACCOUNT && parsed.or
 const legacy = `omacus-join\n${RELAY}\n${ACCOUNT}\n${CODE}\n`;
 const legacyParsed = parseJoinPayload(legacy);
 assert(legacyParsed && legacyParsed.code === CODE, "an older join picture was refused");
-assert(joinLink("https://sync-test.omacus.com", RELAY, ACCOUNT, CODE).startsWith("https://sync-test.omacus.com/#join="), "the test build join link drifted");
+assert(joinLink("https://relay.example", RELAY, ACCOUNT, CODE).startsWith("https://relay.example/#join="), "another page's join link drifted");
 
 const loc = { hash: `#recover=${TOKEN}`, pathname: "/app/", search: "" };
 const history = { replaceState(_state, _title, url) { history.url = url; loc.hash = ""; } };
@@ -66,8 +66,8 @@ assert(taken && taken.kind === "recover" && taken.secret === PHRASE, "the words 
 assert(takeSyncLink() == null, "the words were kept after the screen read them");
 
 assert(pageOrigin({ hostname: "app.omacus.com", origin: "https://app.omacus.com" }) === "https://app.omacus.com", "the published app link drifted");
-assert(pageOrigin({ hostname: "sync-test.omacus.com", origin: "https://sync-test.omacus.com" }) === "https://sync-test.omacus.com", "the test build link drifted");
-assert(pageOrigin({ hostname: "127.0.0.1", origin: "http://127.0.0.1:4173" }, { dataset: { syncTest: "1" } }) === "https://sync-test.omacus.com", "a test page used the local host");
+assert(pageOrigin({ hostname: "relay.example", origin: "https://relay.example" }) === "https://relay.example", "another page left its own host");
+assert(pageOrigin({ hostname: "127.0.0.1", origin: "http://127.0.0.1:4173" }, { dataset: { syncTest: "1" } }) === "http://127.0.0.1:4173", "a local page left its own host");
 assert(pageOrigin({ hostname: "127.0.0.1", origin: "http://127.0.0.1:4173" }, { dataset: {} }) === "http://127.0.0.1:4173", "a local page left its own host");
 
 const seen = [];

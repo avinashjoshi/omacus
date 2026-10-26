@@ -7,10 +7,10 @@ Details of deploys, nights, and restores are in `docs/sync-ops.md`. Roll back th
 Deploy the previous worker script for `omacus-sync`:
 
 ```
-npx wrangler deploy --env production
+npx wrangler deploy
 ```
 
-Run that from the commit you are returning to, in `relay/worker`. A secret set on the test worker is not the production secret. Do not set `ALLOW_NO_ACCESS`. Pages already on a phone stay on that phone.
+Run that from the commit you are returning to, in `relay/worker`. Do not set `ALLOW_NO_ACCESS`. Pages already on a phone stay on that phone.
 
 `GET /v1/health` has to keep answering with label `1.0.0`. A worker from before that label makes the health check open a `sync-health` issue. Close the issue once the label is `1.0.0` again.
 

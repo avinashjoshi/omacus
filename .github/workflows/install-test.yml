@@ -83,8 +83,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tags="$(gh release list -R "$GITHUB_REPOSITORY" --limit 2 --json tagName -q '.[].tagName')"
-          latest="$(sed -n 1p <<<"$tags")" previous="$(sed -n 2p <<<"$tags")"
+          # Drafts, pre-releases, and tags that are not vN are not a previous
+          # release. Fetch a page first: --limit is applied before the excludes.
+          tags="$(
+            gh release list -R "$GITHUB_REPOSITORY" \
+              --exclude-drafts --exclude-pre-releases --limit 50 \
+              --json tagName,isDraft,isPrerelease \
+              -q '.[] | select(.isDraft or .isPrerelease | not) | .tagName' |
+            grep -E '^v[0-9]'
+          )"
+          latest="$(sed -n 1p <<<"$tags")"
+          previous="$(sed -n 2p <<<"$tags")"
+          if [[ -z "$latest" || -z "$previous" ]]; then
+            echo "need two published version tags" >&2
+            exit 1
+          fi
           echo "latest=${latest#v}" >> "$GITHUB_OUTPUT"
           echo "previous=${previous#v}" >> "$GITHUB_OUTPUT"
           echo "dl=https://github.com/$GITHUB_REPOSITORY/releases/download/$previous" >> "$GITHUB_OUTPUT"

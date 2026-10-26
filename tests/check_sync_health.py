@@ -84,12 +84,14 @@ def main() -> int:
         "BACKUPS",
         "omacus-sync-backups",
         "./build.sh",
-        "npx wrangler deploy --env production",
-        "omacus-sync-test",
+        "npx wrangler deploy",
         ".github/workflows/app.yml",
     ):
         if phrase not in runbook:
             fail(f"runbook is missing {phrase}")
+    for phrase in ("omacus-sync-test", "sync-test.omacus.com", "--env production"):
+        if phrase in runbook:
+            fail(f"runbook still names a retired sync host: {phrase}")
     if "not `wrangler.toml`" not in runbook:
         fail("runbook does not say the config is wrangler.jsonc rather than wrangler.toml")
     if "Mailboxes namespace" in runbook:

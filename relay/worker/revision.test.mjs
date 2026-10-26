@@ -28,7 +28,7 @@ function storage() {
 
 async function call(box, method, path, body, headers = {}) {
   const text = body === undefined ? undefined : (typeof body === "string" ? body : JSON.stringify(body));
-  const response = await box.fetch(new Request("https://sync-test.omacus.com" + path, {
+  const response = await box.fetch(new Request("https://relay.example" + path, {
     method,
     headers: { "content-type": "application/json", ...headers },
     body: text,

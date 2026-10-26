@@ -33,7 +33,7 @@ function fakeLocks() {
   };
 }
 
-assert.equal(tabLockName("sync-test.omacus.com", ""), "omacus-sync-test");
+assert.equal(tabLockName("relay.example", ""), "omacus");
 assert.equal(tabLockName("app.omacus.com", "1"), "omacus-sync-test");
 assert.equal(tabLockName("app.omacus.com", ""), "omacus");
 
