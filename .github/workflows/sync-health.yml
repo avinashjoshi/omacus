@@ -1,0 +1,47 @@
+name: Sync health
+
+# Pings the production sync worker. A failure opens one issue. A later failure
+# leaves that issue open instead of opening another. GitHub runs this schedule
+# from the default branch only.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping sync.omacus.com
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp)"
+          code="$(curl -sS --max-time 20 -o "$tmp" -w '%{http_code}' https://sync.omacus.com/v1/health || true)"
+          label="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("label",""))' "$tmp" 2>/dev/null || true)"
+          echo "HTTP ${code} label ${label}"
+          [[ "$code" == "200" && "$label" == "1.0.0" ]]
+      - name: Open an issue when sync is down
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          names="$(gh label list --search sync-health --limit 50 --json name --jq '.[].name')"
+          if ! grep -qx sync-health <<<"$names"; then
+            gh label create sync-health --description "Sync health check failed"
+          fi
+          open="$(gh issue list --label sync-health --state open --json number --jq 'length')"
+          if [[ "$open" != "0" ]]; then
+            echo "an open sync-health issue already exists"
+            exit 1
+          fi
+          gh issue create \
+            --label sync-health \
+            --title "Sync health check failed" \
+            --body "GET https://sync.omacus.com/v1/health did not return HTTP 200 with label 1.0.0. See ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}."
+          exit 1
