@@ -2365,6 +2365,27 @@ function printPagePreview() {
   window.print();
 }
 
+function parkRemoved(id, text) {
+  if (!id || id === "shared" || text == null) return;
+  const trash = loadTrash().filter((item) => item.id !== id);
+  trash.unshift({ id, text, handle: state.handles.get(id) || "" });
+  saveTrash(trash);
+  removeNode(state.tree, id);
+  state.texts.delete(id);
+  store.remove("page:" + id);
+  store.remove("sheet:" + id);
+  if (state.active === id) {
+    syncOrder();
+    state.active = state.order[0] ?? null;
+    if (!state.active) addSheet("");
+  } else {
+    syncOrder();
+  }
+  saveIndex();
+  renderSidebar();
+  if (state.active && state.active !== "shared") showSheet();
+}
+
 function restoreTrashed(id) {
   const items = loadTrash();
   const item = items.find((t) => t.id === id);
@@ -5255,6 +5276,7 @@ async function start() {
       closeSettings: () => closeSettings(),
       snapshot: takeSyncSnapshot,
       apply: applyRemoteLibrary,
+      park: parkRemoved,
       bytesToB64,
       b64ToBytes,
       docUnion,
