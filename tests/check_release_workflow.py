@@ -16,6 +16,8 @@ def job(name, nxt):
 
 publish = job("publish", "install-test")
 deploy_app = text[text.index("  deploy-app:"):]
+install = (ROOT / ".github" / "workflows" / "install-test.yml").read_text()
+update = install[install.index("  update:"):]
 
 errors = []
 tag_at = publish.find('git push origin "refs/tags/v${version}"')
@@ -32,6 +34,14 @@ if "persist-credentials: true" not in publish:
 header, _, _ = deploy_app.partition("uses:")
 if "contents: write" not in header:
     errors.append("deploy-app must grant contents: write to the called app workflow")
+if "--exclude-drafts" not in update or "--exclude-pre-releases" not in update:
+    errors.append("the update job must skip drafts and pre-releases")
+if "^v[0-9]" not in update:
+    errors.append("the update job must keep only version tags")
+if "--limit 2" in update:
+    errors.append("the update job must not take the first two releases before filtering")
+if "--limit 50" not in update:
+    errors.append("the update job must fetch more than the two it keeps")
 
 if errors:
     print("\n".join(errors))

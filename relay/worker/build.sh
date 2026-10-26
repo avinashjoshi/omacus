@@ -1,7 +1,8 @@
 #!/bin/sh
-# Build the private test app into ./public.
-# The worker serves that app at /, the admin at /admin, and the sealed mailbox at /v1.
-# The built app is pointed at the test sync host. The source file stays empty.
+# Build the worker assets into ./public.
+# Production serves the admin at /admin and the sealed mailbox at /v1.
+# It does not serve the app at /. The built copy talks to the production sync host.
+# The source file stays empty.
 set -e
 cd "$(dirname "$0")"
 root="../.."
@@ -28,33 +29,18 @@ cp -r ../../site/img public/img
 cp ../www/words.txt public/words.txt
 python3 - <<'PY'
 from pathlib import Path
-page = Path("public/index.html")
-text = page.read_text()
-text = text.replace('<html lang="en">', '<html lang="en" data-sync-test="1">', 1)
-text = text.replace("https://app.omacus.com/", "https://sync-test.omacus.com/")
-page.write_text(text)
-manifest = Path("public/manifest.webmanifest")
-body = manifest.read_text()
-body = body.replace('"name": "Omacus"', '"name": "Omacus sync test"', 1)
-body = body.replace('"short_name": "Omacus"', '"short_name": "Omacus sync"', 1)
-manifest.write_text(body)
 config = Path("public/sync-config.js")
 text = config.read_text()
 old = 'export const SYNC_URL = "";'
-new = 'export const SYNC_URL = "https://sync-test.omacus.com";'
+new = 'export const SYNC_URL = "https://sync.omacus.com";'
 if old not in text:
     raise SystemExit("sync-config.js has no empty SYNC_URL")
 config.write_text(text.replace(old, new, 1))
 headers = Path("../../site/app/_headers").read_text()
 if "Content-Security-Policy" not in headers or "https://sync.omacus.com" not in headers:
-    raise SystemExit("test build lost the sync content security policy")
+    raise SystemExit("build lost the sync content security policy")
 if "https://sync-test.omacus.com" in headers:
-    raise SystemExit("source headers already name the test sync host")
-headers = headers.replace(
-    "https://sync.omacus.com",
-    "https://sync.omacus.com https://sync-test.omacus.com",
-    1,
-)
+    raise SystemExit("source headers name a retired sync host")
 if "Cache-Control:" not in headers:
     headers = headers.rstrip() + "\n  Cache-Control: no-store\n"
 Path("public/_headers").write_text(headers if headers.endswith("\n") else headers + "\n")

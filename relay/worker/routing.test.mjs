@@ -68,7 +68,7 @@ function cluster() {
 
 let ips = 1;
 async function call(env, method, path, body, headers = {}) {
-  const request = new Request("https://sync-test.omacus.com" + path, {
+  const request = new Request("https://relay.example" + path, {
     method,
     headers: {
       "content-type": "application/json",

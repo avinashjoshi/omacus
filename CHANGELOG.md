@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+**Behind-the-scenes improvements**
+
+Nothing you see in the app changed.
+
+<!-- internal -->
+
 ## 1.0.0
 
 **Sync is here**

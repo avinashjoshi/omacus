@@ -21,7 +21,6 @@ export function decodeFragment(text) {
 
 export function pageOrigin(loc = globalThis.location, root = globalThis.document?.documentElement) {
   const host = loc?.hostname || "";
-  if (host === "sync-test.omacus.com" || root?.dataset?.syncTest === "1") return "https://sync-test.omacus.com";
   if (host === "app.omacus.com" || host === "omacus.com" || host === "www.omacus.com") return "https://app.omacus.com";
   return loc?.origin || "";
 }

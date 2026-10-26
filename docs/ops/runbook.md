@@ -10,7 +10,7 @@ Follow "Before the first production deploy" in `docs/sync-ops.md`. In short:
 
 - Set `ACCESS_SECRET`, `ADMIN_KEY`, and `ACCESS_AUD` on `omacus-sync`. Do not set `ALLOW_NO_ACCESS`. `ACCESS_TEAM_DOMAIN` is already `omacus.cloudflareaccess.com` in `relay/worker/wrangler.jsonc`. It is not a secret.
 - Turn on point-in-time recovery for the production Durable Object class `Mailboxes` (binding `MAILBOXES`). That class is in `relay/worker/wrangler.jsonc`. It is not a KV namespace, and the file is not `wrangler.toml`. The R2 binding is `BACKUPS`. The production bucket is `omacus-sync-backups` (prefix `nights/`, delete after 30 days). The nightly copy runs at 07:15 UTC (`15 7 * * *`).
-- From `relay/worker`, `./build.sh` then `npx wrangler deploy --env production`, and only when you mean to. That env is the worker `omacus-sync`. The same file without `--env` deploys `omacus-sync-test`.
+- From `relay/worker`, `./build.sh` then `npx wrangler deploy`, and only when you mean to. That publishes the worker `omacus-sync`. The file has no other environment.
 - After it is up, check `GET /v1/health`, that `GET /` redirects to the app, that admin is refused when signed out, and that a phone can create pages, link a second one, and save.
 
 ## Go live

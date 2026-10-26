@@ -130,7 +130,7 @@ A linked device picks a one-time code of 12 characters (60 bits, three groups of
 
 The other device sends `POST /v1/join` with the code, its public device bytes, a display name, and HMAC-SHA256 of those device bytes under the code. The server checks the hash, marks the code used, and stores a pending request. A second use of the same code fails while that phone is still waiting. If it stops waiting, the same code works again until the code expires. If it never finishes after approval, the other phone can release the approval, and the same code works again until it expires. Once that phone finishes, the same code does not work again. A code that has expired does not work. The phone that showed the code keeps looking until the code expires, so the next phone is asked about.
 
-The picture is a link to this app, `https://app.omacus.com/#join=` on the published app and `https://sync-test.omacus.com/#join=` on the test. The part after `#` is the four lines, encoded: `omacus-join`, the origin, the account id, and the code. A browser does not send that part. An older picture of those four lines still works in the app.
+The picture is a link to this app, `https://app.omacus.com/#join=` on the published app. The part after `#` is the four lines, encoded: `omacus-join`, the origin, the account id, and the code. A browser does not send that part. An older picture of those four lines still works in the app.
 
 Both screens show the same six digits. They are `SHA-256("omacus/v1/pair" || sign || receive)` reduced mod 1,000,000, printed as two groups of three. The digits are not a key.
 

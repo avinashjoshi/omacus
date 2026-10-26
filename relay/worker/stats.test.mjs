@@ -99,7 +99,7 @@ function harness() {
 }
 
 async function call(env, method, path, body, headers = {}) {
-  const request = new Request("https://sync-test.omacus.com" + path, {
+  const request = new Request("https://relay.example" + path, {
     method,
     headers: {
       "content-type": "application/json",
@@ -186,7 +186,7 @@ function shape(stats) {
 }
 
 {
-  const started = parse(startNew("https://sync-test.omacus.com"));
+  const started = parse(startNew("https://relay.example"));
   const words = started.words;
   const saved = parse(confirmSaved(started.id, JSON.stringify([[3, words[2]], [7, words[6]], [11, words[10]]])));
   const alone = parse(deviceList(started.id));

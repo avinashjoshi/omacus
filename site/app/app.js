@@ -5222,7 +5222,7 @@ async function start() {
   loadRates();
   if (!EMBED) goOffline();
   if (!EMBED) {
-    const syncTest = location.hostname === "sync-test.omacus.com" || document.documentElement.dataset.syncTest === "1";
+    const syncTest = document.documentElement.dataset.syncTest === "1";
     await mountSync({
       syncTest,
       openSettings: (tab) => openSettings(tab),

@@ -1,6 +1,7 @@
 // Server limits. Production starts at 10,000 accounts, 50 MB per account,
-// and 10 devices. The test worker starts lower. A saved config replaces
-// either set. The window for every rate is 60 seconds.
+// and 10 devices. A worker that serves the app locally (SERVE_APP is 1)
+// starts lower. The deployed worker does not set that. A saved config
+// replaces either set. The window for every rate is 60 seconds.
 
 export const LIMIT_HEADER = "x-omacus-limits";
 export const LIMIT_KEY = "limits";

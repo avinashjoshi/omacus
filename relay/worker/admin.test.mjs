@@ -93,7 +93,7 @@ function harness(extra = {}) {
 
 async function call(env, method, path, body, headers = {}) {
   const ip = headers["cf-connecting-ip"] || `10.1.0.${ips++}`;
-  const request = new Request("https://sync-test.omacus.com" + path, {
+  const request = new Request("https://relay.example" + path, {
     method,
     headers: {
       "content-type": "application/json",
@@ -327,7 +327,7 @@ const other = "cd".repeat(32);
     created: 1,
   });
   await storage.put("a:" + "12".repeat(32), { left: 4 });
-  const bad = await box.fetch(new Request("https://sync-test.omacus.com/v1/access", {
+  const bad = await box.fetch(new Request("https://relay.example/v1/access", {
     method: "POST",
     headers: { "x-omacus-access-hash": "ab".repeat(32), "x-omacus-access-uses": "0", "x-omacus-access-spend": "0" },
     body: "{}",
@@ -430,9 +430,9 @@ const other = "cd".repeat(32);
   const serving = harness({ SERVE_APP: "1" });
   serving.env.APP_URL = "https://app.omacus.com/desk/";
   serving.env.ASSETS = { fetch: async (request) => new Response(new URL(request.url).pathname, { status: 200 }) };
-  const served = await worker.fetch(new Request("https://sync-test.omacus.com/"), serving.env);
-  assert(served.status === 200 && await served.text() === "/", "test worker redirected /");
-  const health = await worker.fetch(new Request("https://sync-test.omacus.com/v1/health"), closed.env);
+  const served = await worker.fetch(new Request("https://relay.example/"), serving.env);
+  assert(served.status === 200 && await served.text() === "/", "local app worker redirected /");
+  const health = await worker.fetch(new Request("https://relay.example/v1/health"), closed.env);
   assert((await health.json()).label === "1.0.0", "label");
 }
 
@@ -441,7 +441,7 @@ const other = "cd".repeat(32);
   const ip = "10.9.9.9";
   let last = 0;
   for (let n = 0; n < 31; n += 1) {
-    const response = await box.fetch(new Request("https://sync-test.omacus.com/v1/admin/stats", {
+    const response = await box.fetch(new Request("https://relay.example/v1/admin/stats", {
       headers: { "x-omacus-admin": "1", "cf-connecting-ip": ip },
     }));
     last = response.status;
@@ -555,25 +555,28 @@ const other = "cd".repeat(32);
   assert(!sync.includes("sync.omacus.com") && !sync.includes("sync-test.omacus.com"), "sync.js hardcodes a host");
   assert(sync.includes("SYNC_URL"), "sync.js ignores the setting");
   assert(web.includes("https://sync.omacus.com"), "production build has no sync host");
-  assert(testBuild.includes("https://sync-test.omacus.com"), "test build has no sync host");
-  assert(headers.includes("connect-src") && headers.includes("https://sync.omacus.com") && !headers.includes("https://sync-test.omacus.com"), "production csp names the test sync host");
-  assert(testBuild.includes("source headers already name the test sync host"), "the test build does not add the test host itself");
-  assert(testBuild.includes("site/app/_headers") && testBuild.includes("Content-Security-Policy") && testBuild.includes("Cache-Control: no-store"), "test build drops the content security policy");
-  assert(!testBuild.includes("printf"), "test build replaces the headers file");
-  assert(wrangler.includes('"name": "omacus-sync-test"') && wrangler.includes("sync-test.omacus.com"), "test worker");
+  assert(testBuild.includes("https://sync.omacus.com"), "worker build has no sync host");
+  assert(testBuild.split("https://sync-test.omacus.com").length - 1 === 1, "worker build still targets a retired sync host");
+  assert(!testBuild.includes("data-sync-test"), "worker build stamps the local storage flag");
+  assert(headers.includes("connect-src") && headers.includes("https://sync.omacus.com") && !headers.includes("https://sync-test.omacus.com"), "production csp names a retired sync host");
+  assert(testBuild.includes("source headers name a retired sync host"), "the worker build does not refuse a retired sync host");
+  assert(testBuild.includes("site/app/_headers") && testBuild.includes("Content-Security-Policy") && testBuild.includes("Cache-Control: no-store"), "worker build drops the content security policy");
+  assert(!testBuild.includes("printf"), "worker build replaces the headers file");
   assert(wrangler.includes('"name": "omacus-sync"') && wrangler.includes("sync.omacus.com"), "production worker");
-  assert(wrangler.includes("omacus-sync-test-backups") && wrangler.includes("omacus-sync-backups"), "backup buckets");
+  assert(!wrangler.includes("omacus-sync-test") && !wrangler.includes("sync-test.omacus.com") && !wrangler.includes("omacus-sync-test-backups"), "retired sync host");
+  assert(!wrangler.includes('"env"'), "a second worker environment");
+  assert(wrangler.includes("omacus-sync-backups"), "backup bucket");
   assert(wrangler.includes('"binding": "BACKUPS"') && wrangler.includes("15 7 * * *"), "backup binding");
   assert(wrangler.includes("ACCESS_AUD") && !wrangler.includes("CF_ACCESS_AUD"), "access audience");
   assert(!wrangler.includes("ALLOW_NO_ACCESS"), "the deployed worker skips the access check");
-  assert((wrangler.match(/omacus\.cloudflareaccess\.com/g) || []).length >= 2, "access team on both workers");
+  assert(wrangler.includes("omacus.cloudflareaccess.com"), "access team");
   const access = await readFile(new URL("./admin.js", import.meta.url), "utf8");
   assert(access.includes("ACCESS_TEAM_DOMAIN") && access.includes("/cdn-cgi/access/certs"), "access certs");
   assert(access.includes("ALLOW_NO_ACCESS"), "the test flag is unnamed");
   assert(!access.includes("damp-band"), "old access team");
-  assert(wrangler.includes('"SERVE_APP": "0"') && wrangler.includes('"SERVE_APP": "1"'), "serve flag");
+  assert(wrangler.includes('"SERVE_APP": "0"') && !wrangler.includes('"SERVE_APP": "1"'), "serve flag");
   assert(wrangler.includes('"APP_URL": "https://app.omacus.com/"'), "app url");
-  assert(DEFAULT_SYNC_URL === "https://sync-test.omacus.com", "cli default host");
+  assert(DEFAULT_SYNC_URL === "https://sync.omacus.com", "cli default host");
   assert(!cli.includes("ACCESS_SECRET"), "cli still mints locally");
   assert(!mint.includes("ACCESS_SECRET") && mint.includes("admin.mjs"), "mint.mjs still mints locally");
   assert(!page.includes("innerHTML"), "admin page builds html from strings");
