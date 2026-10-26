@@ -24,7 +24,7 @@ import {
 } from "./admin.js";
 import { allowPut, authorize, chainIsLongerExtension, deviceListed } from "./auth.js";
 import { HEARTBEAT_MS } from "./heartbeat.js";
-import { INVITE_MS, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
+import { INVITE_MS, JOIN_TRIES, decodeCode, hashHex, hmacBytes, sameBytes } from "./invite.js";
 import {
   LIMIT_HEADER,
   LIMIT_KEY,
@@ -484,7 +484,7 @@ export class Mailboxes extends DurableObject {
         if (!/^[0-9a-f]{64}$/.test(hash)) fail("Unreadable");
         if (m.invite && m.invite.hash && m.invite.hash !== hash) await txn.delete("i:" + m.invite.hash);
         const expires = Date.now() + INVITE_MS;
-        m.invite = { hash, expires, used: false };
+        m.invite = { hash, expires, used: false, tries: 0 };
         await txn.put("i:" + hash, { account, expires });
         return [200, { ok: true }];
       });
@@ -569,21 +569,33 @@ export class Mailboxes extends DurableObject {
     if (given.length !== 32) fail("Unreadable");
     const hash = await hashHex(secret);
     const now = this.now();
-    const proofBytes = await hmacBytes(secret, device);
-    if (!sameBytes(proofBytes, given)) fail("BadInvite");
+    const proofOk = sameBytes(await hmacBytes(secret, device), given);
     const id = freshId();
     const proof = btoa(String.fromCharCode(...given));
-    let result;
+    let result = "bad";
     await this.store.transaction(async (txn) => {
       const indexed = await txn.get("i:" + hash);
       const account = indexed && typeof indexed.account === "string" ? indexed.account : "";
       const mailbox = /^[0-9a-f]{64}$/.test(account) ? await txn.get("m:" + account) : null;
       const invite = mailbox && mailbox.invite;
-      if (!mailbox || !invite || !(invite.expires > now) || invite.hash !== hash) fail("BadInvite");
+      if (!mailbox || !invite || !(invite.expires > now) || invite.hash !== hash) return;
       dropExpired(mailbox, now);
-      if (mailbox.invite.used) fail("BadInvite");
+      const tries = Number.isInteger(mailbox.invite.tries) ? mailbox.invite.tries : 0;
+      if (!mailbox.invite || mailbox.invite.used || tries >= JOIN_TRIES) return;
+      if (!proofOk) {
+        mailbox.invite.tries = tries + 1;
+        if (mailbox.invite.tries >= JOIN_TRIES) {
+          mailbox.invite.used = true;
+          await txn.delete("i:" + hash);
+        }
+        await txn.put("m:" + account, mailbox);
+        return;
+      }
       const pending = Object.values(mailbox.requests).filter((request) => request.state === "pending").length;
-      if (pending >= MAX_REQUESTS) fail("Full");
+      if (pending >= MAX_REQUESTS) {
+        result = "full";
+        return;
+      }
       mailbox.invite.used = true;
       mailbox.requests[id] = {
         device: btoa(String.fromCharCode(...device)),
@@ -599,6 +611,8 @@ export class Mailboxes extends DurableObject {
       await txn.put("m:" + account, mailbox);
       result = [201, { id, account }];
     });
+    if (result === "full") fail("Full");
+    if (result === "bad") fail("BadInvite");
     return result;
   }
 
@@ -811,7 +825,7 @@ export class Mailboxes extends DurableObject {
         const now = Date.now();
         const created = { revision: 1, record, requests: {}, created: now, changed: now, used: 0, hours: [] };
         if (invite && /^[0-9a-f]{64}$/.test(invite.hash || "")) {
-          created.invite = { hash: invite.hash, expires: Number(invite.expires) || 0, used: invite.used === true };
+          created.invite = { hash: invite.hash, expires: Number(invite.expires) || 0, used: invite.used === true, tries: Number.isInteger(invite.tries) ? invite.tries : 0 };
         }
         await txn.put("m:" + account, created);
         revision = 1;
@@ -821,7 +835,7 @@ export class Mailboxes extends DurableObject {
       current.record = record;
       current.changed = Date.now();
       if (invite && /^[0-9a-f]{64}$/.test(invite.hash || "")) {
-        current.invite = { hash: invite.hash, expires: Number(invite.expires) || 0, used: invite.used === true };
+        current.invite = { hash: invite.hash, expires: Number(invite.expires) || 0, used: invite.used === true, tries: Number.isInteger(invite.tries) ? invite.tries : 0 };
       }
       await txn.put("m:" + account, current);
       revision = current.revision;

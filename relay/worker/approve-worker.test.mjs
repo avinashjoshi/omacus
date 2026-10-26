@@ -156,7 +156,7 @@ const stored = await storage.get("m:" + account);
 if (stored.invite) throw new Error("beta.1 mailbox should not have an invite yet");
 if (!stored.requests || Object.keys(stored.requests).length !== 0) throw new Error("requests missing");
 
-const secret = Buffer.from([1, 2, 3, 4, 5]).toString("base64");
+const secret = Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]).toString("base64");
 const invite = parse(makeInvite(account, "https://sync-test.omacus.com", "https://sync-test.omacus.com", secret));
 const posted = await authed(box, upgraded.id, "POST", `/v1/mailboxes/${account}/invites`, { hash: invite.hash });
 if (posted.status !== 200) throw new Error("invite " + JSON.stringify(posted));

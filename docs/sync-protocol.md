@@ -126,7 +126,7 @@ One list entry has the 16-byte id `recovery-signer` followed by a zero byte. Its
 
 ## Invite and join
 
-A linked device picks a one-time code and sends SHA-256 of that code to `POST /v1/mailboxes/:account/invites`. The code stays on the device. The server keeps the hash for 5 minutes.
+A linked device picks a one-time code of 12 characters (60 bits, three groups of four) and sends PBKDF2-HMAC-SHA256 of those bytes to `POST /v1/mailboxes/:account/invites`. The salt is `omacus-join-v1` and the iteration count is 20000. The code stays on the device. The server keeps the hash for 5 minutes. Eight wrong proofs for that same code retire it. A code that does not match is limited per address, the same as other join attempts, and it does not count against a live code.
 
 The other device sends `POST /v1/join` with the code, its public device bytes, a display name, and HMAC-SHA256 of those device bytes under the code. The server checks the hash, marks the code used, and stores a pending request. A second use of the same code fails while that phone is still waiting. If it stops waiting, the same code works again until the code expires. If it never finishes after approval, the other phone can release the approval, and the same code works again until it expires. Once that phone finishes, the same code does not work again. A code that has expired does not work. The phone that showed the code keeps looking until the code expires, so the next phone is asked about.
 

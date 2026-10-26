@@ -105,7 +105,8 @@ const created = await call("POST", "/v1/mailboxes", { account, record }, access)
 assert(created.status === 201, `create ${created.status} ${created.raw}`);
 
 async function openInvite() {
-  const secret = crypto.getRandomValues(new Uint8Array(5));
+  const secret = crypto.getRandomValues(new Uint8Array(8));
+  secret[0] &= 0x0f;
   const code = encodeCode(secret);
   const hash = await hashHex(secret);
   const posted = await authed(phones[0], "POST", `/v1/mailboxes/${account}/invites`, { hash });
@@ -298,5 +299,34 @@ const rejoined = await call("POST", "/v1/join", {
   proof: left.proof,
 });
 assert(rejoined.status === 201, `same code ${rejoined.status} ${rejoined.raw}`);
+
+// Eight wrong proofs retire the code. A code that does not match does not.
+const burned = await openInvite();
+const burner = await makeDevice(account);
+const burnerDevice = deviceBytes(burner);
+const badProof = b64(new Uint8Array(32));
+const missed = await call("POST", "/v1/join", {
+  code: "0000-0001",
+  device: b64(burnerDevice),
+  name: "Harbor",
+  proof: badProof,
+}, { "cf-connecting-ip": "198.51.100.30" });
+assert(missed.status === 400, `wrong code ${missed.status} ${missed.raw}`);
+for (let i = 0; i < 8; i += 1) {
+  const row = await call("POST", "/v1/join", {
+    code: encodeCode(burned),
+    device: b64(burnerDevice),
+    name: "Harbor",
+    proof: badProof,
+  }, { "cf-connecting-ip": `198.51.100.${40 + i}` });
+  assert(row.status === 400, `bad proof ${i} ${row.status} ${row.raw}`);
+}
+const after = await call("POST", "/v1/join", {
+  code: encodeCode(burned),
+  device: b64(burnerDevice),
+  name: "Harbor",
+  proof: b64(await hmacBytes(burned, burnerDevice)),
+}, { "cf-connecting-ip": "198.51.100.60" });
+assert(after.status === 400, `burned code still joined ${after.status} ${after.raw}`);
 
 console.log("linking under the test limits ok");

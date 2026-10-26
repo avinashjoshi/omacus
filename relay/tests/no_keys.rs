@@ -180,7 +180,7 @@ fn post_join(
     name: &str,
     wire: &mut Vec<u8>,
 ) -> Joined {
-    let secret = [0x11u8, 0x22, 0x33, 0x44, 0x55];
+    let secret = [0x01u8, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x08];
     let code = omacus_relay::invite::encode_code(&secret);
     let hash = omacus_relay::invite::hash_hex(&secret);
     let mac = omacus_relay::invite::proof(&secret, device);

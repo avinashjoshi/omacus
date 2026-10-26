@@ -536,7 +536,8 @@ async function startInvite() {
   state.busy = true;
   state.error = "";
   render();
-  const raw = crypto.getRandomValues(new Uint8Array(5));
+  const raw = crypto.getRandomValues(new Uint8Array(8));
+  raw[0] &= 0x0f;
   const secret = btoa(String.fromCharCode(...raw));
   const made = JSON.parse(sync.makeInvite(state.account, location.origin, location.origin, secret));
   if (!made.ok) {

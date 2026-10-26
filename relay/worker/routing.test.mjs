@@ -129,7 +129,7 @@ const device = await makeDevice(account);
 const signed = await makeRecord(device, "manifest");
 const created = await call(env, "POST", "/v1/mailboxes", { account, record: signed, code: secondCode });
 assert(created.status === 201, `signed create ${created.status} ${created.text}`);
-const secret = new Uint8Array([4, 5, 6, 7, 8]);
+const secret = new Uint8Array([4, 5, 6, 7, 8, 1, 2, 3]);
 const hash = await hashHex(secret);
 const invitePath = `/v1/mailboxes/${account}/invites`;
 const inviteBody = { hash };
@@ -203,7 +203,7 @@ const chain = await deviceChain(owner);
 const sealed = await makeRecord(owner, "bread", 2, chain);
 const openedReuse = await call(env, "POST", "/v1/mailboxes", { account: reuse, record: sealed, code: secondCode });
 assert(openedReuse.status === 201, `reuse create ${openedReuse.status} ${openedReuse.text}`);
-const reuseSecret = new Uint8Array([3, 3, 3, 3, 3]);
+const reuseSecret = new Uint8Array([3, 3, 3, 3, 3, 3, 3, 3]);
 const reuseHash = await postInvite(owner, reuse, reuseSecret);
 const harbor = await makeDevice(reuse);
 const harborBytes = deviceBytes(harbor);
@@ -251,7 +251,7 @@ assert(!home.rows.has(`i:${reuseHash}`), "a finished code stayed on the account"
 const afterDone = await joinWith(reuseSecret, deviceBytes(await makeDevice(reuse)), "Harbor phone");
 assert(afterDone.status === 400, `a finished code worked ${afterDone.status} ${afterDone.text}`);
 
-const agedSecret = new Uint8Array([9, 9, 9, 9, 1]);
+const agedSecret = new Uint8Array([9, 9, 9, 9, 1, 1, 1, 1]);
 const agedHash = await postInvite(owner, reuse, agedSecret);
 const agedRow = await directory.get(`i:${agedHash}`);
 agedRow.expires = Date.now() - 1000;
@@ -260,7 +260,7 @@ const expired = await joinWith(agedSecret, deviceBytes(await makeDevice(reuse)),
 assert(expired.status === 400, `an expired code worked ${expired.status} ${expired.text}`);
 assert(/didn't work/i.test(expired.json.message || ""), expired.text);
 
-const spentSecret = new Uint8Array([9, 9, 9, 9, 2]);
+const spentSecret = new Uint8Array([9, 9, 9, 9, 2, 2, 2, 2]);
 const spentHash = await postInvite(owner, reuse, spentSecret);
 const spentBox = await home.get(`m:${reuse}`);
 spentBox.invite.expires = Date.now() - 1000;
@@ -273,7 +273,7 @@ const old = "cd".repeat(32);
 const oldDevice = await makeDevice(old);
 const oldRecord = await makeRecord(oldDevice, "lentils");
 const objectId = "0123456789abcdef0123456789abcdef";
-const secretOld = new Uint8Array([9, 8, 7, 6, 5]);
+const secretOld = new Uint8Array([9, 8, 7, 6, 5, 4, 3, 2]);
 const hashOld = await hashHex(secretOld);
 legacy.rows.set(`m:${old}`, {
   revision: 1,

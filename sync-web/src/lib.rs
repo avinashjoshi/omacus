@@ -132,11 +132,12 @@ pub fn make_invite(account: &str, origin: &str, page: &str, secret_b64: &str) ->
     let Ok(secret_bytes) = b64_decode(secret_b64) else {
         return json!({ "ok": false, "message": "Try again in a moment." }).to_string();
     };
-    if secret_bytes.len() != 5 {
+    if secret_bytes.len() != invite::SECRET_LEN {
         return json!({ "ok": false, "message": "Try again in a moment." }).to_string();
     }
-    let mut secret = [0u8; 5];
+    let mut secret = [0u8; invite::SECRET_LEN];
     secret.copy_from_slice(&secret_bytes);
+    secret = invite::canonical(&secret);
     let code = invite::encode_code(&secret);
     let Ok(payload) = desk::join_link(page, origin, &account, &code) else {
         return json!({ "ok": false, "message": "Try again in a moment." }).to_string();

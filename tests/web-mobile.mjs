@@ -137,7 +137,7 @@ check(syncJs.includes("takeSyncLink") && syncJs.includes('found.kind === "recove
 check(js.includes("captureSyncLink") && js.includes("history.replaceState"), "a recovery link is taken out of the address bar before a share link");
 check(syncJs.includes("How sync works") && syncJs.includes("Set up sync") && syncJs.includes("showTurnOnSync"), "Turn on sync opens a short explanation before setup");
 check(syncJs.includes("This is my first device") && syncJs.includes("My pages already sync on another device") && syncJs.includes("← Back"), "setup offers two choices and a back link");
-check(syncJs.includes("Code you were given") && syncJs.includes("K7QM-4R2P") && syncJs.includes("Not the code from another device."), "the invite code and the join code show their real shapes");
+check(syncJs.includes("Code you were given") && syncJs.includes("K7QM-4R2P-9HNX") && syncJs.includes("Not the code from another device."), "the invite code and the join code show their real shapes");
 check(syncJs.includes("I wrote these down") && syncJs.includes("data-saved-words") && syncJs.includes("!state.wroteWords") && !syncJs.includes("Or scan this to recover") && !syncJs.includes("This picture is as secret as the words.") && !syncJs.includes("Scan the paper instead"), "saving the words waits until they are written down, with no recovery picture");
 {
   const save = syncJs.slice(syncJs.indexOf("function drawSave"), syncJs.indexOf("function drawConfirm"));
@@ -149,7 +149,7 @@ check(syncJs.includes("Or scan this picture") && syncJs.includes('qrNode(state.i
 check(syncJs.includes("Use recovery words") && syncJs.includes("✓ Sync is on") && syncJs.includes("Step ${step} of 4"), "join and the first device use the new screens");
 {
   const join = syncJs.slice(syncJs.indexOf("function scanCodeButton"), syncJs.indexOf("function drawJoinScan"));
-  check(join.includes("Scan the QR code it shows, or type the code.") && join.includes("8 characters · or tap the scan button to scan the QR code") && join.includes("Lost your other devices?") && join.includes("Use recovery words →") && join.includes('aria-label": "Scan QR code"') && join.includes("scanJoin()") && !join.includes("quietLinks") && !join.includes("Scan QR code instead"), "join puts the scan button beside the code and keeps recovery in the row");
+  check(join.includes("Scan the QR code it shows, or type the code.") && join.includes("12 characters · or tap the scan button to scan the QR code") && join.includes("Lost your other devices?") && join.includes("Use recovery words →") && join.includes('aria-label": "Scan QR code"') && join.includes("scanJoin()") && !join.includes("quietLinks") && !join.includes("Scan QR code instead"), "join puts the scan button beside the code and keeps recovery in the row");
 }
 check(css.includes(".sync-card") && css.includes(".sync-progress") && css.includes(".sync-sheet") && css.includes(".sync-words-grid"), "the setup screens use cards, a progress bar, and a phone sheet");
 check(css.includes(".sync-panel [data-sync-set] > .sync-name") && css.includes(".sync-panel [data-sync-set] > .sync-actions") && /\.sync-actions \.sync-links \{[^}]*margin-top:\s*var\(--space-4\)/.test(css), "the sync home screen leaves 16px around the device list and above Turn sync off");

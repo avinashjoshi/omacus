@@ -85,6 +85,8 @@ struct Invite {
     hash: [u8; 32],
     expires: u64,
     used: bool,
+    /// Wrong proofs for this code. Eight retires it.
+    tries: u32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -677,6 +679,7 @@ impl Store {
             hash,
             expires,
             used: false,
+            tries: 0,
         });
         self.invites.insert(hash, account);
         Ok(())
@@ -702,6 +705,7 @@ impl Store {
             .cloned()
             .ok_or(StoreError::BadInvite)?;
         if !invite::proof_matches(&secret, &device, given) {
+            self.note_failed_proof(&account, &hash, now);
             return Err(StoreError::BadInvite);
         }
         self.drop_expired(&account);
@@ -757,6 +761,32 @@ impl Store {
             );
         }
         Ok((account, id))
+    }
+
+    /// A proof that found this code but did not match. Eight of those retire it.
+    fn note_failed_proof(&mut self, account: &str, hash: &[u8; 32], now: u64) {
+        let burn = {
+            let Some(mailbox) = self.mailboxes.get_mut(account) else {
+                return;
+            };
+            let Some(invite) = mailbox.invite.as_mut() else {
+                return;
+            };
+            if invite.hash != *hash || invite.used || invite.expires <= now {
+                return;
+            }
+            invite.tries = invite.tries.saturating_add(1);
+            invite.tries >= invite::JOIN_TRIES
+        };
+        if !burn {
+            return;
+        }
+        if let Some(mailbox) = self.mailboxes.get_mut(account)
+            && let Some(invite) = mailbox.invite.as_mut()
+        {
+            invite.used = true;
+        }
+        self.invites.remove(hash);
     }
 
     pub fn pending(&mut self, account: &str) -> Result<Vec<Pending>, StoreError> {
@@ -1258,6 +1288,7 @@ fn mailbox_bytes(mailbox: &Mailbox) -> Vec<u8> {
             "hash": hex_bytes(&invite.hash),
             "expires": invite.expires,
             "used": invite.used,
+            "tries": invite.tries,
         })
     });
     serde_json::to_vec(&json!({
@@ -1308,6 +1339,7 @@ fn mailbox_from(bytes: &[u8]) -> Option<Mailbox> {
             hash: hex_array(row.get("hash")?.as_str()?).ok()?,
             expires: row.get("expires")?.as_u64()?,
             used: row.get("used")?.as_bool()?,
+            tries: row.get("tries").and_then(Value::as_u64).unwrap_or(0) as u32,
         }),
     };
     let mut nonces = crate::auth::NonceBook::default();
@@ -1390,7 +1422,7 @@ mod tests {
         store: &mut Store,
         account: &str,
         when: u64,
-        secret: [u8; 5],
+        secret: [u8; 8],
         device: &[u8],
         name: &str,
     ) -> String {
@@ -1413,7 +1445,7 @@ mod tests {
         }
         let first = format!("{:064x}", 0);
         let second = format!("{:064x}", 32);
-        let secret = [4u8, 5, 6, 7, 8];
+        let secret = [4u8, 5, 6, 7, 8, 0, 0, 0];
         store.set_now(50);
         store
             .open_invite(&second, &invite::hash_hex(&secret))
@@ -1469,7 +1501,7 @@ mod tests {
             StoreError::Revision
         );
         assert_eq!(store.put(&account, 1, record()).unwrap(), 2);
-        let secret = [1u8, 2, 3, 4, 5];
+        let secret = [1u8, 2, 3, 4, 5, 0, 0, 0];
         let code = invite::encode_code(&secret);
         store
             .open_invite(&account, &invite::hash_hex(&secret))
@@ -1488,7 +1520,7 @@ mod tests {
         let account = account();
         store.create(&account, record()).unwrap();
         let device = vec![7u8; 80];
-        let secret = [9u8, 8, 7, 6, 5];
+        let secret = [9u8, 8, 7, 6, 5, 0, 0, 0];
         let code = invite::encode_code(&secret);
         let mac = invite::proof(&secret, &device);
         assert_eq!(
@@ -1537,6 +1569,57 @@ mod tests {
     }
 
     #[test]
+    fn eight_wrong_proofs_retire_the_code_and_seven_do_not() {
+        let mut store = Store::new();
+        let account = account();
+        store.create(&account, record()).unwrap();
+        let secret = [1u8, 2, 3, 4, 5, 6, 7, 8];
+        let code = invite::encode_code(&secret);
+        store
+            .open_invite(&account, &invite::hash_hex(&secret))
+            .unwrap();
+        let device = vec![7u8; 80];
+        let bad = [0u8; 32];
+        assert_eq!(
+            store
+                .join("0000-0001", device.clone(), "Phone", &bad)
+                .unwrap_err(),
+            StoreError::BadInvite
+        );
+        for _ in 0..7 {
+            assert_eq!(
+                store
+                    .join(&code, device.clone(), "Phone", &bad)
+                    .unwrap_err(),
+                StoreError::BadInvite
+            );
+        }
+        let mac = invite::proof(&secret, &device);
+        let (found, _) = store.join(&code, device, "Phone", &mac).unwrap();
+        assert_eq!(found, account);
+
+        let mut burned = Store::new();
+        burned.create(&account, record()).unwrap();
+        burned
+            .open_invite(&account, &invite::hash_hex(&secret))
+            .unwrap();
+        let device = vec![7u8; 80];
+        for _ in 0..invite::JOIN_TRIES {
+            assert_eq!(
+                burned
+                    .join(&code, device.clone(), "Phone", &bad)
+                    .unwrap_err(),
+                StoreError::BadInvite
+            );
+        }
+        let mac = invite::proof(&secret, &device);
+        assert_eq!(
+            burned.join(&code, device, "Phone", &mac).unwrap_err(),
+            StoreError::BadInvite
+        );
+    }
+
+    #[test]
     fn a_join_request_is_dropped_once_it_is_approved_declined_or_expired() {
         let mut store = Store::new();
         let account = account();
@@ -1554,7 +1637,7 @@ mod tests {
             &mut store,
             &account,
             10_000,
-            [3, 1, 4, 1, 5],
+            [3, 1, 4, 1, 5, 0, 0, 0],
             &device,
             "Porch lamp",
         );
@@ -1572,7 +1655,7 @@ mod tests {
             &mut store,
             &account,
             20_000,
-            [2, 7, 1, 8, 2],
+            [2, 7, 1, 8, 2, 0, 0, 0],
             &device,
             "Cabin shelf",
         );
@@ -1601,7 +1684,7 @@ mod tests {
             &mut store,
             &account,
             30_000,
-            [8, 6, 7, 5, 3],
+            [8, 6, 7, 5, 3, 0, 0, 0],
             &device,
             "Shed light",
         );
@@ -1628,7 +1711,7 @@ mod tests {
             &mut store,
             &account,
             40_000,
-            [1, 1, 2, 3, 5],
+            [1, 1, 2, 3, 5, 0, 0, 0],
             &device,
             "Hall table",
         );
@@ -1657,7 +1740,7 @@ mod tests {
         let account = account();
         store.create(&account, record()).unwrap();
         let device = vec![9u8; 80];
-        let secret = [9u8, 1, 1, 1, 1];
+        let secret = [9u8, 1, 1, 1, 1, 0, 0, 0];
         let chain = b"OMACUS-DEVICES/1ferry".to_vec();
         let wrap = b"wrap".to_vec();
         let id = arrive(
@@ -1698,7 +1781,7 @@ mod tests {
         let account = account();
         store.create(&account, record()).unwrap();
         let device = vec![9u8; 80];
-        let secret = [9u8, 2, 2, 2, 2];
+        let secret = [9u8, 2, 2, 2, 2, 0, 0, 0];
         let id = arrive(
             &mut store,
             &account,

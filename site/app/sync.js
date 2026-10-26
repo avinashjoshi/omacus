@@ -1389,7 +1389,8 @@ export async function mountSync(api) {
     state.busy = true;
     state.error = "";
     draw();
-    const raw = crypto.getRandomValues(new Uint8Array(5));
+    const raw = crypto.getRandomValues(new Uint8Array(8));
+    raw[0] &= 0x0f;
     const secret = btoa(String.fromCharCode(...raw));
     const made = JSON.parse(sync.makeInvite(state.account, syncOrigin(), pageOrigin(), secret));
     if (!made.ok) {
@@ -2325,7 +2326,7 @@ export async function mountSync(api) {
       el("h2", {}, ["Add a phone or computer"]),
       el("p", { class: "setting-help" }, ["On the other phone or computer, open Sync and choose My pages already sync on another device. Type this code. It works for about 5 minutes, and only once."]),
       el("div", { class: "sync-invite-code" }, [state.invite?.code || ""]),
-      el("p", { class: "sync-hint" }, ["It looks like K7QM-4R2P."]),
+      el("p", { class: "sync-hint" }, ["It looks like K7QM-4R2P-9HNX."]),
       qr,
     );
   }
@@ -2355,7 +2356,7 @@ export async function mountSync(api) {
     const field = el("input", {
       class: "sync-name sync-join-input",
       "aria-label": "Join code",
-      placeholder: "K7QM-4R2P",
+      placeholder: "K7QM-4R2P-9HNX",
       autocapitalize: "characters",
       autocomplete: "off",
       spellcheck: "false",
@@ -2375,7 +2376,7 @@ export async function mountSync(api) {
       ]),
       el("label", { class: "sync-field sync-code-label" }, ["Join code"]),
       el("div", { class: "sync-code-row" }, [field, scanCodeButton()]),
-      el("p", { class: "sync-hint" }, ["8 characters · or tap the scan button to scan the QR code"]),
+      el("p", { class: "sync-hint" }, ["12 characters · or tap the scan button to scan the QR code"]),
       recoveryRow(),
       ...deviceNameControl(),
       el("p", { class: "sync-hint" }, [`Pages already on ${here()} will be combined with your synced pages. Nothing is deleted.`]),

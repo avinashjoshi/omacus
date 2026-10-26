@@ -156,9 +156,9 @@ async function expectHomeGaps(page) {
 async function expectJoinLayout(page) {
   await expect(page.getByRole("heading", { name: "Join your synced pages" })).toBeVisible();
   await expect(page.getByText("Scan the QR code it shows, or type the code.")).toBeVisible();
-  await expect(page.getByPlaceholder("K7QM-4R2P")).toBeVisible();
+  await expect(page.getByPlaceholder("K7QM-4R2P-9HNX")).toBeVisible();
   await expect(page.getByRole("button", { name: "Scan QR code" })).toBeVisible();
-  await expect(page.getByText("8 characters · or tap the scan button to scan the QR code")).toBeVisible();
+  await expect(page.getByText("12 characters · or tap the scan button to scan the QR code")).toBeVisible();
   await expect(page.getByText("Lost your other devices?")).toBeVisible();
   await expect(page.getByRole("button", { name: "Use recovery words" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Join", exact: true })).toBeVisible();
