@@ -341,7 +341,8 @@ fn accept_join(store: &mut Store, body: &[u8]) -> Result<(u16, Value), StoreErro
     let device = decode_field(&value, "device")?;
     let name = value.get("name").and_then(Value::as_str).unwrap_or("");
     let proof = decode_field(&value, "proof")?;
-    let (account, id) = store.join(code, device, name, &proof)?;
+    let named = value.get("account").and_then(Value::as_str).unwrap_or("");
+    let (account, id) = store.join_as(code, device, name, &proof, named)?;
     Ok((201, json!({"id": id, "account": account})))
 }
 

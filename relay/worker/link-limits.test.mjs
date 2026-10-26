@@ -6,7 +6,7 @@ import { HEARTBEAT_MS } from "./heartbeat.js";
 import { MemoryStorage } from "./storage.js";
 import { PRODUCTION, TEST } from "./limits.js";
 import { appendDevice, authHeaders, deviceChain, dropDevice, makeDevice, makeRecord } from "./auth.js";
-import { encodeCode, hashHex, hmacBytes } from "./invite.js";
+import { INVITE_MS, encodeCode, hashHex, hmacBytes } from "./invite.js";
 
 const HOME = "198.51.100.20";
 const POLL_MS = 4000;
@@ -34,6 +34,7 @@ assert(syncJs.includes("setTimeout(waitForApproval, JOIN_WAIT_MS)"), "the joinin
 assert(!syncJs.includes("joinWaits || 0) < 6"), "a few waits still end the join");
 const joinSrc = syncJs.slice(syncJs.indexOf("async function submitJoin("), syncJs.indexOf("function parseJoin("));
 assert(joinSrc.includes("typedJoinName()") && !joinSrc.includes('name: ""'), "the typed name is not sent");
+assert(joinSrc.includes("body.account"), "a join from the link names the account");
 const waitSrc = syncJs.slice(syncJs.indexOf("async function waitForApproval("), syncJs.indexOf("async function acceptJoin("));
 assert(waitSrc.includes("MAILBOX_TRIES") && waitSrc.includes("error.status === 404"), "a missing list ends the join");
 assert(waitSrc.includes("done: true") && waitSrc.indexOf('state.screen = "join-confirm"') > waitSrc.indexOf("done: true"), "the match screen comes before the list is ready");
@@ -328,5 +329,78 @@ const after = await call("POST", "/v1/join", {
   proof: b64(await hmacBytes(burned, burnerDevice)),
 }, { "cf-connecting-ip": "198.51.100.60" });
 assert(after.status === 400, `burned code still joined ${after.status} ${after.raw}`);
+
+// Wrong codes that name the account retire its invite. Another address does not
+// get a new set of tries, and another account is left alone.
+clock += 60_000;
+const guessed = await openInvite();
+const other = "ef".repeat(32);
+const otherPhone = await makeDevice(other);
+const otherRecord = await makeRecord(otherPhone, "bread", 2, await deviceChain(otherPhone));
+const otherCreated = await call("POST", "/v1/mailboxes", { account: other, record: otherRecord }, {
+  "x-omacus-access-hash": "ef".repeat(32),
+  "x-omacus-access-uses": "1",
+  "x-omacus-access-spend": "1",
+});
+assert(otherCreated.status === 201, `other account ${otherCreated.status} ${otherCreated.raw}`);
+const otherSecret = crypto.getRandomValues(new Uint8Array(8));
+otherSecret[0] &= 0x0f;
+const otherHash = await hashHex(otherSecret);
+const otherInvite = await authed(otherPhone, "POST", `/v1/mailboxes/${other}/invites`, { hash: otherHash });
+assert(otherInvite.status === 200, `other invite ${otherInvite.status} ${otherInvite.raw}`);
+const guesser = deviceBytes(await makeDevice(account));
+const wrongProof = b64(new Uint8Array(32));
+const missedAccount = await call("POST", "/v1/join", {
+  code: "0000-0000-0000",
+  device: b64(guesser),
+  name: "Harbor",
+  proof: wrongProof,
+}, { "cf-connecting-ip": "198.51.100.70" });
+assert(missedAccount.status === 400, `unnamed miss ${missedAccount.status} ${missedAccount.raw}`);
+for (let i = 0; i < 8; i += 1) {
+  const row = await call("POST", "/v1/join", {
+    code: "0000-0000-0000",
+    device: b64(guesser),
+    name: "Harbor",
+    proof: wrongProof,
+    account,
+  }, { "cf-connecting-ip": `198.51.100.${71 + i}` });
+  assert(row.status === 400, `named miss ${i} ${row.status} ${row.raw}`);
+}
+const spent = await call("POST", "/v1/join", {
+  code: encodeCode(guessed),
+  device: b64(guesser),
+  name: "Harbor",
+  proof: b64(await hmacBytes(guessed, guesser)),
+  account,
+}, { "cf-connecting-ip": "198.51.100.80" });
+assert(spent.status === 400, `account still accepted the code ${spent.status} ${spent.raw}`);
+const otherDevice = deviceBytes(await makeDevice(other));
+const otherJoined = await call("POST", "/v1/join", {
+  code: encodeCode(otherSecret),
+  device: b64(otherDevice),
+  name: "Ferry",
+  proof: b64(await hmacBytes(otherSecret, otherDevice)),
+}, { "cf-connecting-ip": "198.51.100.81" });
+assert(otherJoined.status === 201, `other account was burned ${otherJoined.status} ${otherJoined.raw}`);
+const fresh = await openInvite();
+const still = await call("POST", "/v1/join", {
+  code: encodeCode(fresh),
+  device: b64(guesser),
+  name: "Harbor",
+  proof: b64(await hmacBytes(fresh, guesser)),
+  account,
+}, { "cf-connecting-ip": "198.51.100.82" });
+assert(still.status === 400, `a new code reset the account ${still.status} ${still.raw}`);
+clock += INVITE_MS;
+const later = await openInvite();
+const laterJoined = await call("POST", "/v1/join", {
+  code: encodeCode(later),
+  device: b64(guesser),
+  name: "Harbor",
+  proof: b64(await hmacBytes(later, guesser)),
+  account,
+}, { "cf-connecting-ip": "198.51.100.83" });
+assert(laterJoined.status === 201, `the window did not lapse ${laterJoined.status} ${laterJoined.raw}`);
 
 console.log("linking under the test limits ok");

@@ -106,6 +106,44 @@ const accountId = (a) => {
   a = String(a).trim().toLowerCase();
   return /^[0-9a-f]{64}$/.test(a) ? a : fail("Unreadable");
 };
+// A join may name the account from the link. A bad id is ignored, not an error,
+// so a guess that has no account still fails the same way.
+function namedAccount(value) {
+  const text = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return /^[0-9a-f]{64}$/.test(text) ? text : "";
+}
+function joinBlocked(mailbox, now) {
+  const started = Number.isInteger(mailbox.joinFailAt) ? mailbox.joinFailAt : 0;
+  if (!started || now - started >= INVITE_MS) return false;
+  const fails = Number.isInteger(mailbox.joinFails) ? mailbox.joinFails : 0;
+  return fails >= JOIN_TRIES;
+}
+// One failure for this account, and for its live invite. Eight of either retire the invite.
+// The numbers live on the mailbox, so a new address or a new connection does not reset them.
+function chargeJoinFailure(mailbox, now) {
+  const started = Number.isInteger(mailbox.joinFailAt) ? mailbox.joinFailAt : 0;
+  if (!started || now - started >= INVITE_MS) {
+    mailbox.joinFails = 0;
+    mailbox.joinFailAt = now;
+  }
+  mailbox.joinFails = (Number.isInteger(mailbox.joinFails) ? mailbox.joinFails : 0) + 1;
+  const invite = mailbox.invite;
+  if (!invite || invite.used || !(invite.expires > now)) return "";
+  invite.tries = (Number.isInteger(invite.tries) ? invite.tries : 0) + 1;
+  if (mailbox.joinFails >= JOIN_TRIES || invite.tries >= JOIN_TRIES) {
+    invite.used = true;
+    return typeof invite.hash === "string" ? invite.hash : "";
+  }
+  return "";
+}
+async function retireFailedInvite(txn, account, mailbox) {
+  const invite = mailbox.invite;
+  if (invite && !invite.used && invite.expires > 0 && typeof invite.hash === "string") {
+    invite.used = true;
+    await txn.delete("i:" + invite.hash);
+  }
+  await txn.put("m:" + account, mailbox);
+}
 function proofBytes(text) {
   if (typeof text !== "string" || !text.trim()) return null;
   try {
@@ -365,6 +403,8 @@ export class Mailboxes extends DurableObject {
     }
     if (method === "POST" && path === "/v1/join") {
       this.charge(ip);
+      // A burst from one address is still refused. That is not the guess limit:
+      // a wrong code is counted on the invite and on the account.
       this.chargeJoin(ip);
       return this.join(need());
     }
@@ -560,9 +600,28 @@ export class Mailboxes extends DurableObject {
     fail("Unknown");
   }
 
+  async noteJoinMiss(account) {
+    const now = this.now();
+    await this.store.transaction(async (txn) => {
+      const mailbox = await txn.get("m:" + account);
+      if (!mailbox) return;
+      if (joinBlocked(mailbox, now)) {
+        await retireFailedInvite(txn, account, mailbox);
+        return;
+      }
+      const burned = chargeJoinFailure(mailbox, now);
+      if (burned) await txn.delete("i:" + burned);
+      await txn.put("m:" + account, mailbox);
+    });
+  }
+
   async join(v) {
+    const named = namedAccount(v.account);
     const secret = decodeCode(v.code);
-    if (!secret) fail("BadInvite");
+    if (!secret) {
+      if (named) await this.noteJoinMiss(named);
+      fail("BadInvite");
+    }
     const device = fromB64(v.device);
     if (device.length !== 80) fail("Unreadable");
     const given = fromB64(v.proof);
@@ -577,17 +636,46 @@ export class Mailboxes extends DurableObject {
       const indexed = await txn.get("i:" + hash);
       const account = indexed && typeof indexed.account === "string" ? indexed.account : "";
       const mailbox = /^[0-9a-f]{64}$/.test(account) ? await txn.get("m:" + account) : null;
+      // A phone that stops waiting gives the code back before this check is a guess.
+      if (mailbox) dropExpired(mailbox, now);
       const invite = mailbox && mailbox.invite;
-      if (!mailbox || !invite || !(invite.expires > now) || invite.hash !== hash) return;
-      dropExpired(mailbox, now);
+      const live = !!(mailbox && invite && invite.expires > now && invite.hash === hash && !invite.used);
+      if (mailbox && joinBlocked(mailbox, now)) {
+        await retireFailedInvite(txn, account, mailbox);
+        return;
+      }
+      if (!live) {
+        // The proof matches a code that is only in use. That is not a guess.
+        if (proofOk && mailbox && invite && invite.hash === hash) {
+          await txn.put("m:" + account, mailbox);
+          return;
+        }
+        if (mailbox && invite && invite.hash === hash) {
+          const burned = chargeJoinFailure(mailbox, now);
+          if (burned) await txn.delete("i:" + burned);
+          await txn.put("m:" + account, mailbox);
+          return;
+        }
+        if (!named) {
+          if (mailbox) await txn.put("m:" + account, mailbox);
+          return;
+        }
+        const target = await txn.get("m:" + named);
+        if (!target) return;
+        if (joinBlocked(target, now)) {
+          await retireFailedInvite(txn, named, target);
+          return;
+        }
+        const burned = chargeJoinFailure(target, now);
+        if (burned) await txn.delete("i:" + burned);
+        await txn.put("m:" + named, target);
+        return;
+      }
       const tries = Number.isInteger(mailbox.invite.tries) ? mailbox.invite.tries : 0;
       if (!mailbox.invite || mailbox.invite.used || tries >= JOIN_TRIES) return;
       if (!proofOk) {
-        mailbox.invite.tries = tries + 1;
-        if (mailbox.invite.tries >= JOIN_TRIES) {
-          mailbox.invite.used = true;
-          await txn.delete("i:" + hash);
-        }
+        const burned = chargeJoinFailure(mailbox, now);
+        if (burned) await txn.delete("i:" + burned);
         await txn.put("m:" + account, mailbox);
         return;
       }
@@ -1485,15 +1573,20 @@ async function lookupInvite(env, request, hash) {
 async function joinAccount(env, request, raw, headers) {
   let body;
   try { body = JSON.parse(raw); } catch { body = null; }
+  const named = body && typeof body.account === "string" && /^[0-9a-f]{64}$/.test(body.account.trim().toLowerCase())
+    ? body.account.trim().toLowerCase()
+    : "";
   const secret = body && decodeCode(body.code);
-  if (!secret) return json(400, { message: ERR.BadInvite[1] });
-  const hash = await hashHex(secret);
-  const found = await lookupInvite(env, request, hash);
-  if (!found) return json(400, { message: ERR.BadInvite[1] });
-  await migrateIfAbsent(env, request, found.account);
+  const hash = secret ? await hashHex(secret) : "";
+  const found = hash ? await lookupInvite(env, request, hash) : null;
+  // A wrong code still has to reach the account it named, so the miss is stored
+  // there. An address change cannot spend a fresh set of tries.
+  const account = found && typeof found.account === "string" && /^[0-9a-f]{64}$/.test(found.account) ? found.account : named;
+  if (!account) return json(400, { message: ERR.BadInvite[1] });
+  await migrateIfAbsent(env, request, account);
   // The lookup stays while a phone is still joining. It comes off when the
   // approval finishes, so a phone that stops waiting can use the same code.
-  return box(env, accountObject(found.account)).fetch(new Request(request.url, {
+  return box(env, accountObject(account)).fetch(new Request(request.url, {
     method: "POST",
     headers,
     body: raw,

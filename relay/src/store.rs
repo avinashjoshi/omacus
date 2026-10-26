@@ -85,7 +85,7 @@ struct Invite {
     hash: [u8; 32],
     expires: u64,
     used: bool,
-    /// Wrong proofs for this code. Eight retires it.
+    /// Failed checks for this code. Eight retires it.
     tries: u32,
 }
 
@@ -113,6 +113,10 @@ struct Mailbox {
     invite: Option<Invite>,
     objects: BTreeMap<String, StoredObject>,
     nonces: crate::auth::NonceBook,
+    /// Failed join checks for this account. A new code does not clear it.
+    join_fails: u32,
+    /// When the current run of failures started. It lapses with the invite window.
+    join_fail_at: u64,
 }
 
 pub struct ObjectWrite {
@@ -457,6 +461,8 @@ impl Store {
                 invite: None,
                 objects: BTreeMap::new(),
                 nonces: crate::auth::NonceBook::default(),
+                join_fails: 0,
+                join_fail_at: 0,
             },
         );
         self.checkpoint();
@@ -507,6 +513,8 @@ impl Store {
                 invite: None,
                 objects,
                 nonces: crate::auth::NonceBook::default(),
+                join_fails: 0,
+                join_fail_at: 0,
             },
         );
         self.checkpoint();
@@ -693,17 +701,41 @@ impl Store {
         name: &str,
         given: &[u8],
     ) -> Result<(String, String), StoreError> {
+        self.join_as(code, device, name, given, "")
+    }
+
+    /// `join`, and count a miss against `named` when the code does not match.
+    /// An empty name counts nothing: a guess that points at no account cannot
+    /// retire someone else's code.
+    pub fn join_as(
+        &mut self,
+        code: &str,
+        device: Vec<u8>,
+        name: &str,
+        given: &[u8],
+        named: &str,
+    ) -> Result<(String, String), StoreError> {
         if device.len() != 80 || given.len() != 32 {
             return Err(StoreError::Unreadable);
         }
-        let secret = invite::decode_code(code).ok_or(StoreError::BadInvite)?;
-        let hash = invite::hash_secret(&secret);
         let now = self.now();
-        let account = self
-            .invites
-            .get(&hash)
-            .cloned()
-            .ok_or(StoreError::BadInvite)?;
+        let Some(secret) = invite::decode_code(code) else {
+            if account_id(named).is_ok() {
+                self.charge_join_failure(named, now);
+            }
+            return Err(StoreError::BadInvite);
+        };
+        let hash = invite::hash_secret(&secret);
+        let Some(account) = self.invites.get(&hash).cloned() else {
+            if account_id(named).is_ok() {
+                self.charge_join_failure(named, now);
+            }
+            return Err(StoreError::BadInvite);
+        };
+        if self.join_blocked(&account, now) {
+            self.burn_live_invite(&account);
+            return Err(StoreError::BadInvite);
+        }
         if !invite::proof_matches(&secret, &device, given) {
             self.note_failed_proof(&account, &hash, now);
             return Err(StoreError::BadInvite);
@@ -764,11 +796,15 @@ impl Store {
     }
 
     /// A proof that found this code but did not match. Eight of those retire it.
+    /// The same count is kept on the account, so a new code does not wipe it.
     fn note_failed_proof(&mut self, account: &str, hash: &[u8; 32], now: u64) {
-        let burn = {
+        let burned = {
             let Some(mailbox) = self.mailboxes.get_mut(account) else {
                 return;
             };
+            Self::roll_join_window(mailbox, now);
+            mailbox.join_fails = mailbox.join_fails.saturating_add(1);
+            let account_full = mailbox.join_fails >= invite::JOIN_TRIES;
             let Some(invite) = mailbox.invite.as_mut() else {
                 return;
             };
@@ -776,17 +812,82 @@ impl Store {
                 return;
             }
             invite.tries = invite.tries.saturating_add(1);
-            invite.tries >= invite::JOIN_TRIES
+            if account_full || invite.tries >= invite::JOIN_TRIES {
+                invite.used = true;
+                Some(invite.hash)
+            } else {
+                None
+            }
         };
-        if !burn {
+        if let Some(hash) = burned {
+            self.invites.remove(&hash);
+        }
+    }
+
+    /// A check that named this account and did not match its live code.
+    fn charge_join_failure(&mut self, account: &str, now: u64) {
+        let account = match account_id(account) {
+            Ok(account) => account,
+            Err(_) => return,
+        };
+        if self.join_blocked(&account, now) {
+            self.burn_live_invite(&account);
             return;
         }
-        if let Some(mailbox) = self.mailboxes.get_mut(account)
-            && let Some(invite) = mailbox.invite.as_mut()
-        {
-            invite.used = true;
+        let burned = {
+            let Some(mailbox) = self.mailboxes.get_mut(&account) else {
+                return;
+            };
+            Self::roll_join_window(mailbox, now);
+            mailbox.join_fails = mailbox.join_fails.saturating_add(1);
+            let account_full = mailbox.join_fails >= invite::JOIN_TRIES;
+            let Some(invite) = mailbox.invite.as_mut() else {
+                return;
+            };
+            if invite.used || invite.expires <= now {
+                return;
+            }
+            invite.tries = invite.tries.saturating_add(1);
+            if account_full || invite.tries >= invite::JOIN_TRIES {
+                invite.used = true;
+                Some(invite.hash)
+            } else {
+                None
+            }
+        };
+        if let Some(hash) = burned {
+            self.invites.remove(&hash);
         }
-        self.invites.remove(hash);
+    }
+
+    fn roll_join_window(mailbox: &mut Mailbox, now: u64) {
+        if mailbox.join_fail_at == 0 || now.saturating_sub(mailbox.join_fail_at) >= INVITE_MS {
+            mailbox.join_fails = 0;
+            mailbox.join_fail_at = now;
+        }
+    }
+
+    fn join_blocked(&self, account: &str, now: u64) -> bool {
+        let Some(mailbox) = self.mailboxes.get(account) else {
+            return false;
+        };
+        mailbox.join_fail_at != 0
+            && now.saturating_sub(mailbox.join_fail_at) < INVITE_MS
+            && mailbox.join_fails >= invite::JOIN_TRIES
+    }
+
+    fn burn_live_invite(&mut self, account: &str) {
+        let hash = self.mailboxes.get_mut(account).and_then(|mailbox| {
+            let invite = mailbox.invite.as_mut()?;
+            if invite.used {
+                return None;
+            }
+            invite.used = true;
+            Some(invite.hash)
+        });
+        if let Some(hash) = hash {
+            self.invites.remove(&hash);
+        }
     }
 
     pub fn pending(&mut self, account: &str) -> Result<Vec<Pending>, StoreError> {
@@ -1296,6 +1397,8 @@ fn mailbox_bytes(mailbox: &Mailbox) -> Vec<u8> {
         "record": b64(&mailbox.record),
         "requests": requests,
         "invite": invite,
+        "joinFails": mailbox.join_fails,
+        "joinFailAt": mailbox.join_fail_at,
         "nonces": mailbox.nonces.rows().into_iter().map(|(device, nonce, time)| json!({"device": device, "nonce": nonce, "time": time})).collect::<Vec<_>>(),
     }))
     .unwrap_or_default()
@@ -1362,6 +1465,8 @@ fn mailbox_from(bytes: &[u8]) -> Option<Mailbox> {
         invite,
         objects: BTreeMap::new(),
         nonces,
+        join_fails: value.get("joinFails").and_then(Value::as_u64).unwrap_or(0) as u32,
+        join_fail_at: value.get("joinFailAt").and_then(Value::as_u64).unwrap_or(0),
     })
 }
 
@@ -1617,6 +1722,75 @@ mod tests {
             burned.join(&code, device, "Phone", &mac).unwrap_err(),
             StoreError::BadInvite
         );
+    }
+
+    #[test]
+    fn wrong_codes_for_one_account_retire_its_invite_and_leave_another() {
+        let mut store = Store::new();
+        let now = 1_700_000_000_000;
+        store.set_now(now);
+        let harbor = account();
+        let ferry = "cd".repeat(32);
+        store.create(&harbor, record()).unwrap();
+        store.create(&ferry, record()).unwrap();
+        let harbor_secret = [1u8, 2, 3, 4, 5, 6, 7, 8];
+        let ferry_secret = [8u8, 7, 6, 5, 4, 3, 2, 1];
+        let harbor_code = invite::encode_code(&harbor_secret);
+        let ferry_code = invite::encode_code(&ferry_secret);
+        store
+            .open_invite(&harbor, &invite::hash_hex(&harbor_secret))
+            .unwrap();
+        store
+            .open_invite(&ferry, &invite::hash_hex(&ferry_secret))
+            .unwrap();
+        let device = vec![7u8; 80];
+        let bad = [0u8; 32];
+        // A miss that names no account does not spend Harbor's code.
+        assert_eq!(
+            store
+                .join("0000-0000-0000", device.clone(), "Phone", &bad)
+                .unwrap_err(),
+            StoreError::BadInvite
+        );
+        for _ in 0..invite::JOIN_TRIES {
+            assert_eq!(
+                store
+                    .join_as("0000-0000-0000", device.clone(), "Phone", &bad, &harbor)
+                    .unwrap_err(),
+                StoreError::BadInvite
+            );
+        }
+        let harbor_mac = invite::proof(&harbor_secret, &device);
+        assert_eq!(
+            store
+                .join(&harbor_code, device.clone(), "Phone", &harbor_mac)
+                .unwrap_err(),
+            StoreError::BadInvite
+        );
+        let ferry_mac = invite::proof(&ferry_secret, &device);
+        let (found, _) = store
+            .join(&ferry_code, device.clone(), "Phone", &ferry_mac)
+            .unwrap();
+        assert_eq!(found, ferry);
+
+        // A new code for Harbor is still retired until the window passes.
+        store
+            .open_invite(&harbor, &invite::hash_hex(&harbor_secret))
+            .unwrap();
+        assert_eq!(
+            store
+                .join_as(&harbor_code, device.clone(), "Phone", &harbor_mac, &harbor)
+                .unwrap_err(),
+            StoreError::BadInvite
+        );
+        store.set_now(now + INVITE_MS);
+        store
+            .open_invite(&harbor, &invite::hash_hex(&harbor_secret))
+            .unwrap();
+        let (again, _) = store
+            .join_as(&harbor_code, device, "Phone", &harbor_mac, &harbor)
+            .unwrap();
+        assert_eq!(again, harbor);
     }
 
     #[test]

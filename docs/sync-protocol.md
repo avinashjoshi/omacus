@@ -126,7 +126,7 @@ One list entry has the 16-byte id `recovery-signer` followed by a zero byte. Its
 
 ## Invite and join
 
-A linked device picks a one-time code of 12 characters (60 bits, three groups of four) and sends PBKDF2-HMAC-SHA256 of those bytes to `POST /v1/mailboxes/:account/invites`. The salt is `omacus-join-v1` and the iteration count is 20000. The code stays on the device. The server keeps the hash for 5 minutes. Eight wrong proofs for that same code retire it. A code that does not match is limited per address, the same as other join attempts, and it does not count against a live code.
+A linked device picks a one-time code of 12 characters (60 bits, three groups of four) and sends PBKDF2-HMAC-SHA256 of those bytes to `POST /v1/mailboxes/:account/invites`. The salt is `omacus-join-v1` and the iteration count is 20000. The code stays on the device. The server keeps the hash for 5 minutes. Eight failed checks retire that invite. A failed check is a wrong code for that account, or the right code with a proof that does not match. The count is stored on the account, so a new address or a new connection does not start a fresh set, and opening another code does not clear it until five minutes after the first failure. A guess that names no account, and matches no live code, is refused and does not spend a code.
 
 The other device sends `POST /v1/join` with the code, its public device bytes, a display name, and HMAC-SHA256 of those device bytes under the code. The server checks the hash, marks the code used, and stores a pending request. A second use of the same code fails while that phone is still waiting. If it stops waiting, the same code works again until the code expires. If it never finishes after approval, the other phone can release the approval, and the same code works again until it expires. Once that phone finishes, the same code does not work again. A code that has expired does not work. The phone that showed the code keeps looking until the code expires, so the next phone is asked about.
 
@@ -151,7 +151,7 @@ All bodies are JSON. `/v1/` answers are JSON. A missing mailbox is 404.
 | PUT | `/v1/mailboxes/:account` | `{ revision, record, objects?: [{ id, base, body }], drop?: [id] }` | `{ revision, objects: [{ id, revision }] }` |
 | POST | `/v1/mailboxes/:account/objects` | `{ ids }` | `{ objects: [{ id, revision, body }] }` |
 | POST | `/v1/mailboxes/:account/invites` | `{ hash }` | `{ ok: true }` |
-| POST | `/v1/join` | `{ code, device, name, proof }` | `{ id, account }` |
+| POST | `/v1/join` | `{ code, device, name, proof, account? }` | `{ id, account }` |
 | GET | `/v1/mailboxes/:account/requests` | | `{ requests: [{ id, device, name, proof }] }` |
 | GET | `/v1/mailboxes/:account/requests/:id` | | `{ state, name, device, chain, wrap }` |
 | POST | `/v1/mailboxes/:account/requests/:id` | `{ chain, wrap, record, revision, objects?, drop? }`, `{ reject: true }`, `{ done: true }`, or `{ release: true }` | `{ ok: true, revision?, objects? }` |
@@ -237,7 +237,7 @@ The JSON body is `{ "message": "..." }`. The name is the server's name for the c
 | SignupFull | 403 | New signups are full. The invite code is not used. |
 | Room | 429 | That account is out of room. |
 | Devices | 429 | That account has as many phones and computers as it can. |
-| Limited | 429 | Too many requests for one account (240 in 60 seconds) or one address (800 in 60 seconds). A code guess is 10 per address, a join attempt is 10 per address, and a read is 180 per account or 500 per address, each in 60 seconds. These are the production starting numbers. An admin can change them. The sentence is the same whether or not the account exists. The cap is checked before the account is looked up. |
+| Limited | 429 | Too many requests for one account (240 in 60 seconds) or one address (800 in 60 seconds). A code guess is 10 per address, a join burst is 10 per address, and a read is 180 per account or 500 per address, each in 60 seconds. These are the production starting numbers. An admin can change them. The sentence is the same whether or not the account exists. The cap is checked before the account is looked up. The burst cap is not the guess limit: eight failures on one invite or one account retire the invite, from any address. |
 
 A body over 8 MiB is HTTP 400 with the unreadable sentence, before it is parsed.
 
