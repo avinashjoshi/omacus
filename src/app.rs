@@ -20,6 +20,7 @@ use crate::preview;
 use crate::rates::Rates;
 use crate::settings::{self, Settings};
 use crate::sheets::{Place, SIDEBAR_MAX, SIDEBAR_MIN, SideKind, Store, Trashed, heading_of};
+use crate::sync;
 use crate::theme::{self, Theme};
 use crate::update::{self, Method, State, Updates};
 use omacus_engine::{self as engine, Engine, Kind, LineResult, complete};
@@ -176,6 +177,8 @@ enum SheetAction {
     /// A page at the top of a folder. `None` is the root.
     NewIn(Option<String>),
     MoveTo(usize),
+    /// Ask before a page joins My pages, or leaves them on this computer.
+    SyncSet(usize, bool),
     ToggleFolder(String),
     RenameFolder(String),
     DeleteFolder(String),
@@ -242,8 +245,10 @@ enum PendingDelete {
 struct Toast {
     text: String,
     at: Instant,
-    /// Offers Undo for a deleted sheet.
+    /// Offers Undo for a deleted sheet, or for a page moved between sets.
     undo: bool,
+    /// Undo puts a page back in the set it just left.
+    sync_move: bool,
     error: bool,
     /// Stays until replaced ("Working out the answers to copy…").
     working: bool,
@@ -267,6 +272,7 @@ impl Toast {
             text: text.into(),
             at: Instant::now(),
             undo: false,
+            sync_move: false,
             error: false,
             working: false,
             open_folder: None,
@@ -287,6 +293,13 @@ impl Toast {
     fn undo(text: String) -> Self {
         Self {
             undo: true,
+            ..Self::info(text)
+        }
+    }
+    fn moved(text: String) -> Self {
+        Self {
+            undo: true,
+            sync_move: true,
             ..Self::info(text)
         }
     }
@@ -492,8 +505,11 @@ pub struct OmacusApp {
     help: Option<help::Tab>,
     updates: Updates,
     update_open: bool,
-    /// How sync works, then the web app's setup. This window does not seal pages.
-    sync_intro: bool,
+    /// Sync in this window. Pages stay files. A sealed copy is what leaves.
+    sync: sync::Session,
+    sync_poll: Instant,
+    /// Page id and the set it should return to if Undo is tapped.
+    sync_undo: Option<(String, bool)>,
     /// The app icon, small (sidebar, help rail) and large (About).
     logo: help::Logo,
     /// Developer option for the website: `OMACUS_SCREENSHOT=out.png` saves the window's
@@ -527,7 +543,11 @@ impl OmacusApp {
         let system_dark = is_system_dark(&cc.egui_ctx);
         let settings = settings::load();
         settings::remember(&settings);
-        let theme = Theme::resolve(settings.theme, system_dark);
+        let theme = if std::env::var("OMACUS_SYNC_SCREEN").is_ok() {
+            Theme::resolve(settings::ThemeChoice::Dark, true)
+        } else {
+            Theme::resolve(settings.theme, system_dark)
+        };
         apply_visuals(&cc.egui_ctx, &theme);
 
         let ctx = cc.egui_ctx.clone();
@@ -615,7 +635,9 @@ impl OmacusApp {
             },
             // With OMACUS_SCREENSHOT, "update" opens the update window instead of help.
             update_open: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "update"),
-            sync_intro: false,
+            sync: sync::Session::open(sync_dir(), &sync_origin()),
+            sync_poll: Instant::now(),
+            sync_undo: None,
             switcher: std::env::var("OMACUS_SCREENSHOT_HELP")
                 .is_ok_and(|t| t == "switcher")
                 .then(|| Switcher {
@@ -655,6 +677,17 @@ impl OmacusApp {
             gate_error: String::new(),
             last_input: Instant::now(),
         };
+        if let Ok(kind) = std::env::var("OMACUS_SYNC_SCREEN") {
+            seed_sync_screen(&mut app.store, &kind);
+            app.sync.adopt(local_pages(&app.store));
+            app.sync.preview(&kind);
+            if kind == "waiting"
+                && let Some(sheet) = app.store.sheets.iter().find(|s| s.heading() == "Scratch")
+            {
+                let id = sheet.id.clone();
+                app.sync.set_in_set(&id, false);
+            }
+        }
         if let Ok(mode) = std::env::var("OMACUS_SCREENSHOT_HELP")
             && (mode == "rename" || mode == "renamed")
         {
@@ -869,6 +902,14 @@ rental = rent + 50
                 }
                 return;
             }
+            SheetAction::SyncSet(i, inside) => {
+                if let Some(sheet) = self.store.sheets.get(i) {
+                    let id = sheet.id.clone();
+                    let title = sheet.heading();
+                    self.sync.ask_set_move(&id, &title, inside);
+                }
+                return;
+            }
             SheetAction::ToggleFolder(id) => {
                 self.store.toggle_folder(&id);
                 self.touched();
@@ -1080,11 +1121,19 @@ rental = rent + 50
 
     /// Move a page or folder. A closed locked folder refuses plaintext dropped into it.
     fn place_page(&mut self, id: &str, spot: Place) {
+        let folder = match &spot {
+            Place::Into(folder) => Some(Some(folder.clone())),
+            Place::RootEnd => Some(None),
+            _ => None,
+        };
         let into_locked = match &spot {
             Place::Into(folder) => self.store.folder_lock(folder) == Some(true),
             _ => false,
         };
         if self.store.place(id, spot) {
+            if let Some(folder) = folder {
+                self.sync.set_place(id, folder.as_deref());
+            }
             self.touched();
         } else if into_locked {
             self.toast = Some(Toast::info(
@@ -1598,8 +1647,10 @@ rental = rent + 50
                 if i >= self.store.sheets.len() {
                     return;
                 }
+                let id = self.store.sheets[i].id.clone();
                 let title = self.store.sheets[i].title();
                 self.store.delete(i);
+                self.sync.delete_page(&id);
                 self.trash_at = None;
                 self.toast = Some(Toast::undo(format!("Deleted \u{201c}{title}\u{201d}")));
                 self.sheet_switched();
@@ -1618,6 +1669,10 @@ rental = rent + 50
 
     fn restore_trashed(&mut self, id: &str) {
         if let Some(title) = self.store.restore(id) {
+            if let Some(sheet) = self.store.sheets.iter().find(|sheet| sheet.id == id) {
+                let text = sheet.text.clone();
+                self.sync.restore_page(id, &text);
+            }
             self.trash_at = None;
             self.toast = Some(Toast::info(format!("Restored \u{201c}{title}\u{201d}")));
             self.sheet_switched();
@@ -2112,9 +2167,10 @@ rental = rent + 50
         }
         let fade = 1.0 - (age.as_secs_f32() / show_for.as_secs_f32()).powi(6);
         let theme = self.theme.clone();
-        let (text, undo, error, folder) = (
+        let (text, undo, sync_move, error, folder) = (
             toast.text.clone(),
             toast.undo,
+            toast.sync_move,
             toast.error,
             toast.open_folder.clone(),
         );
@@ -2173,7 +2229,12 @@ rental = rent + 50
         }
         if undone {
             self.toast = None;
-            if self.cross_undo.is_some() {
+            if sync_move {
+                if let Some((id, inside)) = self.sync_undo.take() {
+                    self.sync.set_in_set(&id, inside);
+                    let _ = self.sync.sync_now();
+                }
+            } else if self.cross_undo.is_some() {
                 self.restore_cross_undo();
             } else if self.store.undo_delete().is_some() {
                 self.sheet_switched();
@@ -2183,51 +2244,140 @@ rental = rent + 50
         ctx.request_repaint();
     }
 
-    /// How sync works. Set up continues in the web app. This window keeps pages in a folder.
-    fn show_sync_intro(&mut self, ctx: &egui::Context) {
-        if !self.sync_intro {
-            return;
-        }
+    /// How sync works, then the setup, in this window.
+    fn show_sync(&mut self, ctx: &egui::Context) {
+        self.tick_sync(ctx);
         let theme = self.theme.clone();
-        let mut setup = false;
-        let mut close = false;
-        let frame = design::dialog(&theme);
-        let modal = egui::Modal::new(egui::Id::unique("omacus-sync-intro"))
-            .frame(frame)
-            .backdrop_color(design::backdrop(&theme))
-            .show(ctx, |ui| {
-                ui.set_width(380.0);
-                ui.label(
-                    egui::RichText::new("How sync works")
-                        .size(theme::token::TYPE_TITLE)
-                        .color(theme.foreground),
-                );
-                ui.add_space(8.0);
-                for line in sync_intro_lines() {
-                    ui.label(
-                        egui::RichText::new(*line)
-                            .size(theme::token::TYPE_BODY)
-                            .color(theme.dim),
-                    );
-                    ui.add_space(8.0);
+        if let Some(id) = sync::show(ctx, &theme, &mut self.sync) {
+            if let Some(i) = self.store.sheets.iter().position(|sheet| sheet.id == id) {
+                self.store.select(i);
+            }
+            self.focus_editor = true;
+        }
+        if let Some(ask) = self.sync.take_announced() {
+            let where_name = if ask.inside {
+                self.sync.vault_name().to_string()
+            } else {
+                "On this computer".to_string()
+            };
+            self.sync_undo = Some((ask.id, !ask.inside));
+            self.toast = Some(Toast::moved(format!(
+                "Moved {} to {where_name}.",
+                ask.title
+            )));
+        }
+    }
+
+    fn tick_sync(&mut self, ctx: &egui::Context) {
+        if self.sync.active() && self.sync.screen == sync::Screen::Closed {
+            let edits: Vec<(String, String)> = self
+                .store
+                .sheets
+                .iter()
+                .filter(|sheet| sheet.revealed())
+                .map(|sheet| (sheet.id.clone(), sheet.text.clone()))
+                .collect();
+            for (id, text) in edits {
+                let changed = self
+                    .sync
+                    .page_text(&id)
+                    .map(|have| have != text)
+                    .unwrap_or(true);
+                if changed {
+                    self.sync.note_edit(&id, &text);
                 }
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    setup = design::primary(ui, &theme, "Set up sync").clicked();
-                    close = design::quiet(ui, &theme, "Not now").clicked();
-                });
-            });
-        if modal.should_close() {
-            close = true;
+            }
         }
-        if setup {
-            self.sync_intro = false;
-            ctx.open_url(egui::OpenUrl::new_tab(sync_setup_url()));
-            self.focus_editor = true;
-        } else if close {
-            self.sync_intro = false;
-            self.focus_editor = true;
+        let wait = self.sync.waiting() || self.sync.screen == sync::Screen::Waiting;
+        let every = if wait {
+            Duration::from_millis(800)
+        } else {
+            Duration::from_secs(4)
+        };
+        if self.sync.active() && self.sync_poll.elapsed() >= every {
+            self.sync_poll = Instant::now();
+            let _ = self.sync.poll();
+            if self.store.sync().active_changed {
+                self.evaluate();
+            }
         }
+        if self.sync.screen != sync::Screen::Closed
+            || self.sync.chip(Instant::now()).label().is_some()
+        {
+            ctx.request_repaint_after(every);
+        }
+    }
+
+    fn sync_bar_on(&self) -> bool {
+        self.sync.screen != sync::Screen::Closed
+            || self.sync.grouped()
+            || self.sync.chip(Instant::now()).label().is_some()
+    }
+
+    fn sync_title(&self, ui: &mut egui::Ui) {
+        let theme = &self.theme;
+        let heading = self
+            .store
+            .sheets
+            .get(self.store.active)
+            .map(|sheet| sheet.heading())
+            .unwrap_or_default();
+        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::hover());
+        ui.painter().text(
+            pos2(row.left() + 8.0, row.center().y),
+            Align2::LEFT_CENTER,
+            heading,
+            FontId::proportional(theme::token::TYPE_LABEL),
+            theme.foreground,
+        );
+        let chip = self.sync.chip(Instant::now());
+        if let Some(label) = chip.label() {
+            let ink = if chip == sync::Chip::NotSaved {
+                theme.danger()
+            } else {
+                theme.foreground
+            };
+            let dot = if chip == sync::Chip::NotSaved {
+                theme.danger()
+            } else {
+                theme.defined
+            };
+            let galley = ui.painter().layout_no_wrap(
+                label.to_string(),
+                FontId::proportional(theme::token::TYPE_BODY),
+                ink,
+            );
+            let width = galley.size().x + 28.0;
+            let chip = Rect::from_min_size(
+                pos2(row.right() - width - 8.0, row.center().y - 14.0),
+                vec2(width, 28.0),
+            );
+            ui.painter().rect_filled(
+                chip,
+                CornerRadius::same(theme::token::RADIUS_MD),
+                theme.background,
+            );
+            ui.painter().rect_stroke(
+                chip,
+                CornerRadius::same(theme::token::RADIUS_MD),
+                egui::Stroke::new(1.0, theme.border()),
+                egui::StrokeKind::Inside,
+            );
+            ui.painter()
+                .circle_filled(pos2(chip.left() + 12.0, chip.center().y), 4.0, dot);
+            ui.painter().galley(
+                pos2(chip.left() + 20.0, chip.center().y - galley.size().y / 2.0),
+                galley,
+                ink,
+            );
+        }
+        ui.painter().line_segment(
+            [
+                pos2(row.left(), row.bottom()),
+                pos2(row.right(), row.bottom()),
+            ],
+            egui::Stroke::new(1.0, theme.border()),
+        );
     }
 
     /// The update window: what's new, and installing it.
@@ -2363,7 +2513,12 @@ rental = rent + 50
         }
         let (first, last) = self.store.at_sibling_edge(i);
         let page_menu = self.page_menu(i);
-        menu.show(|ui| sheet_menu(ui, i, !first, !last, page_menu, &mut action));
+        let in_set = self
+            .store
+            .sheets
+            .get(i)
+            .and_then(|sheet| self.sync.grouped().then(|| self.sync.in_set(&sheet.id)));
+        menu.show(|ui| sheet_menu(ui, i, !first, !last, page_menu, in_set, &mut action));
         dots.on_hover_text("Share, copy and more");
         ui.add_space(2.0);
 
@@ -2486,14 +2641,17 @@ rental = rent + 50
         let mut purge = None;
         self.refresh_trash(false);
 
+        let grouped = self.sync.grouped();
         let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), BAR_ROW), Sense::hover());
-        ui.painter().text(
-            pos2(row.left() + 14.0, row.center().y),
-            Align2::LEFT_CENTER,
-            "Pages",
-            FontId::proportional(theme::token::TYPE_CAPTION),
-            theme.text_muted(),
-        );
+        if !grouped {
+            ui.painter().text(
+                pos2(row.left() + 14.0, row.center().y),
+                Align2::LEFT_CENTER,
+                "Pages",
+                FontId::proportional(theme::token::TYPE_CAPTION),
+                theme.text_muted(),
+            );
+        }
         let id = ui.scope_id();
         let collapse = icon_button(
             ui,
@@ -2551,128 +2709,229 @@ rental = rent + 50
         let viewing = self.preview.clone();
         let mut dropped: Option<(String, Place)> = None;
         let mut expand_id: Option<String> = None;
+        let vault_rows = vault_row_indexes(&entries, |id| self.sync.in_set(id));
+        let passes = if grouped {
+            vec![SidePass::Vault, SidePass::Here]
+        } else {
+            vec![SidePass::All]
+        };
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .max_height((ui.available_height() - 38.0 - theme::token::HIT - 8.0).max(0.0))
             .show(ui, |ui| {
-                for entry in &entries {
-                    let indent = entry.depth as f32 * 14.0;
-                    match &entry.kind {
-                        SideKind::Folder {
-                            id: folder_id,
-                            name,
-                            collapsed,
-                        } => {
-                            let resp = sidebar_row(
-                                ui,
-                                &theme,
-                                RowLook {
-                                    heading: name,
-                                    selected: false,
-                                    accent: false,
-                                    indent,
-                                    chevron: Some(*collapsed),
-                                    drag: true,
-                                    lock: self.store.folder_lock(folder_id),
-                                },
-                            );
-                            resp.dnd_set_drag_payload(DragPayload {
-                                id: folder_id.clone(),
-                                folder: true,
-                            });
-                            let dots = sidebar_dots(
-                                ui,
-                                &resp.rect,
-                                ui.scope_id().with(("folder-dots", folder_id.clone())),
-                            );
-                            let menu = egui::Popup::menu(&dots);
-                            let open = menu.is_open();
-                            if resp.hovered() || dots.hovered() || open {
-                                dots_button(ui, &dots, &theme, open);
+                for pass in passes {
+                    if grouped {
+                        if pass == SidePass::Here {
+                            ui.add_space(10.0);
+                        }
+                        let label = match pass {
+                            SidePass::Vault => self.sync.vault_name().to_string(),
+                            SidePass::Here => "On this computer".to_string(),
+                            SidePass::All => String::new(),
+                        };
+                        section_label(ui, &theme, &label);
+                        ui.add_space(4.0);
+                    }
+                    let mut shown = 0usize;
+                    for (index, entry) in entries.iter().enumerate() {
+                        let page_in = match &entry.kind {
+                            SideKind::Page { id } => self.sync.in_set(id),
+                            SideKind::Folder { .. } => false,
+                        };
+                        let keep = match pass {
+                            SidePass::All => true,
+                            SidePass::Vault => vault_rows.contains(&index),
+                            SidePass::Here => {
+                                matches!(entry.kind, SideKind::Page { .. }) && !page_in
                             }
-                            let can_nest = self.store.can_nest_folder(Some(folder_id));
-                            let flock = self.store.folder_lock(folder_id);
-                            let any_open = self.store.any_unlocked();
-                            let folder_id = folder_id.clone();
-                            menu.show(|ui| {
-                                folder_menu(ui, &folder_id, can_nest, flock, any_open, &mut action);
-                            });
-                            let pick = resp.clicked() && !dots.clicked();
-                            dots.on_hover_text("Rename, or delete the folder");
-                            resp.context_menu(|ui| {
-                                folder_menu(ui, &folder_id, can_nest, flock, any_open, &mut action);
-                            });
-                            if pick {
-                                action = Some(SheetAction::ToggleFolder(folder_id.clone()));
-                            }
-                            self.note_drop(
-                                ui,
-                                &resp,
-                                &folder_id,
-                                DropTarget {
+                        };
+                        if !keep {
+                            continue;
+                        }
+                        shown += 1;
+                        let indent = if pass == SidePass::Here {
+                            0.0
+                        } else {
+                            entry.depth as f32 * 14.0
+                        };
+                        match &entry.kind {
+                            SideKind::Folder {
+                                id: folder_id,
+                                name,
+                                collapsed,
+                            } => {
+                                let resp = sidebar_row(
+                                    ui,
+                                    &theme,
+                                    RowLook {
+                                        heading: name,
+                                        selected: false,
+                                        accent: false,
+                                        indent,
+                                        chevron: Some(*collapsed),
+                                        drag: true,
+                                        lock: self.store.folder_lock(folder_id),
+                                        bright: false,
+                                    },
+                                );
+                                resp.dnd_set_drag_payload(DragPayload {
+                                    id: folder_id.clone(),
                                     folder: true,
-                                    collapsed: *collapsed,
-                                    dropped: &mut dropped,
-                                    expand_id: &mut expand_id,
-                                },
-                            );
-                        }
-                        SideKind::Page { id } => {
-                            let Some(&i) = indexes.get(id) else {
-                                continue;
-                            };
-                            let heading =
-                                headings.get(id).map(String::as_str).unwrap_or("Untitled");
-                            let active = i == self.store.active && viewing.is_none();
-                            let (first, last) = self.store.at_sibling_edge(i);
-                            let page_menu = self.page_menu(i);
-                            let resp = sidebar_row(
-                                ui,
-                                &theme,
-                                RowLook {
-                                    heading,
-                                    selected: active,
-                                    accent: true,
-                                    indent,
-                                    chevron: None,
-                                    drag: true,
-                                    lock: self.store.page_lock(id),
-                                },
-                            );
-                            resp.dnd_set_drag_payload(DragPayload {
-                                id: id.clone(),
-                                folder: false,
-                            });
-                            let dots =
-                                sidebar_dots(ui, &resp.rect, ui.scope_id().with(("sheet-dots", i)));
-                            let menu = egui::Popup::menu(&dots);
-                            let open = menu.is_open();
-                            if active || resp.hovered() || dots.hovered() || open {
-                                dots_button(ui, &dots, &theme, open);
+                                });
+                                let dots = sidebar_dots(
+                                    ui,
+                                    &resp.rect,
+                                    ui.scope_id().with(("folder-dots", folder_id.clone())),
+                                );
+                                let menu = egui::Popup::menu(&dots);
+                                let open = menu.is_open();
+                                if resp.hovered() || dots.hovered() || open {
+                                    dots_button(ui, &dots, &theme, open);
+                                }
+                                let can_nest = self.store.can_nest_folder(Some(folder_id));
+                                let flock = self.store.folder_lock(folder_id);
+                                let any_open = self.store.any_unlocked();
+                                let folder_id = folder_id.clone();
+                                menu.show(|ui| {
+                                    folder_menu(
+                                        ui,
+                                        &folder_id,
+                                        can_nest,
+                                        flock,
+                                        any_open,
+                                        &mut action,
+                                    );
+                                });
+                                let pick = resp.clicked() && !dots.clicked();
+                                dots.on_hover_text("Rename, or delete the folder");
+                                resp.context_menu(|ui| {
+                                    folder_menu(
+                                        ui,
+                                        &folder_id,
+                                        can_nest,
+                                        flock,
+                                        any_open,
+                                        &mut action,
+                                    );
+                                });
+                                if pick {
+                                    action = Some(SheetAction::ToggleFolder(folder_id.clone()));
+                                }
+                                self.note_drop(
+                                    ui,
+                                    &resp,
+                                    &folder_id,
+                                    DropTarget {
+                                        folder: true,
+                                        collapsed: *collapsed,
+                                        dropped: &mut dropped,
+                                        expand_id: &mut expand_id,
+                                    },
+                                );
                             }
-                            menu.show(|ui| {
-                                sheet_menu(ui, i, !first, !last, page_menu, &mut action)
-                            });
-                            let pick = resp.clicked() && !dots.clicked();
-                            dots.on_hover_text("Share, copy and more");
-                            if pick {
-                                action = Some(SheetAction::Select(i));
-                            }
-                            resp.context_menu(|ui| {
-                                sheet_menu(ui, i, !first, !last, page_menu, &mut action);
-                            });
-                            self.note_drop(
-                                ui,
-                                &resp,
-                                id,
-                                DropTarget {
+                            SideKind::Page { id } => {
+                                let Some(&i) = indexes.get(id) else {
+                                    continue;
+                                };
+                                let heading =
+                                    headings.get(id).map(String::as_str).unwrap_or("Untitled");
+                                let active = i == self.store.active && viewing.is_none();
+                                let (first, last) = self.store.at_sibling_edge(i);
+                                let page_menu = self.page_menu(i);
+                                let in_set = self.sync.grouped().then_some(page_in);
+                                let resp = sidebar_row(
+                                    ui,
+                                    &theme,
+                                    RowLook {
+                                        heading,
+                                        selected: active,
+                                        accent: true,
+                                        indent,
+                                        chevron: None,
+                                        drag: true,
+                                        lock: self.store.page_lock(id),
+                                        bright: false,
+                                    },
+                                );
+                                resp.dnd_set_drag_payload(DragPayload {
+                                    id: id.clone(),
                                     folder: false,
-                                    collapsed: false,
-                                    dropped: &mut dropped,
-                                    expand_id: &mut expand_id,
-                                },
-                            );
+                                });
+                                let dots = sidebar_dots(
+                                    ui,
+                                    &resp.rect,
+                                    ui.scope_id().with(("sheet-dots", i)),
+                                );
+                                let menu = egui::Popup::menu(&dots);
+                                let open = menu.is_open();
+                                if active || resp.hovered() || dots.hovered() || open {
+                                    dots_button(ui, &dots, &theme, open);
+                                }
+                                menu.show(|ui| {
+                                    sheet_menu(ui, i, !first, !last, page_menu, in_set, &mut action)
+                                });
+                                let pick = resp.clicked() && !dots.clicked();
+                                dots.on_hover_text("Share, copy and more");
+                                if pick {
+                                    action = Some(SheetAction::Select(i));
+                                }
+                                resp.context_menu(|ui| {
+                                    sheet_menu(
+                                        ui,
+                                        i,
+                                        !first,
+                                        !last,
+                                        page_menu,
+                                        in_set,
+                                        &mut action,
+                                    );
+                                });
+                                self.note_drop(
+                                    ui,
+                                    &resp,
+                                    id,
+                                    DropTarget {
+                                        folder: false,
+                                        collapsed: false,
+                                        dropped: &mut dropped,
+                                        expand_id: &mut expand_id,
+                                    },
+                                );
+                            }
                         }
+                    }
+                    if grouped && pass == SidePass::Here && shown == 0 {
+                        let (hint, _) = ui
+                            .allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+                        ui.painter().text(
+                            pos2(hint.left() + 14.0, hint.center().y),
+                            Align2::LEFT_CENTER,
+                            "Pages you move here stay on this computer.",
+                            FontId::proportional(theme::token::TYPE_CAPTION),
+                            theme.text_muted(),
+                        );
+                    }
+                }
+                if grouped && self.sync.waiting() {
+                    let resp = sidebar_row(
+                        ui,
+                        &theme,
+                        RowLook {
+                            heading: "Device waiting",
+                            selected: false,
+                            accent: false,
+                            indent: 0.0,
+                            chevron: None,
+                            drag: false,
+                            lock: None,
+                            bright: true,
+                        },
+                    );
+                    if resp
+                        .on_hover_text("Approve this phone or computer")
+                        .clicked()
+                    {
+                        self.sync.open_approve();
                     }
                 }
                 if !self.trash.is_empty() {
@@ -2698,6 +2957,7 @@ rental = rent + 50
                                 chevron: None,
                                 drag: false,
                                 lock: item.locked.then_some(true),
+                                bright: false,
                             },
                         );
                         let dots = sidebar_dots(
@@ -2770,26 +3030,59 @@ rental = rent + 50
             self.paint_drag_chip(ui.ctx());
         }
         if let Some((id, spot)) = dropped {
-            self.place_page(&id, spot);
+            let folder = self.store.folder_name(&id).is_some();
+            let target = match &spot {
+                Place::Before(target) | Place::After(target) | Place::Into(target) => {
+                    Some(target.clone())
+                }
+                Place::RootEnd => None,
+            };
+            let ask = if self.sync.grouped() && !folder {
+                target.and_then(|target| {
+                    if self.store.folder_name(&target).is_some() {
+                        return None;
+                    }
+                    if self.sync.in_set(&id) == self.sync.in_set(&target) {
+                        return None;
+                    }
+                    let title = self
+                        .store
+                        .sheets
+                        .iter()
+                        .find(|sheet| sheet.id == id)
+                        .map(|sheet| sheet.heading())
+                        .unwrap_or_default();
+                    Some((title, self.sync.in_set(&target)))
+                })
+            } else {
+                None
+            };
+            if let Some((title, inside)) = ask {
+                self.sync.ask_set_move(&id, &title, inside);
+            } else {
+                self.place_page(&id, spot);
+            }
         }
 
         ui.add_space(6.0);
-        let turn_on = ui.add_sized(
-            [ui.available_width(), theme::token::HIT],
-            egui::Button::new(
-                egui::RichText::new("Turn on sync")
-                    .size(theme::token::TYPE_BODY)
-                    .color(theme.text()),
-            )
-            .fill(theme.background)
-            .stroke(egui::Stroke::new(1.0, theme.border()))
-            .corner_radius(design::radius_row())
-            .min_size(vec2(ui.available_width(), theme::token::HIT)),
-        );
-        if turn_on.on_hover_text("How sync works").clicked() {
-            self.sync_intro = true;
+        if self.sync.offer_setup() {
+            let turn_on = ui.add_sized(
+                [ui.available_width(), theme::token::HIT],
+                egui::Button::new(
+                    egui::RichText::new("Turn on sync")
+                        .size(theme::token::TYPE_BODY)
+                        .color(theme.text()),
+                )
+                .fill(theme.background)
+                .stroke(egui::Stroke::new(1.0, theme.border()))
+                .corner_radius(design::radius_row())
+                .min_size(vec2(ui.available_width(), theme::token::HIT)),
+            );
+            if turn_on.on_hover_text("How sync works").clicked() {
+                self.sync.open_intro();
+            }
+            ui.add_space(6.0);
         }
-        ui.add_space(6.0);
         self.sidebar_footer(ui, &theme);
 
         if let Some(a) = action {
@@ -4187,8 +4480,19 @@ rental = rent + 50
             .clicked()
         {
             self.apply(SheetAction::New);
-        } else if turn_on.on_hover_text("Turn on sync").clicked() {
-            self.sync_intro = true;
+        } else if turn_on
+            .on_hover_text(if self.sync.grouped() {
+                "Sync"
+            } else {
+                "Turn on sync"
+            })
+            .clicked()
+        {
+            if self.sync.offer_setup() {
+                self.sync.open_intro();
+            } else if self.sync.grouped() {
+                self.sync.show_home();
+            }
         } else if gear
             .on_hover_text(format!("Settings ({})", help::keys("Ctrl+,")))
             .clicked()
@@ -4994,6 +5298,9 @@ impl eframe::App for OmacusApp {
             } else if concealed {
                 self.show_lock_gate(ui);
             } else {
+                if self.sync_bar_on() {
+                    self.sync_title(ui);
+                }
                 self.sheet_bar(ui);
                 egui::ScrollArea::vertical()
                     .id_salt(("scroll", &self.store.sheets[self.store.active].id))
@@ -5006,7 +5313,7 @@ impl eframe::App for OmacusApp {
         self.popup(&ctx);
         self.show_help(&ctx);
         self.show_update(&ctx);
-        self.show_sync_intro(&ctx);
+        self.show_sync(&ctx);
         self.show_delete(&ctx);
         self.show_pick(&ctx);
         self.show_move(&ctx);
@@ -5045,6 +5352,7 @@ fn sheet_menu(
     can_up: bool,
     can_down: bool,
     menu: PageMenu,
+    in_set: Option<bool>,
     action: &mut Option<SheetAction>,
 ) {
     let item = |ui: &mut egui::Ui, text: &str, keys: Option<&str>| {
@@ -5082,6 +5390,16 @@ fn sheet_menu(
     }
     if item(ui, "Move to folder…", None) {
         *action = Some(SheetAction::MoveTo(i));
+    }
+    if let Some(inside) = in_set {
+        let label = if inside {
+            "Move to this computer"
+        } else {
+            "Move to My pages"
+        };
+        if item(ui, label, None) {
+            *action = Some(SheetAction::SyncSet(i, !inside));
+        }
     }
     ui.separator();
     lock_page_items(ui, i, menu, action);
@@ -5203,18 +5521,80 @@ enum Icon {
     Cloud,
 }
 
-/// The short explanation before setup. The desktop app does not seal pages.
-fn sync_intro_lines() -> &'static [&'static str] {
-    &[
-        "Pages are encrypted on your phone or computer before they leave. The server keeps them, and it cannot read them.",
-        "You get 12 recovery words. They are the only way back in if you lose every phone and computer. Write them down. Omacus does not keep a copy.",
-        "You link another phone or computer with a code. After that, your pages stay in step, even when one of them is offline.",
-        "Set up sync continues in the web app. Pages in this window stay in a folder on this computer.",
-    ]
+fn sync_dir() -> std::path::PathBuf {
+    crate::sheets::data_root().unwrap_or_else(|| std::env::temp_dir().join("omacus"))
 }
 
-fn sync_setup_url() -> &'static str {
-    "https://app.omacus.com/?sync=setup"
+fn sync_origin() -> String {
+    std::env::var("OMACUS_SYNC_URL").unwrap_or_else(|_| "https://sync.omacus.com".into())
+}
+
+fn local_pages(store: &Store) -> sync::LocalPages {
+    let doc = store
+        .directory()
+        .and_then(|dir| std::fs::read(dir.join("library.automerge")).ok())
+        .unwrap_or_else(|| omacus_doc::Library::new().save());
+    sync::LocalPages {
+        doc,
+        pages: store
+            .sheets
+            .iter()
+            .map(|sheet| (sheet.id.clone(), sheet.stored().to_string()))
+            .collect(),
+        locked: store
+            .sheets
+            .iter()
+            .filter(|sheet| sheet.locked() && !sheet.revealed())
+            .map(|sheet| sheet.id.clone())
+            .collect(),
+    }
+}
+
+fn seed_sync_screen(store: &mut Store, kind: &str) {
+    let trip = "Trip Budget\nFlights $640\nHotel, 4 nights $820";
+    if store.sheets.is_empty() {
+        store.new_sheet(trip);
+    } else {
+        store.sheets[0].text = trip.into();
+        store.sheets[0].mark_dirty();
+    }
+    if !store
+        .sheets
+        .iter()
+        .any(|sheet| sheet.heading() == "Groceries")
+    {
+        store.new_sheet("Groceries\nmilk 3");
+    }
+    if kind == "locked" {
+        store.new_sheet("Harbor notes\npier 12");
+        if let Some(sheet) = store
+            .sheets
+            .iter()
+            .find(|sheet| sheet.text.starts_with("Harbor notes"))
+        {
+            let id = sheet.id.clone();
+            let _ = store.lock_page(&id, "harbor-secret");
+        }
+    }
+    if kind == "waiting"
+        && !store
+            .sheets
+            .iter()
+            .any(|sheet| sheet.heading() == "Scratch")
+    {
+        store.new_sheet("Scratch\n");
+    }
+    if kind == "locked" {
+        if let Some(i) = store.sheets.iter().position(|sheet| sheet.locked()) {
+            store.select(i);
+        }
+    } else if let Some(i) = store
+        .sheets
+        .iter()
+        .position(|sheet| sheet.heading() == "Trip Budget")
+    {
+        store.select(i);
+    }
 }
 
 /// Drawn rather than typed, so they match each other, Share and ⋯ in any font.
@@ -5524,6 +5904,50 @@ fn icon_slot(row: Rect, slot: usize) -> Rect {
     Rect::from_center_size(pos2(x, row.center().y), Vec2::splat(ICON_BOX))
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SidePass {
+    All,
+    Vault,
+    Here,
+}
+
+/// Folder rows that still hold a page in My pages, plus those pages.
+fn vault_row_indexes(
+    entries: &[crate::sheets::SideEntry],
+    in_vault: impl Fn(&str) -> bool,
+) -> HashSet<usize> {
+    let mut show = HashSet::new();
+    let mut stack: Vec<(usize, usize, bool)> = Vec::new();
+    for (index, entry) in entries.iter().enumerate() {
+        while stack
+            .last()
+            .is_some_and(|(_, depth, _)| *depth >= entry.depth)
+        {
+            let (idx, _, has) = stack.pop().unwrap();
+            if has {
+                show.insert(idx);
+            }
+        }
+        match &entry.kind {
+            SideKind::Folder { .. } => stack.push((index, entry.depth, false)),
+            SideKind::Page { id } => {
+                if in_vault(id) {
+                    show.insert(index);
+                    for item in &mut stack {
+                        item.2 = true;
+                    }
+                }
+            }
+        }
+    }
+    while let Some((idx, _, has)) = stack.pop() {
+        if has {
+            show.insert(idx);
+        }
+    }
+    show
+}
+
 /// "Pages", "Recently deleted": lined up with the page names below.
 fn section_label(ui: &mut egui::Ui, theme: &Theme, text: &str) {
     let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::hover());
@@ -5696,11 +6120,16 @@ fn is_system_dark(ctx: &egui::Context) -> bool {
 }
 
 pub fn run() -> eframe::Result {
+    let size = if std::env::var("OMACUS_SYNC_SCREEN").is_ok() {
+        Vec2::new(1280.0, 800.0)
+    } else {
+        Vec2::new(980.0, 600.0)
+    };
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_app_id("omacus")
             .with_title("Omacus")
-            .with_inner_size(Vec2::new(980.0, 600.0))
+            .with_inner_size(size)
             .with_min_inner_size(Vec2::new(420.0, 220.0))
             .with_icon(eframe::icon_data::from_png_bytes(ICON).unwrap_or_default()),
         #[cfg(windows)]
@@ -5949,6 +6378,8 @@ struct RowLook<'a> {
     drag: bool,
     /// `Some(true)` is a closed lock, `Some(false)` an open one.
     lock: Option<bool>,
+    /// Foreground text when the row is not the open page.
+    bright: bool,
 }
 
 fn sidebar_row(ui: &mut egui::Ui, theme: &Theme, look: RowLook<'_>) -> egui::Response {
@@ -5967,7 +6398,7 @@ fn sidebar_row(ui: &mut egui::Ui, theme: &Theme, look: RowLook<'_>) -> egui::Res
     } else if resp.hovered() {
         painter.rect_filled(rect, design::radius_row(), theme.hover);
     }
-    let color = if look.selected {
+    let color = if look.selected || look.bright {
         theme.foreground
     } else {
         theme.dim
@@ -6078,8 +6509,8 @@ mod tests {
         apply_switcher_query, empty_sheet_hint, hover_from_line, hover_tip_rect, icon_slot,
         line_at, move_folder_command, name_hint_visible, new_folder_command, owns_key,
         rename_command, settings_command, sheet_event_filter, shortcut_for, shown_pop,
-        sidebar_accent, sidebar_label_job, switcher_takes_focus, sync_intro_lines, sync_setup_url,
-        take_chords, take_name_field_key, take_switcher_edits,
+        sidebar_accent, sidebar_label_job, switcher_takes_focus, take_chords, take_name_field_key,
+        take_switcher_edits,
     };
     use eframe::egui::{Color32, Event, FontId, ImeEvent, Key, Modifiers, Rect, pos2, vec2};
     use std::time::Duration;
@@ -6381,14 +6812,15 @@ mod tests {
 
     #[test]
     fn turn_on_sync_explains_the_idea_before_setup() {
-        let text = sync_intro_lines().join(" ");
+        let text = crate::sync::intro_lines().join(" ");
         assert!(text.contains("cannot read them"));
         assert!(text.contains("12 recovery words"));
         assert!(text.contains("link another phone"));
-        assert!(text.contains("Pages in this window stay in a folder"));
+        assert!(text.contains("stay as files on this computer"));
+        assert!(text.contains("encrypted on this computer"));
         assert!(!text.to_lowercase().contains("paused"));
         assert!(!text.contains("coming soon"));
-        assert_eq!(sync_setup_url(), "https://app.omacus.com/?sync=setup");
+        assert!(!text.contains("continues in the web app"));
     }
 
     #[test]

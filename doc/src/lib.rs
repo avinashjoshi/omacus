@@ -77,6 +77,7 @@ impl Library {
         let _ = doc.put(ROOT, "vault", VAULT_ID);
         let _ = doc.put_object(ROOT, "pages", ObjType::List);
         let _ = doc.put_object(ROOT, "folders", ObjType::List);
+        let _ = doc.put_object(ROOT, "places", ObjType::Map);
         let _ = doc.put(ROOT, "next", 1_i64);
         doc.commit();
         Self { doc }
@@ -419,7 +420,43 @@ impl Library {
         if self.child(&ROOT, "folders").is_none() {
             let _ = self.doc.put_object(ROOT, "folders", ObjType::List);
         }
+        if self.child(&ROOT, "places").is_none() {
+            let _ = self.doc.put_object(ROOT, "places", ObjType::Map);
+        }
         self.doc.commit();
+    }
+
+    /// Which folder holds a page. Absent means the page stays at the root.
+    /// The folder list itself is [`Library::folders`].
+    pub fn set_place(&mut self, page_id: &str, folder: Option<&str>) {
+        self.doc.commit();
+        let Some(map) = self.child(&ROOT, "places") else {
+            return;
+        };
+        if let Some(folder) = folder {
+            let _ = self.doc.put(&map, page_id, folder);
+        } else {
+            let _ = self.doc.delete(&map, page_id);
+        }
+        self.doc.commit();
+    }
+
+    pub fn place_of(&self, page_id: &str) -> Option<String> {
+        let map = self.child(&ROOT, "places")?;
+        self.str_at(&map, page_id)
+    }
+
+    pub fn places(&self) -> Vec<(String, String)> {
+        let Some(map) = self.child(&ROOT, "places") else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for key in self.doc.keys(&map) {
+            if let Some(folder) = self.str_at(&map, &key) {
+                out.push((key, folder));
+            }
+        }
+        out
     }
 
     fn reconcile_sealed(

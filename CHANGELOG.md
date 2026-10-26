@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+**Sync on this computer**
+
+Pages in the desktop app can sync with a phone. Turn on sync stays in this window. The server still cannot read the pages.
+
 ## 1.0.0
 
 **Sync is here**

@@ -16,6 +16,7 @@ homepage = "https://github.com/avinashjoshi/omacus"
 [dependencies]
 omacus-engine = { path = "engine" }
 omacus-doc = { path = "doc" }
+omacus-sync-web = { path = "sync-web" }
 dirs = "7.0.0"
 # The renderer is chosen per target below. glow (OpenGL) is not listed here:
 # a Windows dependency line adds to this one, and would still compile glow in.
@@ -38,6 +39,11 @@ clap_complete = "4.5"
 # stdio MCP server (`omacus mcp`). Default features pull a client we don't run.
 rmcp = { version = "3.7.0", default-features = false, features = ["server", "macros", "transport-io"] }
 tokio = { version = "1", default-features = false, features = ["rt", "macros", "io-util", "sync"] }
+qrcode = { version = "0.14", default-features = false }
+rqrr = "0.9"
+zeroize = "1"
+arboard = "3"
+getrandom = "0.2"
 
 [build-dependencies]
 miniz_oxide = "0.8"
@@ -51,8 +57,12 @@ winresource = "0.1"
 eframe = { version = "0.37.0", default-features = false, features = ["glow"] }
 
 # Share links clicked on macOS arrive as an Apple Event (see src/links.rs).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
+security-framework = { version = "3", features = ["OSX_10_15"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSString", "objc2-core-services"] }
 
 [target.'cfg(windows)'.dependencies]
@@ -62,12 +72,13 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 # is not compiled into the Windows binary.
 eframe = { version = "0.37.0", default-features = false, features = ["wgpu_no_default_features"] }
 wgpu = { version = "30", default-features = false, features = ["dx12", "std", "wgsl"] }
-windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_System_Registry", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_System_Registry", "Win32_UI_WindowsAndMessaging", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_IO"] }
 # Updates on Windows arrive as the release .zip.
 zip = { version = "9.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 omacus-engine = { path = "engine" }
+omacus-relay = { path = "relay" }
 zip = { version = "9.0", default-features = false, features = ["deflate"] }
 
 [profile.release]

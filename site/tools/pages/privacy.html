@@ -11,7 +11,7 @@ related: /docs/, /use-cases/
 -->
     <h2 id="desktop">The desktop app</h2>
     <ul>
-      <li><strong>Your pages</strong> are plain text files in a folder on your computer (see <a href="/docs/#files">where files live</a>). They are not uploaded. The <strong>Turn on sync</strong> button in the sidebar explains sync, then continues in the web app. This site does not collect an email.</li>
+      <li><strong>Your pages</strong> are plain text files in a folder on your computer (see <a href="/docs/#files">where files live</a>). With sync on, a sealed copy can leave this computer. The server cannot read it. The <strong>Turn on sync</strong> button in the sidebar explains sync, then sets it up in that window. This site does not collect an email.</li>
       <li><strong>Exchange rates.</strong> Omacus downloads the latest rates from <a href="https://www.exchangerate-api.com/docs/free">open.er-api.com</a> at most every 12 hours while you use it, and keeps them on disk so currency math works offline. The request carries nothing from your pages.</li>
       <li><strong>Checking for updates.</strong> Omacus asks GitHub for the latest version number when it starts (at most once an hour) and every 4 hours while it's open. Put <code>check_for_updates = false</code> in <code>settings.toml</code> to turn that off. A new version is downloaded, from GitHub, only when you choose <em>Update now</em> or run <code>omacus update</code>.</li>
       <li><strong>Nothing else.</strong> No telemetry, no crash reports, no usage statistics.</li>

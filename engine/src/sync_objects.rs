@@ -201,6 +201,25 @@ pub fn three_way(
     Ok(text)
 }
 
+fn place_in(doc: &[u8], page_id: &str) -> Option<String> {
+    omacus_doc::Library::load(doc).ok()?.place_of(page_id)
+}
+
+fn place_of_doc(doc: &[u8], page_id: &str) -> Option<String> {
+    if doc.is_empty() {
+        return None;
+    }
+    place_in(doc, page_id)
+}
+
+fn with_place(doc: &[u8], page_id: &str, folder: Option<&str>) -> Result<Vec<u8>, SyncKeyError> {
+    let mut lib = omacus_doc::Library::load(doc).map_err(|_| SyncKeyError::Corrupt)?;
+    if lib.place_of(page_id).as_deref() != folder {
+        lib.set_place(page_id, folder);
+    }
+    Ok(lib.save())
+}
+
 fn folders_of(doc: &[u8]) -> Vec<FolderRow> {
     if doc.is_empty() {
         return Vec::new();
@@ -438,14 +457,19 @@ pub fn plan(
             return Err(SyncKeyError::Corrupt);
         }
         let hash = content_hash(text);
+        let wanted_place = place_in(&set.doc, page_id);
         if let Some(prev) = previous.iter().find(|slot| slot.page_id == *page_id) {
-            if prev.hash == hash && !prev.doc.is_empty() {
+            if prev.hash == hash
+                && !prev.doc.is_empty()
+                && place_of_doc(&prev.doc, page_id) == wanted_place
+            {
                 let mut kept = prev.clone();
                 kept.vault_id = *vault.id();
                 slots.push(kept);
                 continue;
             }
             let doc = page_document(&prev.doc, page_id, text)?;
+            let doc = with_place(&doc, page_id, wanted_place.as_deref())?;
             let mut key = sync_keys::random_bytes::<32>()?;
             let body = seal_object(&key, &prev.object_id, &doc)?;
             objects.push(Outgoing {
@@ -466,6 +490,7 @@ pub fn plan(
             key.zeroize();
         } else {
             let doc = page_document(b"", page_id, text)?;
+            let doc = with_place(&doc, page_id, wanted_place.as_deref())?;
             let mut key = sync_keys::random_bytes::<32>()?;
             let object_id = sync_keys::random_bytes::<16>()?;
             let body = seal_object(&key, &object_id, &doc)?;
@@ -510,7 +535,10 @@ pub fn manifest_wants(manifest: &[u8], previous: &[Slot]) -> Result<Vec<[u8; 16]
     let mut want = Vec::new();
     for entry in decoded.entries {
         let have = previous.iter().any(|slot| {
-            slot.object_id == entry.object_id && slot.hash == entry.hash && !slot.doc.is_empty()
+            slot.object_id == entry.object_id
+                && slot.hash == entry.hash
+                && slot.revision == entry.revision
+                && !slot.doc.is_empty()
         });
         if !have {
             want.push(entry.object_id);
@@ -619,6 +647,12 @@ pub fn assemble(
             })
             .collect();
         lib.set_folders(&seeds);
+    }
+    for slot in &slots {
+        // An older page object has no place. Leave the one already in this library.
+        if let Some(folder) = place_of_doc(&slot.doc, &slot.page_id) {
+            lib.set_place(&slot.page_id, Some(&folder));
+        }
     }
     let packed = PageSet {
         doc: lib.save(),

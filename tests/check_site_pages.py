@@ -13,7 +13,7 @@ import updates  # noqa: E402
 
 SITE = ROOT / "site"
 ALT = "Omacus Sync: pages encrypted on your device. The notepad needs no sign-up. Sync is invite-only."
-SENTENCE = "The <strong>Turn on sync</strong> button in the sidebar explains sync, then continues in the web app."
+SENTENCE = "The <strong>Turn on sync</strong> button in the sidebar explains sync, then sets it up in that window."
 FAQ = "The notepad needs no sign-up, no email, no password, no ads and no tracking. Sync is invite-only."
 
 

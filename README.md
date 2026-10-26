@@ -81,7 +81,7 @@ Pages can sit in folders, two levels deep. Drag a page onto a folder, or choose 
 
 Each page has a short handle, taken from its title (Trip Budget is `trip`). **Handle…** changes it. Another page reads a value with `@handle.variable`, so `@trip.total` is the last assignment of `total` on that page. Typing `@` lists pages. Renaming a variable with F2 updates `@handle.name` on the other pages too.
 
-End-to-end encrypted sync, with 12 recovery words, is in the web app. Turn on sync is in the sidebar, and on a wide window it is also in the top bar. A short explanation comes first, then the setup screens. It is described at [omacus.com/sync](https://omacus.com/sync/). The desktop app shows the same entry. Set up continues in the web app. Pages in the desktop window stay in a folder on this computer.
+End-to-end encrypted sync, with 12 recovery words, is in the web app and in the desktop app. Turn on sync is in the sidebar. A short explanation comes first, then the setup screens, in that same window. It is described at [omacus.com/sync](https://omacus.com/sync/). Pages stay as files on this computer. With sync on, a sealed copy can leave, and the server cannot read it.
 
 ### Sharing and the web app
 

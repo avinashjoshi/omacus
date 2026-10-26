@@ -1635,7 +1635,7 @@ pub(crate) fn recovery_link(page: &str, words: &[&str; 12]) -> Result<String, Sy
     fragment_link(page, "recover", &words.join(" "))
 }
 
-pub(crate) fn join_link(
+pub fn join_link(
     page: &str,
     relay: &str,
     account: &str,
