@@ -63,21 +63,14 @@ class SitePages(unittest.TestCase):
         self.assertEqual(text.count(FAQ), 2)
         self.assertNotIn("The app has no account", text)
 
-    def test_the_upcoming_release_is_on_the_updates_page(self):
-        notes = updates.upcoming_notes()
-        self.assertIsNotNone(notes)
+    def test_the_1_0_notes_are_ready_to_publish(self):
+        self.assertIsNone(updates.upcoming_notes())
         body = release_notes.section((ROOT / "CHANGELOG.md").read_text(), "1.0.0")
         self.assertEqual(release_notes.problems(body), [])
         self.assertIn("/sync/", body)
         self.assertIn("/privacy/", body)
-        self.assertIn("upcoming", body)
-        page = (SITE / "updates" / "index.html").read_text()
-        self.assertIn(updates.upcoming_html(notes, updates.Images(None, SITE)), page)
-        self.assertIn('<a href="#v1.0.0">v1.0.0</a>', page)
-        feed = (SITE / "updates" / "feed.xml").read_text()
-        self.assertIn("v1.0.0 — Sync is in the web app", feed)
-        self.assertLess(feed.index("#v1.0.0"), feed.index("#v0.2.15"))
-
+        self.assertNotIn("upcoming", body)
+        self.assertIn('version = "1.0.0"', (ROOT / "Cargo.toml").read_text())
 
 if __name__ == "__main__":
     unittest.main()
