@@ -2,11 +2,9 @@
 
 ## 1.0.0
 
-<!-- upcoming: the app version changes when 1.0 ships -->
+**Sync is here**
 
-**Sync is in the web app**
-
-Your pages can open on your other phones and computers. They are encrypted on your device, and the server cannot read them. [Sync](/sync/) explains how it works. [Privacy](/privacy/) lists what is sent. This is the upcoming 1.0 release.
+Sync is here: encrypted sync across your phones and computers, invite-only for now. Your pages are encrypted on your device, and the server cannot read them. [Sync](/sync/) explains how it works, and [Privacy](/privacy/) lists what is sent.
 
 ## 0.2.21
 

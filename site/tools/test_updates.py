@@ -199,9 +199,22 @@ class UpdatesPage(unittest.TestCase):
         self.assertIn("v1.7.0 — Behind-the-scenes improvements to how updates ship", feed)
 
     def test_the_upcoming_release_leads_the_page(self):
-        page, feed, _ = build([
-            release("v0.2.0", "**Pages on this computer**\n\nA sentence about pages on disk."),
-        ], upcoming=True)
+        # The real changelog published 1.0, so this keeps the pre-release section as a fixture.
+        coming = {
+            "title": "Sync is in the web app",
+            "blocks": updates.parse_notes(
+                "Your pages can open on your other phones and computers. [Sync](/sync/) explains how it works. "
+                "[Privacy](/privacy/) lists what is sent. This is the upcoming 1.0 release."
+            ),
+        }
+        real = updates.upcoming_notes
+        updates.upcoming_notes = lambda: coming
+        try:
+            page, feed, _ = build([
+                release("v0.2.0", "**Pages on this computer**\n\nA sentence about pages on disk."),
+            ], upcoming=True)
+        finally:
+            updates.upcoming_notes = real
         self.assertLess(page.index('id="v1.0.0"'), page.index('id="v0.2.0"'))
         self.assertIn('href="/sync/"', page)
         self.assertIn('href="/privacy/"', page)
