@@ -1709,6 +1709,7 @@ impl Session {
         self.saving_since = Some(Instant::now());
         let packed = self.packed_bytes()?;
         let slots = self.slots.clone();
+        let generation = self.desk.as_ref().map(Desk::generation).unwrap_or(0);
         let planned = {
             let Some(desk) = self.desk.as_mut() else {
                 self.busy = false;
@@ -1717,6 +1718,7 @@ impl Session {
             match desk.seal_library(&packed, &slots) {
                 Ok(planned) => planned,
                 Err(error) => {
+                    desk.rewind_generation(generation);
                     self.busy = false;
                     return Err(error.message().into());
                 }
@@ -1744,6 +1746,9 @@ impl Session {
             }
             Err(error) => {
                 self.busy = false;
+                if let Some(desk) = self.desk.as_mut() {
+                    desk.rewind_generation(generation);
+                }
                 if self.dropped_from_list(&error) {
                     self.mark_removed();
                     return Ok(());
