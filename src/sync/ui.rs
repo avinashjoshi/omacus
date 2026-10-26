@@ -71,6 +71,8 @@ fn body(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
         Screen::Locked => locked(ui, theme, session),
         Screen::Clash => clash(ui, theme, session),
         Screen::Rename => rename(ui, theme, session),
+        Screen::PassSet => passphrase(ui, theme, session, true),
+        Screen::PassEnter => passphrase(ui, theme, session, false),
         Screen::Closed => None,
     }
 }
@@ -877,6 +879,58 @@ fn removed(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<St
     para(ui, theme, "Your pages are still here.");
     if design::primary(ui, theme, "Join again").clicked() {
         session.choose_join();
+    }
+    None
+}
+
+fn passphrase(
+    ui: &mut egui::Ui,
+    theme: &Theme,
+    session: &mut Session,
+    setting: bool,
+) -> Option<String> {
+    if back(ui, theme, "← Back") {
+        session.back_from_pass();
+        return None;
+    }
+    if setting {
+        title(ui, theme, "Choose a passphrase");
+        para(
+            ui,
+            theme,
+            "This computer keeps the sync key in a file locked with a passphrase. You type it when sync starts here. Omacus does not keep the passphrase.",
+        );
+    } else {
+        title(ui, theme, "Enter the passphrase");
+        para(
+            ui,
+            theme,
+            "Type the passphrase to open sync on this computer.",
+        );
+    }
+    err(ui, theme, &session.error.clone());
+    field_label(ui, theme, "Passphrase");
+    let pass = session.pass_buf();
+    ui.add(
+        egui::TextEdit::singleline(pass)
+            .password(true)
+            .desired_width(f32::INFINITY)
+            .hint_text(if setting { "At least 8 characters" } else { "" }),
+    );
+    ui.add_space(8.0);
+    if setting {
+        field_label(ui, theme, "Type it again");
+        let again = session.pass_again();
+        ui.add(
+            egui::TextEdit::singleline(again)
+                .password(true)
+                .desired_width(f32::INFINITY),
+        );
+        ui.add_space(8.0);
+    }
+    let label = if setting { "Continue" } else { "Open sync" };
+    if design::primary(ui, theme, label).clicked() {
+        let _ = session.submit_pass();
     }
     None
 }

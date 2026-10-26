@@ -9,6 +9,7 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+use zeroize::Zeroize;
 
 /// Interactive Argon2id: 19 MiB, 2 iterations, one lane (OWASP's lower bound).
 const MEMORY_KIB: u32 = 19 * 1024;
@@ -161,6 +162,78 @@ pub fn open_password(
     let key = unwrap_key(password, &wrap)?;
     let text = open_key(&key, stored, aad)?;
     Ok((text, key))
+}
+
+const PASS_AAD: &[u8] = b"omacus-device-pass/1";
+
+/// A key derived from a passphrase. The passphrase is not kept.
+pub struct SecretSeal {
+    salt: [u8; SALT_LEN],
+    kek: [u8; KEY_LEN],
+}
+
+impl Drop for SecretSeal {
+    fn drop(&mut self) {
+        self.kek.zeroize();
+    }
+}
+
+impl std::fmt::Debug for SecretSeal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SecretSeal(..)")
+    }
+}
+
+/// Argon2id once. Later seals reuse this key and salt.
+pub fn derive_passphrase(password: &str) -> Result<SecretSeal, LockError> {
+    let salt = random_array()?;
+    let kek = derive(password, &salt, MEMORY_KIB, ITERATIONS, LANES)?;
+    Ok(SecretSeal { salt, kek })
+}
+
+/// Encrypt `plain`. A new nonce each time. The salt and the strong parameters travel with the ciphertext.
+pub fn seal_with_passphrase(seal: &SecretSeal, plain: &[u8]) -> Result<Vec<u8>, LockError> {
+    let nonce = random_array::<NONCE_LEN>()?;
+    let data = xcrypt(true, &seal.kek, &nonce, PASS_AAD, plain)?;
+    let mut out = Vec::with_capacity(12 + SALT_LEN + NONCE_LEN + data.len());
+    out.extend_from_slice(&MEMORY_KIB.to_be_bytes());
+    out.extend_from_slice(&ITERATIONS.to_be_bytes());
+    out.extend_from_slice(&LANES.to_be_bytes());
+    out.extend_from_slice(&seal.salt);
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&data);
+    Ok(out)
+}
+
+/// Open a passphrase seal. A weaker parameter set is refused.
+pub fn open_with_passphrase(
+    password: &str,
+    stored: &[u8],
+) -> Result<(Vec<u8>, SecretSeal), LockError> {
+    let header = 12 + SALT_LEN + NONCE_LEN;
+    if stored.len() < header + 16 {
+        return Err(LockError::Corrupt);
+    }
+    let memory = u32::from_be_bytes(stored[0..4].try_into().map_err(|_| LockError::Corrupt)?);
+    let iterations = u32::from_be_bytes(stored[4..8].try_into().map_err(|_| LockError::Corrupt)?);
+    let lanes = u32::from_be_bytes(stored[8..12].try_into().map_err(|_| LockError::Corrupt)?);
+    let salt: [u8; SALT_LEN] = stored[12..12 + SALT_LEN]
+        .try_into()
+        .map_err(|_| LockError::Corrupt)?;
+    let nonce_at = 12 + SALT_LEN;
+    let nonce: [u8; NONCE_LEN] = stored[nonce_at..nonce_at + NONCE_LEN]
+        .try_into()
+        .map_err(|_| LockError::Corrupt)?;
+    let data = &stored[header..];
+    let mut kek = derive(password, &salt, memory, iterations, lanes)?;
+    let plain = match xcrypt(false, &kek, &nonce, PASS_AAD, data) {
+        Ok(plain) => plain,
+        Err(error) => {
+            kek.zeroize();
+            return Err(error);
+        }
+    };
+    Ok((plain, SecretSeal { salt, kek }))
 }
 
 pub fn is_lock(text: &str) -> bool {

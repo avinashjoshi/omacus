@@ -357,6 +357,63 @@ fn parity_matrix_runs_end_to_end() {
     );
     covered.push("update");
 
+    let mut fresh = Session::open(scratch("pass-set"), &origin);
+    fresh.testing_without_keyring();
+    fresh.begin_setup();
+    assert_eq!(fresh.screen, Screen::PassSet);
+    fresh.set_pass_fields("short", "short");
+    assert_eq!(
+        fresh.submit_pass().unwrap_err(),
+        "Use at least 8 characters."
+    );
+    fresh.set_pass_fields("lantern-dock-42", "lantern-dock");
+    assert_eq!(
+        fresh.submit_pass().unwrap_err(),
+        "Type the same passphrase again."
+    );
+    fresh.set_pass_fields("lantern-dock-42", "lantern-dock-42");
+    fresh.submit_pass().unwrap();
+    assert_eq!(fresh.screen, Screen::Choice);
+    drop(fresh);
+
+    let password = "lantern-dock-42";
+    a.testing_rewrap_pass(password).unwrap();
+    assert_eq!(keys::kind(a.dir()), Some("pass"));
+    assert!(keys::is_private(a.dir()));
+    let stored = fs::read(keys::path(a.dir())).unwrap();
+    assert!(
+        !stored
+            .windows(b"OMACUS-DEVICE".len())
+            .any(|window| window == b"OMACUS-DEVICE"),
+        "the device key was stored in a plain file"
+    );
+    assert!(
+        !stored
+            .windows(password.len())
+            .any(|window| window == password.as_bytes()),
+        "the passphrase was written to disk"
+    );
+    let book = fs::read(a.dir().join("sync").join("book.json")).unwrap_or_default();
+    assert!(
+        !book
+            .windows(password.len())
+            .any(|window| window == password.as_bytes()),
+        "the passphrase was written to the sync book"
+    );
+    let dir = a.dir().to_path_buf();
+    let mut locked = Session::open(dir, &origin);
+    assert_eq!(locked.screen, Screen::PassEnter);
+    assert!(!locked.desk_open());
+    locked.set_pass_fields("wrong-pass-99", "");
+    assert_eq!(
+        locked.submit_pass().unwrap_err(),
+        "That passphrase didn't work. Try again."
+    );
+    locked.set_pass_fields(password, "");
+    locked.submit_pass().unwrap();
+    assert!(locked.desk_open());
+    assert_eq!(locked.account_id(), a.account_id());
+
     a.ask_off();
     a.turn_off().unwrap();
     assert_eq!(a.screen, Screen::Closed);

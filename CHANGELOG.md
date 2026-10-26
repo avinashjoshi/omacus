@@ -4,7 +4,7 @@
 
 **Sync on this computer**
 
-Pages in the desktop app can sync with a phone. Turn on sync stays in this window. The server still cannot read the pages. The sync key stays in the system key store.
+Pages in the desktop app can sync with a phone. Turn on sync stays in this window. The server still cannot read the pages. The sync key stays in the system key store. On a Linux computer with no keyring, you choose a passphrase, and the key stays in a locked file on that computer.
 
 ## 1.0.0
 

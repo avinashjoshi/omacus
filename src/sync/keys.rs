@@ -1,10 +1,12 @@
-//! The device key stays in the system key store.
+//! The device key stays off the page files.
 //!
 //! macOS uses the Keychain for this device only, not iCloud. Windows wraps the
-//! key with DPAPI for this user. Linux uses Secret Service. The key is not
-//! written into a plain file. A pointer file in the data folder records which
-//! store holds it. On Windows that file is the DPAPI ciphertext, which is not
-//! the key.
+//! key with DPAPI for this user. Linux uses Secret Service when it is running.
+//! When this computer has no keyring, the key stays in a file locked with a
+//! passphrase: Argon2id, then XChaCha20-Poly1305. That file is mode 0600. The
+//! passphrase is not written. A pointer file in the data folder records which
+//! store holds the key. On Windows that file is the DPAPI ciphertext. A plain
+//! key file is removed if one is found.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -23,20 +25,8 @@ pub fn path(dir: &Path) -> PathBuf {
 }
 
 pub fn save(dir: &Path, plain: &[u8]) -> Result<(), String> {
-    let file = path(dir);
-    if let Some(parent) = file.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
     let sealed = seal(plain)?;
-    let mut out = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&file)
-        .map_err(|e| e.to_string())?;
-    out.write_all(&sealed).map_err(|e| e.to_string())?;
-    set_private(&file)?;
-    Ok(())
+    write_private(dir, &sealed)
 }
 
 pub fn load(dir: &Path) -> Result<Option<Vec<u8>>, String> {
@@ -87,6 +77,7 @@ pub fn kind(dir: &Path) -> Option<&'static str> {
         b"dpapi" => Some("dpapi"),
         b"keychain" => Some("keychain"),
         b"secret" => Some("secret"),
+        b"pass" => Some("pass"),
         b"test" => Some("test"),
         _ => None,
     }
@@ -209,7 +200,96 @@ fn open_sealed(bytes: &[u8]) -> Result<Vec<u8>, String> {
                 Err("That copy could not be read.".into())
             }
         }
+        b"pass" => Err("Enter the passphrase.".into()),
         _ => Err("That copy could not be read.".into()),
+    }
+}
+
+/// A passphrase-derived key kept in memory for this run. The passphrase is not kept.
+pub struct PassLock {
+    seal: omacus_engine::lock::SecretSeal,
+}
+
+impl std::fmt::Debug for PassLock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PassLock(..)")
+    }
+}
+
+pub fn has_pass_file(dir: &Path) -> bool {
+    fs::read(path(dir)).ok().is_some_and(|bytes| {
+        bytes
+            .strip_prefix(MARK)
+            .is_some_and(|rest| rest.starts_with(b"pass\n"))
+    })
+}
+
+/// Secret Service is missing, or the key file is already locked with a passphrase.
+pub fn needs_passphrase(dir: &Path) -> bool {
+    has_pass_file(dir) || linux_without_keyring()
+}
+
+fn linux_without_keyring() -> bool {
+    #[cfg(all(not(test), unix, not(target_os = "macos")))]
+    {
+        !keyring_up()
+    }
+    #[cfg(not(all(not(test), unix, not(target_os = "macos"))))]
+    {
+        false
+    }
+}
+
+pub fn new_pass_lock(password: &str) -> Result<PassLock, String> {
+    omacus_engine::lock::derive_passphrase(password)
+        .map(|seal| PassLock { seal })
+        .map_err(pass_error)
+}
+
+pub fn write_pass(dir: &Path, plain: &[u8], lock: &PassLock) -> Result<(), String> {
+    let payload =
+        omacus_engine::lock::seal_with_passphrase(&lock.seal, plain).map_err(pass_error)?;
+    let mut sealed = MARK.to_vec();
+    sealed.extend_from_slice(b"pass\n");
+    sealed.extend_from_slice(&payload);
+    write_private(dir, &sealed)
+}
+
+pub fn open_pass(dir: &Path, password: &str) -> Result<(Vec<u8>, PassLock), String> {
+    let bytes = fs::read(path(dir)).map_err(|e| e.to_string())?;
+    let rest = bytes
+        .strip_prefix(MARK)
+        .ok_or_else(|| "That copy could not be read.".to_string())?;
+    let payload = rest
+        .strip_prefix(b"pass\n")
+        .ok_or_else(|| "That copy could not be read.".to_string())?;
+    let (plain, seal) =
+        omacus_engine::lock::open_with_passphrase(password, payload).map_err(pass_error)?;
+    Ok((plain, PassLock { seal }))
+}
+
+fn write_private(dir: &Path, sealed: &[u8]) -> Result<(), String> {
+    let file = path(dir);
+    if let Some(parent) = file.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let mut out = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&file)
+        .map_err(|e| e.to_string())?;
+    out.write_all(sealed).map_err(|e| e.to_string())?;
+    set_private(&file)
+}
+
+fn pass_error(error: omacus_engine::lock::LockError) -> String {
+    match error {
+        omacus_engine::lock::LockError::EmptyPassword => "Enter a passphrase.".into(),
+        omacus_engine::lock::LockError::WrongPassword => {
+            "That passphrase didn't work. Try again.".into()
+        }
+        omacus_engine::lock::LockError::Corrupt => "That copy could not be read.".into(),
     }
 }
 
@@ -463,6 +543,42 @@ mod tests {
         assert_eq!(load(&dir).unwrap().unwrap(), plain);
         remove(&dir);
         assert!(load(&dir).unwrap().is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_passphrase_file_is_not_the_key() {
+        let dir = std::env::temp_dir().join(format!("omacus-pass-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let plain = b"OMACUS-DEVICE/1\nnot-a-real-key";
+        let password = "lantern-dock-42";
+        let lock = new_pass_lock(password).unwrap();
+        write_pass(&dir, plain, &lock).unwrap();
+        assert!(is_private(&dir));
+        assert_eq!(kind(&dir), Some("pass"));
+        let stored = fs::read(path(&dir)).unwrap();
+        assert!(
+            !stored
+                .windows(b"OMACUS-DEVICE".len())
+                .any(|window| window == b"OMACUS-DEVICE")
+        );
+        assert!(
+            !stored
+                .windows(password.len())
+                .any(|window| window == password.as_bytes())
+        );
+        assert!(load(&dir).is_err());
+        assert!(has_pass_file(&dir));
+        let wrong = open_pass(&dir, "wrong-pass-99").unwrap_err();
+        assert_eq!(wrong, "That passphrase didn't work. Try again.");
+        let (opened, again) = open_pass(&dir, password).unwrap();
+        assert_eq!(opened, plain);
+        write_pass(&dir, plain, &again).unwrap();
+        let (second, _) = open_pass(&dir, password).unwrap();
+        assert_eq!(second, plain);
+        remove(&dir);
+        assert!(!has_pass_file(&dir));
         let _ = fs::remove_dir_all(&dir);
     }
 

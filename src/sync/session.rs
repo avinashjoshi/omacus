@@ -86,6 +86,8 @@ pub enum Screen {
     Locked,
     Clash,
     Rename,
+    PassSet,
+    PassEnter,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -191,6 +193,11 @@ pub struct Session {
     announced: Option<MoveAsk>,
     lock_settled: bool,
     pub covered: Vec<&'static str>,
+    pass_buf: String,
+    pass_again: String,
+    pass_lock: Option<keys::PassLock>,
+    pass_locked: bool,
+    without_keyring: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -203,7 +210,10 @@ pub struct MoveAsk {
 impl Session {
     pub fn open(dir: PathBuf, origin: &str) -> Self {
         let mut session = Self::blank(dir, origin);
-        if let Some(plain) = keys::load(&session.dir).ok().flatten()
+        if keys::has_pass_file(&session.dir) {
+            session.pass_locked = true;
+            session.screen = Screen::PassEnter;
+        } else if let Some(plain) = keys::load(&session.dir).ok().flatten()
             && let Some((device, slots)) = split_blob(&plain)
             && let Ok(desk) = Desk::import_local(&device)
         {
@@ -277,6 +287,11 @@ impl Session {
             announced: None,
             lock_settled: false,
             covered: Vec::new(),
+            pass_buf: String::new(),
+            pass_again: String::new(),
+            pass_lock: None,
+            pass_locked: false,
+            without_keyring: false,
         }
     }
 
@@ -344,6 +359,8 @@ impl Session {
             }
             "recover" => self.screen = Screen::Recover,
             "off" => self.screen = Screen::OffAsk,
+            "pass" | "pass-enter" => self.screen = Screen::PassEnter,
+            "pass-set" => self.screen = Screen::PassSet,
             _ => self.screen = Screen::Intro,
         }
     }
@@ -367,6 +384,10 @@ impl Session {
 
     pub fn open_intro(&mut self) {
         self.error.clear();
+        if self.pass_locked && self.pass_lock.is_none() {
+            self.screen = Screen::PassEnter;
+            return;
+        }
         self.screen = Screen::Intro;
         self.mark("explainer");
     }
@@ -377,6 +398,16 @@ impl Session {
     }
 
     pub fn begin_setup(&mut self) {
+        self.error.clear();
+        if self.pass_lock.is_none() && self.must_pass() {
+            if keys::has_pass_file(&self.dir) {
+                self.pass_locked = true;
+                self.screen = Screen::PassEnter;
+            } else {
+                self.screen = Screen::PassSet;
+            }
+            return;
+        }
         self.screen = Screen::Choice;
         self.mark("choice");
     }
@@ -745,6 +776,7 @@ impl Session {
     }
 
     fn poll_join(&mut self) -> Result<(), String> {
+        self.ensure_pass()?;
         let account = self.account.clone();
         let id = self.join_id.clone();
         let path = format!("/v1/mailboxes/{account}/requests/{id}");
@@ -1102,6 +1134,12 @@ impl Session {
 
     fn forget_local(&mut self) {
         keys::remove(&self.dir);
+        self.pass_lock = None;
+        self.pass_locked = false;
+        self.pass_buf.zeroize();
+        self.pass_again.zeroize();
+        self.pass_buf.clear();
+        self.pass_again.clear();
         let _ = fs::remove_file(self.dir.join("sync").join("outbox.bin"));
         self.desk = None;
         self.slots.clear();
@@ -1124,8 +1162,41 @@ impl Session {
         self.phrase = text.to_string();
     }
 
+    #[cfg(test)]
+    pub fn testing_without_keyring(&mut self) {
+        self.without_keyring = true;
+    }
+
+    #[cfg(test)]
+    pub fn set_pass_fields(&mut self, password: &str, again: &str) {
+        self.pass_buf = password.to_string();
+        self.pass_again = again.to_string();
+    }
+
+    #[cfg(test)]
+    pub fn testing_rewrap_pass(&mut self, password: &str) -> Result<(), String> {
+        self.without_keyring = true;
+        let plain =
+            keys::load(&self.dir)?.ok_or_else(|| "That copy could not be read.".to_string())?;
+        let lock = keys::new_pass_lock(password)?;
+        keys::write_pass(&self.dir, &plain, &lock)?;
+        self.pass_lock = Some(lock);
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn desk_open(&self) -> bool {
+        self.desk.is_some()
+    }
+
+    #[cfg(test)]
+    pub fn account_id(&self) -> &str {
+        &self.account
+    }
+
     pub fn recover(&mut self) -> Result<(), String> {
         self.error.clear();
+        self.ensure_pass()?;
         let check = desk::check_phrase(&self.phrase);
         if !check.ok {
             self.error = check.message;
@@ -1362,6 +1433,8 @@ impl Session {
                     | Screen::Check
                     | Screen::OffAsk
                     | Screen::OffFailed
+                    | Screen::PassSet
+                    | Screen::PassEnter
             )
         {
             return Chip::Hidden;
@@ -1390,7 +1463,7 @@ impl Session {
     }
 
     pub fn offer_setup(&self) -> bool {
-        !self.on && !self.removed
+        self.pass_locked || (!self.on && !self.removed)
     }
 
     pub fn grouped(&self) -> bool {
@@ -1493,6 +1566,7 @@ impl Session {
     }
 
     fn publish_first(&mut self) -> Result<(), String> {
+        self.ensure_pass()?;
         self.on = true;
         self.member = true;
         self.sync_membership_lines();
@@ -1544,6 +1618,7 @@ impl Session {
     }
 
     fn push_attempt(&mut self, retry: bool) -> Result<(), String> {
+        self.ensure_pass()?;
         if !self.leader_ok() {
             return Ok(());
         }
@@ -1642,6 +1717,7 @@ impl Session {
     }
 
     fn seal_and_publish_approval(&mut self, chain: &[u8], wrap: &[u8]) -> Result<(), String> {
+        self.ensure_pass()?;
         let packed = self.packed_bytes()?;
         let slots = self.slots.clone();
         let planned = {
@@ -1965,7 +2041,8 @@ impl Session {
         self.choices.clear();
     }
 
-    fn save_secret(&self) -> Result<(), String> {
+    fn save_secret(&mut self) -> Result<(), String> {
+        self.ensure_pass()?;
         let Some(desk) = &self.desk else {
             return Ok(());
         };
@@ -1976,7 +2053,116 @@ impl Session {
         blob.extend_from_slice(&len.to_be_bytes());
         blob.extend_from_slice(&device);
         blob.extend_from_slice(&slots);
-        keys::save(&self.dir, &blob)
+        if let Some(lock) = &self.pass_lock {
+            keys::write_pass(&self.dir, &blob, lock)
+        } else {
+            keys::save(&self.dir, &blob)
+        }
+    }
+
+    fn must_pass(&self) -> bool {
+        self.without_keyring || keys::needs_passphrase(&self.dir)
+    }
+
+    fn ensure_pass(&mut self) -> Result<(), String> {
+        if self.pass_lock.is_some() || !self.must_pass() {
+            return Ok(());
+        }
+        if keys::has_pass_file(&self.dir) {
+            self.pass_locked = true;
+            self.screen = Screen::PassEnter;
+        } else {
+            self.screen = Screen::PassSet;
+        }
+        Err("Enter a passphrase.".into())
+    }
+
+    fn install_device(&mut self, plain: Vec<u8>) -> Result<(), String> {
+        let (device, slots) =
+            split_blob(&plain).ok_or_else(|| "That copy could not be read.".to_string())?;
+        let desk = Desk::import_local(&device).map_err(|e| e.message().to_string())?;
+        self.account = desk.account_hex().unwrap_or_default();
+        self.desk = Some(desk);
+        self.slots = slots;
+        self.on = !self.removed;
+        if self.removed {
+            self.member = false;
+        }
+        if self.leader.is_none() {
+            self.leader = lock_leader(&self.dir);
+        }
+        self.pass_locked = false;
+        self.screen = Screen::Closed;
+        Ok(())
+    }
+
+    pub fn pass_buf(&mut self) -> &mut String {
+        &mut self.pass_buf
+    }
+
+    pub fn pass_again(&mut self) -> &mut String {
+        &mut self.pass_again
+    }
+
+    pub fn back_from_pass(&mut self) {
+        self.pass_buf.zeroize();
+        self.pass_again.zeroize();
+        self.pass_buf.clear();
+        self.pass_again.clear();
+        self.error.clear();
+        if self.pass_locked {
+            self.screen = Screen::Closed;
+        } else {
+            self.screen = Screen::Intro;
+        }
+    }
+
+    pub fn submit_pass(&mut self) -> Result<(), String> {
+        self.error.clear();
+        if self.screen == Screen::PassSet {
+            if self.pass_buf.chars().count() < 8 {
+                self.error = "Use at least 8 characters.".into();
+                return Err(self.error.clone());
+            }
+            if self.pass_buf != self.pass_again {
+                self.error = "Type the same passphrase again.".into();
+                return Err(self.error.clone());
+            }
+            let lock = match keys::new_pass_lock(&self.pass_buf) {
+                Ok(lock) => lock,
+                Err(error) => {
+                    self.error = error;
+                    return Err(self.error.clone());
+                }
+            };
+            self.pass_buf.zeroize();
+            self.pass_again.zeroize();
+            self.pass_buf.clear();
+            self.pass_again.clear();
+            self.pass_lock = Some(lock);
+            self.screen = Screen::Choice;
+            self.mark("choice");
+            return Ok(());
+        }
+        if self.pass_buf.is_empty() {
+            self.error = "Enter a passphrase.".into();
+            return Err(self.error.clone());
+        }
+        let password = std::mem::take(&mut self.pass_buf);
+        match keys::open_pass(&self.dir, &password) {
+            Ok((plain, lock)) => {
+                let mut password = password;
+                password.zeroize();
+                self.pass_lock = Some(lock);
+                self.install_device(plain)
+            }
+            Err(error) => {
+                let mut password = password;
+                password.zeroize();
+                self.error = error;
+                Err(self.error.clone())
+            }
+        }
     }
 
     fn save_book(&self) {
