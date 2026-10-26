@@ -106,6 +106,7 @@ check(js.includes("Add to Home Screen"), "iPhone gets an Add to Home Screen prom
 check(js.includes('e.key.toLowerCase() === "p"'), "Ctrl+P opens the preview");
 check(html.includes("data-page-preview"), "the preview overlay is in the page");
 check(sw.includes('const CACHE = "omacus-app-28"'), "the app cache name moved past the cache-first shell");
+check(sw.includes("arrayBuffer") && sw.includes("shell-status") && sw.includes("cacheQueue"), "a dropped download is not left open in the cache");
 check(html.includes("data-pick"), "a same-line conflict can ask which line to keep");
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");

@@ -29,14 +29,23 @@ test("first load, offline reload, edit, and an update with unsaved text", async 
     await page.waitForSelector("[data-loading]", { state: "detached" });
     await expect(page.locator(".cm-content")).toContainText("Welcome");
     await page.waitForFunction(() => navigator.serviceWorker?.controller);
-    await page.waitForFunction(async () => {
-      const keys = await caches.keys();
-      const name = keys.find((key) => key.startsWith("omacus-app-e2e-"));
-      if (!name) return false;
-      const urls = [...(await (await caches.open(name)).keys())].map((req) => req.url);
-      return urls.some((url) => url.includes("omacus_web_bg.wasm"))
-        && urls.some((url) => url.includes("sync-config.js"));
-    });
+    // Every shell file has to be stored before the origin drops. Two files
+    // landing early used to let the reload run while a write was still open.
+    await expect.poll(async () => page.evaluate(async () => {
+      const worker = (await navigator.serviceWorker.getRegistration())?.active;
+      if (!worker) return "no-worker";
+      return await new Promise((resolve) => {
+        const channel = new MessageChannel();
+        const timer = setTimeout(() => resolve("no-reply"), 1000);
+        channel.port1.onmessage = (event) => {
+          clearTimeout(timer);
+          const data = event.data || {};
+          if (data.ready === true) resolve("ready");
+          else resolve("missing " + (data.missing || []).join(" "));
+        };
+        worker.postMessage({ type: "shell-status" }, [channel.port2]);
+      });
+    }), { timeout: 20000 }).toBe("ready");
 
     const editor = page.locator(".cm-content");
     await editor.click();
