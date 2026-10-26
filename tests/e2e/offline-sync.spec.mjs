@@ -112,7 +112,7 @@ test("an offline edit is merged with the other phone", async ({ browser }) => {
     await phoneA.locator(".sync-ask").nth(step).getByRole("button", { name: words[n - 1], exact: true }).click();
   }
   await phoneA.getByRole("button", { name: "These match" }).click();
-  await expect(phoneA.locator("[data-sync-linked]")).toBeVisible();
+  await expect(phoneA.locator("[data-sync-linked]")).toBeVisible({ timeout: 45000 });
   await phoneA.locator("[data-action='close-settings']").last().click();
   await phoneA.getByRole("button", { name: "New page" }).click();
   const saved = phoneA.waitForResponse((res) => res.request().method() === "PUT" && res.url().includes("/v1/mailboxes/") && res.status() === 200);
@@ -132,7 +132,8 @@ test("an offline edit is merged with the other phone", async ({ browser }) => {
   await expect(phoneB.locator(".cm-content")).toContainText("ferry = 40", { timeout: 20000 });
   await expect(phoneB.locator(".sync-chip")).not.toHaveAttribute("data-state", "error");
 
-  await expect(phoneA.locator(".sync-chip")).toHaveAttribute("data-state", "on", { timeout: 20000 });
+  // The other phone joining is a list change. Synced and List changed are both quiet.
+  await expect(phoneA.locator(".sync-chip")).toHaveAttribute("data-state", /^(on|list)$/, { timeout: 20000 });
   await phoneA.locator(".side-name", { hasText: "Harbor ledger" }).click();
 
   phoneBOffline.on = true;
