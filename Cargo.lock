@@ -2771,9 +2771,11 @@ dependencies = [
 name = "omacus"
 version = "0.2.21"
 dependencies = [
+ "base64 0.22.1",
  "clap",
  "clap_complete",
  "dirs",
+ "ed25519-dalek",
  "eframe",
  "image",
  "miniz_oxide 0.8.9",

@@ -20,6 +20,11 @@ deploy_app = text[text.index("  deploy-app:"):]
 errors = []
 tag_at = publish.find('git push origin "refs/tags/v${version}"')
 release_at = publish.find("softprops/action-gh-release@")
+sign_at = publish.find("scripts/sign-update.mjs")
+if sign_at < 0 or tag_at < 0 or sign_at > tag_at:
+    errors.append("publish must sign the update manifest before pushing the tag")
+if "MINISIGN_SECRET_KEY is not set" not in publish:
+    errors.append("publish must refuse an unsigned update")
 if tag_at < 0 or release_at < 0 or tag_at > release_at:
     errors.append("publish must push the tag before creating the GitHub release")
 if "persist-credentials: true" not in publish:
