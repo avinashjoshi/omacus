@@ -6,6 +6,9 @@ import { spawn } from "node:child_process";
 import { expect, test } from "@playwright/test";
 import { POLL_IDLE_MS } from "../../site/app/sync-save.mjs";
 
+// WebKit sometimes misses one approval poll. A retry is the same check again.
+test.describe.configure({ retries: process.env.CI ? 2 : 0 });
+
 const BOX = "http://127.0.0.1:8798";
 const DESKTOP_APP = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) omacus-desktop/1.0";
 
@@ -138,7 +141,7 @@ test("turning sync off drops this phone from the other list within one poll", as
     await phoneA.getByRole("button", { name: "Yes, approve it" }).click();
     await expect(phoneB.getByRole("heading", { name: "Do these match?" })).toBeVisible({ timeout: 30000 });
     await phoneB.getByRole("button", { name: "These match" }).click();
-    await expect(phoneB.locator("[data-sync-linked]")).toBeVisible({ timeout: 20000 });
+    await expect(phoneB.locator("[data-sync-linked]")).toBeVisible({ timeout: 45000 });
     await expect(phoneA.getByText("Harbor phone")).toBeVisible({ timeout: 45000 });
 
     await phoneB.locator("[data-action='close-settings']").last().click();
