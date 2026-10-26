@@ -9,14 +9,44 @@ test("settings traps focus and escape returns to the opener", async ({ page }) =
   const dialog = page.locator("[data-settings]");
   await expect(dialog).toBeVisible();
   await expect.poll(() => page.evaluate(() => {
-    const root = document.querySelector("[data-settings]");
-    return !!(root && !root.hidden && root.contains(document.activeElement));
+    const card = document.querySelector(".settings-card");
+    return !!(card && card.contains(document.activeElement));
   })).toBe(true);
 
-  for (let i = 0; i < 30; i += 1) await page.keyboard.press("Tab");
-  expect(await page.evaluate(() => document.querySelector("[data-settings]").contains(document.activeElement))).toBe(true);
-  for (let i = 0; i < 30; i += 1) await page.keyboard.press("Shift+Tab");
-  expect(await page.evaluate(() => document.querySelector("[data-settings]").contains(document.activeElement))).toBe(true);
+  const scrim = page.locator("button.settings-scrim");
+  await expect(scrim).toHaveAttribute("tabindex", "-1");
+  await expect(scrim).toHaveAttribute("aria-hidden", "true");
+
+  async function focusStaysInDialog() {
+    return page.evaluate(() => {
+      const active = document.activeElement;
+      const card = document.querySelector(".settings-card");
+      return {
+        inDialog: !!(card && card.contains(active)),
+        scrim: !!(active && active.classList && active.classList.contains("settings-scrim")),
+      };
+    });
+  }
+  for (let i = 0; i < 40; i += 1) {
+    await page.keyboard.press("Tab");
+    const where = await focusStaysInDialog();
+    expect(where.scrim).toBe(false);
+    expect(where.inDialog).toBe(true);
+  }
+  for (let i = 0; i < 40; i += 1) {
+    await page.keyboard.press("Shift+Tab");
+    const where = await focusStaysInDialog();
+    expect(where.scrim).toBe(false);
+    expect(where.inDialog).toBe(true);
+  }
+
+  const box = await scrim.boundingBox();
+  expect(box).toBeTruthy();
+  // The top bar sits above the backdrop. A click in the lower corner still closes Settings.
+  await page.mouse.click(box.x + 8, box.y + box.height - 8);
+  await expect(dialog).toBeHidden();
+  await opener.click();
+  await expect(dialog).toBeVisible();
 
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();

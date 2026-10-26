@@ -815,7 +815,11 @@ const SETTINGS_FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled
 
 function settingsFocusable(root) {
   if (!root) return [];
-  return [...root.querySelectorAll(SETTINGS_FOCUSABLE)].filter((node) => !node.closest("[hidden]"));
+  return [...root.querySelectorAll(SETTINGS_FOCUSABLE)].filter((node) => {
+    if (node.closest("[hidden]")) return false;
+    // The backdrop stays clickable, and it is not a tab stop.
+    return node.getAttribute("tabindex") !== "-1";
+  });
 }
 
 function nestedDialogOpen() {
@@ -859,12 +863,13 @@ function closeSettings() {
 
 addEventListener("keydown", (event) => {
   if (event.key !== "Tab" || !el.settings || el.settings.hidden || nestedDialogOpen()) return;
-  const items = settingsFocusable(el.settings);
+  const card = el.settings.querySelector(".settings-card");
+  const items = settingsFocusable(card);
   if (!items.length) return;
   const first = items[0];
   const last = items[items.length - 1];
   const active = document.activeElement;
-  const inside = el.settings.contains(active);
+  const inside = !!(card && card.contains(active));
   if (event.shiftKey && (!inside || active === first)) {
     event.preventDefault();
     last.focus();
