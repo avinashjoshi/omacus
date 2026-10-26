@@ -29,7 +29,8 @@ const UPDATE_PUBLIC_KEY: &str = include_str!("../keys/omacus-update.pub");
 const MINISIGN_ED: &[u8] = b"Ed";
 /// Copies from before this version check a SHA-256 on the same GitHub release.
 /// They do not check the minisign signature. This build checks the signature first.
-pub const MINISIGN_SINCE: &str = "1.0.0";
+#[cfg(test)]
+const MINISIGN_SINCE: &str = "1.0.0";
 pub const RELEASES_URL: &str = "https://github.com/avinashjoshi/omacus/releases";
 /// The site's changelog. What's new in the app opens this, at the new version.
 pub const UPDATES_PAGE: &str = "https://omacus.com/updates/";

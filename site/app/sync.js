@@ -376,6 +376,13 @@ export async function mountSync(api) {
     api.storeSet("sync-device-ids", next);
   }
 
+  // This phone just wrote the list, so it already knows. The other phones
+  // still see the change the next time they read it.
+  function acceptListed() {
+    rememberDevices(state.devices.map((device) => device.id));
+    refreshCue();
+  }
+
   function readJson(text, fallback) {
     if (!text) return fallback;
     try {
@@ -1853,6 +1860,7 @@ export async function mountSync(api) {
       state.error = "";
       state.screen = "linked";
       await refreshDevices();
+      acceptListed();
       calm();
     } catch (error) {
       if (published) {
@@ -1957,6 +1965,7 @@ export async function mountSync(api) {
     try {
       await push();
       await refreshDevices();
+      acceptListed();
     } catch (error) {
       state.error = plainError(error.message);
     }
