@@ -102,6 +102,7 @@ pub enum Chip {
     Paused,
     NotSaved,
     Waiting,
+    ListChanged,
 }
 
 impl Chip {
@@ -114,8 +115,30 @@ impl Chip {
             Chip::Paused => Some("Sync paused"),
             Chip::NotSaved => Some("Not saved"),
             Chip::Waiting => Some("Device waiting"),
+            Chip::ListChanged => Some("List changed"),
         }
     }
+}
+
+/// Shown when the linked phones and computers are not the list last acknowledged.
+pub const LIST_NOTE: &str = "The list of phones and computers changed. One that was removed can still read pages it already saved. New pages stay with the ones still linked. Your recovery words can put the list back.";
+
+/// The first list is the baseline. The same ids, in any order, are quiet.
+pub fn list_ids_changed(previous: &[String], next: &[String]) -> bool {
+    if previous.is_empty() {
+        return false;
+    }
+    let mut before = previous.to_vec();
+    let mut after = next.to_vec();
+    tidy_ids(&mut before);
+    tidy_ids(&mut after);
+    before != after
+}
+
+fn tidy_ids(ids: &mut Vec<String>) {
+    ids.retain(|id| !id.is_empty());
+    ids.sort();
+    ids.dedup();
 }
 
 #[derive(Clone, Debug)]
@@ -187,6 +210,8 @@ pub struct Session {
     saving_since: Option<Instant>,
     leader: Option<File>,
     pub notice: String,
+    seen: Vec<String>,
+    list_note: bool,
     clash: Option<Clash>,
     pre_ids: Vec<String>,
     rename_id: String,
@@ -281,6 +306,8 @@ impl Session {
             saving_since: None,
             leader: None,
             notice: String::new(),
+            seen: Vec::new(),
+            list_note: false,
             clash: None,
             pre_ids: Vec::new(),
             rename_id: String::new(),
@@ -747,14 +774,19 @@ impl Session {
         if !self.on {
             return Ok(());
         }
-        if self.dirty {
+        let result = if self.dirty {
             self.push()
         } else {
             self.pull_if_newer()
+        };
+        if result.is_ok() {
+            self.observe_list();
         }
+        result
     }
 
     pub fn poll(&mut self) -> Result<(), String> {
+        self.observe_list();
         if self.screen == Screen::Waiting && !self.join_id.is_empty() {
             return self.poll_join();
         }
@@ -984,6 +1016,7 @@ impl Session {
         self.pending_device.clear();
         self.screen = Screen::Home;
         self.mark("approve");
+        self.observe_list();
         Ok(())
     }
 
@@ -1025,6 +1058,7 @@ impl Session {
         self.push()?;
         self.screen = Screen::Home;
         self.mark("devices");
+        self.observe_list();
         Ok(())
     }
 
@@ -1458,11 +1492,54 @@ impl Session {
         {
             return Chip::Syncing;
         }
+        if self.list_note && self.member {
+            return Chip::ListChanged;
+        }
         if self.member {
             Chip::Synced
         } else {
             Chip::Hidden
         }
+    }
+
+    /// Remember the first device list. Later changes stay noted until Got it.
+    pub fn observe_list(&mut self) {
+        let Some(desk) = self.desk.as_ref() else {
+            return;
+        };
+        let Ok(rows) = desk.listed_devices() else {
+            return;
+        };
+        let mut ids: Vec<String> = rows.into_iter().map(|(id, _, _)| id).collect();
+        tidy_ids(&mut ids);
+        if ids.is_empty() {
+            return;
+        }
+        if self.seen.is_empty() {
+            self.seen = ids;
+            self.list_note = false;
+            self.save_book();
+            return;
+        }
+        self.list_note = list_ids_changed(&self.seen, &ids);
+    }
+
+    pub fn ack_list(&mut self) {
+        if let Some(desk) = self.desk.as_ref()
+            && let Ok(rows) = desk.listed_devices()
+        {
+            let mut ids: Vec<String> = rows.into_iter().map(|(id, _, _)| id).collect();
+            tidy_ids(&mut ids);
+            if !ids.is_empty() {
+                self.seen = ids;
+            }
+        }
+        self.list_note = false;
+        self.save_book();
+    }
+
+    pub fn list_note_text(&self) -> &'static str {
+        if self.list_note { LIST_NOTE } else { "" }
     }
 
     pub fn offer_setup(&self) -> bool {
@@ -2204,6 +2281,7 @@ impl Session {
                     hash: hash.clone(),
                 })
                 .collect(),
+            seen: self.seen.clone(),
         };
         if let Ok(bytes) = serde_json::to_vec_pretty(&book) {
             let _ = fs::create_dir_all(self.dir.join("sync"));
@@ -2246,6 +2324,8 @@ impl Session {
             .into_iter()
             .map(|base| (base.id, base.hash))
             .collect();
+        self.seen = book.seen;
+        tidy_ids(&mut self.seen);
         self.labels = book.devices;
     }
 
@@ -2475,6 +2555,8 @@ struct Book {
     membership: Vec<BookMember>,
     #[serde(default)]
     bases: Vec<BookBase>,
+    #[serde(default)]
+    seen: Vec<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -2953,5 +3035,48 @@ mod clip_tests {
         assert_eq!(clipboard_text(), "typed over");
         release_clipboard();
         assert!(clipboard_text().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod list_note_tests {
+    use super::*;
+
+    #[test]
+    fn the_first_list_is_quiet_and_a_later_change_is_not() {
+        assert!(!list_ids_changed(&[], &["a".into()]));
+        assert!(!list_ids_changed(
+            &["b".into(), "a".into()],
+            &["a".into(), "b".into()]
+        ));
+        assert!(list_ids_changed(&["a".into()], &["a".into(), "b".into()]));
+        assert!(list_ids_changed(&["a".into(), "b".into()], &["a".into()]));
+    }
+
+    #[test]
+    fn list_changed_replaces_synced_and_yields_to_offline() {
+        let dir = std::env::temp_dir().join(format!("omacus-list-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
+        session.on = true;
+        session.member = true;
+        assert_eq!(session.chip(Instant::now()), Chip::Synced);
+        session.list_note = true;
+        assert_eq!(session.chip(Instant::now()), Chip::ListChanged);
+        assert_eq!(session.list_note_text(), LIST_NOTE);
+        session.offline = true;
+        assert_eq!(session.chip(Instant::now()), Chip::Offline);
+        session.offline = false;
+        session.error = "Not saved".into();
+        session.screen = Screen::Closed;
+        assert_eq!(session.chip(Instant::now()), Chip::NotSaved);
+        session.error.clear();
+        session.pending_id = "wait".into();
+        assert_eq!(session.chip(Instant::now()), Chip::Waiting);
+        session.pending_id.clear();
+        session.ack_list();
+        assert_eq!(session.chip(Instant::now()), Chip::Synced);
+        assert!(session.list_note_text().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

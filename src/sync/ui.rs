@@ -532,7 +532,15 @@ fn home(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
     if back(ui, theme, "← Back") {
         session.done();
     }
+    session.observe_list();
     title(ui, theme, "Sync is on");
+    let list_note = session.list_note_text();
+    if !list_note.is_empty() {
+        para(ui, theme, list_note);
+        if design::quiet(ui, theme, "Got it").clicked() {
+            session.ack_list();
+        }
+    }
     if !session.notice.is_empty() {
         para(ui, theme, &session.notice.clone());
     }
@@ -862,7 +870,7 @@ fn remove_ask(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option
     para(
         ui,
         theme,
-        "It will stop getting your pages. Pages already on it stay there.",
+        "It stops getting new pages. Pages it already saved stay readable on it. New edits stay with the phones and computers that are still linked.",
     );
     ui.horizontal(|ui| {
         if design::danger(ui, theme, "Remove").clicked() {
