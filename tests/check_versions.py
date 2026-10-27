@@ -78,9 +78,16 @@ def main() -> None:
     if "omacus-app-${APP_VERSION}" not in sw:
         fail("the service worker cache is not named from the release version")
 
-    probe = json.loads((ROOT / "site/app/version.json").read_text())
+    raw_probe = (ROOT / "site/app/version.json").read_text()
+    probe = json.loads(raw_probe)
     if probe.get("version") != version:
         fail("version.json does not match the desktop app")
+    if f'"version": "{version}"' not in raw_probe:
+        fail("version.json is not the text the release script updates")
+
+    deploy = (ROOT / ".github/actions/deploy-app/action.yml").read_text()
+    if 'json.load(open("dist/version.json"))' not in deploy:
+        fail("the web deploy does not read version.json as JSON")
 
     for path in (ROOT / "web/src/lib.rs", ROOT / "sync-web/src/lib.rs"):
         source = path.read_text()
