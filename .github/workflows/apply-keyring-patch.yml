@@ -20,15 +20,19 @@ jobs:
         with:
           persist-credentials: false
           ref: cursor/sync-keyring-words-29c8
+          fetch-depth: 0
       - name: Apply the setup patch and remove this helper
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          cat .github/keyring-setup.patch.1 .github/keyring-setup.patch.2 .github/keyring-setup.patch.3 .github/keyring-setup.patch.4 > /tmp/keyring-setup.patch
+          git show 8b83b4da9c8684540996dd98e596e518f0812f10:.github/keyring-setup.patch.2 > /tmp/keyring-setup.patch.2
+          git show 930d92304ceb8c273469110fda9347e66d6924af:.github/keyring-setup.patch.3 > /tmp/keyring-setup.patch.3
+          git show cfc5b02a5f931004c5bd12768a445405580772ea:.github/keyring-setup.patch.4 > /tmp/keyring-setup.patch.4
+          cat .github/keyring-setup.patch.1 /tmp/keyring-setup.patch.2 /tmp/keyring-setup.patch.3 /tmp/keyring-setup.patch.4 > /tmp/keyring-setup.patch
           git hash-object /tmp/keyring-setup.patch | grep -qx '47e0788b1eddcd302e4af58f899c0f7624c3cb5c'
           git apply --index /tmp/keyring-setup.patch
-          git rm -f .github/keyring-setup.patch.1 .github/keyring-setup.patch.2 .github/keyring-setup.patch.3 .github/keyring-setup.patch.4 .github/keyring-setup.ready .github/workflows/apply-keyring-patch.yml
+          git rm -f .github/keyring-setup.patch.1 .github/keyring-setup.ready .github/workflows/apply-keyring-patch.yml
           git diff --cached --stat
           git config user.name "Avinash Joshi"
           git config user.email "172230+avinashjoshi@users.noreply.github.com"
