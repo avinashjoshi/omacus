@@ -1066,6 +1066,19 @@ function setSyncPlaces(places) {
 
 if (document.documentElement.dataset.syncTest === "1") {
   globalThis.omacusShowPlaces = setSyncPlaces;
+  globalThis.omacusDemoLibrary = () => {
+    globalThis.omacusBlankLibrary();
+    const folder = createFolder(state.tree, null, "pantry");
+    renameFolder(state.tree, folder, "Pantry");
+    const pages = ["Cake\nslice 1", "Bread\nloaf 1", "Ferry\npier 2", "Oats\nbowl 2"];
+    for (const text of pages) addSheet(text, { select: false, parent: folder });
+    state.active = state.order[0] ?? null;
+    saveTrash([{ id: "kept", text: "Kept\nold loaf", at: 1 }]);
+    saveIndex();
+    renderSidebar();
+    renderDeleted();
+    if (state.active) showSheet();
+  };
   globalThis.omacusBlankLibrary = () => {
     state.texts = new Map();
     state.tree = [];

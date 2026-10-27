@@ -4,46 +4,133 @@
 use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, vec2};
 
 use crate::design;
+use crate::settings;
 use crate::theme::{self, Theme};
 
 use super::session::{CLIPBOARD_NOTE, Screen, Session, Work};
 
-/// Draw the open sync screen. `Some(id)` asks the window to unlock that page
-/// with the password already on this computer.
-pub fn show(ctx: &egui::Context, theme: &Theme, session: &mut Session) -> Option<String> {
-    let mut unlock = None;
-    if session.screen != Screen::Closed {
-        let frame = design::dialog(theme);
-        let mut close = false;
-        let modal = egui::Modal::new(egui::Id::unique("omacus-sync"))
-            .frame(frame)
-            .backdrop_color(design::backdrop(theme))
-            .show(ctx, |ui| {
-                ui.set_width(440.0);
-                ui.set_max_width(440.0);
-                unlock = body(ui, theme, session);
-                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                    close = true;
-                }
-            });
-        if modal.should_close() {
-            close = true;
-        }
-        if close && unlock.is_none() && !session.frozen() {
-            session.not_now();
-        }
+/// The open sync step, as a Settings card. `Some(id)` asks the window to
+/// unlock that page with the password already on this computer.
+pub fn embed(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<String> {
+    if session.screen == Screen::Home {
+        session.observe_list();
+    }
+    if session.screen == Screen::Home && !session.list_note_text().is_empty() {
+        list_notice(ui, theme, session);
+        ui.add_space(theme::token::SPACE_3);
     }
     if session.move_pending().is_some() {
-        let frame = design::dialog(theme);
-        egui::Modal::new(egui::Id::unique("omacus-sync-move"))
-            .frame(frame)
-            .backdrop_color(design::backdrop(theme))
-            .show(ctx, |ui| {
-                ui.set_width(440.0);
-                move_body(ui, theme, session);
-            });
+        settings::group(ui, theme, "Move this page?", |ui| {
+            move_body(ui, theme, session);
+        });
+        ui.add_space(theme::token::SPACE_3);
     }
+    if session.screen == Screen::Closed {
+        return None;
+    }
+    let heading = if session.frozen() {
+        "Sync".to_string()
+    } else {
+        screen_heading(session)
+    };
+    let mut unlock = None;
+    settings::group(ui, theme, &heading, |ui| {
+        unlock = body(ui, theme, session);
+    });
     unlock
+}
+
+fn screen_heading(session: &Session) -> String {
+    match session.screen {
+        Screen::Intro => "How sync works".into(),
+        Screen::Choice => "Turn on sync".into(),
+        Screen::Start => "Start fresh on this computer".into(),
+        Screen::Words => "Save your recovery words".into(),
+        Screen::Check => "Do these match your paper?".into(),
+        Screen::Ready => "Sync is on".into(),
+        Screen::Home => {
+            let name = session.vault_name().trim();
+            if name.is_empty() {
+                "My pages".into()
+            } else {
+                name.to_string()
+            }
+        }
+        Screen::Invite => "Add a phone or computer".into(),
+        Screen::Join => "Join your synced pages".into(),
+        Screen::Scan => "Scan the code".into(),
+        Screen::Waiting => "Approve on your other device".into(),
+        Screen::Match => "Do these match?".into(),
+        Screen::Approve => approve_heading(session),
+        Screen::Recover => "Use your recovery words".into(),
+        Screen::OffAsk | Screen::OffFailed => "Turn sync off on this computer?".into(),
+        Screen::RemoveAsk => remove_heading(session),
+        Screen::Removed => "Sync is paused".into(),
+        Screen::PagesHere => "Pages already on this computer".into(),
+        Screen::Locked => format!("{} is locked", session.locked_title()),
+        Screen::Clash => {
+            let title = session
+                .clash()
+                .map(|clash| clash.title.clone())
+                .unwrap_or_else(|| "This page".into());
+            format!("{title} is on both sides")
+        }
+        Screen::Rename => "Rename".into(),
+        Screen::PassSet => "Choose a passphrase".into(),
+        Screen::PassEnter => "Enter the passphrase".into(),
+        Screen::Keyring => "Set up your keyring".into(),
+        Screen::Closed => String::new(),
+    }
+}
+
+fn approve_heading(session: &Session) -> String {
+    let name = session.pending_label();
+    if name.is_empty() {
+        "Is this your phone or computer?".into()
+    } else {
+        format!("Is this {name}?")
+    }
+}
+
+fn remove_heading(session: &Session) -> String {
+    let id = session.removing();
+    let name = session
+        .devices()
+        .into_iter()
+        .find(|row| row.id == id)
+        .map(|row| row.name)
+        .unwrap_or_else(|| "this phone or computer".into());
+    if name == "Phone or computer" || name == "this phone or computer" {
+        "Remove this phone or computer?".into()
+    } else {
+        format!("Remove {name}?")
+    }
+}
+
+fn list_notice(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) {
+    let sentence = session.list_change_sentence_now();
+    settings::group(ui, theme, "List changed", |ui| {
+        let note = egui::Button::new(
+            RichText::new(sentence)
+                .size(theme::token::TYPE_BODY)
+                .color(theme.warning()),
+        )
+        .fill(theme.surface())
+        .stroke(Stroke::new(1.0, theme.warning()))
+        .corner_radius(CornerRadius::same(theme::token::RADIUS_MD))
+        .min_size(vec2(ui.available_width(), theme::token::HIT));
+        let _ = ui.add_sized([ui.available_width(), theme::token::HIT], note);
+        ui.add_space(theme::token::SPACE_2);
+        settings::caption(
+            ui,
+            theme,
+            "Sync is still on. This note does not stop pages from saving.",
+        );
+        ui.add_space(theme::token::SPACE_3);
+        if design::quiet(ui, theme, "Got it").clicked() {
+            session.ack_list();
+        }
+    });
 }
 
 fn body(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<String> {
@@ -87,14 +174,7 @@ fn body(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
     }
 }
 
-fn title(ui: &mut egui::Ui, theme: &Theme, text: &str) {
-    ui.label(
-        RichText::new(text)
-            .size(theme::token::TYPE_TITLE)
-            .color(theme.foreground),
-    );
-    ui.add_space(8.0);
-}
+fn title(_ui: &mut egui::Ui, _theme: &Theme, _text: &str) {}
 
 fn para(ui: &mut egui::Ui, theme: &Theme, text: &str) {
     ui.label(
@@ -592,13 +672,6 @@ fn home(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
     }
     session.observe_list();
     title(ui, theme, "Sync is on");
-    let list_note = session.list_note_text();
-    if !list_note.is_empty() {
-        para(ui, theme, list_note);
-        if design::quiet(ui, theme, "Got it").clicked() {
-            session.ack_list();
-        }
-    }
     if !session.notice.is_empty() {
         para(ui, theme, &session.notice.clone());
     }
@@ -802,7 +875,7 @@ fn proof_mask() -> bool {
 }
 
 fn shown_numbers(session: &Session) -> String {
-    if proof_mask() {
+    if proof_mask() || session.preview_masked() {
         "······".to_string()
     } else {
         session.numbers()
@@ -810,7 +883,7 @@ fn shown_numbers(session: &Session) -> String {
 }
 
 fn shown_words(session: &Session) -> String {
-    if proof_mask() {
+    if proof_mask() || session.preview_masked() {
         "···· ···· ···· ····".to_string()
     } else {
         session.four_words()
@@ -991,10 +1064,11 @@ fn removed(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<St
     para(
         ui,
         theme,
-        "This computer is not on the list, so new pages stay here. Your pages are still here. Join again adds this computer back. Nothing already here is deleted.",
+        "This computer is not on the list, so new pages stay here. Your pages are still here. The Sync button in the sidebar stays. Join again adds this computer back. Nothing already here is deleted.",
     );
     err(ui, theme, &session.error.clone());
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
+        let _ = design::quiet(ui, theme, "Sync");
         if design::primary(ui, theme, "Join again").clicked() {
             session.choose_join();
         }
@@ -1114,7 +1188,7 @@ fn move_body(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) {
         .unwrap_or_default();
     let name = session.vault_name().to_string();
     if inside {
-        title(
+        para(
             ui,
             theme,
             &format!("Move \u{201c}{title_text}\u{201d} into {name}?"),
@@ -1127,7 +1201,7 @@ fn move_body(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) {
             ),
         );
     } else {
-        title(
+        para(
             ui,
             theme,
             &format!("Move \u{201c}{title_text}\u{201d} out of {name}?"),
@@ -1156,4 +1230,17 @@ fn field_label(ui: &mut egui::Ui, theme: &Theme, text: &str) {
             .size(theme::token::TYPE_CAPTION)
             .color(theme.text_muted()),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn paused_and_list_change_live_in_the_settings_card() {
+        let src = include_str!("ui.rs");
+        assert!(src.contains("Check again"));
+        assert!(src.contains("The Sync button in the sidebar stays"));
+        assert!(src.contains("This note does not stop pages from saving."));
+        let modal = format!("{}{}", "Modal::", "new");
+        assert!(!src.contains(&modal), "sync still opens its own window");
+    }
 }

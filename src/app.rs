@@ -506,7 +506,8 @@ pub struct OmacusApp {
     help: Option<help::Tab>,
     updates: Updates,
     update_open: bool,
-    list_open: bool,
+    /// The Sync tab was opened on purpose. A later dismiss does not reopen it.
+    sync_tab_armed: bool,
     /// Sync in this window. Pages stay files. A sealed copy is what leaves.
     sync: sync::Session,
     /// The session is on a background step. The window keeps drawing a shell.
@@ -562,7 +563,19 @@ impl OmacusApp {
         let system_dark = is_system_dark(&cc.egui_ctx);
         let settings = settings::load();
         settings::remember(&settings);
-        let theme = if std::env::var("OMACUS_SYNC_SCREEN").is_ok() {
+        let theme = if std::env::var("OMACUS_SYNC_CARD").is_ok()
+            || std::env::var("OMACUS_SCREENSHOT_THEME").ok().as_deref() == Some("dusk")
+        {
+            let light = std::env::var("OMACUS_SCREENSHOT_THEME").ok().as_deref() == Some("light");
+            Theme::resolve(
+                if light {
+                    settings::ThemeChoice::Light
+                } else {
+                    settings::ThemeChoice::Dusk
+                },
+                !light,
+            )
+        } else if std::env::var("OMACUS_SYNC_SCREEN").is_ok() {
             let light = std::env::var("OMACUS_SCREENSHOT_THEME").ok().as_deref() == Some("light");
             Theme::resolve(
                 if light {
@@ -662,7 +675,7 @@ impl OmacusApp {
             },
             // With OMACUS_SCREENSHOT, "update" opens the update window instead of help.
             update_open: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "update"),
-            list_open: false,
+            sync_tab_armed: false,
             sync: sync::Session::open(sync_dir(), &sync_origin()),
             sync_job: None,
             sync_poll: Instant::now(),
@@ -728,8 +741,23 @@ impl OmacusApp {
                 let id = sheet.id.clone();
                 app.sync.set_in_set(&id, false);
             }
-            if kind == "list-sheet" {
-                app.list_open = true;
+            if kind == "list-sheet" || kind == "list" {
+                app.sync.show_home();
+            }
+            if app.sync.screen != sync::Screen::Closed {
+                app.help = Some(help::Tab::Sync);
+                app.sync_tab_armed = true;
+            }
+        }
+        if let Ok(kind) = std::env::var("OMACUS_SYNC_CARD") {
+            app.sync.adopt(local_pages(&app.store));
+            app.sync.preview(&kind);
+            if kind == "list-sheet" || kind == "list" || kind == "list-changed" {
+                app.sync.show_home();
+            }
+            if app.sync.screen != sync::Screen::Closed || app.sync.move_pending().is_some() {
+                app.help = Some(help::Tab::Sync);
+                app.sync_tab_armed = true;
             }
         }
         if let Ok(mode) = std::env::var("OMACUS_SCREENSHOT_HELP")
@@ -1901,7 +1929,6 @@ rental = rent + 50
         // A new phone shows "List changed" until Got it. The proof taps that
         // so the settled chip is Live, the same as a person closing the note.
         if self.sync.screen == sync::Screen::Closed && !self.sync.list_note_text().is_empty() {
-            self.list_open = false;
             self.sync.ack_list();
         }
         self.e2e_write_status();
@@ -2239,6 +2266,16 @@ rental = rent + 50
 
     fn show_help(&mut self, ctx: &egui::Context) {
         let Some(mut tab) = self.help else { return };
+        if tab == help::Tab::Sync && !self.sync_tab_armed {
+            if self.sync.screen == sync::Screen::Closed && self.sync.move_pending().is_none() {
+                self.sync.open_entry();
+            }
+            self.sync_tab_armed = true;
+        }
+        if tab != help::Tab::Sync {
+            self.sync_tab_armed = false;
+        }
+        let before = self.sync.screen;
         let action = help::show(
             ctx,
             &mut tab,
@@ -2247,11 +2284,18 @@ rental = rent + 50
             &self.logo,
             &self.updates,
             &mut self.settings,
+            &mut self.sync,
         );
+        let dismissed = before != sync::Screen::Closed && self.sync.screen == sync::Screen::Closed;
         self.help = Some(tab);
         match action {
             Some(help::Action::Close) => {
-                self.help = None;
+                self.dismiss_sync_window();
+            }
+            Some(help::Action::Unlock(id)) => {
+                if let Some(i) = self.store.sheets.iter().position(|sheet| sheet.id == id) {
+                    self.store.select(i);
+                }
                 self.focus_editor = true;
             }
             Some(help::Action::OpenExamples) => {
@@ -2270,8 +2314,42 @@ rental = rent + 50
             Some(help::Action::ExportEverything) => {
                 self.export_everything();
             }
+            None if dismissed && !self.sync.frozen() && tab == help::Tab::Sync => {
+                self.dismiss_sync_window();
+            }
             None => {}
         }
+    }
+
+    /// Closing the Settings window hides the sync card. Sync that is already on
+    /// keeps running. A frozen step stays up until it finishes.
+    fn dismiss_sync_window(&mut self) {
+        if self.sync.frozen() {
+            self.help = Some(help::Tab::Sync);
+            self.sync_tab_armed = true;
+            return;
+        }
+        if self.sync.screen != sync::Screen::Closed {
+            self.sync.not_now();
+        }
+        if self.sync.move_pending().is_some() {
+            self.sync.cancel_move();
+        }
+        self.help = None;
+        self.sync_tab_armed = false;
+        self.focus_editor = true;
+    }
+
+    fn open_sync_tab(&mut self) {
+        if self.sync.screen == sync::Screen::Closed {
+            self.sync.open_entry();
+        }
+        self.help = Some(help::Tab::Sync);
+        self.sync_tab_armed = true;
+        self.switcher = None;
+        self.popup = None;
+        self.update_open = false;
+        self.focus_editor = false;
     }
 
     /// Switcher keystrokes, taken out of the event list before the sheet editor
@@ -2636,12 +2714,12 @@ rental = rent + 50
     /// How sync works, then the setup, in this window.
     fn show_sync(&mut self, ctx: &egui::Context) {
         self.tick_sync(ctx);
-        let theme = self.theme.clone();
-        if let Some(id) = sync::show(ctx, &theme, &mut self.sync) {
-            if let Some(i) = self.store.sheets.iter().position(|sheet| sheet.id == id) {
-                self.store.select(i);
-            }
-            self.focus_editor = true;
+        if self.help.is_none()
+            && !self.sync.frozen()
+            && (self.sync.screen != sync::Screen::Closed || self.sync.move_pending().is_some())
+        {
+            self.help = Some(help::Tab::Sync);
+            self.sync_tab_armed = true;
         }
         if let Some(ask) = self.sync.take_announced() {
             let where_name = if ask.inside {
@@ -2796,6 +2874,7 @@ rental = rent + 50
             theme.foreground,
         );
         let chip = self.sync.chip(Instant::now());
+        let mut open_sync = false;
         if let Some(label) = chip.label() {
             let ink = if chip == sync::Chip::NotSaved {
                 theme.danger()
@@ -2846,10 +2925,11 @@ rental = rent + 50
             }
             if hit.clicked() {
                 if self.sync.status_opens_list(now) {
-                    self.list_open = true;
+                    self.sync.show_home();
                 } else {
                     self.sync.open_from_status(now);
                 }
+                open_sync = true;
             }
         }
         ui.painter().line_segment(
@@ -2859,6 +2939,9 @@ rental = rent + 50
             ],
             egui::Stroke::new(1.0, theme.border()),
         );
+        if open_sync {
+            self.open_sync_tab();
+        }
     }
 
     /// The update window: what's new, and installing it.
@@ -2958,49 +3041,6 @@ rental = rent + 50
         if close {
             self.update_open = false;
             self.focus_editor = true;
-        }
-    }
-
-    fn show_list_change(&mut self, ctx: &egui::Context) {
-        if !self.list_open {
-            return;
-        }
-        let theme = self.theme.clone();
-        let body = self.sync.list_change_sentence_now();
-        let mut got_it = false;
-        let mut review = false;
-        let frame = design::dialog_pad(&theme, Margin::symmetric(24, 20));
-        let modal = egui::Modal::new(egui::Id::unique("omacus-list-changed"))
-            .frame(frame)
-            .backdrop_color(design::backdrop(&theme))
-            .show(ctx, |ui| {
-                ui.set_width(380.0);
-                ui.label(
-                    egui::RichText::new("List changed")
-                        .size(theme::token::TYPE_TITLE)
-                        .color(theme.foreground),
-                );
-                ui.add_space(8.0);
-                ui.label(
-                    egui::RichText::new(body)
-                        .size(theme::token::TYPE_BODY)
-                        .color(theme.dim),
-                );
-                ui.add_space(16.0);
-                ui.horizontal(|ui| {
-                    got_it = design::primary(ui, &theme, "Got it").clicked();
-                    review = design::quiet(ui, &theme, "Review devices").clicked();
-                });
-            });
-        if modal.should_close() {
-            got_it = true;
-        }
-        if review {
-            self.list_open = false;
-            self.sync.show_home();
-        } else if got_it {
-            self.list_open = false;
-            self.sync.ack_list();
         }
     }
 
@@ -3664,7 +3704,7 @@ rental = rent + 50
                 "Sync settings"
             };
             if open_sync.on_hover_text(tip).clicked() {
-                self.sync.open_entry();
+                self.open_sync_tab();
             }
             ui.add_space(6.0);
         }
@@ -5066,7 +5106,7 @@ rental = rent + 50
         {
             self.apply(SheetAction::New);
         } else if turn_on.on_hover_text(self.sync.entry_label()).clicked() {
-            self.sync.open_entry();
+            self.open_sync_tab();
         } else if gear
             .on_hover_text(format!("Settings ({})", help::keys("Ctrl+,")))
             .clicked()
@@ -5893,7 +5933,6 @@ impl eframe::App for OmacusApp {
         self.popup(&ctx);
         self.show_help(&ctx);
         self.show_update(&ctx);
-        self.show_list_change(&ctx);
         self.show_removal(&ctx);
         self.show_sync(&ctx);
         self.show_delete(&ctx);
@@ -6736,6 +6775,7 @@ fn is_system_dark(ctx: &egui::Context) -> bool {
 
 pub fn run() -> eframe::Result {
     let size = if std::env::var("OMACUS_SYNC_SCREEN").is_ok()
+        || std::env::var("OMACUS_SYNC_CARD").is_ok()
         || std::env::var_os("OMACUS_E2E_SHOT_DIR").is_some()
     {
         Vec2::new(1280.0, 800.0)

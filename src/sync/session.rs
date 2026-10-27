@@ -288,6 +288,12 @@ pub struct Session {
     list_note: bool,
     /// Screenshot seed. Empty during a real session.
     list_line: String,
+    /// Screenshot device rows. Empty during a real session.
+    preview_devices: Vec<DeviceRow>,
+    /// Screenshot approve card. A real request still has to be readable.
+    preview_readable: bool,
+    /// Screenshot stand-in for a code or four words. Never a real secret.
+    preview_masked: bool,
     clash: Option<Clash>,
     pre_ids: Vec<String>,
     rename_id: String,
@@ -415,6 +421,9 @@ impl Session {
             seen: Vec::new(),
             list_note: false,
             list_line: String::new(),
+            preview_devices: Vec::new(),
+            preview_readable: false,
+            preview_masked: false,
             clash: None,
             pre_ids: Vec::new(),
             rename_id: String::new(),
@@ -645,8 +654,23 @@ impl Session {
         self.save_book();
     }
 
+    fn demo_devices() -> Vec<DeviceRow> {
+        vec![
+            DeviceRow {
+                id: "desk".into(),
+                name: "Harbor desk".into(),
+                here: true,
+            },
+            DeviceRow {
+                id: "phone".into(),
+                name: "Harbor phone".into(),
+                here: false,
+            },
+        ]
+    }
+
     pub fn preview(&mut self, kind: &str) {
-        if self.pages.is_empty() {
+        if self.pages.is_empty() && std::env::var_os("OMACUS_SYNC_CARD").is_none() {
             self.pages = vec![
                 (
                     "trip".into(),
@@ -656,6 +680,7 @@ impl Session {
             ];
         }
         self.vault_name = "My pages".into();
+        self.self_name = "Harbor desk".into();
         match kind {
             "explainer" | "intro" => self.screen = Screen::Intro,
             "pages" => self.screen = Screen::PagesHere,
@@ -745,10 +770,13 @@ impl Session {
                 self.on = true;
                 self.member = true;
                 self.screen = Screen::Home;
+                self.preview_devices = Self::demo_devices();
             }
             "join" => self.screen = Screen::Join,
             "approve" => {
                 self.pending_name = "Harbor phone".into();
+                self.preview_readable = true;
+                self.preview_masked = true;
                 self.screen = Screen::Approve;
             }
             "recover" => self.screen = Screen::Recover,
@@ -757,6 +785,30 @@ impl Session {
                 self.member = false;
                 self.removed = true;
                 self.screen = Screen::Removed;
+            }
+            "join-wait" => {
+                self.preview_masked = true;
+                self.screen = Screen::Waiting;
+            }
+            "remove" => {
+                self.preview_devices = Self::demo_devices();
+                self.rename_id = "phone".into();
+                self.screen = Screen::RemoveAsk;
+            }
+            "approve-timeout" => {
+                self.pending_name = "Harbor phone".into();
+                self.preview_readable = true;
+                self.preview_masked = true;
+                self.error = "That took too long. Your pages are still here.".into();
+                self.screen = Screen::Approve;
+            }
+            "list-changed" => {
+                self.on = true;
+                self.member = true;
+                self.list_note = true;
+                self.screen = Screen::Home;
+                self.preview_devices = Self::demo_devices();
+                self.list_line = "Harbor phone is now on the list.".into();
             }
             "off" => self.screen = Screen::OffAsk,
             "pass" | "pass-enter" => self.screen = Screen::PassEnter,
@@ -1126,11 +1178,18 @@ impl Session {
 
     /// The join request has numbers and four words. A saved-copy error is separate.
     pub fn request_readable(&self) -> bool {
+        if self.preview_readable {
+            return true;
+        }
         if self.pending_device.is_empty() {
             return false;
         }
         let numbers = desk::code_for_device(&self.pending_device).unwrap_or_default();
         !numbers.is_empty() && self.four_words().split_whitespace().count() == 4
+    }
+
+    pub fn preview_masked(&self) -> bool {
+        self.preview_masked
     }
 
     pub fn copy_note(&self) -> &'static str {
@@ -2421,6 +2480,9 @@ impl Session {
     }
 
     pub fn devices(&self) -> Vec<DeviceRow> {
+        if !self.preview_devices.is_empty() {
+            return self.preview_devices.clone();
+        }
         let Ok(rows) = self
             .desk
             .as_ref()

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+**Sync lives in Settings**
+
+Sync opens in the Settings window, on its own tab. Turn on, join, approve, recover, the device list, and turn off are cards there. If this computer is paused, Sync stays in the sidebar, and the card offers Join again and Check again. When the list of phones and computers changes, a note says so. You can open it or dismiss it, and pages keep saving.
+
 **Sync stays up when the quick connection drops**
 
 Live means the quick connection is open. If that connection drops, pages still save and the status says Syncing. Offline means this device cannot reach your pages.

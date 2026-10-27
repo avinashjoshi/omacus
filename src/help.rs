@@ -17,6 +17,7 @@ pub enum Tab {
     Tips,
     About,
     Settings,
+    Sync,
 }
 
 impl Tab {
@@ -26,6 +27,7 @@ impl Tab {
             "tips" => Tab::Tips,
             "about" => Tab::About,
             "settings" => Tab::Settings,
+            "sync" => Tab::Sync,
             _ => Tab::Keyboard,
         }
     }
@@ -37,8 +39,21 @@ impl Tab {
             Tab::Tips => "Tips & tricks",
             Tab::About => "About",
             Tab::Settings => "Settings",
+            Tab::Sync => "Sync",
         }
     }
+}
+
+/// Left rail, top to bottom. Sync sits between Settings and Keyboard.
+pub fn rail() -> &'static [Tab] {
+    &[
+        Tab::Settings,
+        Tab::Sync,
+        Tab::Keyboard,
+        Tab::Syntax,
+        Tab::Tips,
+        Tab::About,
+    ]
 }
 
 pub enum Action {
@@ -51,6 +66,8 @@ pub enum Action {
     SettingsChanged,
     /// Save every page, folder, and setting.
     ExportEverything,
+    /// Unlock a page the sync card named. The id is this computer's page id.
+    Unlock(String),
 }
 
 const KEYS: &[(&str, &[(&str, &str)])] = &[
@@ -363,6 +380,7 @@ const SITE: &str = "https://omacus.com";
 const REPO: &str = "https://github.com/avinashjoshi/omacus";
 
 /// The help window: a rail of sections on the left, the section on the right.
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ctx: &egui::Context,
     tab: &mut Tab,
@@ -371,6 +389,7 @@ pub fn show(
     logo: &Logo,
     updates: &Updates,
     settings: &mut Settings,
+    sync: &mut crate::sync::Session,
 ) -> Option<Action> {
     let mut action = None;
     let screen = ctx.content_rect();
@@ -409,13 +428,7 @@ pub fn show(
                                 ui.label(RichText::new("Omacus").size(17.0).color(theme.accent));
                             });
                             ui.add_space(18.0);
-                            for t in [
-                                Tab::Settings,
-                                Tab::Keyboard,
-                                Tab::Syntax,
-                                Tab::Tips,
-                                Tab::About,
-                            ] {
+                            for t in rail().iter().copied() {
                                 let dot = t == Tab::About && available.is_some();
                                 if rail_button(ui, theme, t.title(), *tab == t, dot) {
                                     *tab = t;
@@ -500,6 +513,16 @@ pub fn show(
                                         }
                                         if export {
                                             action = Some(Action::ExportEverything);
+                                        }
+                                    }
+                                    Tab::Sync => {
+                                        if sync.screen == crate::sync::Screen::Closed
+                                            && sync.move_pending().is_none()
+                                        {
+                                            sync.open_entry();
+                                        }
+                                        if let Some(id) = crate::sync::embed(ui, theme, sync) {
+                                            action = Some(Action::Unlock(id));
                                         }
                                     }
                                     Tab::About => {
@@ -880,5 +903,16 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn sync_sits_between_settings_and_keyboard() {
+        let rail = super::rail();
+        let settings = rail.iter().position(|tab| *tab == Tab::Settings).unwrap();
+        let sync = rail.iter().position(|tab| *tab == Tab::Sync).unwrap();
+        let keyboard = rail.iter().position(|tab| *tab == Tab::Keyboard).unwrap();
+        assert_eq!(sync, settings + 1);
+        assert_eq!(keyboard, sync + 1);
+        assert!(Tab::from_name("sync") == Tab::Sync);
     }
 }
