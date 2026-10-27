@@ -1963,6 +1963,18 @@ impl Session {
         } else {
             remote
         };
+        // A page that was already synced and is absent from this copy is not
+        // erased. It waits in Recently deleted, and Restore puts it back.
+        let parked: Vec<(String, String)> = self
+            .pages
+            .iter()
+            .filter(|(id, _)| {
+                self.bases.iter().any(|(page, _)| page == id)
+                    && !merged.pages.iter().any(|(page, _)| page == id)
+            })
+            .cloned()
+            .collect();
+        self.park_removed(&parked);
         let locked_pages: Vec<_> = self
             .locked
             .iter()
@@ -2356,6 +2368,21 @@ impl Session {
             if !self.pages.iter().any(|(page, _)| page == id) {
                 self.pages.push((id.to_string(), text));
             }
+        }
+    }
+
+    fn park_removed(&self, gone: &[(String, String)]) {
+        if gone.is_empty() {
+            return;
+        }
+        let trash = self.dir.join("trash");
+        let _ = fs::create_dir_all(&trash);
+        for (id, text) in gone {
+            let dest = trash.join(format!("{id}.txt"));
+            if !dest.exists() {
+                let _ = fs::write(&dest, text);
+            }
+            let _ = fs::remove_file(self.dir.join("pages").join(format!("{id}.txt")));
         }
     }
 
@@ -3078,5 +3105,44 @@ mod list_note_tests {
         assert_eq!(session.chip(Instant::now()), Chip::Synced);
         assert!(session.list_note_text().is_empty());
         let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[cfg(test)]
+mod park_tests {
+    use super::*;
+
+    #[test]
+    fn a_synced_page_missing_from_the_other_side_waits_in_recently_deleted() {
+        let dir = std::env::temp_dir().join(format!("omacus-park-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("pages")).unwrap();
+        fs::write(dir.join("pages").join("pantry.txt"), "Pantry\noats\n").unwrap();
+        fs::write(dir.join("pages").join("kept.txt"), "Kept\n1\n").unwrap();
+        let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
+        session.pages = vec![
+            ("pantry".into(), "Pantry\noats\n".into()),
+            ("kept".into(), "Kept\n1\n".into()),
+        ];
+        session.bases = vec![
+            ("pantry".into(), hash_text("Pantry\noats\n")),
+            ("kept".into(), hash_text("Kept\n1\n")),
+        ];
+        let remote = PageSet {
+            doc: Vec::new(),
+            pages: vec![("kept".into(), "Kept\n1\n".into())],
+            meta: SyncMeta::default(),
+        };
+        session
+            .install_remote(&remote.to_bytes().unwrap(), false)
+            .unwrap();
+        assert!(session.page_text("pantry").is_none());
+        assert_eq!(session.page_text("kept"), Some("Kept\n1\n"));
+        let trashed = fs::read_to_string(dir.join("trash").join("pantry.txt")).unwrap();
+        assert!(trashed.contains("oats"));
+        assert!(!dir.join("pages").join("pantry.txt").exists());
+        session.restore_page("pantry", "Pantry\noats\n");
+        assert_eq!(session.page_text("pantry"), Some("Pantry\noats\n"));
+        let _ = fs::remove_dir_all(&dir);
     }
 }
