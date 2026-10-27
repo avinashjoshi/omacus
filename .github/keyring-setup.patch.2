@@ -1,0 +1,330 @@
++        },
++    )?;
++    if open.kind == 3 {
++        return Err(PREPARE_FAILED.into());
++    }
++    let session = session_path(&open.body).ok_or_else(|| PREPARE_FAILED.to_string())?;
++    let created_body = body_empty_collection(&session);
++    let created = bus_send(
++        &mut stream,
++        3,
++        &BusCall {
++            dest: "org.freedesktop.secrets",
++            path: "/org/freedesktop/secrets",
++            interface: "org.gnome.keyring.InternalUnsupportedGuiltRiddenInterface",
++            member: "CreateWithMasterPassword",
++            signature: "a{sv}(oayays)",
++            body: &created_body,
++        },
++    )?;
++    if created.kind == 3 {
++        return Err(PREPARE_FAILED.into());
++    }
++    Ok(())
++}
++
++#[cfg(all(not(test), unix, not(target_os = "macos")))]
++fn session_socket() -> Result<std::os::unix::net::UnixStream, String> {
++    use std::os::unix::net::UnixStream;
++    let address =
++        std::env::var("DBUS_SESSION_BUS_ADDRESS").map_err(|_| PREPARE_MISSING.to_string())?;
++    for piece in address.split(';') {
++        let Some(rest) = piece.strip_prefix("unix:") else {
++            continue;
++        };
++        for item in rest.split(',') {
++            let Some(path) = item.strip_prefix("path=") else {
++                continue;
++            };
++            if let Ok(stream) = UnixStream::connect(path) {
++                return Ok(stream);
++            }
++        }
++    }
++    Err(PREPARE_MISSING.into())
++}
++
++#[cfg(all(not(test), unix, not(target_os = "macos")))]
++fn read_dbus_line(stream: &mut std::os::unix::net::UnixStream) -> Result<String, String> {
++    use std::io::Read;
++    let mut buf = Vec::new();
++    let mut byte = [0u8; 1];
++    loop {
++        stream
++            .read_exact(&mut byte)
++            .map_err(|_| PREPARE_FAILED.to_string())?;
++        if byte[0] == b'\n' {
++            break;
++        }
++        buf.push(byte[0]);
++        if buf.len() > 512 {
++            return Err(PREPARE_FAILED.into());
++        }
++    }
++    Ok(String::from_utf8_lossy(&buf).trim().to_string())
++}
++
++#[cfg(all(not(test), unix, not(target_os = "macos")))]
++struct DbusReply {
++    kind: u8,
++    body: Vec<u8>,
++}
++
++#[cfg(all(not(test), unix, not(target_os = "macos")))]
++struct BusCall<'a> {
++    dest: &'a str,
++    path: &'a str,
++    interface: &'a str,
++    member: &'a str,
++    signature: &'a str,
++    body: &'a [u8],
++}
++
++#[cfg(all(not(test), unix, not(target_os = "macos")))]
++fn bus_send(
++    stream: &mut std::os::unix::net::UnixStream,
++    serial: u32,
++    call: &BusCall<'_>,
++) -> Result<DbusReply, String> {
++    use std::io::Write;
++    let message = dbus_message(
++        serial,
++        call.dest,
++        call.path,
++        call.interface,
++        call.member,
++        call.signature,
++        call.body,
++    );
++    stream
++        .write_all(&message)
++        .map_err(|_| PREPARE_FAILED.to_string())?;
++    loop {
++        let reply = read_dbus_message(stream)?;
++        if reply.kind == 4 {
++            continue;
++        }
++        return Ok(reply);
++    }
++}
++
++#[cfg(all(not(test), unix, not(target_os = "macos")))]
++fn read_dbus_message(stream: &mut std::os::unix::net::UnixStream) -> Result<DbusReply, String> {
++    use std::io::Read;
++    let mut head = [0u8; 16];
++    stream
++        .read_exact(&mut head)
++        .map_err(|_| PREPARE_FAILED.to_string())?;
++    if head[0] != b'l' {
++        return Err(PREPARE_FAILED.into());
++    }
++    let body_len = u32::from_le_bytes(head[4..8].try_into().unwrap()) as usize;
++    let fields_len = u32::from_le_bytes(head[12..16].try_into().unwrap()) as usize;
++    if body_len > 1_000_000 || fields_len > 1_000_000 {
++        return Err(PREPARE_FAILED.into());
++    }
++    let mut fields = vec![0u8; fields_len];
++    stream
++        .read_exact(&mut fields)
++        .map_err(|_| PREPARE_FAILED.to_string())?;
++    let header_len = 16 + fields_len;
++    let pad = (8 - (header_len % 8)) % 8;
++    if pad > 0 {
++        let mut padding = vec![0u8; pad];
++        stream
++            .read_exact(&mut padding)
++            .map_err(|_| PREPARE_FAILED.to_string())?;
++    }
++    let mut body = vec![0u8; body_len];
++    if body_len > 0 {
++        stream
++            .read_exact(&mut body)
++            .map_err(|_| PREPARE_FAILED.to_string())?;
++    }
++    Ok(DbusReply {
++        kind: head[1],
++        body,
++    })
++}
++
++#[cfg(all(not(test), unix, not(target_os = "macos")))]
++fn dbus_message(
++    serial: u32,
++    dest: &str,
++    path: &str,
++    interface: &str,
++    member: &str,
++    signature: &str,
++    body: &[u8],
++) -> Vec<u8> {
++    let mut buf = vec![0u8; 16];
++    buf[0] = b'l';
++    buf[1] = 1;
++    buf[3] = 1;
++    header_path(&mut buf, path);
++    header_string(&mut buf, 6, dest);
++    header_string(&mut buf, 2, interface);
++    header_string(&mut buf, 3, member);
++    if !signature.is_empty() {
++        header_signature(&mut buf, signature);
++    }
++    let fields_len = (buf.len() - 16) as u32;
++    while !buf.len().is_multiple_of(8) {
++        buf.push(0);
++    }
++    buf.extend_from_slice(body);
++    buf[4..8].copy_from_slice(&(body.len() as u32).to_le_bytes());
++    buf[8..12].copy_from_slice(&serial.to_le_bytes());
++    buf[12..16].copy_from_slice(&fields_len.to_le_bytes());
++    buf
++}
++
++#[cfg(all(not(test), unix, not(target_os = "macos")))]
++fn pad_to(buf: &mut Vec<u8>, align: usize) {
++    while !buf.len().is_multiple_of(align) {
++        buf.push(0);
++    }
++}
++
++#[cfg(all(not(test), unix, not(target_os = "macos")))]
++fn write_len_string(buf: &mut Vec<u8>, text: &str) {
++    pad_to(buf, 4);
++    buf.extend_from_slice(&(text.len() as u32).to_le_bytes());
++    buf.extend_from_slice(text.as_bytes());
++    buf.push(0);
++}
++
++#[cfg(all(not(test), unix, not(target_os = "macos")))]
++fn write_signature(buf: &mut Vec<u8>, text: &str) {
++    buf.push(text.len() as u8);
++    buf.extend_from_slice(text.as_bytes());
++    buf.push(0);
++}
++
++#[cfg(all(not(test), unix, not(target_os = "macos")))]
++fn header_string(buf: &mut Vec<u8>, code: u8, text: &str) {
++    pad_to(buf, 8);
++    buf.push(code);
++    write_signature(buf, "s");
++    write_len_string(buf, text);
++}
++
++#[cfg(all(not(test), unix, not(target_os = "macos")))]
++fn header_path(buf: &mut Vec<u8>, path: &str) {
++    pad_to(buf, 8);
++    buf.push(1);
++    write_signature(buf, "o");
++    write_len_string(buf, path);
++}
++
++#[cfg(all(not(test), unix, not(target_os = "macos")))]
++fn header_signature(buf: &mut Vec<u8>, signature: &str) {
++    pad_to(buf, 8);
++    buf.push(8);
++    write_signature(buf, "g");
++    write_signature(buf, signature);
++}
++
++#[cfg(all(not(test), unix, not(target_os = "macos")))]
++fn body_open_session() -> Vec<u8> {
++    let mut body = Vec::new();
++    write_len_string(&mut body, "plain");
++    write_signature(&mut body, "s");
++    write_len_string(&mut body, "");
++    body
++}
++
++#[cfg(all(not(test), unix, not(target_os = "macos")))]
++fn body_empty_collection(session: &str) -> Vec<u8> {
++    let mut body = Vec::new();
++    pad_to(&mut body, 4);
++    let len_at = body.len();
++    body.extend_from_slice(&0u32.to_le_bytes());
++    pad_to(&mut body, 8);
++    let start = body.len();
++    write_len_string(&mut body, "org.freedesktop.Secret.Collection.Label");
++    write_signature(&mut body, "s");
++    write_len_string(&mut body, "login");
++    let array_len = (body.len() - start) as u32;
++    body[len_at..len_at + 4].copy_from_slice(&array_len.to_le_bytes());
++    pad_to(&mut body, 8);
++    write_len_string(&mut body, session);
++    pad_to(&mut body, 4);
++    body.extend_from_slice(&0u32.to_le_bytes());
++    pad_to(&mut body, 4);
++    body.extend_from_slice(&0u32.to_le_bytes());
++    write_len_string(&mut body, "");
++    body
++}
++
++#[cfg(all(not(test), unix, not(target_os = "macos")))]
++fn session_path(body: &[u8]) -> Option<String> {
++    let marker = b"/org/freedesktop/secrets/session/";
++    let start = body
++        .windows(marker.len())
++        .position(|window| window == marker)?;
++    let rest = &body[start..];
++    let end = rest.iter().position(|byte| *byte == 0)?;
++    let path = std::str::from_utf8(&rest[..end]).ok()?;
++    if path.starts_with("/org/freedesktop/secrets/session/") {
++        Some(path.to_string())
++    } else {
++        None
++    }
++}
++
++/// The passwordless default keyring Omarchy writes at install. An existing
++/// keyring file is left in place. Returns whether a new file was written.
++#[cfg(all(test, unix, not(target_os = "macos")))]
++fn install_passwordless_keyring_at(dir: &Path) -> Result<bool, String> {
++    const BODY: &str = "\
++[keyring]
++display-name=Default keyring
++ctime=1700000000
++mtime=0
++lock-on-idle=false
++lock-after=false
++";
++    if dir.exists() {
++        let meta = fs::symlink_metadata(dir).map_err(|_| PREPARE_FAILED.to_string())?;
++        if meta.file_type().is_symlink() {
++            return Err(PREPARE_FAILED.into());
++        }
++        if let Ok(entries) = fs::read_dir(dir) {
++            for entry in entries.flatten() {
++                if entry.file_name().to_string_lossy().ends_with(".keyring") {
++                    return Ok(false);
++                }
++            }
++        }
++    } else {
++        fs::create_dir_all(dir).map_err(|_| PREPARE_FAILED.to_string())?;
++        #[cfg(unix)]
++        {
++            use std::os::unix::fs::PermissionsExt;
++            let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
++        }
++    }
++    let keyring = dir.join("Default_keyring.keyring");
++    write_new(&keyring, BODY.as_bytes(), 0o600)?;
++    let pointer = dir.join("default");
++    fs::write(&pointer, b"Default_keyring\n").map_err(|_| PREPARE_FAILED.to_string())?;
++    #[cfg(unix)]
++    {
++        use std::os::unix::fs::PermissionsExt;
++        fs::set_permissions(&pointer, fs::Permissions::from_mode(0o644))
++            .map_err(|_| PREPARE_FAILED.to_string())?;
++    }
++    Ok(true)
++}
++
++#[cfg(all(test, unix, not(target_os = "macos")))]
++fn write_new(path: &Path, bytes: &[u8], mode: u32) -> Result<(), String> {
++    let mut options = OpenOptions::new();
++    options.write(true).create_new(true);
++    #[cfg(unix)]
++    {
++        use std::os::unix::fs::OpenOptionsExt;
++        options.mode(mode);
++    }
++    let mut file = options.open(path).map_err(|_| PREPARE_FAILED.to_string())?;
