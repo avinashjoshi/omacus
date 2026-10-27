@@ -1937,6 +1937,13 @@ pub struct PageMember {
     pub in_vault: bool,
 }
 
+/// An explicit delete. A page that is only missing from the other device is not one.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Tombstone {
+    pub id: String,
+    pub rev: u64,
+}
+
 /// The name of the synced pages, the phone names, and which pages are in the set.
 /// This rides inside the sealed pages. A blank value is the older page format.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -1945,6 +1952,7 @@ pub struct SyncMeta {
     pub name_rev: u64,
     pub devices: Vec<DeviceLabel>,
     pub membership: Vec<PageMember>,
+    pub tombstones: Vec<Tombstone>,
 }
 
 impl SyncMeta {
@@ -1953,6 +1961,7 @@ impl SyncMeta {
             && self.name_rev == 0
             && self.devices.is_empty()
             && self.membership.is_empty()
+            && self.tombstones.is_empty()
     }
 
     /// Pages with no membership line stay in the set, as older copies did.
@@ -1997,11 +2006,23 @@ impl SyncMeta {
                 None => membership.push(member),
             }
         }
+        let mut tombstones = self.tombstones;
+        for tomb in other.tombstones {
+            match tombstones.iter_mut().find(|row| row.id == tomb.id) {
+                Some(row) => {
+                    if tomb.rev >= row.rev {
+                        row.rev = tomb.rev;
+                    }
+                }
+                None => tombstones.push(tomb),
+            }
+        }
         Self {
             vault_name,
             name_rev,
             devices,
             membership,
+            tombstones,
         }
     }
 }
@@ -2090,6 +2111,25 @@ impl PageSet {
             out.extend_from_slice(&member.rev.to_be_bytes());
             out.push(u8::from(member.in_vault));
         }
+        if !self.meta.tombstones.is_empty() {
+            if self.meta.tombstones.len() > MAX_PAGES {
+                return Err(SyncKeyError::Corrupt);
+            }
+            out.extend_from_slice(b"TOMB");
+            let count =
+                u32::try_from(self.meta.tombstones.len()).map_err(|_| SyncKeyError::Corrupt)?;
+            out.extend_from_slice(&count.to_be_bytes());
+            for tomb in &self.meta.tombstones {
+                let id = tomb.id.as_bytes();
+                if id.is_empty() || id.len() > MAX_PAGE_ID {
+                    return Err(SyncKeyError::Corrupt);
+                }
+                let id_len = u16::try_from(id.len()).map_err(|_| SyncKeyError::Corrupt)?;
+                out.extend_from_slice(&id_len.to_be_bytes());
+                out.extend_from_slice(id);
+                out.extend_from_slice(&tomb.rev.to_be_bytes());
+            }
+        }
         Ok(())
     }
 
@@ -2147,11 +2187,13 @@ impl PageSet {
                 in_vault: flag == 1,
             });
         }
+        let tombstones = read_tombstones(reader)?;
         Ok(SyncMeta {
             vault_name,
             name_rev,
             devices,
             membership,
+            tombstones,
         })
     }
 
@@ -2241,6 +2283,30 @@ pub fn meta_from_bytes(bytes: &[u8]) -> Result<SyncMeta, SyncKeyError> {
     let meta = PageSet::read_meta(&mut reader)?;
     reader.finish()?;
     Ok(meta)
+}
+
+fn read_tombstones(reader: &mut Reader<'_>) -> Result<Vec<Tombstone>, SyncKeyError> {
+    if reader.is_empty() || !reader.rest.starts_with(b"TOMB") {
+        return Ok(Vec::new());
+    }
+    reader.take(4)?;
+    let count = usize::try_from(reader.u32()?).map_err(|_| SyncKeyError::Corrupt)?;
+    if count > MAX_PAGES {
+        return Err(SyncKeyError::Corrupt);
+    }
+    let mut tombstones = Vec::with_capacity(count);
+    for _ in 0..count {
+        let id_len = usize::from(reader.u16()?);
+        if id_len == 0 || id_len > MAX_PAGE_ID {
+            return Err(SyncKeyError::Corrupt);
+        }
+        let id = std::str::from_utf8(reader.take(id_len)?)
+            .map_err(|_| SyncKeyError::Corrupt)?
+            .to_string();
+        let rev = reader.u64()?;
+        tombstones.push(Tombstone { id, rev });
+    }
+    Ok(tombstones)
 }
 
 fn without_pages(doc: &[u8], drop_ids: &[String]) -> Vec<u8> {
@@ -3172,6 +3238,7 @@ mod tests {
                     rev: 2,
                     in_vault: false,
                 }],
+                tombstones: Vec::new(),
             },
         };
         let remote = PageSet {
@@ -3189,6 +3256,7 @@ mod tests {
                     name: "Safari on iPhone".into(),
                 }],
                 membership: vec![],
+                tombstones: Vec::new(),
             },
         };
         let merged = local.merge(remote);
@@ -3285,6 +3353,7 @@ mod tests {
                     name: renamed.into(),
                 }],
                 membership,
+                tombstones: Vec::new(),
             },
         };
         let remote = PageSet {
@@ -3302,6 +3371,7 @@ mod tests {
                     name: "Harbor phone".into(),
                 }],
                 membership: vec![],
+                tombstones: Vec::new(),
             },
         };
         let merged = local.merge(remote);
