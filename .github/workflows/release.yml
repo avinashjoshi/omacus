@@ -267,6 +267,10 @@ jobs:
           cargo build --release --locked --target x86_64-apple-darwin
       - name: Bundle Omacus.app and a .dmg for each chip
         # One .dmg per chip rather than a universal one: each download is half the size.
+        # Compiling cargo-bundle has taken about 17 minutes. The disk images
+        # themselves finished in under a minute. Without a limit, a stuck
+        # hdiutil holds the runner until its six-hour cap.
+        timeout-minutes: 40
         run: |
           cargo install cargo-bundle --version 0.12.0 --locked
           python3 -m pip install --break-system-packages dmgbuild==1.6.5
@@ -279,16 +283,18 @@ jobs:
             cp "target/$target/release/omacus" "dmg-$name/Omacus.app/Contents/MacOS/omacus"
             codesign --force --deep --sign - "dmg-$name/Omacus.app"   # ad-hoc; not notarized
             # A window with the app, Applications and an arrow between (installer/dmg-settings.py).
-            dmgbuild -s installer/dmg-settings.py -D app="dmg-$name/Omacus.app" Omacus "omacus-macos-$name.dmg"
+            # dmgbuild calls hdiutil. A stuck image is stopped and tried once more.
+            .github/scripts/dmg-retry.sh 180 dmgbuild -s installer/dmg-settings.py -D app="dmg-$name/Omacus.app" Omacus "omacus-macos-$name.dmg"
           done
       - name: Check each .dmg holds a working app for its chip
         # Before anything is published: right architecture, and it runs (Intel via Rosetta).
+        timeout-minutes: 10
         run: |
           set -euo pipefail
           version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
           for name in arm64 x86_64; do
             mnt="$RUNNER_TEMP/mnt-$name"
-            hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mnt" "omacus-macos-$name.dmg"
+            .github/scripts/dmg-retry.sh 60 hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mnt" "omacus-macos-$name.dmg"
             bin="$mnt/Omacus.app/Contents/MacOS/omacus"
             [[ "$(lipo -archs "$bin")" == "$name" ]] || { echo "omacus-macos-$name.dmg holds $(lipo -archs "$bin")"; exit 1; }
             if [[ "$name" == x86_64 ]] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
@@ -300,7 +306,7 @@ jobs:
             # omacus:// share links open the app.
             scheme="$(plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw "$mnt/Omacus.app/Contents/Info.plist")"
             [[ "$scheme" == omacus ]] || { echo "Info.plist has no omacus:// scheme"; exit 1; }
-            hdiutil detach -quiet "$mnt"
+            .github/scripts/dmg-retry.sh 60 hdiutil detach -quiet "$mnt"
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:

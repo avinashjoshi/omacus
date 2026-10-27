@@ -37,7 +37,7 @@ jobs:
         run: python3 site/tools/test_story.py
       - name: Release notes
         if: runner.os == 'Linux'
-        run: python3 tests/check_release_notes.py && python3 tests/check_versions.py && python3 tests/check_release_workflow.py && python3 tests/check_update_signature.py && python3 tests/check_site_pages.py && python3 tests/check_sync_health.py && python3 tests/check_security_review.py && python3 tests/check_ci_browser.py
+        run: python3 tests/check_release_notes.py && python3 tests/check_versions.py && python3 tests/check_release_workflow.py && python3 tests/check_dmg_retry.py && python3 tests/check_update_signature.py && python3 tests/check_site_pages.py && python3 tests/check_sync_health.py && python3 tests/check_security_review.py && python3 tests/check_ci_browser.py
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: clippy
@@ -87,18 +87,19 @@ jobs:
       # The .dmg window (layout and background) builds, from a debug app bundle.
       - name: macOS .dmg
         if: runner.os == 'macOS' && github.workflow == 'CI' # the release builds its own
+        timeout-minutes: 40
         run: |
           cargo install cargo-bundle --version 0.12.0 --locked
           python3 -m pip install --break-system-packages dmgbuild==1.6.5
           tiffutil -cathidpicheck installer/dmg-background.png installer/dmg-background@2x.png -out installer/dmg-background.tiff
           cargo bundle
-          dmgbuild -s installer/dmg-settings.py -D app=target/debug/bundle/osx/Omacus.app Omacus omacus-macos-debug.dmg
-          hdiutil attach -quiet -nobrowse -readonly -mountpoint mnt omacus-macos-debug.dmg
+          .github/scripts/dmg-retry.sh 180 dmgbuild -s installer/dmg-settings.py -D app=target/debug/bundle/osx/Omacus.app Omacus omacus-macos-debug.dmg
+          .github/scripts/dmg-retry.sh 60 hdiutil attach -quiet -nobrowse -readonly -mountpoint mnt omacus-macos-debug.dmg
           ls -la mnt
           test -x mnt/Omacus.app/Contents/MacOS/omacus
           test -L mnt/Applications
           test -f mnt/.DS_Store
-          hdiutil detach -quiet mnt
+          .github/scripts/dmg-retry.sh 60 hdiutil detach -quiet mnt
       - name: Keep the .dmg to try
         if: runner.os == 'macOS' && github.workflow == 'CI' # not when the release runs CI: it publishes every artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
