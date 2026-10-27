@@ -156,6 +156,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       release: ${{ steps.version.outputs.release }}
+      web_catchup: ${{ steps.version.outputs.web_catchup }}
       sha: ${{ steps.version.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -167,13 +168,21 @@ jobs:
           version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "sha=${{ needs.wait.outputs.sha || github.sha }}" >> "$GITHUB_OUTPUT"
+          release=true
+          web_catchup=false
           if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
             echo "v$version is already released."
-            echo "release=false" >> "$GITHUB_OUTPUT"
+            release=false
+            live="$(curl -fsS --max-time 20 https://app.omacus.com/version.json | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' || true)"
+            if [ -n "$live" ] && [ "$live" != "$version" ]; then
+              echo "app.omacus.com is $live, so this version still needs to go out."
+              web_catchup=true
+            fi
           else
             echo "v$version is new: releasing."
-            echo "release=true" >> "$GITHUB_OUTPUT"
           fi
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "web_catchup=$web_catchup" >> "$GITHUB_OUTPUT"
 
   # always(): on a push, prepare and wait are skipped. Without always(), GitHub
   # skips every later job too, even after check decides this version is new.
@@ -449,13 +458,18 @@ jobs:
 
   # The web app ships in this same run, as the same version and tag as the
   # desktop app. It uses the app environment for CLOUDFLARE_API_TOKEN. A push
-  # to main does not deploy it. app.yml is only a way to retry this job.
+  # to main does not deploy it once app.omacus.com already shows this version.
+  # If the tag exists and the live app is still older, publish the web app
+  # without tagging again. app.yml is only a way to retry this job.
   deploy-app:
     needs: [publish, check]
     if: >-
       always() &&
-      needs.publish.result == 'success' &&
-      needs.check.outputs.release == 'true'
+      needs.check.result == 'success' &&
+      (
+        (needs.publish.result == 'success' && needs.check.outputs.release == 'true') ||
+        needs.check.outputs.web_catchup == 'true'
+      )
     runs-on: ubuntu-latest
     environment: app
     permissions:
