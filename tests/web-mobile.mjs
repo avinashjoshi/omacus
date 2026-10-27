@@ -205,7 +205,10 @@ check(!sw.includes("ignoreSearch"), "the cached file is the address the page req
 check(sw.includes('cache: "no-store"') && sw.includes("version.json"), "the version check is not answered from the shell");
 check(!sw.includes("indexedDB") && !sw.includes("localStorage"), "an update does not open saved pages");
 check(sw.includes('"version.js"'), "the release version is part of the offline shell");
-check(sw.includes("text/html"), "a page served in place of a script is not kept as the script");
+check(sw.includes("text/html") && sw.includes("isDocument"), "a page served in place of any other file is not kept");
+check(sw.includes('"recovery-words.js"') && sw.includes('"word-check.js"'), "the word list is part of the offline shell");
+check(syncJs.includes('from "./recovery-words.js"') && syncJs.includes("buildChoices") && !syncJs.includes('fetch("./words.txt")'), "the word check uses the bundled list");
+check(buildWeb.includes("site/app/recovery-words.js") && buildWeb.includes("site/app/word-check.js"), "the published app includes the word list");
 check(buildWeb.includes("site/app/seed.js") && buildWeb.includes("site/app/examples.js"), "the published app includes the pages that start it");
 check(/seed\.js\?v=/.test(buildWeb) && /examples\.js\?v=/.test(buildWeb), "those files are named in the published imports");
 check(recover.includes('transaction(STORE, "readonly"') && !recover.includes("deleteDatabase") && !recover.includes("localStorage.clear") && !recover.includes("localStorage.removeItem"), "a failed start reads the saved pages and does not remove them");

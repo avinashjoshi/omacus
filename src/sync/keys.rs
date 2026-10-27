@@ -31,6 +31,21 @@ pub fn save(dir: &Path, plain: &[u8]) -> Result<(), String> {
     write_private(dir, &sealed)
 }
 
+/// The desktop binary uses this to show whether the key store accepted a write.
+/// The bytes are a marker, not a device key, and they are not printed.
+pub fn e2e_store(dir: &Path) -> i32 {
+    match save(dir, b"omacus-e2e") {
+        Ok(()) => {
+            println!("stored");
+            0
+        }
+        Err(_) => {
+            println!("fallback");
+            0
+        }
+    }
+}
+
 pub fn load(dir: &Path) -> Result<Option<Vec<u8>>, String> {
     let file = path(dir);
     if !file.is_file() {
@@ -128,12 +143,13 @@ fn os_seal(plain: &[u8]) -> Result<Vec<u8>, String> {
 
 #[cfg(all(not(test), unix, not(target_os = "macos")))]
 fn os_seal(plain: &[u8]) -> Result<Vec<u8>, String> {
-    if keyring_up() && secret_put(plain).is_ok() {
-        let mut out = MARK.to_vec();
-        out.extend_from_slice(b"secret\n");
-        return Ok(out);
+    if !collection_unlocked() {
+        return Err(PASS_REASON.into());
     }
-    Err("This computer has no keyring, so sync cannot keep a key here.".into())
+    secret_put(plain)?;
+    let mut out = MARK.to_vec();
+    out.extend_from_slice(b"secret\n");
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -226,15 +242,42 @@ pub fn has_pass_file(dir: &Path) -> bool {
     })
 }
 
-/// Secret Service is missing, or the key file is already locked with a passphrase.
+/// Shown when the key has to live in the passphrase file.
+pub const PASS_REASON: &str = "The key store on this computer can't be opened without a prompt, so the sync key stays in a locked file. Choose a passphrase for this computer.";
+
+/// Secret Service is missing or locked, or the key file is already a passphrase file.
 pub fn needs_passphrase(dir: &Path) -> bool {
     has_pass_file(dir) || linux_without_keyring()
+}
+
+/// A saved key that is not the passphrase file. Opening it can wait on a
+/// prompt, so startup does that on a background step instead of while the
+/// window is opening.
+pub fn defer_secret_load(dir: &Path) -> bool {
+    #[cfg(test)]
+    {
+        let _ = dir;
+        false
+    }
+    #[cfg(not(test))]
+    {
+        fs::read(path(dir)).ok().is_some_and(|bytes| {
+            bytes.starts_with(MARK)
+                && bytes.strip_prefix(MARK).is_some_and(|rest| {
+                    !rest.starts_with(b"pass\n") && !rest.starts_with(b"file\n")
+                })
+        })
+    }
+}
+
+pub fn wants_passphrase(error: &str) -> bool {
+    error == PASS_REASON || error == "The key store took too long."
 }
 
 fn linux_without_keyring() -> bool {
     #[cfg(all(not(test), unix, not(target_os = "macos")))]
     {
-        !keyring_up()
+        !collection_unlocked()
     }
     #[cfg(not(all(not(test), unix, not(target_os = "macos"))))]
     {
@@ -424,60 +467,143 @@ fn dpapi_open(blob: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-const KEYRING_PROBE: Duration = Duration::from_secs(2);
-#[cfg(all(unix, not(target_os = "macos")))]
-const KEYRING_TRIES: u32 = 2;
+const KEYRING_WAIT: Duration = Duration::from_secs(5);
 
-#[cfg_attr(test, allow(dead_code))]
 #[cfg(all(unix, not(target_os = "macos")))]
-fn keyring_up() -> bool {
-    for _ in 0..KEYRING_TRIES {
-        if probe_keyring() {
-            return true;
-        }
-    }
-    false
+fn dbus_bin() -> String {
+    std::env::var("OMACUS_DBUS_SEND").unwrap_or_else(|_| "dbus-send".to_string())
 }
 
-#[cfg_attr(test, allow(dead_code))]
 #[cfg(all(unix, not(target_os = "macos")))]
-fn probe_keyring() -> bool {
-    let Ok(mut child) = std::process::Command::new("secret-tool")
-        .args(["lookup", "app", "omacus", "kind", "probe"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    else {
-        return false;
-    };
+fn secret_bin() -> String {
+    std::env::var("OMACUS_SECRET_TOOL").unwrap_or_else(|_| "secret-tool".to_string())
+}
+
+/// Wait for a child, and kill it if it is still running after `timeout`.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn finish_child(
+    mut child: std::process::Child,
+    timeout: Duration,
+) -> Result<std::process::Output, String> {
+    use std::io::Read;
     let start = Instant::now();
-    loop {
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) => {
-                let err = child
-                    .stderr
-                    .take()
-                    .and_then(|mut pipe| {
-                        let mut buf = String::new();
-                        use std::io::Read;
-                        pipe.read_to_string(&mut buf).ok()?;
-                        Some(buf)
-                    })
-                    .unwrap_or_default();
-                let down = err.contains("Could not connect")
-                    || err.contains("No such")
-                    || err.contains("Cannot");
-                return status.success() || (status.code() == Some(1) && !down && err.is_empty());
-            }
-            Ok(None) if start.elapsed() > KEYRING_PROBE => {
+            Ok(Some(status)) => break status,
+            Ok(None) if start.elapsed() >= timeout => {
                 let _ = child.kill();
-                return false;
+                let _ = child.wait();
+                return Err("The key store took too long.".into());
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(20)),
-            Err(_) => return false,
+            Err(error) => return Err(error.to_string()),
         }
+    };
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        let _ = pipe.read_to_end(&mut stdout);
     }
+    if let Some(mut pipe) = child.stderr.take() {
+        let _ = pipe.read_to_end(&mut stderr);
+    }
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn parse_object_path(text: &str) -> Option<String> {
+    let marker = "object path \"";
+    let start = text.find(marker)? + marker.len();
+    let rest = text.get(start..)?;
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn parse_locked(text: &str) -> Option<bool> {
+    if text.contains("boolean true") {
+        Some(true)
+    } else if text.contains("boolean false") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn path_is_collection(path: &str) -> bool {
+    !path.is_empty() && path != "/" && path != "/org/freedesktop/secrets"
+}
+
+/// Secret Service is up, and the default or login collection exists and is unlocked.
+/// This never calls Unlock or Prompt.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn collection_unlocked() -> bool {
+    alias_open("default") || alias_open("login")
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn alias_open(alias: &str) -> bool {
+    let Some(path) = read_alias(alias) else {
+        return false;
+    };
+    if !path_is_collection(&path) {
+        return false;
+    }
+    locked_flag(&path) == Some(false)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn dbus_call(args: &[&str]) -> Result<std::process::Output, String> {
+    let mut command = std::process::Command::new(dbus_bin());
+    command.args(args);
+    let child = command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    finish_child(child, KEYRING_WAIT)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn read_alias(alias: &str) -> Option<String> {
+    let alias_arg = format!("string:{alias}");
+    let out = dbus_call(&[
+        "--session",
+        "--print-reply",
+        "--dest=org.freedesktop.secrets",
+        "/org/freedesktop/secrets",
+        "org.freedesktop.Secret.Service.ReadAlias",
+        &alias_arg,
+    ])
+    .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    parse_object_path(&String::from_utf8_lossy(&out.stdout))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn locked_flag(path: &str) -> Option<bool> {
+    let out = dbus_call(&[
+        "--session",
+        "--print-reply",
+        "--dest=org.freedesktop.secrets",
+        path,
+        "org.freedesktop.DBus.Properties.Get",
+        "string:org.freedesktop.Secret.Collection",
+        "string:Locked",
+    ])
+    .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    parse_locked(&String::from_utf8_lossy(&out.stdout))
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -485,7 +611,7 @@ fn probe_keyring() -> bool {
 fn secret_put(plain: &[u8]) -> Result<(), String> {
     use std::io::Write;
     use std::process::{Command, Stdio};
-    let mut child = Command::new("secret-tool")
+    let mut child = Command::new(secret_bin())
         .args([
             "store",
             "--label",
@@ -496,15 +622,15 @@ fn secret_put(plain: &[u8]) -> Result<(), String> {
             "device",
         ])
         .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| error.to_string())?;
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(plain).map_err(|e| e.to_string())?;
+        stdin.write_all(plain).map_err(|error| error.to_string())?;
     }
-    let status = child.wait().map_err(|e| e.to_string())?;
-    if status.success() {
+    let out = finish_child(child, KEYRING_WAIT)?;
+    if out.status.success() {
         Ok(())
     } else {
         Err("The keyring did not keep the key.".into())
@@ -513,10 +639,18 @@ fn secret_put(plain: &[u8]) -> Result<(), String> {
 
 #[cfg(all(unix, not(target_os = "macos")))]
 fn secret_get() -> Result<Vec<u8>, String> {
-    let out = std::process::Command::new("secret-tool")
-        .args(["lookup", "app", "omacus", "kind", "device"])
-        .output()
-        .map_err(|e| e.to_string())?;
+    if !collection_unlocked() {
+        return Err(PASS_REASON.into());
+    }
+    let mut command = std::process::Command::new(secret_bin());
+    command.args(["lookup", "app", "omacus", "kind", "device"]);
+    let child = command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    let out = finish_child(child, KEYRING_WAIT)?;
     if out.status.success() {
         Ok(out.stdout)
     } else {
@@ -526,11 +660,19 @@ fn secret_get() -> Result<Vec<u8>, String> {
 
 #[cfg(all(unix, not(target_os = "macos")))]
 fn secret_delete() -> Result<(), String> {
-    let status = std::process::Command::new("secret-tool")
-        .args(["clear", "app", "omacus", "kind", "device"])
-        .status()
-        .map_err(|e| e.to_string())?;
-    if status.success() {
+    if !collection_unlocked() {
+        return Ok(());
+    }
+    let mut command = std::process::Command::new(secret_bin());
+    command.args(["clear", "app", "omacus", "kind", "device"]);
+    let child = command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    let out = finish_child(child, KEYRING_WAIT)?;
+    if out.status.success() {
         Ok(())
     } else {
         Err("The keyring did not clear the key.".into())
@@ -588,9 +730,44 @@ mod tests {
 
     #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
-    fn the_keyring_probe_waits_for_a_slow_login() {
-        assert!(KEYRING_PROBE >= Duration::from_secs(2));
-        assert_eq!(KEYRING_TRIES, 2);
+    fn a_stuck_keyring_call_is_killed() {
+        assert!(KEYRING_WAIT >= Duration::from_secs(5));
+        assert!(KEYRING_WAIT <= Duration::from_secs(6));
+        let mut command = std::process::Command::new("sleep");
+        command.arg("30");
+        let child = command
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let start = Instant::now();
+        let error = finish_child(child, Duration::from_millis(200)).unwrap_err();
+        assert_eq!(error, "The key store took too long.");
+        assert!(start.elapsed() < Duration::from_secs(5));
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn a_missing_or_locked_collection_is_not_usable() {
+        assert_eq!(
+            parse_object_path("   object path \"/\"\n"),
+            Some("/".to_string())
+        );
+        assert_eq!(
+            parse_object_path("object path \"/org/freedesktop/secrets/collection/login\""),
+            Some("/org/freedesktop/secrets/collection/login".to_string())
+        );
+        assert_eq!(parse_object_path("no path"), None);
+        assert_eq!(parse_locked("variant boolean false\n"), Some(false));
+        assert_eq!(parse_locked("variant boolean true\n"), Some(true));
+        assert_eq!(parse_locked("variant string \"no\""), None);
+        assert!(!path_is_collection("/"));
+        assert!(!path_is_collection(""));
+        assert!(!path_is_collection("/org/freedesktop/secrets"));
+        assert!(path_is_collection(
+            "/org/freedesktop/secrets/collection/login"
+        ));
     }
 
     #[test]

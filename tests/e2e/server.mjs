@@ -63,6 +63,14 @@ const server = createServer((req, res) => {
       "x-content-type-options": "nosniff",
       "referrer-policy": "strict-origin-when-cross-origin",
     };
+    // The published host answers a missing file with the app page. The worker
+    // has to refuse that for anything that is not the page itself.
+    if (path.endsWith("/words.txt")) {
+      const page = readFileSync(join(site, "app/index.html"));
+      res.writeHead(200, { ...common, "content-type": "text/html; charset=utf-8" });
+      res.end(page);
+      return;
+    }
     if (!file.startsWith(site) || !existsSync(file)) {
       res.writeHead(404, common);
       res.end("not found");

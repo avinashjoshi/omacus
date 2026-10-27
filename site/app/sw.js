@@ -6,7 +6,7 @@
 // Taking over deletes older omacus-app caches only. Pages stay in the browser's
 // own store. This file never opens that store.
 
-const APP_VERSION = "1.0.3";
+const APP_VERSION = "1.0.4";
 const CACHE = `omacus-app-${APP_VERSION}`;
 
 const APP_FILES = [
@@ -27,6 +27,8 @@ const APP_FILES = [
   "recover.js",
   "backup.js",
   "sync.js",
+  "recovery-words.js",
+  "word-check.js",
   "sync-config.js",
   "sync-link.mjs",
   "device-name.js",
@@ -91,12 +93,21 @@ function isScript(req) {
   return path.endsWith(".js") || path.endsWith(".mjs") || path.endsWith(".wasm");
 }
 
-// A missing file on the host comes back as the app page. That is not a script,
-// and caching it would leave the next launch stuck on the loading line.
+function isDocument(req) {
+  if (req.mode === "navigate") return true;
+  const path = new URL(req.url).pathname;
+  return path.endsWith(".html") || path.endsWith(".htm") || path.endsWith("/");
+}
+
+// A missing file on the host comes back as the app page. That page is not a
+// script, a word list, or any other file. Caching it would leave the next
+// launch stuck, or show the page's markup where a word should be.
 function honest(res, req) {
   if (!res || !res.ok) return false;
-  if (!isScript(req)) return true;
-  return !(res.headers.get("content-type") || "").includes("text/html");
+  const html = (res.headers.get("content-type") || "").includes("text/html");
+  if (html && !isDocument(req)) return false;
+  if (isScript(req)) return !html;
+  return true;
 }
 
 // One cache operation at a time. A write that is still reading a socket holds

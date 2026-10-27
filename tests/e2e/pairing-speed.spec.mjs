@@ -310,6 +310,12 @@ test("an invite notices a join within 5 seconds", async ({ browser }) => {
     for (let step = 0; step < 3; step += 1) {
       const legend = phoneA.locator(".sync-ask").nth(step).locator("legend");
       const n = Number((await legend.innerText()).replace(/\D/g, ""));
+      const choices = phoneA.locator(".sync-ask").nth(step).getByRole("button");
+      const wordsOnly = await choices.evaluateAll((nodes) => (
+        nodes.length === 6
+        && nodes.every((node) => /^[a-z]+$/.test(node.textContent || "") && !(node.textContent || "").includes("<"))
+      ));
+      expect(wordsOnly).toBe(true);
       await phoneA.locator(".sync-ask").nth(step).getByRole("button", { name: words[n - 1], exact: true }).click();
     }
     await phoneA.getByRole("button", { name: "These match" }).click();
