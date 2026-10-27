@@ -10,6 +10,15 @@ Follow "Before the first production deploy" in `docs/sync-ops.md`. In short:
 
 - Set `ACCESS_SECRET`, `ADMIN_KEY`, and `ACCESS_AUD` on `omacus-sync`. Do not set `ALLOW_NO_ACCESS`. `ACCESS_TEAM_DOMAIN` is already `omacus.cloudflareaccess.com` in `relay/worker/wrangler.jsonc`. It is not a secret.
 - Turn on point-in-time recovery for the production Durable Object class `Mailboxes` (binding `MAILBOXES`). That class is in `relay/worker/wrangler.jsonc`. It is not a KV namespace, and the file is not `wrangler.toml`. The R2 binding is `BACKUPS`. The production bucket is `omacus-sync-backups` (prefix `nights/`, delete after 30 days). The nightly copy runs at 07:15 UTC (`15 7 * * *`).
+
+## Pages missing after an older sync
+
+Look in this order. Stop when the page is back. Do not clear website data, unregister the service worker, turn sync off, remove a phone or computer, or restore a backup over a phone that is still syncing.
+
+1. Recently deleted, on the phone and on the computer. Restore puts that page back.
+2. The page file on the computer: `pages/<id>.txt` in the Omacus folder, and `trash/<id>.txt` after a delete. The web app keeps a zip of the library from just before a remote copy was applied, in this browser, under the key `sync-remote-backup`.
+3. An older sealed copy on the relay. The admin page at `/admin` on the sync host asks first, then writes one account or every account from a chosen day. It does not show page text.
+4. A nightly backup in the bucket `omacus-sync-backups`, prefix `nights/`. Those copies are kept for 30 days. The job runs at 07:15 UTC.
 - From `relay/worker`, `./build.sh` then `npx wrangler deploy`, and only when you mean to. That publishes the worker `omacus-sync`. The file has no other environment.
 - After it is up, check `GET /v1/health`, that `GET /` redirects to the app, that admin is refused when signed out, and that a phone can create pages, link a second one, and save.
 

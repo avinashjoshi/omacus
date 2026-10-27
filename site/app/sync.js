@@ -3,7 +3,7 @@
 // WebCrypto key. The page's strict policy is what keeps other scripts out.
 import { SYNC_URL } from "./sync-config.js";
 import { APP_VERSION } from "./version.js";
-import { beginSave, finishSave, keepUnlessTombstone, noteLocalEdit, noteTombstone, pagesDiffer, pollWait, showTurnOnSync } from "./sync-save.mjs";
+import { beginSave, dedupeWelcome, finishSave, keepUnlessTombstone, noteLocalEdit, noteTombstone, pageHeading, pagesDiffer, pollWait, removalSentence, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 import { deviceListNote, pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
@@ -119,6 +119,9 @@ export async function mountSync(api) {
     removed: false,
     notice: "",
     listNote: "",
+    removalAsk: [],
+    removalTitles: [],
+    removalDeclined: [],
     seenDeviceIds: "",
     selfId: "",
     selfName: "",
@@ -372,6 +375,7 @@ export async function mountSync(api) {
     state.deviceNames = readJson(vault?.names || api.storeGet("sync-names"), []);
     state.membership = readJson(vault?.membership || api.storeGet("sync-membership"), []);
     state.tombstones = readJson(vault?.tombstones || api.storeGet("sync-tombstones"), []);
+    state.removalDeclined = readJson(api.storeGet("sync-removal-declined"), []);
     state.seenDeviceIds = String(api.storeGet("sync-device-ids") || "");
   }
 
@@ -400,6 +404,7 @@ export async function mountSync(api) {
   }
 
   function saveNames() {
+    if (api.storeSet) api.storeSet("sync-removal-declined", JSON.stringify(state.removalDeclined || []));
     if (currentVault() || state.account) {
       return writeVault(snapshotVault({
         deviceName: state.selfName,
@@ -419,6 +424,7 @@ export async function mountSync(api) {
     api.storeSet("sync-names", JSON.stringify(state.deviceNames));
     api.storeSet("sync-membership", JSON.stringify(state.membership));
     api.storeSet("sync-tombstones", JSON.stringify(state.tombstones || []));
+    api.storeSet("sync-removal-declined", JSON.stringify(state.removalDeclined || []));
   }
 
   function rememberSelf() {
@@ -874,6 +880,165 @@ export async function mountSync(api) {
     return result;
   }
 
+  function pageInVault(id) {
+    const row = (state.membership || []).find((item) => item.id === id);
+    if (!row) return true;
+    return row.inVault !== false;
+  }
+
+  function adoptTombstone(tomb) {
+    const id = String(tomb?.id || "");
+    if (!id) return;
+    const rev = Number(tomb.rev) || 0;
+    state.tombstones = state.tombstones || [];
+    const row = state.tombstones.find((item) => item.id === id);
+    if (row) {
+      if (rev > (Number(row.rev) || 0)) row.rev = rev;
+      return;
+    }
+    state.tombstones.push({ id, rev: rev || 1 });
+  }
+
+  function titlesFor(asked, pages) {
+    const out = [];
+    for (const tomb of asked || []) {
+      const row = (pages || []).find((page) => page && page[0] === tomb.id);
+      const title = pageHeading(row ? row[1] : "");
+      if (title && title !== "Untitled") out.push(title);
+    }
+    return out;
+  }
+
+  async function combineRemote(snap, remote) {
+    const localPacked = await pack(snap.doc, snap.pages);
+    const merged = JSON.parse(sync.mergePacked(localPacked, remote.packed));
+    if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
+    const openedPacked = JSON.parse(sync.unpackPages(merged.packed));
+    if (!openedPacked.ok) throw new Error(openedPacked.message || "Those pages could not be opened.");
+    const decision = keepUnlessTombstone(
+      snap.pages,
+      openedPacked.pages || [],
+      openedPacked.meta?.tombstones || [],
+      state.removalDeclined,
+    );
+    const wasHeld = decision.held === true;
+    let pages = decision.pages;
+    let welcomeRemoved = [];
+    const folded = dedupeWelcome(pages, openedPacked.meta?.tombstones || []);
+    if (folded.removed.length > 2) {
+      decision.held = true;
+      for (const id of folded.removed) {
+        const tomb = folded.tombstones.find((row) => row.id === id);
+        if (!decision.asked.some((row) => row.id === id)) {
+          decision.asked.push({ id, rev: Number(tomb?.rev) || 0 });
+        }
+      }
+    } else if (folded.removed.length) {
+      pages = folded.pages;
+      welcomeRemoved = folded.removed;
+    }
+    if (decision.held) {
+      state.removalAsk = decision.asked;
+      state.removalTitles = titlesFor(decision.asked, (snap.pages || []).concat(pages));
+      for (const tomb of decision.asked) adoptTombstone(tomb);
+    } else {
+      state.removalAsk = [];
+      state.removalTitles = [];
+    }
+    if (!wasHeld) {
+      for (const id of decision.removed) {
+        if (typeof api.forget === "function") await api.forget(id);
+        state.tombstones = noteTombstone(state.tombstones, id);
+      }
+    }
+    for (const id of welcomeRemoved) {
+      if (decision.removed.includes(id)) continue;
+      if (typeof api.forget === "function") await api.forget(id);
+      state.tombstones = noteTombstone(state.tombstones, id);
+    }
+    saveNames();
+    const doc = openedPacked.doc ? api.b64ToBytes(openedPacked.doc) : new Uint8Array();
+    const packed = await pack(doc, pages);
+    const remoteIds = new Set((remote.pages || []).map((row) => row && row[0]).filter(Boolean));
+    return { packed, pages, welcomeRemoved, remoteIds };
+  }
+
+  function confirmRemoval() {
+    const asked = state.removalAsk || [];
+    state.removalAsk = [];
+    state.removalTitles = [];
+    for (const tomb of asked) {
+      if (typeof api.forget === "function") api.forget(tomb.id);
+      state.tombstones = noteTombstone(state.tombstones, tomb.id);
+    }
+    saveNames();
+    state.dirty = true;
+    armSaving();
+    schedule();
+    paintRemoval();
+  }
+
+  function declineRemoval() {
+    for (const tomb of state.removalAsk || []) {
+      const have = (state.removalDeclined || []).find((row) => row.id === tomb.id);
+      if (have) have.rev = Math.max(Number(have.rev) || 0, Number(tomb.rev) || 0);
+      else state.removalDeclined.push({ id: tomb.id, rev: Number(tomb.rev) || 0 });
+      state.tombstones = (state.tombstones || []).filter((row) => row.id !== tomb.id);
+    }
+    state.removalAsk = [];
+    state.removalTitles = [];
+    saveNames();
+    state.dirty = true;
+    armSaving();
+    schedule();
+    paintRemoval();
+  }
+
+  function paintRemoval() {
+    const existing = document.querySelector("[data-removal-ask]");
+    const asked = state.removalAsk || [];
+    if (asked.length <= 2) {
+      existing?.remove();
+      return;
+    }
+    const key = `${asked.length}:${(state.removalTitles || []).join("\n")}`;
+    if (existing && existing.dataset.key === key) return;
+    existing?.remove();
+    const card = el("div", { class: "removal-card" }, [
+      el("h2", { id: "removal-ask-title" }, ["Remove these pages?"]),
+      el("p", {}, [removalSentence(asked.length)]),
+    ]);
+    if (state.removalTitles?.length) {
+      const list = el("ul", { class: "removal-pages" });
+      for (const title of state.removalTitles) list.append(el("li", {}, [title]));
+      card.append(list);
+    }
+    const keep = button("Keep them", { type: "button", class: "btn primary" });
+    const remove = button("Remove them", { type: "button", class: "btn danger" });
+    keep.addEventListener("click", () => declineRemoval());
+    remove.addEventListener("click", () => confirmRemoval());
+    const actions = el("div", { class: "removal-actions" }, [keep, remove]);
+    card.append(actions);
+    const scrim = button("", { type: "button", class: "removal-scrim", "aria-label": "Keep them" });
+    scrim.addEventListener("click", () => declineRemoval());
+    const dialog = el("div", {
+      class: "removal-ask",
+      "data-removal-ask": "",
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-labelledby": "removal-ask-title",
+    }, [scrim, card]);
+    dialog.dataset.key = key;
+    dialog.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        declineRemoval();
+      }
+    });
+    document.body.append(dialog);
+    keep.focus();
+  }
+
   async function pull(mailbox, depth = 0) {
     const wanted = JSON.parse(sync.wantedObjects(state.desk, mailbox.record, state.slots || "[]"));
     if (!wanted.ok) throw new Error(wanted.message || "Those pages could not be opened.");
@@ -912,35 +1077,23 @@ export async function mountSync(api) {
       return;
     }
     const remote = await asSet(opened.packed);
-    // Pages that differ from the last synced copy are merged in.
-    // Pages that match it take the remote copy, so a deleted line stays deleted.
-    const localChanged = (snapOk && pagesDiffer(state.basePages, snap.pages)) || opened.combine === true;
-    let packed = remote.packed;
-    if (localChanged) {
-      const localPacked = await pack(snap.doc, snap.pages);
-      const merged = JSON.parse(sync.mergePacked(localPacked, remote.packed));
-      if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
-      packed = merged.packed;
+    // The pages on this phone have to be visible. Replacing them with the
+    // remote list is how a page disappeared.
+    if (!snapOk) {
+      await saveFile();
+      await refreshDevices();
+      return;
     }
-    const openedPacked = JSON.parse(sync.unpackPages(packed));
-    if (!openedPacked.ok) throw new Error(openedPacked.message || "Those pages could not be opened.");
-    const decision = keepUnlessTombstone(snapOk ? snap.pages : [], openedPacked.pages || [], openedPacked.meta?.tombstones || []);
-    if (decision.removed.length || decision.keptLocal || decision.held) {
-      const doc = openedPacked.doc ? api.b64ToBytes(openedPacked.doc) : new Uint8Array();
-      packed = await pack(doc, decision.pages);
-    }
-    if (!decision.held) {
-      for (const id of decision.removed) {
-        if (typeof api.forget === "function") await api.forget(id);
-        state.tombstones = noteTombstone(state.tombstones, id);
-      }
-    }
-    await installMerged({ packed });
-    const kept = JSON.parse(sync.unpackPages(packed));
-    const nextPages = kept.ok ? kept.pages : remote.pages;
-    const mergedAway = localChanged && packed !== remote.packed;
-    state.dirty = decision.keptLocal || decision.held || mergedAway || opened.republish === true;
-    if (!state.dirty) await rememberBase(nextPages);
+    const localChanged = pagesDiffer(state.basePages, snap.pages) || opened.combine === true;
+    const joined = await combineRemote(snap, remote);
+    await installMerged({ packed: joined.packed });
+    const upload = (snap.pages || []).some((row) => {
+      const id = row && row[0];
+      return id && !joined.remoteIds.has(id) && joined.pages.some((page) => page[0] === id) && pageInVault(id);
+    });
+    state.dirty = upload || joined.welcomeRemoved.length > 0 || localChanged || opened.republish === true;
+    if (!state.dirty) await rememberBase(joined.pages);
+    paintRemoval();
     await saveFile();
     await refreshDevices();
     if (dropped || state.removed) {
@@ -987,15 +1140,15 @@ export async function mountSync(api) {
     }
   }
 
-  async function publishListedName(remote) {
+  async function publishListedName() {
     rememberSelf();
-    if (!state.selfId || !remote) return;
+    if (!state.selfId) return;
     const started = beginSave(state);
-    const doc = remote.doc ? api.b64ToBytes(remote.doc) : new Uint8Array();
-    const packed = await pack(doc, remote.pages || []);
+    const snap = await api.snapshot();
+    const packed = await pack(snap.doc, snap.pages);
     const sealed = await sealPacked(packed);
     await commitSeal(sealed);
-    await rememberBase(remote.pages || []);
+    await rememberBase(snap.pages || []);
     finishSave(state, started);
     if (!state.dirty) calm();
   }
@@ -1808,7 +1961,7 @@ export async function mountSync(api) {
       await saveFile();
       await refreshDevices();
       try {
-        await publishListedName(remote);
+        await publishListedName();
       } catch {
         state.dirty = true;
       }
@@ -2198,6 +2351,7 @@ export async function mountSync(api) {
   }
 
   function draw() {
+    paintRemoval();
     if (naming) return;
     if (state.screen !== "approve") {
       clearTimeout(approveWatch);

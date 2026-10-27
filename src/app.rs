@@ -2545,6 +2545,59 @@ rental = rent + 50
         }
     }
 
+    fn show_removal(&mut self, ctx: &egui::Context) {
+        let count = self.sync.removal_count();
+        if count == 0 {
+            return;
+        }
+        let theme = self.theme.clone();
+        let body = self.sync.removal_body();
+        let titles = self.sync.removal_titles();
+        let mut keep = false;
+        let mut remove = false;
+        let frame = design::dialog_pad(&theme, Margin::symmetric(24, 20));
+        let modal = egui::Modal::new(egui::Id::unique("omacus-removal-ask"))
+            .frame(frame)
+            .backdrop_color(design::backdrop(&theme))
+            .show(ctx, |ui| {
+                ui.set_width(380.0);
+                ui.label(
+                    egui::RichText::new("Remove these pages?")
+                        .size(theme::token::TYPE_TITLE)
+                        .color(theme.foreground),
+                );
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new(body)
+                        .size(theme::token::TYPE_BODY)
+                        .color(theme.dim),
+                );
+                if !titles.is_empty() {
+                    ui.add_space(8.0);
+                    for title in &titles {
+                        ui.label(
+                            egui::RichText::new(title)
+                                .size(theme::token::TYPE_BODY)
+                                .color(theme.foreground),
+                        );
+                    }
+                }
+                ui.add_space(16.0);
+                ui.horizontal(|ui| {
+                    keep = design::primary(ui, &theme, "Keep them").clicked();
+                    remove = design::danger(ui, &theme, "Remove them").clicked();
+                });
+            });
+        if modal.should_close() {
+            keep = true;
+        }
+        if remove {
+            self.sync.confirm_removal();
+        } else if keep {
+            self.sync.decline_removal();
+        }
+    }
+
     /// ⋯ above the sheet, lined up with the answers: the actions for this sheet (share,
     /// copy, move, delete) without a right-click.
     fn sheet_bar(&mut self, ui: &mut egui::Ui) {
@@ -5397,6 +5450,7 @@ impl eframe::App for OmacusApp {
         self.show_help(&ctx);
         self.show_update(&ctx);
         self.show_list_change(&ctx);
+        self.show_removal(&ctx);
         self.show_sync(&ctx);
         self.show_delete(&ctx);
         self.show_pick(&ctx);

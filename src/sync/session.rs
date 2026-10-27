@@ -192,6 +192,10 @@ pub struct Session {
     slots: Vec<Slot>,
     membership: Vec<PageMember>,
     tombstones: Vec<omacus_engine::sync_keys::Tombstone>,
+    /// Signed deletes waiting for a yes. More than two pages.
+    removal_ask: Vec<omacus_engine::sync_keys::Tombstone>,
+    /// A no on this set. The same deletes do not ask again, and the pages stay.
+    removal_declined: Vec<omacus_engine::sync_keys::Tombstone>,
     doc: Vec<u8>,
     pages: Vec<(String, String)>,
     locked: Vec<String>,
@@ -291,6 +295,8 @@ impl Session {
             slots: Vec::new(),
             membership: Vec::new(),
             tombstones: Vec::new(),
+            removal_ask: Vec::new(),
+            removal_declined: Vec::new(),
             doc: Vec::new(),
             pages: Vec::new(),
             locked: Vec::new(),
@@ -401,6 +407,30 @@ impl Session {
                 self.screen = Screen::Closed;
                 self.list_line =
                     "Your device list changed: Harbor was added, Ferry was removed.".into();
+            }
+            "removal" => {
+                self.on = true;
+                self.member = true;
+                self.screen = Screen::Closed;
+                self.pages = vec![
+                    ("pantry".into(), "Pantry\noats\n".into()),
+                    ("kept".into(), "Kept\nferry = 40\n".into()),
+                    ("harbor".into(), "Harbor\ncake\n".into()),
+                ];
+                self.removal_ask = vec![
+                    Tombstone {
+                        id: "pantry".into(),
+                        rev: 1,
+                    },
+                    Tombstone {
+                        id: "kept".into(),
+                        rev: 2,
+                    },
+                    Tombstone {
+                        id: "harbor".into(),
+                        rev: 3,
+                    },
+                ];
             }
             "ready" | "home" => {
                 self.on = true;
@@ -1641,6 +1671,93 @@ impl Session {
         Self::device_change_sentence(&added, &removed)
     }
 
+    pub fn removal_count(&self) -> usize {
+        if self.removal_ask.len() > 2 {
+            self.removal_ask.len()
+        } else {
+            0
+        }
+    }
+
+    pub fn removal_body(&self) -> String {
+        removal_sentence(self.removal_count())
+    }
+
+    pub fn removal_titles(&self) -> Vec<String> {
+        self.removal_ask
+            .iter()
+            .filter_map(|tomb| {
+                self.pages
+                    .iter()
+                    .find(|(id, _)| id == &tomb.id)
+                    .map(|(_, text)| crate::sheets::heading_of(text))
+            })
+            .collect()
+    }
+
+    /// Yes. The named pages move to Recently deleted, and the deletes are published.
+    pub fn confirm_removal(&mut self) {
+        let asked = std::mem::take(&mut self.removal_ask);
+        if asked.len() <= 2 {
+            self.removal_ask = asked;
+            return;
+        }
+        let gone: Vec<(String, String)> = self
+            .pages
+            .iter()
+            .filter(|(id, _)| asked.iter().any(|tomb| tomb.id == *id))
+            .cloned()
+            .collect();
+        self.pages
+            .retain(|(id, _)| !asked.iter().any(|tomb| tomb.id == *id));
+        if let Ok(mut lib) = omacus_doc::Library::load(&self.doc) {
+            for (id, _) in &gone {
+                lib.remove_page(id);
+            }
+            self.doc = lib.save();
+        }
+        for tomb in &asked {
+            if let Some(row) = self.tombstones.iter_mut().find(|have| have.id == tomb.id) {
+                if tomb.rev >= row.rev {
+                    row.rev = tomb.rev;
+                }
+            } else {
+                self.tombstones.push(tomb.clone());
+            }
+        }
+        self.tombstones
+            .retain(|tomb| !self.pages.iter().any(|(id, _)| id == &tomb.id));
+        self.park_removed(&gone);
+        self.write_pages();
+        self.dirty = true;
+        self.save_book();
+    }
+
+    /// No. The pages stay, and this set of deletes does not ask again.
+    pub fn decline_removal(&mut self) {
+        let asked = std::mem::take(&mut self.removal_ask);
+        if asked.is_empty() {
+            return;
+        }
+        for tomb in &asked {
+            if let Some(row) = self
+                .removal_declined
+                .iter_mut()
+                .find(|have| have.id == tomb.id)
+            {
+                if tomb.rev > row.rev {
+                    row.rev = tomb.rev;
+                }
+            } else {
+                self.removal_declined.push(tomb.clone());
+            }
+        }
+        self.tombstones
+            .retain(|tomb| !asked.iter().any(|ask| ask.id == tomb.id));
+        self.dirty = true;
+        self.save_book();
+    }
+
     pub fn offer_setup(&self) -> bool {
         self.pass_locked || (!self.on && !self.removed)
     }
@@ -2061,17 +2178,58 @@ impl Session {
     fn install_remote(&mut self, packed: &[u8], combine: bool) -> Result<(), String> {
         let remote = PageSet::from_bytes(packed).map_err(|e| e.message().to_string())?;
         let local_pages = self.pages.clone();
-        let merged = if combine && self.dirty_vs_base() {
-            let local = self.page_set()?;
+        // Always a merge. A page that is only here stays in the result and is
+        // published. The remote list does not replace this library.
+        let local = self.page_set()?;
+        let mut merged = local.merge(remote.clone());
+        if combine {
             self.dirty = true;
-            local.merge(remote)
-        } else {
-            remote
-        };
-        // Missing is not a delete. A signed tombstone is, unless it would
-        // remove more than half the pages here. A page that stays is folded
-        // back into the library so the next save publishes it.
-        let kept = pages_after(&local_pages, &merged.pages, &merged.meta.tombstones);
+        }
+        // Missing is not a delete. A signed tombstone is. More than two of
+        // those wait for a yes. A page that stays is published on the next save.
+        let mut kept = pages_after(
+            &local_pages,
+            &merged.pages,
+            &merged.meta.tombstones,
+            &self.removal_declined,
+        );
+        let welcome = welcome_plan(&kept.pages, &merged.meta.tombstones);
+        let mut welcome_park = Vec::new();
+        if welcome.removed.len() > 2 {
+            kept.held = true;
+            for tomb in &welcome.tombstones {
+                if !kept.asked.iter().any(|ask| ask.id == tomb.id) {
+                    kept.asked.push(tomb.clone());
+                }
+                if !merged.meta.tombstones.iter().any(|have| have.id == tomb.id) {
+                    merged.meta.tombstones.push(tomb.clone());
+                }
+            }
+        } else if !welcome.removed.is_empty() {
+            kept.pages = welcome.pages;
+            for tomb in &welcome.tombstones {
+                if let Some(row) = merged
+                    .meta
+                    .tombstones
+                    .iter_mut()
+                    .find(|have| have.id == tomb.id)
+                {
+                    if tomb.rev >= row.rev {
+                        row.rev = tomb.rev;
+                    }
+                } else {
+                    merged.meta.tombstones.push(tomb.clone());
+                }
+            }
+            if let Ok(mut lib) = omacus_doc::Library::load(&merged.doc) {
+                for (id, _) in &welcome.removed {
+                    lib.remove_page(id);
+                }
+                merged.doc = lib.save();
+            }
+            welcome_park = welcome.removed;
+            self.dirty = true;
+        }
         let extras: Vec<(String, bool, String)> = kept
             .pages
             .iter()
@@ -2081,7 +2239,15 @@ impl Session {
                 (id.clone(), inside, text.clone())
             })
             .collect();
-        let republish = kept.held || extras.iter().any(|(_, inside, _)| *inside);
+        let upload = local_pages.iter().any(|(id, _)| {
+            !remote.pages.iter().any(|(page, _)| page == id)
+                && kept.pages.iter().any(|(page, _)| page == id)
+                && self.meta_in_vault(id)
+                && !self.locked.contains(id)
+        });
+        // A held delete must not publish a copy that drops those tombstones.
+        // The pages stay here until yes or no. Other missing pages still upload.
+        let republish = upload || extras.iter().any(|(_, inside, _)| *inside);
         let locked_pages: Vec<_> = self
             .locked
             .iter()
@@ -2098,19 +2264,29 @@ impl Session {
         self.name_rev = merged.meta.name_rev.max(self.name_rev);
         self.membership = merged.meta.membership.clone();
         self.absorb_labels(&merged.meta.devices);
-        if !kept.held {
-            for tomb in &merged.meta.tombstones {
-                if let Some(row) = self.tombstones.iter_mut().find(|have| have.id == tomb.id) {
-                    if tomb.rev >= row.rev {
-                        row.rev = tomb.rev;
-                    }
-                } else {
-                    self.tombstones.push(tomb.clone());
+        if kept.held {
+            self.removal_ask = kept.asked.clone();
+        } else {
+            self.removal_ask.clear();
+        }
+        for tomb in &merged.meta.tombstones {
+            if kept.held && !self.removal_ask.iter().any(|ask| ask.id == tomb.id) {
+                continue;
+            }
+            if let Some(row) = self.tombstones.iter_mut().find(|have| have.id == tomb.id) {
+                if tomb.rev >= row.rev {
+                    row.rev = tomb.rev;
                 }
+            } else {
+                self.tombstones.push(tomb.clone());
             }
         }
-        self.tombstones
-            .retain(|tomb| !self.pages.iter().any(|(id, _)| id == &tomb.id));
+        self.tombstones.retain(|tomb| {
+            if self.removal_ask.iter().any(|ask| ask.id == tomb.id) {
+                return true;
+            }
+            !self.pages.iter().any(|(id, _)| id == &tomb.id)
+        });
         if !extras.is_empty() {
             let mut lib =
                 omacus_doc::Library::load(&self.doc).unwrap_or_else(|_| omacus_doc::Library::new());
@@ -2139,6 +2315,7 @@ impl Session {
         }
         self.write_pages();
         self.park_removed(&kept.removed);
+        self.park_removed(&welcome_park);
         let _ = fs::write(self.dir.join("library.automerge"), &self.doc);
         self.save_book();
         Ok(())
@@ -2455,6 +2632,14 @@ impl Session {
                     rev: tomb.rev,
                 })
                 .collect(),
+            removal_declined: self
+                .removal_declined
+                .iter()
+                .map(|tomb| BookTomb {
+                    id: tomb.id.clone(),
+                    rev: tomb.rev,
+                })
+                .collect(),
         };
         if let Ok(bytes) = serde_json::to_vec_pretty(&book) {
             let _ = fs::create_dir_all(self.dir.join("sync"));
@@ -2502,6 +2687,14 @@ impl Session {
         self.labels = book.devices;
         self.tombstones = book
             .tombstones
+            .into_iter()
+            .map(|tomb| Tombstone {
+                id: tomb.id,
+                rev: tomb.rev,
+            })
+            .collect();
+        self.removal_declined = book
+            .removal_declined
             .into_iter()
             .map(|tomb| Tombstone {
                 id: tomb.id,
@@ -2740,6 +2933,8 @@ struct Book {
     seen: Vec<String>,
     #[serde(default)]
     tombstones: Vec<BookTomb>,
+    #[serde(default)]
+    removal_declined: Vec<BookTomb>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -2831,17 +3026,27 @@ struct KeptPages {
     pages: Vec<(String, String)>,
     removed: Vec<(String, String)>,
     held: bool,
+    asked: Vec<Tombstone>,
 }
 
 fn pages_after(
     local: &[(String, String)],
     remote: &[(String, String)],
     tombstones: &[Tombstone],
+    declined: &[Tombstone],
 ) -> KeptPages {
     let mut named = Vec::new();
+    let mut asked = Vec::new();
     for tomb in tombstones {
+        if declined
+            .iter()
+            .any(|row| row.id == tomb.id && row.rev >= tomb.rev)
+        {
+            continue;
+        }
         if local.iter().any(|(id, _)| id == &tomb.id) && !named.iter().any(|id| id == &tomb.id) {
             named.push(tomb.id.clone());
+            asked.push(tomb.clone());
         }
     }
     let held = omacus_engine::sync_objects::mass_delete(local.len(), named.len());
@@ -2866,7 +3071,94 @@ fn pages_after(
         pages,
         removed,
         held,
+        asked: if held { asked } else { Vec::new() },
     }
+}
+
+const WELCOME_TITLE: &str = "Welcome to Omacus";
+
+struct WelcomePlan {
+    pages: Vec<(String, String)>,
+    removed: Vec<(String, String)>,
+    tombstones: Vec<Tombstone>,
+}
+
+/// Identical Welcome to Omacus pages become one. The lower id stays.
+/// A different text stays its own page.
+fn welcome_plan(pages: &[(String, String)], tombstones: &[Tombstone]) -> WelcomePlan {
+    let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+    for (index, (_, text)) in pages.iter().enumerate() {
+        if crate::sheets::heading_of(text) != WELCOME_TITLE {
+            continue;
+        }
+        if let Some((_, ids)) = groups.iter_mut().find(|(body, _)| body == text) {
+            ids.push(index);
+        } else {
+            groups.push((text.clone(), vec![index]));
+        }
+    }
+    let mut drop_at = Vec::new();
+    for (_, indexes) in &groups {
+        if indexes.len() < 2 {
+            continue;
+        }
+        let mut ids: Vec<&str> = indexes
+            .iter()
+            .map(|index| pages[*index].0.as_str())
+            .collect();
+        ids.sort();
+        for id in ids.into_iter().skip(1) {
+            if let Some(index) = pages.iter().position(|(page, _)| page == id) {
+                drop_at.push(index);
+            }
+        }
+    }
+    drop_at.sort_unstable();
+    drop_at.dedup();
+    let mut removed = Vec::new();
+    let mut kept = Vec::new();
+    for (index, row) in pages.iter().enumerate() {
+        if drop_at.contains(&index) {
+            removed.push(row.clone());
+        } else {
+            kept.push(row.clone());
+        }
+    }
+    let mut tombstones = tombstones.to_vec();
+    for (id, _) in &removed {
+        let rev = tombstones
+            .iter()
+            .map(|tomb| tomb.rev)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        if let Some(row) = tombstones.iter_mut().find(|tomb| tomb.id == *id) {
+            if rev > row.rev {
+                row.rev = rev;
+            }
+        } else {
+            tombstones.push(Tombstone {
+                id: id.clone(),
+                rev,
+            });
+        }
+    }
+    let new_tombs: Vec<Tombstone> = removed
+        .iter()
+        .filter_map(|(id, _)| tombstones.iter().find(|tomb| tomb.id == *id).cloned())
+        .collect();
+    WelcomePlan {
+        pages: kept,
+        removed,
+        tombstones: new_tombs,
+    }
+}
+
+pub fn removal_sentence(count: usize) -> String {
+    let word = if count == 1 { "page" } else { "pages" };
+    format!(
+        "Another phone or computer removed {count} {word}. They are still here. Remove them here too, or keep them?"
+    )
 }
 
 fn hash_text(text: &str) -> String {
@@ -3462,17 +3754,161 @@ mod tomb_tests {
             )
             .unwrap();
         assert!(
-            session.pages.iter().any(|(id, _)| id == "pantry"),
-            "a mass delete removed pantry"
+            !session.pages.iter().any(|(id, _)| id == "pantry"),
+            "two signed deletes left pantry"
         );
         assert!(
-            session.pages.iter().any(|(id, _)| id == "kept"),
-            "a mass delete removed kept"
+            !session.pages.iter().any(|(id, _)| id == "kept"),
+            "two signed deletes left kept"
+        );
+        assert!(session.pages.iter().any(|(id, _)| id == "harbor"));
+        assert_eq!(session.removal_count(), 0, "two deletes asked first");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn more_than_two_deletes_wait_until_yes() {
+        let dir = std::env::temp_dir().join(format!("omacus-mass-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
+        session.pages = vec![
+            ("pantry".into(), "Pantry\noats\n".into()),
+            ("kept".into(), "Kept\nferry = 40\n".into()),
+            ("harbor".into(), "Harbor\ncake\n".into()),
+        ];
+        let packed = remote_with(
+            vec![],
+            vec![
+                Tombstone {
+                    id: "pantry".into(),
+                    rev: 1,
+                },
+                Tombstone {
+                    id: "kept".into(),
+                    rev: 2,
+                },
+                Tombstone {
+                    id: "harbor".into(),
+                    rev: 3,
+                },
+            ],
+        );
+        session.install_remote(&packed, false).unwrap();
+        assert_eq!(
+            session.pages.len(),
+            3,
+            "more than two deletes removed a page"
+        );
+        assert_eq!(session.removal_count(), 3);
+        assert!(removal_sentence(3).contains("3 pages"));
+        assert_eq!(
+            session.removal_titles(),
+            vec!["Pantry".to_string(), "Kept".into(), "Harbor".into()]
+        );
+        session.decline_removal();
+        assert_eq!(session.removal_count(), 0);
+        assert!(session.dirty, "keeping the pages was not published");
+        session.dirty = false;
+        session.install_remote(&packed, false).unwrap();
+        assert_eq!(session.pages.len(), 3, "a declined delete removed a page");
+        assert_eq!(session.removal_count(), 0, "a declined delete asked again");
+
+        session.removal_declined.clear();
+        session.install_remote(&packed, false).unwrap();
+        assert_eq!(session.removal_count(), 3);
+        session.confirm_removal();
+        assert!(session.pages.is_empty(), "yes left a page in the list");
+        assert_eq!(session.removal_count(), 0);
+        let parked =
+            std::fs::read_to_string(dir.join("trash").join("pantry.txt")).unwrap_or_default();
+        assert!(parked.contains("oats"), "{parked}");
+        assert!(session.tombstones.iter().any(|tomb| tomb.id == "pantry"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn two_libraries_keep_every_page_and_one_welcome() {
+        let dir = std::env::temp_dir().join(format!("omacus-fold-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
+        let welcome = "# Welcome to Omacus\nA note.\n";
+        let mut local_lib = omacus_doc::Library::new();
+        local_lib.reconcile("pantry", "Pantry\noats\n", None);
+        local_lib.note_written("pantry", "Pantry\noats\n");
+        local_lib.reconcile("welcome-b", welcome, None);
+        local_lib.note_written("welcome-b", welcome);
+        session.doc = local_lib.save();
+        session.pages = vec![
+            ("pantry".into(), "Pantry\noats\n".into()),
+            ("welcome-b".into(), welcome.into()),
+        ];
+        let mut remote_lib = omacus_doc::Library::new();
+        remote_lib.reconcile("harbor", "Harbor\ncake\n", None);
+        remote_lib.note_written("harbor", "Harbor\ncake\n");
+        remote_lib.reconcile("welcome-a", welcome, None);
+        remote_lib.note_written("welcome-a", welcome);
+        remote_lib.reconcile("welcome-c", "# Welcome to Omacus\nferry\n", None);
+        remote_lib.note_written("welcome-c", "# Welcome to Omacus\nferry\n");
+        let remote = PageSet {
+            doc: remote_lib.save(),
+            pages: vec![
+                ("harbor".into(), "Harbor\ncake\n".into()),
+                ("welcome-a".into(), welcome.into()),
+                ("welcome-c".into(), "# Welcome to Omacus\nferry\n".into()),
+            ],
+            meta: SyncMeta::default(),
+        };
+        session
+            .install_remote(&remote.to_bytes().unwrap(), false)
+            .unwrap();
+        assert!(
+            session
+                .pages
+                .iter()
+                .any(|(id, text)| id == "pantry" && text.contains("oats")),
+            "a page only on this computer was dropped"
         );
         assert!(
-            session.tombstones.is_empty(),
-            "a refused delete was recorded"
+            session
+                .pages
+                .iter()
+                .any(|(id, text)| id == "harbor" && text.contains("cake")),
+            "a page only on the other library was dropped"
         );
+        assert!(
+            session.pages.iter().any(|(id, _)| id == "welcome-a"),
+            "the earlier welcome page was dropped"
+        );
+        assert!(
+            !session.pages.iter().any(|(id, _)| id == "welcome-b"),
+            "an identical welcome page stayed"
+        );
+        assert!(
+            session
+                .pages
+                .iter()
+                .any(|(id, text)| id == "welcome-c" && text.contains("ferry")),
+            "a different welcome page was folded away"
+        );
+        assert!(
+            session.tombstones.iter().any(|tomb| tomb.id == "welcome-b"),
+            "the identical welcome page was not a signed delete"
+        );
+        assert!(session.dirty, "the joined pages were not published");
+        let shown = omacus_doc::Library::load(&session.doc).unwrap();
+        assert!(
+            shown
+                .snapshot("pantry")
+                .unwrap_or_default()
+                .contains("oats")
+        );
+        assert!(
+            shown
+                .snapshot("harbor")
+                .unwrap_or_default()
+                .contains("cake")
+        );
+        assert!(shown.snapshot("welcome-b").is_none());
         let _ = std::fs::remove_dir_all(dir);
     }
 }
