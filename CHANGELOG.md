@@ -4,7 +4,7 @@
 
 **Sync keeps going when the key store is locked**
 
-On a Linux computer, if the key store can't be opened without a prompt, sync asks for a passphrase and keeps the key in a locked file. The window stays responsive, and approving a phone still finishes if the key needs to be saved again.
+On a Linux computer, if the key store is running but not unlocked, sync asks you to set it up once. After that, Omacus does not ask for a password when the app opens. A passphrase is there if you want one instead. The window stays responsive, and approving a phone still finishes if the key needs to be saved again.
 
 **A half-finished setup can start again**
 
