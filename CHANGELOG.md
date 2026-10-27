@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**Sync paused stays open**
+
+If this computer cannot read the saved copy, sync says so and stays on. The status can be tapped, and it says what it means. Sync stays at the bottom of the sidebar, including while sync is paused. A computer that is still on its own list starts sending again. Join again is there when this computer is not on the list. Nothing already here is deleted.
+
+**The recovery word you tap stays selected**
+
+On the check, the word you tap is the one that stays marked.
+
 **Pages from both phones stay**
 
 A page that is on this phone and missing from the other list stays, and it is sent across. A page is removed only when a delete names that page. Removing more than two pages asks first. Two copies of Welcome to Omacus with the same text become one page.

@@ -403,16 +403,20 @@ fn check(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Stri
         );
         let choices = session.choice_list(which).to_vec();
         ui.horizontal_wrapped(|ui| {
-            for word in choices {
-                let picked = session.picked(which) == Some(word.as_str());
-                let button = if picked {
-                    design::primary(ui, theme, &word)
-                } else {
-                    design::quiet(ui, theme, &word)
-                };
-                if button.clicked() {
-                    session.pick(which, &word);
-                }
+            for (index, word) in choices.into_iter().enumerate() {
+                // Each row used the same automatic ids, so a click landed on
+                // another row and the word that was tapped did not stay marked.
+                ui.push_id((which, index), |ui| {
+                    let picked = session.picked(which) == Some(word.as_str());
+                    let button = if picked {
+                        design::primary(ui, theme, &word)
+                    } else {
+                        design::quiet(ui, theme, &word)
+                    };
+                    if button.clicked() {
+                        session.pick(which, &word);
+                    }
+                });
             }
         });
         ui.add_space(6.0);
@@ -835,8 +839,13 @@ fn approve(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<St
     );
     para(ui, theme, &session.four_words());
     err(ui, theme, &session.error.clone());
+    let note = session.copy_note();
+    if !note.is_empty() {
+        para(ui, theme, note);
+    }
+    let readable = session.request_readable();
     ui.horizontal(|ui| {
-        if design::primary(ui, theme, "Yes, approve it").clicked() {
+        if readable && design::primary(ui, theme, "Yes, approve it").clicked() {
             let _ = session.approve();
         }
         if design::quiet(ui, theme, "No").clicked() {
@@ -933,11 +942,21 @@ fn remove_ask(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option
 }
 
 fn removed(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<String> {
-    title(ui, theme, "This computer was removed from sync");
-    para(ui, theme, "Your pages are still here.");
-    if design::primary(ui, theme, "Join again").clicked() {
-        session.choose_join();
-    }
+    title(ui, theme, "Sync is paused");
+    para(
+        ui,
+        theme,
+        "This computer is not on the list, so new pages stay here. Your pages are still here. Join again adds this computer back. Nothing already here is deleted.",
+    );
+    err(ui, theme, &session.error.clone());
+    ui.horizontal(|ui| {
+        if design::primary(ui, theme, "Join again").clicked() {
+            session.choose_join();
+        }
+        if design::quiet(ui, theme, "Check again").clicked() {
+            let _ = session.check_again();
+        }
+    });
     None
 }
 

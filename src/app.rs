@@ -2383,13 +2383,20 @@ rental = rent + 50
                 galley,
                 ink,
             );
-            if self.sync.chip(Instant::now()) == sync::Chip::ListChanged {
-                let hit = ui.interact(chip, ui.scope_id().with("sync-status"), Sense::click());
-                if hit.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                if hit.clicked() {
+            let now = Instant::now();
+            let hit = ui.interact(chip, ui.scope_id().with("sync-status"), Sense::click());
+            let hint = self.sync.chip_hint(now);
+            if !hint.is_empty() {
+                hit.clone().on_hover_text(hint);
+            }
+            if hit.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if hit.clicked() {
+                if self.sync.status_opens_list(now) {
                     self.list_open = true;
+                } else {
+                    self.sync.open_from_status(now);
                 }
             }
         }
@@ -3183,29 +3190,12 @@ rental = rent + 50
         }
 
         ui.add_space(6.0);
-        if self.sync.offer_setup() {
-            let turn_on = ui.add_sized(
-                [ui.available_width(), theme::token::HIT],
-                egui::Button::new(
-                    egui::RichText::new("Turn on sync")
-                        .size(theme::token::TYPE_BODY)
-                        .color(theme.text()),
-                )
-                .fill(theme.background)
-                .stroke(egui::Stroke::new(1.0, theme.border()))
-                .corner_radius(design::radius_row())
-                .min_size(vec2(ui.available_width(), theme::token::HIT)),
-            );
-            if turn_on.on_hover_text("How sync works").clicked() {
-                self.sync.open_intro();
-            }
-            ui.add_space(6.0);
-        }
-        if self.sync.grouped() {
+        if self.sync.entry_visible() {
+            let label = self.sync.entry_label();
             let open_sync = ui.add_sized(
                 [ui.available_width(), theme::token::HIT],
                 egui::Button::new(
-                    egui::RichText::new("Sync")
+                    egui::RichText::new(label)
                         .size(theme::token::TYPE_BODY)
                         .color(theme.text()),
                 )
@@ -3214,8 +3204,15 @@ rental = rent + 50
                 .corner_radius(design::radius_row())
                 .min_size(vec2(ui.available_width(), theme::token::HIT)),
             );
-            if open_sync.on_hover_text("Sync settings").clicked() {
-                self.sync.show_home();
+            let tip = if label == "Turn on sync" {
+                "How sync works"
+            } else if self.sync.paused() {
+                "Sync is paused. Open it to join again."
+            } else {
+                "Sync settings"
+            };
+            if open_sync.on_hover_text(tip).clicked() {
+                self.sync.open_entry();
             }
             ui.add_space(6.0);
         }
@@ -4616,19 +4613,8 @@ rental = rent + 50
             .clicked()
         {
             self.apply(SheetAction::New);
-        } else if turn_on
-            .on_hover_text(if self.sync.grouped() {
-                "Sync"
-            } else {
-                "Turn on sync"
-            })
-            .clicked()
-        {
-            if self.sync.offer_setup() {
-                self.sync.open_intro();
-            } else if self.sync.grouped() {
-                self.sync.show_home();
-            }
+        } else if turn_on.on_hover_text(self.sync.entry_label()).clicked() {
+            self.sync.open_entry();
         } else if gear
             .on_hover_text(format!("Settings ({})", help::keys("Ctrl+,")))
             .clicked()
