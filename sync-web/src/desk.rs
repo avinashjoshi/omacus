@@ -1739,18 +1739,17 @@ mod tests {
             assert_eq!(before, format!("{page}/"));
             assert!(after.starts_with("recover="));
             assert!(!link.contains('?'));
-            for word in words {
-                assert!(!before.contains(word));
-            }
+            // A single word can also be part of the page address or the picture
+            // markup. The whole phrase is what must stay after the hash, and
+            // the page address itself is checked above.
+            assert!(!before.contains(&phrase));
             let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
                 .decode(after.trim_start_matches("recover="))
                 .unwrap();
             assert_eq!(String::from_utf8(decoded).unwrap(), phrase);
             let svg = desk.sheet_svg(page).unwrap();
             assert_eq!(svg, qr_svg(&link, "Recovery sheet").unwrap());
-            for word in words {
-                assert!(!svg.contains(word));
-            }
+            assert!(!svg.contains(&phrase));
             assert!(!svg.contains("omacus-recovery"));
         }
         assert!(desk.sheet_svg("").is_err());
