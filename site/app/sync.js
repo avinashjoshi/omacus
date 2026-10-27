@@ -2,7 +2,7 @@
 // The engine needs those key bytes, so the file cannot be a non-exportable
 // WebCrypto key. The page's strict policy is what keeps other scripts out.
 import { SYNC_URL } from "./sync-config.js";
-import { beginSave, finishSave, noteLocalEdit, pagesDiffer, pagesOnlyHere, pollWait, showTurnOnSync } from "./sync-save.mjs";
+import { beginSave, finishSave, noteLocalEdit, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 import { deviceListNote, pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
@@ -883,6 +883,13 @@ export async function mountSync(api) {
       const merged = JSON.parse(sync.mergePacked(localPacked, remote.packed));
       if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
       packed = merged.packed;
+    } else if (typeof api.park === "function") {
+      const keeping = new Set(
+        (snapOk ? pagesOnlyHere(snap.pages, remote.pages) : []).map((row) => String(row[0])),
+      );
+      for (const [id, text] of pagesLeftBehind(state.basePages, remote.pages)) {
+        if (!keeping.has(String(id))) await api.park(id, text);
+      }
     }
     // A page that exists only on this phone stays in the list that gets published.
     // A page both sides have keeps the merged text, so a deleted line stays deleted.
@@ -2578,7 +2585,7 @@ export async function mountSync(api) {
     bits.push(
       el("label", { class: "sync-field" }, [`Name this ${onPhone() ? "phone" : "computer"}`]),
       recoverName,
-      el("p", { class: "setting-help" }, ["Type or paste the 12 recovery words. Numbers and capitals are fine."]),
+      el("p", { class: "setting-help" }, ["Type or paste the 12 recovery words. Numbers and capitals are fine. A page that is not in the list is in Recently deleted. Restore puts it back."]),
     );
     const merged = mergeLine();
     if (merged) bits.push(el("p", { class: "setting-help" }, [merged]));

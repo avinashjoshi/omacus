@@ -1,7 +1,7 @@
 // An edit typed while a save is in flight must stay unsaved.
 // Two phones that each edit offline both keep their lines: the one that was
 // offline merges when its pages differ from the last synced copy.
-import { beginSave, finishSave, noteLocalEdit, pagesDiffer, pagesOnlyHere, pollWait, showTurnOnSync } from "../site/app/sync-save.mjs";
+import { beginSave, finishSave, noteLocalEdit, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, showTurnOnSync } from "../site/app/sync-save.mjs";
 
 function assert(cond, message) {
   if (!cond) throw new Error(message);
@@ -41,6 +41,13 @@ const onlyHere = pagesOnlyHere(localBoth, remoteKept);
 assert(onlyHere.length === 1 && onlyHere[0][0] === "pantry" && onlyHere[0][1] === "oats\n", "a page only on this phone was dropped");
 assert(pagesOnlyHere(localBoth, localBoth).length === 0, "a shared page was treated as only here");
 assert(pagesOnlyHere([], remoteKept).length === 0, "an empty phone invented a page");
+const left = pagesLeftBehind(
+  [["pantry", "oats\n"], ["kept", "1\n"]],
+  [["kept", "1\n"]],
+);
+assert(left.length === 1 && left[0][0] === "pantry" && left[0][1] === "oats\n", "a synced page missing remotely was not kept for Recently deleted");
+assert(pagesLeftBehind([["scratch", "local\n"]], [["scratch", "local\n"]]).length === 0, "a page still in the list was parked");
+assert(pagesLeftBehind(null, []).length === 0, "a phone with no synced copy parked a page");
 assert(showTurnOnSync({}) === true, "a fresh phone hid Turn on sync");
 assert(showTurnOnSync({ account: "", removed: false, paused: false }) === true, "an empty account hid Turn on sync");
 assert(showTurnOnSync({ account: "harbor", paused: false, removed: false }) === false, "a linked phone still offered Turn on sync");
