@@ -176,7 +176,19 @@ fn parity_matrix_runs_end_to_end() {
     a.open_approve();
     assert_eq!(a.numbers(), b.numbers());
     assert_eq!(a.four_words(), b.four_words());
+    let before = a.sent_count();
+    a.fail_next_key_write();
+    let missed = a.approve().unwrap_err();
+    assert_eq!(
+        missed,
+        "The approval was sent. The key on this computer still needs to be saved."
+    );
+    assert!(a.approval_waiting());
+    let sent = a.sent_count();
+    assert!(sent > before);
     a.approve().unwrap();
+    assert_eq!(a.sent_count(), sent);
+    assert!(!a.approval_waiting());
     b.poll().unwrap();
     assert_eq!(b.screen, Screen::Match);
     b.accept_match().unwrap();
@@ -383,6 +395,25 @@ fn parity_matrix_runs_end_to_end() {
     assert_eq!(fresh.screen, Screen::Choice);
     drop(fresh);
 
+    let mut setup = Session::open(scratch("key-setup"), &origin);
+    setup.testing_needs_key_setup();
+    setup.begin_setup();
+    assert_eq!(setup.screen, Screen::Keyring);
+    assert!(!keys::has_pass_file(setup.dir()));
+    setup.prepare_keyring().unwrap();
+    assert_eq!(setup.screen, Screen::Choice);
+    assert!(!keys::has_pass_file(setup.dir()));
+    drop(setup);
+
+    let mut alt = Session::open(scratch("key-pass"), &origin);
+    alt.testing_needs_key_setup();
+    alt.begin_setup();
+    assert_eq!(alt.screen, Screen::Keyring);
+    alt.choose_passphrase();
+    assert_eq!(alt.screen, Screen::PassSet);
+    assert!(!keys::has_pass_file(alt.dir()));
+    drop(alt);
+
     let password = "lantern-dock-42";
     a.testing_rewrap_pass(password).unwrap();
     assert_eq!(keys::kind(a.dir()), Some("pass"));
@@ -462,6 +493,26 @@ fn start_relay() -> (String, String) {
         omacus_relay::http::serve(listener, dir.join("www"), dir.join("site"), store);
     });
     (format!("http://127.0.0.1:{port}"), code)
+}
+
+#[test]
+fn a_half_finished_sync_offers_setup_and_keeps_pages() {
+    let dir = scratch("half");
+    fs::create_dir_all(dir.join("sync")).unwrap();
+    fs::create_dir_all(dir.join("pages")).unwrap();
+    fs::write(
+        dir.join("sync").join("book.json"),
+        r#"{"account":"abc","revision":2,"member":true,"removed":true}"#,
+    )
+    .unwrap();
+    fs::write(dir.join("pages").join("pantry.txt"), "Pantry\noats\n").unwrap();
+    let session = Session::open(dir.clone(), "http://127.0.0.1:9");
+    assert!(session.offer_setup());
+    assert!(!session.paused());
+    assert_eq!(
+        fs::read_to_string(dir.join("pages").join("pantry.txt")).unwrap(),
+        "Pantry\noats\n"
+    );
 }
 
 fn scratch(name: &str) -> PathBuf {

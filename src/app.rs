@@ -508,6 +508,8 @@ pub struct OmacusApp {
     list_open: bool,
     /// Sync in this window. Pages stay files. A sealed copy is what leaves.
     sync: sync::Session,
+    /// The session is on a background step. The window keeps drawing a shell.
+    sync_job: Option<std::sync::mpsc::Receiver<sync::Session>>,
     sync_poll: Instant,
     /// Page id and the set it should return to if Undo is tapped.
     sync_undo: Option<(String, bool)>,
@@ -646,6 +648,7 @@ impl OmacusApp {
             update_open: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "update"),
             list_open: false,
             sync: sync::Session::open(sync_dir(), &sync_origin()),
+            sync_job: None,
             sync_poll: Instant::now(),
             sync_undo: None,
             switcher: std::env::var("OMACUS_SCREENSHOT_HELP")
@@ -2245,7 +2248,7 @@ rental = rent + 50
             if sync_move {
                 if let Some((id, inside)) = self.sync_undo.take() {
                     self.sync.set_in_set(&id, inside);
-                    let _ = self.sync.sync_now();
+                    self.sync.ask(sync::Work::SyncNow);
                 }
             } else if self.cross_undo.is_some() {
                 self.restore_cross_undo();
@@ -2282,6 +2285,10 @@ rental = rent + 50
     }
 
     fn tick_sync(&mut self, ctx: &egui::Context) {
+        if self.sync.frozen() || self.sync_job.is_some() {
+            ctx.request_repaint_after(Duration::from_millis(50));
+            return;
+        }
         if self.sync.active() && self.sync.screen == sync::Screen::Closed {
             let edits: Vec<(String, String)> = self
                 .store
@@ -2307,18 +2314,65 @@ rental = rent + 50
         } else {
             Duration::from_secs(4)
         };
-        if self.sync.active() && self.sync_poll.elapsed() >= every {
+        let modal = !matches!(
+            self.sync.screen,
+            sync::Screen::Closed | sync::Screen::Waiting
+        );
+        if !modal && self.sync.active() && self.sync_poll.elapsed() >= every {
             self.sync_poll = Instant::now();
-            let _ = self.sync.poll();
-            if self.store.sync().active_changed {
-                self.evaluate();
-            }
+            self.sync.ask(sync::Work::Poll);
         }
         if self.sync.screen != sync::Screen::Closed
             || self.sync.chip(Instant::now()).label().is_some()
         {
             ctx.request_repaint_after(every);
         }
+    }
+
+    fn reap_sync(&mut self) {
+        let Some(rx) = self.sync_job.as_ref() else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(session) => {
+                self.sync_job = None;
+                self.sync = session;
+                if self.store.sync().active_changed {
+                    self.evaluate();
+                }
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.sync_job = None;
+                self.sync.job_lost();
+            }
+        }
+    }
+
+    fn pump_sync(&mut self) {
+        if self.sync_job.is_some() || self.sync.frozen() {
+            return;
+        }
+        let work = if self.sync.claim_deferred_load() {
+            Some(sync::Work::LoadKey)
+        } else if let Some(work) = self.sync.take_pending() {
+            Some(work)
+        } else if self.sync.claim_retry_save() {
+            Some(sync::Work::SaveKey)
+        } else {
+            None
+        };
+        let Some(work) = work else {
+            return;
+        };
+        let shell = self.sync.display_shell(&work);
+        let mut job = std::mem::replace(&mut self.sync, shell);
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.sync_job = Some(rx);
+        std::thread::spawn(move || {
+            job.run_work(work);
+            let _ = tx.send(job);
+        });
     }
 
     fn sync_bar_on(&self) -> bool {
@@ -5363,6 +5417,7 @@ rental = rent + 50
 impl eframe::App for OmacusApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.reap_sync();
         self.handle_background_updates(&ctx);
         self.take_answers();
         self.take_screenshot(&ctx);
@@ -5448,6 +5503,10 @@ impl eframe::App for OmacusApp {
         self.show_purge(&ctx);
         self.show_switcher(&ctx);
         self.show_toast(&ctx);
+        self.pump_sync();
+        if self.sync_job.is_some() {
+            ctx.request_repaint_after(Duration::from_millis(50));
+        }
     }
 
     // glow's `on_exit` receives the GL context. Windows enables wgpu only

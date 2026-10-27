@@ -91,6 +91,7 @@ pub enum Screen {
     Rename,
     PassSet,
     PassEnter,
+    Keyring,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -184,6 +185,56 @@ pub struct PrintJob {
     pub path: Option<PathBuf>,
 }
 
+/// A sync step that talks to the key store or the relay. The window queues it
+/// and runs it off the thread that draws.
+#[derive(Clone, Debug)]
+pub enum Work {
+    LoadKey,
+    BeginSetup,
+    PrepareKeyring,
+    ContinueAccess,
+    Confirm,
+    Bring,
+    LeaveFiles,
+    KeepBoth,
+    LeaveClash,
+    StartInvite,
+    SubmitJoin,
+    AcceptMatch,
+    Approve,
+    Deny,
+    Recover,
+    TurnOff,
+    RemoveDevice(String),
+    CheckAgain,
+    SubmitPass,
+    SaveRename(String),
+    ConfirmMove,
+    SaveKey,
+    Poll,
+    SyncNow,
+}
+
+impl Work {
+    fn label(&self) -> &'static str {
+        match self {
+            Work::LoadKey => "Opening the sync key…",
+            Work::BeginSetup | Work::SubmitPass => "Checking the key store…",
+            Work::PrepareKeyring => "Setting up the key store…",
+            Work::Approve => "Approving this phone…",
+            Work::SaveKey | Work::AcceptMatch | Work::Confirm | Work::Bring | Work::LeaveFiles => {
+                "Saving the sync key…"
+            }
+            Work::Poll => "",
+            _ => "Saving…",
+        }
+    }
+
+    fn quiet(&self) -> bool {
+        matches!(self, Work::Poll)
+    }
+}
+
 pub struct Session {
     dir: PathBuf,
     origin: String,
@@ -251,6 +302,17 @@ pub struct Session {
     pass_lock: Option<keys::PassLock>,
     pass_locked: bool,
     without_keyring: bool,
+    pending: Option<Work>,
+    frozen: bool,
+    progress: String,
+    defer_load: bool,
+    retry_save: bool,
+    approval_sent: bool,
+    key_note: String,
+    #[cfg(test)]
+    fail_key_write: bool,
+    #[cfg(test)]
+    needs_key_setup: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -266,6 +328,10 @@ impl Session {
         if keys::has_pass_file(&session.dir) {
             session.pass_locked = true;
             session.screen = Screen::PassEnter;
+        } else if keys::defer_secret_load(&session.dir) {
+            // The key store is opened on the first background step, not while
+            // the window is being created.
+            session.defer_load = true;
         } else if let Some(plain) = keys::load(&session.dir).ok().flatten()
             && let Some((device, slots)) = split_blob(&plain)
             && let Ok(desk) = Desk::import_local(&device)
@@ -280,6 +346,17 @@ impl Session {
         session.load_book();
         session.load_disk();
         session.restore_false_pause();
+        session.tidy_half_state();
+        if session.desk.is_none() && !session.defer_load && session.approval_sent {
+            session.approval_sent = false;
+            session.save_book();
+        } else if !session.defer_load
+            && session.approval_sent
+            && session.desk.is_some()
+            && !session.pass_locked
+        {
+            session.retry_save = true;
+        }
         session
     }
 
@@ -349,7 +426,215 @@ impl Session {
             pass_lock: None,
             pass_locked: false,
             without_keyring: false,
+            pending: None,
+            frozen: false,
+            progress: String::new(),
+            defer_load: false,
+            retry_save: false,
+            approval_sent: false,
+            key_note: String::new(),
+            #[cfg(test)]
+            fail_key_write: false,
+            #[cfg(test)]
+            needs_key_setup: false,
         }
+    }
+
+    pub fn ask(&mut self, work: Work) {
+        if self.frozen || self.pending.is_some() {
+            return;
+        }
+        self.pending = Some(work);
+    }
+
+    pub fn take_pending(&mut self) -> Option<Work> {
+        self.pending.take()
+    }
+
+    pub fn frozen(&self) -> bool {
+        self.frozen
+    }
+
+    pub fn progress(&self) -> &str {
+        &self.progress
+    }
+
+    pub fn key_note(&self) -> &str {
+        &self.key_note
+    }
+
+    pub fn needs_key_save(&self) -> bool {
+        self.approval_sent
+    }
+
+    /// True once, when the window should open the key store in the background.
+    pub fn claim_deferred_load(&mut self) -> bool {
+        if self.defer_load && !self.frozen {
+            self.defer_load = false;
+            return true;
+        }
+        false
+    }
+
+    /// True once, when an approval was sent and the key still needs writing.
+    pub fn claim_retry_save(&mut self) -> bool {
+        if self.retry_save && !self.frozen {
+            self.retry_save = false;
+            return true;
+        }
+        false
+    }
+
+    /// A copy the window can paint while the real session is on a background step.
+    pub fn display_shell(&self, work: &Work) -> Self {
+        let mut shell = Self::blank(self.dir.clone(), &self.origin);
+        shell.screen = self.screen;
+        shell.on = self.on;
+        shell.member = self.member;
+        shell.removed = self.removed;
+        shell.error = self.error.clone();
+        shell.pass_locked = self.pass_locked;
+        shell.offline = self.offline;
+        shell.account = self.account.clone();
+        shell.join_code = self.join_code.clone();
+        shell.pending_device = self.pending_device.clone();
+        shell.pending_id = self.pending_id.clone();
+        shell.pending_name = self.pending_name.clone();
+        shell.vault_name = self.vault_name.clone();
+        shell.self_name = self.self_name.clone();
+        shell.notice = self.notice.clone();
+        shell.key_note = self.key_note.clone();
+        shell.approval_sent = self.approval_sent;
+        shell.frozen = true;
+        shell.progress = work.label().to_string();
+        if !work.quiet() && shell.screen == Screen::Closed {
+            shell.screen = Screen::Intro;
+        }
+        if work.quiet() {
+            shell.busy = false;
+            shell.saving_since = None;
+        } else {
+            shell.busy = true;
+            shell.saving_since = Some(Instant::now() - Duration::from_secs(2));
+        }
+        shell
+    }
+
+    pub fn run_work(&mut self, work: Work) {
+        self.progress = work.label().to_string();
+        if !work.quiet() {
+            self.busy = true;
+            self.saving_since = Some(Instant::now());
+        }
+        let result = match work {
+            Work::LoadKey => {
+                self.load_deferred_key();
+                Ok(())
+            }
+            Work::BeginSetup => {
+                self.begin_setup();
+                Ok(())
+            }
+            Work::PrepareKeyring => self.prepare_keyring(),
+            Work::ContinueAccess => self.continue_access(),
+            Work::Confirm => self.confirm(),
+            Work::Bring => self.bring(),
+            Work::LeaveFiles => self.leave_files(),
+            Work::KeepBoth => self.keep_both(),
+            Work::LeaveClash => self.leave_clash(),
+            Work::StartInvite => self.start_invite(),
+            Work::SubmitJoin => {
+                let code = self.join_code.clone();
+                self.submit_join(&code)
+            }
+            Work::AcceptMatch => self.accept_match(),
+            Work::Approve => self.approve(),
+            Work::Deny => self.deny(),
+            Work::Recover => self.recover(),
+            Work::TurnOff => self.turn_off(),
+            Work::RemoveDevice(id) => self.remove_device(&id),
+            Work::CheckAgain => self.check_again(),
+            Work::SubmitPass => self.submit_pass(),
+            Work::SaveRename(name) => self.save_rename(&name),
+            Work::ConfirmMove => self.confirm_move(),
+            Work::SaveKey => self.retry_key_write(),
+            Work::Poll => self.poll(),
+            Work::SyncNow => self.sync_now(),
+        };
+        if let Err(error) = result
+            && error != "Enter a passphrase."
+            && !keys::wants_key_setup(&error)
+            && self.error.is_empty()
+        {
+            self.error = error;
+        }
+        self.progress.clear();
+        self.busy = false;
+        self.saving_since = None;
+        self.frozen = false;
+    }
+
+    pub fn job_lost(&mut self) {
+        self.frozen = false;
+        self.busy = false;
+        self.saving_since = None;
+        if self.error.is_empty() {
+            self.error = "Sync stopped. Try again.".into();
+        }
+    }
+
+    fn load_deferred_key(&mut self) {
+        self.defer_load = false;
+        match keys::load(&self.dir) {
+            Ok(Some(plain)) => {
+                if let Err(error) = self.install_device(plain) {
+                    self.error = error;
+                    return;
+                }
+                if self.approval_sent && !self.pass_locked {
+                    let _ = self.retry_key_write();
+                }
+            }
+            Ok(None) => self.tidy_half_state(),
+            Err(error) => {
+                if keys::wants_key_setup(&error) {
+                    self.screen = Screen::Keyring;
+                    self.error.clear();
+                } else if error == "The key store took too long." {
+                    self.screen = Screen::Keyring;
+                    self.error = "The key store took too long. Try again.".into();
+                } else {
+                    self.error = error;
+                    self.screen = Screen::Intro;
+                }
+            }
+        }
+    }
+
+    fn retry_key_write(&mut self) -> Result<(), String> {
+        self.save_secret()?;
+        self.approval_sent = false;
+        self.pending_id.clear();
+        self.pending_device.clear();
+        self.save_book();
+        if self.on {
+            self.screen = Screen::Home;
+        }
+        Ok(())
+    }
+
+    /// An earlier attempt wrote sync flags and never stored a key. The pages stay.
+    fn tidy_half_state(&mut self) {
+        if self.desk.is_some() || self.pass_locked || self.defer_load {
+            return;
+        }
+        if !(self.on || self.member || self.removed) {
+            return;
+        }
+        self.on = false;
+        self.member = false;
+        self.removed = false;
+        self.save_book();
     }
 
     pub fn preview(&mut self, kind: &str) {
@@ -468,6 +753,7 @@ impl Session {
             "off" => self.screen = Screen::OffAsk,
             "pass" | "pass-enter" => self.screen = Screen::PassEnter,
             "pass-set" => self.screen = Screen::PassSet,
+            "keyring" => self.screen = Screen::Keyring,
             _ => self.screen = Screen::Intro,
         }
     }
@@ -506,17 +792,71 @@ impl Session {
 
     pub fn begin_setup(&mut self) {
         self.error.clear();
-        if self.pass_lock.is_none() && self.must_pass() {
-            if keys::has_pass_file(&self.dir) {
-                self.pass_locked = true;
-                self.screen = Screen::PassEnter;
-            } else {
-                self.screen = Screen::PassSet;
-            }
+        if self.pass_lock.is_none() && keys::has_pass_file(&self.dir) {
+            self.pass_locked = true;
+            self.screen = Screen::PassEnter;
+            return;
+        }
+        if self.pass_lock.is_none() && self.without_keyring {
+            self.screen = Screen::PassSet;
+            return;
+        }
+        if self.pass_lock.is_none() && self.needs_store_setup() {
+            self.screen = Screen::Keyring;
             return;
         }
         self.screen = Screen::Choice;
         self.mark("choice");
+    }
+
+    /// The key store is running, or this test asked for the setup step.
+    /// A passphrase file is not chosen here.
+    fn needs_store_setup(&self) -> bool {
+        #[cfg(test)]
+        if self.needs_key_setup {
+            return true;
+        }
+        keys::key_store_needs_setup()
+    }
+
+    /// One-time key store setup. The passphrase file is not created here.
+    pub fn prepare_keyring(&mut self) -> Result<(), String> {
+        self.error.clear();
+        #[cfg(test)]
+        {
+            self.needs_key_setup = false;
+            if self.approval_sent {
+                return self.retry_key_write();
+            }
+            self.screen = Screen::Choice;
+            self.mark("choice");
+            Ok(())
+        }
+        #[cfg(not(test))]
+        {
+            match keys::prepare_keyring() {
+                Ok(()) => {
+                    if self.approval_sent {
+                        return self.retry_key_write();
+                    }
+                    self.screen = Screen::Choice;
+                    self.mark("choice");
+                    Ok(())
+                }
+                Err(error) => {
+                    self.error = error;
+                    self.screen = Screen::Keyring;
+                    Err(self.error.clone())
+                }
+            }
+        }
+    }
+
+    /// The person asked for a passphrase file. This is never the default.
+    pub fn choose_passphrase(&mut self) {
+        self.error.clear();
+        self.without_keyring = true;
+        self.screen = Screen::PassSet;
     }
 
     pub fn choose_first(&mut self) {
@@ -1203,6 +1543,9 @@ impl Session {
 
     pub fn approve(&mut self) -> Result<(), String> {
         self.error.clear();
+        if self.approval_sent {
+            return self.retry_key_write();
+        }
         if !self.leader_ok() {
             return Err("This window is watching. The other window approves.".into());
         }
@@ -1420,6 +1763,12 @@ impl Session {
     #[cfg(test)]
     pub fn testing_without_keyring(&mut self) {
         self.without_keyring = true;
+    }
+
+    #[cfg(test)]
+    pub fn testing_needs_key_setup(&mut self) {
+        self.needs_key_setup = true;
+        self.without_keyring = false;
     }
 
     #[cfg(test)]
@@ -1710,6 +2059,7 @@ impl Session {
                     | Screen::OffFailed
                     | Screen::PassSet
                     | Screen::PassEnter
+                    | Screen::Keyring
             )
         {
             return Chip::Hidden;
@@ -2210,7 +2560,28 @@ impl Session {
             .unwrap_or(self.revision);
         self.note_written_objects(&reply.json);
         self.remember_base();
-        self.save_secret()?;
+        // The approval is already on the relay. A failed key write retries the
+        // write only, so the same yes is not sent twice.
+        self.approval_sent = true;
+        self.save_book();
+        if let Err(error) = self.save_secret() {
+            if self.screen != Screen::PassSet
+                && self.screen != Screen::PassEnter
+                && self.screen != Screen::Keyring
+            {
+                self.screen = Screen::Home;
+                self.error =
+                    "The approval was sent. The key on this computer still needs to be saved."
+                        .into();
+            }
+            return Err(if self.error.is_empty() {
+                error
+            } else {
+                self.error.clone()
+            });
+        }
+        self.approval_sent = false;
+        self.save_book();
         Ok(())
     }
 
@@ -2646,6 +3017,11 @@ impl Session {
     }
 
     fn save_secret(&mut self) -> Result<(), String> {
+        #[cfg(test)]
+        if self.fail_key_write {
+            self.fail_key_write = false;
+            return Err("The key on this computer still needs to be saved.".into());
+        }
         self.ensure_pass()?;
         let Some(desk) = &self.desk else {
             return Ok(());
@@ -2657,10 +3033,24 @@ impl Session {
         blob.extend_from_slice(&len.to_be_bytes());
         blob.extend_from_slice(&device);
         blob.extend_from_slice(&slots);
-        if let Some(lock) = &self.pass_lock {
+        let saved = if let Some(lock) = &self.pass_lock {
             keys::write_pass(&self.dir, &blob, lock)
         } else {
             keys::save(&self.dir, &blob)
+        };
+        match saved {
+            Ok(()) => Ok(()),
+            Err(error) if keys::wants_key_setup(&error) => {
+                self.screen = Screen::Keyring;
+                self.error.clear();
+                Err(error)
+            }
+            Err(error) if error == "The key store took too long." => {
+                self.screen = Screen::Keyring;
+                self.error = "The key store took too long. Try again.".into();
+                Err(self.error.clone())
+            }
+            Err(error) => Err(error),
         }
     }
 
@@ -2744,6 +3134,10 @@ impl Session {
             self.pass_buf.clear();
             self.pass_again.clear();
             self.pass_lock = Some(lock);
+            if self.approval_sent {
+                self.retry_key_write()?;
+                return Ok(());
+            }
             self.screen = Screen::Choice;
             self.mark("choice");
             return Ok(());
@@ -2822,6 +3216,7 @@ impl Session {
                     rev: tomb.rev,
                 })
                 .collect(),
+            approval_sent: self.approval_sent,
         };
         if let Ok(bytes) = serde_json::to_vec_pretty(&book) {
             let _ = fs::create_dir_all(self.dir.join("sync"));
@@ -2875,6 +3270,7 @@ impl Session {
                 rev: tomb.rev,
             })
             .collect();
+        self.approval_sent = book.approval_sent;
         self.removal_declined = book
             .removal_declined
             .into_iter()
@@ -3087,6 +3483,21 @@ impl Session {
         self.busy = true;
         self.saving_since = Some(Instant::now() - ago);
     }
+
+    #[cfg(test)]
+    pub fn fail_next_key_write(&mut self) {
+        self.fail_key_write = true;
+    }
+
+    #[cfg(test)]
+    pub fn sent_count(&self) -> usize {
+        self.client.sent.len()
+    }
+
+    #[cfg(test)]
+    pub fn approval_waiting(&self) -> bool {
+        self.approval_sent
+    }
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -3117,6 +3528,8 @@ struct Book {
     tombstones: Vec<BookTomb>,
     #[serde(default)]
     removal_declined: Vec<BookTomb>,
+    #[serde(default)]
+    approval_sent: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]

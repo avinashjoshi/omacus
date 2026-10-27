@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.4
+
+**Sync keeps going when the key store is locked**
+
+On a Linux computer, if the key store is running but not unlocked, sync asks you to set it up once. After that, Omacus does not ask for a password when the app opens. A passphrase is there if you want one instead. The window stays responsive, and approving a phone still finishes if the key needs to be saved again.
+
+**A half-finished setup can start again**
+
+Pages already on this computer stay. Sync can be set up again when an earlier try stopped before the key was saved.
+
+**The word check uses real words**
+
+The choices on the word check are recovery words. If they can't be loaded, the check stops and says so.
+
 ## 1.0.3
 
 **Sync paused stays open**

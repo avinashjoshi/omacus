@@ -7,6 +7,8 @@ import { beginSave, dedupeWelcome, finishSave, keepUnlessTombstone, noteLocalEdi
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 import { deviceListNote, pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
+import { RECOVERY_WORDS } from "./recovery-words.js";
+import { WORD_CHECK_ERROR, buildChoices, usableList } from "./word-check.js";
 import {
   activeVault,
   bookJson,
@@ -131,7 +133,7 @@ export async function mountSync(api) {
     deviceNames: [],
     membership: [],
   };
-  let wordlist = [];
+  const wordlist = usableList(RECOVERY_WORDS) || [];
   let timer = null;
   let approveWatch = 0;
   let inviteWatch = 0;
@@ -672,13 +674,6 @@ export async function mountSync(api) {
     return `Pages already on ${here()} will be combined with those. Nothing is deleted.`;
   }
 
-  async function loadWords() {
-    if (wordlist.length) return;
-    const response = await fetch("./words.txt");
-    const text = await response.text();
-    wordlist = text.split("\n").map((line) => line.trim()).filter((line) => line && !line.startsWith("#"));
-  }
-
   function randomInt(max) {
     const buf = new Uint32Array(1);
     crypto.getRandomValues(buf);
@@ -698,17 +693,10 @@ export async function mountSync(api) {
     state.picks = {};
     state.wrong = 0;
     state.choices = {};
-    const mine = new Set(state.words.map((word) => word.toLowerCase()));
-    for (const n of state.asks) {
-      const options = new Set([state.words[n - 1]]);
-      let guard = 0;
-      while (options.size < 6 && wordlist.length && guard < 1000) {
-        guard += 1;
-        const word = wordlist[randomInt(wordlist.length)];
-        if (!mine.has(word.toLowerCase())) options.add(word);
-      }
-      state.choices[n] = shuffle([...options]);
-    }
+    const built = buildChoices(state.words, state.asks, wordlist, randomInt);
+    if (!built) return false;
+    for (const n of state.asks) state.choices[n] = shuffle(built[n]);
+    return true;
   }
 
   function picks() {
@@ -2542,8 +2530,11 @@ export async function mountSync(api) {
       check,
       actionButton("I saved them", "primary", async () => {
         if (!state.wroteWords) return;
-        await loadWords().catch(() => {});
-        setUpCheck();
+        if (!setUpCheck()) {
+          state.error = WORD_CHECK_ERROR;
+          draw();
+          return;
+        }
         state.screen = "confirm";
         state.error = "";
         draw();

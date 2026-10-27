@@ -22,6 +22,16 @@ mod theme;
 mod update;
 
 fn main() {
+    if std::env::var("OMACUS_E2E_KEYRING").ok().as_deref() == Some("1") {
+        let dir = std::env::var("OMACUS_E2E_DIR").unwrap_or_else(|_| {
+            std::env::temp_dir()
+                .join("omacus-e2e-key")
+                .display()
+                .to_string()
+        });
+        let code = sync::e2e_store(std::path::Path::new(&dir));
+        std::process::exit(code);
+    }
     update::init();
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.is_empty() {

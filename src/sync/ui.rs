@@ -6,7 +6,7 @@ use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, vec2};
 use crate::design;
 use crate::theme::{self, Theme};
 
-use super::session::{CLIPBOARD_NOTE, Screen, Session};
+use super::session::{CLIPBOARD_NOTE, Screen, Session, Work};
 
 /// Draw the open sync screen. `Some(id)` asks the window to unlock that page
 /// with the password already on this computer.
@@ -29,7 +29,7 @@ pub fn show(ctx: &egui::Context, theme: &Theme, session: &mut Session) -> Option
         if modal.should_close() {
             close = true;
         }
-        if close && unlock.is_none() {
+        if close && unlock.is_none() && !session.frozen() {
             session.not_now();
         }
     }
@@ -47,6 +47,15 @@ pub fn show(ctx: &egui::Context, theme: &Theme, session: &mut Session) -> Option
 }
 
 fn body(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<String> {
+    if session.frozen() && !session.progress().is_empty() {
+        title(ui, theme, "Sync");
+        let step = session.progress().to_string();
+        if !step.is_empty() {
+            para(ui, theme, &step);
+        }
+        err(ui, theme, &session.error.clone());
+        return None;
+    }
     let screen = session.screen;
     match screen {
         Screen::Intro => intro(ui, theme, session),
@@ -73,6 +82,7 @@ fn body(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
         Screen::Rename => rename(ui, theme, session),
         Screen::PassSet => passphrase(ui, theme, session, true),
         Screen::PassEnter => passphrase(ui, theme, session, false),
+        Screen::Keyring => keyring(ui, theme, session),
         Screen::Closed => None,
     }
 }
@@ -230,13 +240,14 @@ fn paint_mark(painter: &egui::Painter, mark: CardMark, at: egui::Pos2, color: eg
 
 fn intro(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<String> {
     title(ui, theme, "How sync works");
+    err(ui, theme, &session.error.clone());
     for line in super::intro_lines() {
         para(ui, theme, line);
     }
     ui.add_space(6.0);
     ui.horizontal(|ui| {
         if design::primary(ui, theme, "Set up sync").clicked() {
-            session.begin_setup();
+            session.ask(Work::BeginSetup);
         }
         if design::quiet(ui, theme, "Not now").clicked() {
             session.not_now();
@@ -279,7 +290,7 @@ fn choice(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Str
 fn start(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<String> {
     progress(ui, theme, 1);
     if back(ui, theme, "← Back") {
-        session.begin_setup();
+        session.ask(Work::BeginSetup);
     }
     title(ui, theme, "Start fresh on this computer");
     para(
@@ -312,7 +323,7 @@ fn start(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Stri
     if design::primary(ui, theme, "Continue").clicked() {
         let name = session.name_buf().clone();
         session.set_name(&name);
-        let _ = session.continue_access();
+        session.ask(Work::ContinueAccess);
     }
     None
 }
@@ -422,7 +433,7 @@ fn check(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Stri
         ui.add_space(6.0);
     }
     if design::primary(ui, theme, "These match").clicked() {
-        let _ = session.confirm();
+        session.ask(Work::Confirm);
     }
     None
 }
@@ -445,7 +456,7 @@ fn pages_here(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option
         "Bring these pages into sync",
         "They stay as files here, and your other phones get a copy. Nothing is deleted.",
     ) {
-        let _ = session.bring();
+        session.ask(Work::Bring);
     }
     if card(
         ui,
@@ -454,7 +465,7 @@ fn pages_here(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option
         "Leave them on this computer",
         "Sync starts empty. These files stay where they are, and they are not uploaded.",
     ) {
-        let _ = session.leave_files();
+        session.ask(Work::LeaveFiles);
     }
     if back(ui, theme, "← Back") {
         session.screen = Screen::Check;
@@ -504,10 +515,10 @@ fn clash(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Stri
     );
     ui.horizontal(|ui| {
         if design::primary(ui, theme, "Keep both").clicked() {
-            let _ = session.keep_both();
+            session.ask(Work::KeepBoth);
         }
         if design::quiet(ui, theme, "Leave this file here").clicked() {
-            let _ = session.leave_clash();
+            session.ask(Work::LeaveClash);
         }
     });
     err(ui, theme, &session.error.clone());
@@ -562,7 +573,7 @@ fn ready(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Stri
     );
     devices(ui, theme, session);
     if design::primary(ui, theme, "Add a phone or computer").clicked() {
-        let _ = session.start_invite();
+        session.ask(Work::StartInvite);
     }
     ui.horizontal(|ui| {
         if design::quiet(ui, theme, "Done").clicked() {
@@ -598,6 +609,16 @@ fn home(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
         "A page you delete is in Recently deleted. Restore puts it back.",
     );
     err(ui, theme, &session.error.clone());
+    if session.needs_key_save() {
+        para(
+            ui,
+            theme,
+            "The approval was sent. The key on this computer still needs to be saved.",
+        );
+        if design::primary(ui, theme, "Save the key again").clicked() {
+            session.ask(Work::SaveKey);
+        }
+    }
     field_label(ui, theme, "Name for these pages");
     let vault = session.vault_buf();
     ui.add(egui::TextEdit::singleline(vault).desired_width(f32::INFINITY));
@@ -605,7 +626,7 @@ fn home(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
     session.set_vault_name(&vault);
     devices(ui, theme, session);
     if design::primary(ui, theme, "Add a phone or computer").clicked() {
-        let _ = session.start_invite();
+        session.ask(Work::StartInvite);
     }
     if design::quiet(ui, theme, "Turn sync off").clicked() {
         session.ask_off();
@@ -695,7 +716,7 @@ fn invite(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Str
 
 fn join(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<String> {
     if back(ui, theme, "← Back") {
-        session.begin_setup();
+        session.ask(Work::BeginSetup);
     }
     title(ui, theme, "Join your synced pages");
     para(
@@ -764,10 +785,9 @@ fn join(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
         "Pages already on this computer will be combined with your synced pages. Nothing is deleted.",
     );
     if design::primary(ui, theme, "Join").clicked() {
-        let code = session.join_buf().clone();
         let name = session.name_buf().clone();
         session.set_name(&name);
-        let _ = session.submit_join(&code);
+        session.ask(Work::SubmitJoin);
     }
     None
 }
@@ -808,7 +828,7 @@ fn matching(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<S
     para(ui, theme, &session.four_words());
     ui.horizontal(|ui| {
         if design::primary(ui, theme, "These match").clicked() {
-            let _ = session.accept_match();
+            session.ask(Work::AcceptMatch);
         }
         if design::quiet(ui, theme, "Cancel").clicked() {
             session.not_now();
@@ -846,10 +866,10 @@ fn approve(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<St
     let readable = session.request_readable();
     ui.horizontal(|ui| {
         if readable && design::primary(ui, theme, "Yes, approve it").clicked() {
-            let _ = session.approve();
+            session.ask(Work::Approve);
         }
         if design::quiet(ui, theme, "No").clicked() {
-            let _ = session.deny();
+            session.ask(Work::Deny);
         }
     });
     None
@@ -879,7 +899,7 @@ fn recover(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<St
     if design::primary(ui, theme, "Open my pages").clicked() {
         let name = session.name_buf().clone();
         session.set_name(&name);
-        let _ = session.recover();
+        session.ask(Work::Recover);
     }
     None
 }
@@ -898,7 +918,7 @@ fn off(ui: &mut egui::Ui, theme: &Theme, session: &mut Session, failed: bool) ->
     ui.horizontal(|ui| {
         let label = if failed { "Try again" } else { "Turn sync off" };
         if design::primary(ui, theme, label).clicked() {
-            let _ = session.turn_off();
+            session.ask(Work::TurnOff);
         }
         if failed && design::quiet(ui, theme, "Just turn off here").clicked() {
             session.turn_off_here();
@@ -931,7 +951,7 @@ fn remove_ask(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option
     );
     ui.horizontal(|ui| {
         if design::danger(ui, theme, "Remove").clicked() {
-            let _ = session.remove_device(&id);
+            session.ask(Work::RemoveDevice(id));
         }
         if design::quiet(ui, theme, "Keep it").clicked() {
             session.show_home();
@@ -954,7 +974,35 @@ fn removed(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<St
             session.choose_join();
         }
         if design::quiet(ui, theme, "Check again").clicked() {
-            let _ = session.check_again();
+            session.ask(Work::CheckAgain);
+        }
+    });
+    None
+}
+
+fn keyring(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<String> {
+    if back(ui, theme, "← Back") {
+        session.open_intro();
+        return None;
+    }
+    title(ui, theme, "Set up your keyring");
+    para(
+        ui,
+        theme,
+        "The key store on this computer is not unlocked. Set it up once. After that, Omacus does not ask for a password when this app opens.",
+    );
+    para(
+        ui,
+        theme,
+        "This leaves the key store without a password. Omacus can open it again without asking. A password on the key store asks again every time.",
+    );
+    err(ui, theme, &session.error.clone());
+    ui.horizontal(|ui| {
+        if design::primary(ui, theme, "Set up the key store").clicked() {
+            session.ask(Work::PrepareKeyring);
+        }
+        if design::quiet(ui, theme, "Use a passphrase instead").clicked() {
+            session.choose_passphrase();
         }
     });
     None
@@ -972,6 +1020,10 @@ fn passphrase(
     }
     if setting {
         title(ui, theme, "Choose a passphrase");
+        let note = session.key_note().to_string();
+        if !note.is_empty() {
+            para(ui, theme, &note);
+        }
         para(
             ui,
             theme,
@@ -1007,7 +1059,7 @@ fn passphrase(
     }
     let label = if setting { "Continue" } else { "Open sync" };
     if design::primary(ui, theme, label).clicked() {
-        let _ = session.submit_pass();
+        session.ask(Work::SubmitPass);
     }
     None
 }
@@ -1020,7 +1072,7 @@ fn rename(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Str
     ui.horizontal(|ui| {
         if design::primary(ui, theme, "Save").clicked() {
             let name = session.rename_buf().clone();
-            let _ = session.save_rename(&name);
+            session.ask(Work::SaveRename(name));
         }
         if design::quiet(ui, theme, "Cancel").clicked() {
             session.show_home();
@@ -1065,7 +1117,7 @@ fn move_body(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) {
     }
     ui.horizontal(|ui| {
         if design::primary(ui, theme, "Move").clicked() {
-            let _ = session.confirm_move();
+            session.ask(Work::ConfirmMove);
         }
         if design::quiet(ui, theme, "Not now").clicked() {
             session.cancel_move();
