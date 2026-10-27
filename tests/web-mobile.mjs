@@ -128,6 +128,19 @@ check(syncJs.includes('setChip("Live", "on")') && !syncJs.includes('setChip("Syn
   check(watchers === 1 && syncJs.includes("approvalCard("), "an expired approval card closes itself");
 }
 check(sw.includes('"library-state.mjs"'), "shared sidebar state is part of the offline shell");
+{
+  const shell = sw.match(/const APP_FILES = \[([\s\S]*?)\];/);
+  const names = [...shell[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  for (const name of names) {
+    if (name === "./" || name === "index.html") continue;
+    if (name.startsWith("pkg/")) {
+      check(buildWeb.includes(name.slice("pkg/".length)), `the published app builds ${name}`);
+    } else {
+      check(buildWeb.includes(`site/app/${name}`), `the published app copies ${name}`);
+    }
+  }
+  check(buildWeb.includes('"./library-state.mjs?v='), "the published app stamps the shared sidebar file");
+}
 check(syncJs.includes('setChip("Syncing", "wait")') && !syncJs.includes("Saving…"), "a long save says Syncing");
 {
   const arm = syncJs.slice(syncJs.indexOf("function armSaving"), syncJs.indexOf("function guessDeviceName"));

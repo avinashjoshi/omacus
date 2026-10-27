@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+**The web app keeps the shared sidebar file**
+
+The published page includes the same sidebar file the app loads, so that page can open.
+
+<!-- internal -->
+
 ## 1.0.5
 
 **A change shows up on your other device**

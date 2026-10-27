@@ -78,7 +78,7 @@ bind_engines "$out/pkg"
 cp site/app/index.html site/app/app.js site/app/app.css site/app/editor.js site/app/version.js site/app/version.json \
   site/app/worker.js site/app/tree.js site/app/layer.js site/app/store.js site/app/sw.js \
   site/app/trust.js site/app/recover.js site/app/frame.js site/app/backup.js \
-  site/app/seed.js site/app/examples.js site/app/sync.js site/app/recovery-words.js site/app/word-check.js site/app/sync-link.mjs site/app/device-name.js site/app/sync-save.mjs site/app/sync-vaults.mjs site/app/sync-leader.mjs site/app/sync-config.js \
+  site/app/seed.js site/app/examples.js site/app/sync.js site/app/recovery-words.js site/app/word-check.js site/app/sync-link.mjs site/app/device-name.js site/app/sync-save.mjs site/app/library-state.mjs site/app/sync-vaults.mjs site/app/sync-leader.mjs site/app/sync-config.js \
   site/app/manifest.webmanifest site/app/migrate.js site/app/migrate.html \
   site/app/migrate-client.js site/app/migrate-protocol.js site/app/_headers "$out/"
 cp site/css/site.css site/css/tokens.css "$out/css/"
@@ -163,6 +163,8 @@ short="$(sha256sum "$out/word-check.js" | cut -c1-10)"
 sed -i "s#\"./word-check.js\"#\"./word-check.js?v=$short\"#" "$out/sync.js"
 short="$(sha256sum "$out/sync.js" | cut -c1-10)"
 sed -i "s#\"./sync.js\"#\"./sync.js?v=$short\"#" "$out/app.js"
+short="$(sha256sum "$out/library-state.mjs" | cut -c1-10)"
+sed -i "s#\"./library-state.mjs\"#\"./library-state.mjs?v=$short\"#" "$out/app.js"
 short="$(sha256sum "$out/app.js" | cut -c1-10)"
 sed -i "s#\"app.js\"#\"app.js?v=$short\"#" "$out/index.html"
 
