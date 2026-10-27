@@ -420,8 +420,9 @@ function stopServer() {
 }
 
 // Chrome writes the port into the profile once DevTools is up. Reading stdout
-// for the "DevTools listening" line deadlocks when that pipe fills. The first
-// launch on a CI runner sometimes exits before that file exists, so try once more.
+// for the "DevTools listening" line deadlocks when that pipe fills. The
+// launcher process often exits before that file exists; the browser is still
+// starting, so keep looking.
 async function launchChrome(attempt) {
   const profile = join("/tmp", `omacus-chrome-${process.pid}-${attempt}`);
   const child = spawn(chrome, [
@@ -437,8 +438,9 @@ async function launchChrome(attempt) {
   const portFile = join(profile, "DevToolsActivePort");
   const started = Date.now();
   let version = null;
+  // The launcher often exits before DevToolsActivePort exists. The browser
+  // is still starting. Keep looking for the file.
   while (!version && Date.now() - started < 20000) {
-    if (child.exitCode != null) break;
     if (existsSync(portFile)) {
       const port = readFileSync(portFile, "utf8").split("\n")[0].trim();
       try {

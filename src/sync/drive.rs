@@ -2,7 +2,7 @@
 //! window uses. Recovery words, invite codes, and passphrases stay in files
 //! the caller already chose. Nothing here prints them.
 
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -334,6 +334,7 @@ fn write_secret(path: &Path, text: &str) -> Result<(), String> {
     }
     #[cfg(unix)]
     {
+        use std::fs::OpenOptions;
         use std::os::unix::fs::OpenOptionsExt;
         let mut file = OpenOptions::new()
             .create(true)
