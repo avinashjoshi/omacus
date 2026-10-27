@@ -432,9 +432,12 @@ fn decode_manifest(bytes: &[u8]) -> Result<Decoded, SyncKeyError> {
     })
 }
 
-/// More than half of the pages, and at least two, is too many to delete at once.
+/// More than two signed deletes at once waits for a person to confirm.
+/// One or two still apply. A page that is only missing is not a delete.
+/// `local_pages` is the count on this device; the guard is the delete count.
 pub fn mass_delete(local_pages: usize, doomed: usize) -> bool {
-    doomed >= 2 && doomed * 2 > local_pages
+    let _ = local_pages;
+    doomed > 2
 }
 
 pub fn manifest_generation(bytes: &[u8]) -> Result<u64, SyncKeyError> {
@@ -528,7 +531,7 @@ pub fn plan(
         .filter(|prev| doomed.iter().any(|id| *id == prev.page_id))
         .count();
     // A page that is only absent is not deleted. A signed tombstone is.
-    // Too many at once drops nothing, so one bad copy cannot wipe the library.
+    // More than two at once drops nothing, until this device confirms.
     let drop_ids = if mass_delete(previous.len(), named) {
         Vec::new()
     } else {
@@ -1075,7 +1078,34 @@ mod tests {
             id: "kept".into(),
             rev: 2,
         });
-        let mass = plan(&vault, 1, &only_kept, &first.slots, 4).unwrap();
-        assert!(mass.drop_ids.is_empty(), "a mass delete dropped an object");
+        let two = plan(&vault, 1, &only_kept, &first.slots, 4).unwrap();
+        assert_eq!(two.drop_ids.len(), 2, "two signed deletes were held back");
+        let trio = sample_set(vec![
+            ("pantry".into(), "oats\n".into()),
+            ("kept".into(), "ferry = 40\n".into()),
+            ("harbor".into(), "cake\n".into()),
+        ]);
+        let sealed = plan(&vault, 1, &trio, &[], 5).unwrap();
+        let mut wiped = trio;
+        wiped.pages.clear();
+        wiped.meta.tombstones = vec![
+            Tombstone {
+                id: "pantry".into(),
+                rev: 1,
+            },
+            Tombstone {
+                id: "kept".into(),
+                rev: 2,
+            },
+            Tombstone {
+                id: "harbor".into(),
+                rev: 3,
+            },
+        ];
+        let mass = plan(&vault, 1, &wiped, &sealed.slots, 6).unwrap();
+        assert!(
+            mass.drop_ids.is_empty(),
+            "more than two deletes dropped an object"
+        );
     }
 }

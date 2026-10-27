@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+**Pages from both phones stay**
+
+A page that is on this phone and missing from the other list stays, and it is sent across. A page is removed only when a delete names that page. Removing more than two pages asks first. Two copies of Welcome to Omacus with the same text become one page.
+
 ## 1.0.2
 
 **The phone offers the new version**

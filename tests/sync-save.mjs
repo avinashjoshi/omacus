@@ -1,7 +1,7 @@
 // An edit typed while a save is in flight must stay unsaved.
 // Two phones that each edit offline both keep their lines: the one that was
 // offline merges when its pages differ from the last synced copy.
-import { beginSave, finishSave, keepUnlessTombstone, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, showTurnOnSync } from "../site/app/sync-save.mjs";
+import { beginSave, dedupeWelcome, declinedCovers, finishSave, keepUnlessTombstone, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, removalSentence, showTurnOnSync } from "../site/app/sync-save.mjs";
 
 function assert(cond, message) {
   if (!cond) throw new Error(message);
@@ -47,14 +47,48 @@ const oneDelete = keepUnlessTombstone(desktop, phone, [{ id: "pantry", rev: 1 }]
 assert(oneDelete.removed.length === 1 && oneDelete.removed[0] === "pantry", "a tombstone left the page in place");
 assert(!oneDelete.pages.some((row) => row[0] === "pantry"), "a tombstoned page stayed in the list");
 assert(oneDelete.pages.some((row) => row[0] === "kept"), "a tombstone removed the page that stayed");
-const mass = keepUnlessTombstone(
+const two = keepUnlessTombstone(
   [["pantry", "oats\n"], ["kept", "ferry = 40\n"], ["harbor", "cake\n"]],
   [["harbor", "cake\n"]],
   [{ id: "pantry", rev: 1 }, { id: "kept", rev: 2 }],
 );
-assert(mass.held === true, "a mass delete was applied");
-assert(mass.removed.length === 0, "a mass delete removed a page");
-assert(mass.pages.some((row) => row[0] === "pantry") && mass.pages.some((row) => row[0] === "kept"), "a mass delete dropped the pages");
+assert(two.held === false, "two signed deletes waited");
+assert(two.removed.length === 2 && two.removed.includes("pantry") && two.removed.includes("kept"), "two signed deletes left the pages");
+assert(!two.pages.some((row) => row[0] === "pantry" || row[0] === "kept"), "two signed deletes stayed in the list");
+assert(two.pages.some((row) => row[0] === "harbor"), "two signed deletes removed the page that stayed");
+const mass = keepUnlessTombstone(
+  [["pantry", "oats\n"], ["kept", "ferry = 40\n"], ["harbor", "cake\n"]],
+  [],
+  [{ id: "pantry", rev: 1 }, { id: "kept", rev: 2 }, { id: "harbor", rev: 3 }],
+);
+assert(mass.held === true, "more than two deletes were applied");
+assert(mass.removed.length === 0, "more than two deletes removed a page");
+assert(mass.asked.length === 3, "more than two deletes did not ask");
+assert(mass.pages.some((row) => row[0] === "pantry") && mass.pages.some((row) => row[0] === "kept") && mass.pages.some((row) => row[0] === "harbor"), "more than two deletes dropped the pages");
+const keptAfterNo = keepUnlessTombstone(
+  [["pantry", "oats\n"], ["kept", "ferry = 40\n"], ["harbor", "cake\n"]],
+  [],
+  [{ id: "pantry", rev: 1 }, { id: "kept", rev: 2 }, { id: "harbor", rev: 3 }],
+  [{ id: "pantry", rev: 1 }, { id: "kept", rev: 2 }, { id: "harbor", rev: 3 }],
+);
+assert(keptAfterNo.held === false && keptAfterNo.removed.length === 0, "a declined delete was applied again");
+assert(keptAfterNo.pages.length === 3, "a declined delete dropped a page");
+assert(declinedCovers([{ id: "pantry", rev: 2 }], { id: "pantry", rev: 2 }) === true, "a declined delete was asked again");
+assert(declinedCovers([{ id: "pantry", rev: 1 }], { id: "pantry", rev: 2 }) === false, "a newer delete was treated as already declined");
+const welcome = "# Welcome to Omacus\nA note.\n";
+const folded = dedupeWelcome([
+  ["welcome-b", welcome],
+  ["welcome-a", welcome],
+  ["welcome-c", "# Welcome to Omacus\nferry\n"],
+  ["pantry", "Pantry\noats\n"],
+  ["kept", "Pantry\noats\n"],
+], []);
+assert(folded.pages.some((row) => row[0] === "welcome-a") && !folded.pages.some((row) => row[0] === "welcome-b"), "two identical welcome pages both stayed");
+assert(folded.pages.some((row) => row[0] === "welcome-c"), "a different welcome page was folded away");
+assert(folded.pages.some((row) => row[0] === "pantry") && folded.pages.some((row) => row[0] === "kept"), "two pages that only share a title were folded");
+assert(folded.removed.length === 1 && folded.removed[0] === "welcome-b", "the welcome duplicate was not the later id");
+assert(folded.tombstones.some((row) => row.id === "welcome-b"), "the welcome duplicate was not a signed delete");
+assert(removalSentence(3).includes("3 pages") && removalSentence(3).includes("keep them"), "the prompt did not name the count");
 const tombs = noteTombstone([], "pantry");
 assert(tombs.length === 1 && tombs[0].id === "pantry" && tombs[0].rev === 1, "a delete was not recorded");
 assert(noteTombstone(tombs, "pantry")[0].rev === 2, "deleting again did not advance the record");

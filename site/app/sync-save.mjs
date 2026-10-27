@@ -48,9 +48,67 @@ export function showTurnOnSync(status) {
 }
 
 // A missing page stays. A tombstone removes that one page.
-// Two or more, and more than half of the pages here, removes none.
+// More than two signed deletes waits. One or two still apply.
 export function massDelete(localPages, doomed) {
-  return doomed >= 2 && doomed * 2 > localPages;
+  void localPages;
+  return doomed > 2;
+}
+
+export const WELCOME_TITLE = "Welcome to Omacus";
+
+export function pageHeading(text) {
+  const line = String(text ?? "").split(/\r?\n/).map((row) => row.trim()).find((row) => row) || "";
+  const title = line.replace(/^[#/\s]+/, "").trim();
+  return title || "Untitled";
+}
+
+// Two Welcome to Omacus pages with the same text become one.
+// The lower id stays. Each other id is a signed delete of that page.
+// A different text stays its own page. Two other pages that only share a title stay two pages.
+export function dedupeWelcome(pages, tombstones) {
+  const rows = [];
+  const seen = new Set();
+  for (const row of pages || []) {
+    if (!Array.isArray(row) || !row[0] || seen.has(String(row[0]))) continue;
+    seen.add(String(row[0]));
+    rows.push([String(row[0]), String(row[1] ?? "")]);
+  }
+  const groups = new Map();
+  for (const row of rows) {
+    if (pageHeading(row[1]) !== WELCOME_TITLE) continue;
+    const key = row[1];
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row[0]);
+  }
+  const drop = [];
+  let tombs = (Array.isArray(tombstones) ? tombstones : [])
+    .filter((row) => row && row.id)
+    .map((row) => ({ id: String(row.id), rev: Number(row.rev) || 0 }));
+  for (const ids of groups.values()) {
+    if (ids.length < 2) continue;
+    ids.sort();
+    for (const id of ids.slice(1)) drop.push(id);
+  }
+  for (const id of drop) tombs = noteTombstone(tombs, id);
+  const gone = new Set(drop);
+  return {
+    pages: rows.filter((row) => !gone.has(row[0])),
+    tombstones: tombs,
+    removed: drop,
+  };
+}
+
+export function removalSentence(count) {
+  const n = Number(count) || 0;
+  const word = n === 1 ? "page" : "pages";
+  return `Another phone or computer removed ${n} ${word}. They are still here. Remove them here too, or keep them?`;
+}
+
+export function declinedCovers(declined, tomb) {
+  const id = String(tomb?.id || "");
+  if (!id) return false;
+  const rev = Number(tomb?.rev) || 0;
+  return (declined || []).some((row) => row && row.id === id && (Number(row.rev) || 0) >= rev);
 }
 
 export function noteTombstone(tombstones, id) {
@@ -61,7 +119,7 @@ export function noteTombstone(tombstones, id) {
   return next;
 }
 
-export function keepUnlessTombstone(local, remote, tombstones) {
+export function keepUnlessTombstone(local, remote, tombstones, declined) {
   const localRows = [];
   for (const row of local || []) {
     if (Array.isArray(row) && row[0]) localRows.push([String(row[0]), String(row[1] ?? "")]);
@@ -76,10 +134,13 @@ export function keepUnlessTombstone(local, remote, tombstones) {
     remoteRows.push([id, String(row[1] ?? "")]);
   }
   const named = [];
+  const asked = [];
   for (const tomb of tombstones || []) {
     const id = String(tomb?.id || "");
-    if (!id || named.includes(id)) continue;
-    if (localRows.some((row) => row[0] === id)) named.push(id);
+    if (!id || named.includes(id) || declinedCovers(declined, tomb)) continue;
+    if (!localRows.some((row) => row[0] === id)) continue;
+    named.push(id);
+    asked.push({ id, rev: Number(tomb.rev) || 0 });
   }
   const held = massDelete(localRows.length, named.length);
   const pages = remoteRows.slice();
@@ -101,7 +162,7 @@ export function keepUnlessTombstone(local, remote, tombstones) {
     pages.push(row);
   }
   const keptLocal = pages.some((row) => !remoteIds.has(row[0]));
-  return { pages, removed, held, keptLocal };
+  return { pages, removed, held, keptLocal, asked: held ? asked : [] };
 }
 
 // Pages in `local` whose id is not in `remote`. A shared page is left out,
