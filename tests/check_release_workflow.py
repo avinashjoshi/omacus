@@ -49,6 +49,15 @@ if "EXPECT_VERSION" not in deploy_app and "expect_version" not in deploy_app:
     errors.append("the web app deploy must ship the same version as the desktop release")
 if "./.github/actions/deploy-app" not in steps:
     errors.append("deploy-app must publish the web app")
+check = job("check", "ci")
+if "web_catchup" not in check or "https://app.omacus.com/version.json" not in check:
+    errors.append("a released version must notice when the live web app is older")
+if '["$live" != "$version" ]' not in check and '[ "$live" != "$version" ]' not in check:
+    errors.append("the live web app must be compared with this version")
+if "needs.check.outputs.web_catchup == 'true'" not in deploy_app:
+    errors.append("deploy-app must publish when the live web app is behind this version")
+if "needs.check.outputs.release == 'true'" not in deploy_app:
+    errors.append("a new version must still publish the web app with the desktop release")
 if "--exclude-drafts" not in update or "--exclude-pre-releases" not in update:
     errors.append("the update job must skip drafts and pre-releases")
 if "^v[0-9]" not in update:
