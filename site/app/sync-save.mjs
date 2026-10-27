@@ -47,6 +47,63 @@ export function showTurnOnSync(status) {
   return !row.account && !row.removed && !row.paused;
 }
 
+// A missing page stays. A tombstone removes that one page.
+// Two or more, and more than half of the pages here, removes none.
+export function massDelete(localPages, doomed) {
+  return doomed >= 2 && doomed * 2 > localPages;
+}
+
+export function noteTombstone(tombstones, id) {
+  const list = Array.isArray(tombstones) ? tombstones.filter((row) => row && row.id) : [];
+  const rev = list.reduce((max, row) => Math.max(max, Number(row.rev) || 0), 0) + 1;
+  const next = list.filter((row) => row.id !== id);
+  if (id) next.push({ id: String(id), rev });
+  return next;
+}
+
+export function keepUnlessTombstone(local, remote, tombstones) {
+  const localRows = [];
+  for (const row of local || []) {
+    if (Array.isArray(row) && row[0]) localRows.push([String(row[0]), String(row[1] ?? "")]);
+  }
+  const remoteRows = [];
+  const remoteIds = new Set();
+  for (const row of remote || []) {
+    if (!Array.isArray(row) || !row[0]) continue;
+    const id = String(row[0]);
+    if (remoteIds.has(id)) continue;
+    remoteIds.add(id);
+    remoteRows.push([id, String(row[1] ?? "")]);
+  }
+  const named = [];
+  for (const tomb of tombstones || []) {
+    const id = String(tomb?.id || "");
+    if (!id || named.includes(id)) continue;
+    if (localRows.some((row) => row[0] === id)) named.push(id);
+  }
+  const held = massDelete(localRows.length, named.length);
+  const pages = remoteRows.slice();
+  const removed = [];
+  for (const row of localRows) {
+    const doomed = named.includes(row[0]);
+    if (remoteIds.has(row[0])) {
+      if (!held && doomed) {
+        const at = pages.findIndex((page) => page[0] === row[0]);
+        if (at >= 0) pages.splice(at, 1);
+        removed.push(row[0]);
+      }
+      continue;
+    }
+    if (!held && doomed) {
+      removed.push(row[0]);
+      continue;
+    }
+    pages.push(row);
+  }
+  const keptLocal = pages.some((row) => !remoteIds.has(row[0]));
+  return { pages, removed, held, keptLocal };
+}
+
 // Pages in `local` whose id is not in `remote`. A shared page is left out,
 // so a deleted line on that page is not put back.
 export function pagesOnlyHere(local, remote) {

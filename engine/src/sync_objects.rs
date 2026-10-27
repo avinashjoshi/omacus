@@ -432,6 +432,11 @@ fn decode_manifest(bytes: &[u8]) -> Result<Decoded, SyncKeyError> {
     })
 }
 
+/// More than half of the pages, and at least two, is too many to delete at once.
+pub fn mass_delete(local_pages: usize, doomed: usize) -> bool {
+    doomed >= 2 && doomed * 2 > local_pages
+}
+
 pub fn manifest_generation(bytes: &[u8]) -> Result<u64, SyncKeyError> {
     Ok(decode_manifest(bytes)?.generation)
 }
@@ -512,10 +517,27 @@ pub fn plan(
             key.zeroize();
         }
     }
-    // A page missing from this device is not a delete. Its object stays on
-    // the server so the other phone can still open it. A signed tombstone is
-    // what removes an object. Replacing a page keeps the same object id.
-    let drop_ids = Vec::new();
+    let doomed: Vec<&str> = set
+        .meta
+        .tombstones
+        .iter()
+        .map(|tomb| tomb.id.as_str())
+        .collect();
+    let named = previous
+        .iter()
+        .filter(|prev| doomed.iter().any(|id| *id == prev.page_id))
+        .count();
+    // A page that is only absent is not deleted. A signed tombstone is.
+    // Too many at once drops nothing, so one bad copy cannot wipe the library.
+    let drop_ids = if mass_delete(previous.len(), named) {
+        Vec::new()
+    } else {
+        previous
+            .iter()
+            .filter(|prev| doomed.iter().any(|id| *id == prev.page_id))
+            .map(|prev| prev.object_id)
+            .collect()
+    };
     let folders = folders_of(&set.doc);
     let manifest = encode_manifest(&set.meta, &slots, &folders, generation)?;
     let sealed_manifest =
@@ -1016,5 +1038,44 @@ mod tests {
         );
         eprintln!("{line}");
         let _ = std::fs::write("/tmp/omacus-sync-500.txt", &line);
+    }
+
+    #[test]
+    fn a_missing_page_is_kept_and_a_tombstone_is_a_delete() {
+        use crate::sync_keys::Tombstone;
+        let vault = VaultKey::generate().unwrap();
+        let both = sample_set(vec![
+            ("pantry".into(), "oats\n".into()),
+            ("kept".into(), "ferry = 40\n".into()),
+        ]);
+        let first = plan(&vault, 1, &both, &[], 1).unwrap();
+        assert!(first.drop_ids.is_empty());
+        let mut only_kept = sample_set(vec![("kept".into(), "ferry = 40\n".into())]);
+        let omitted = plan(&vault, 1, &only_kept, &first.slots, 2).unwrap();
+        assert!(omitted.drop_ids.is_empty(), "a missing page was dropped");
+        only_kept.meta.tombstones.push(Tombstone {
+            id: "pantry".into(),
+            rev: 1,
+        });
+        let deleted = plan(&vault, 1, &only_kept, &first.slots, 3).unwrap();
+        let pantry = first
+            .slots
+            .iter()
+            .find(|slot| slot.page_id == "pantry")
+            .unwrap();
+        assert_eq!(deleted.drop_ids, vec![pantry.object_id]);
+        let round = PageSet::from_bytes(&only_kept.to_bytes().unwrap()).unwrap();
+        assert_eq!(round.meta.tombstones[0].id, "pantry");
+        let old = PageSet::from_bytes(&both.to_bytes().unwrap()).unwrap();
+        assert!(
+            old.meta.tombstones.is_empty(),
+            "an older copy gained a delete"
+        );
+        only_kept.meta.tombstones.push(Tombstone {
+            id: "kept".into(),
+            rev: 2,
+        });
+        let mass = plan(&vault, 1, &only_kept, &first.slots, 4).unwrap();
+        assert!(mass.drop_ids.is_empty(), "a mass delete dropped an object");
     }
 }

@@ -1,7 +1,7 @@
 // An edit typed while a save is in flight must stay unsaved.
 // Two phones that each edit offline both keep their lines: the one that was
 // offline merges when its pages differ from the last synced copy.
-import { beginSave, finishSave, noteLocalEdit, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, showTurnOnSync } from "../site/app/sync-save.mjs";
+import { beginSave, finishSave, keepUnlessTombstone, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, showTurnOnSync } from "../site/app/sync-save.mjs";
 
 function assert(cond, message) {
   if (!cond) throw new Error(message);
@@ -35,6 +35,28 @@ assert(pagesDiffer(synced, fresh) === true, "a new page edited offline was treat
 assert(pagesDiffer(null, synced) === true, "a phone with no synced copy ignored its pages");
 assert(pagesDiffer([], []) === false, "two empty copies differed");
 assert(pagesDiffer(phoneA, phoneB) === true, "bread and cake were treated as the same page");
+const desktop = [["pantry", "oats\n"], ["kept", "ferry = 40\n"]];
+const phone = [["kept", "ferry = 40\n"]];
+const fromDesktop = keepUnlessTombstone(phone, desktop, []);
+assert(fromDesktop.pages.some((row) => row[0] === "pantry"), "a page only on the desktop was dropped by the phone");
+assert(fromDesktop.removed.length === 0, "a missing page was deleted on the phone");
+const fromPhone = keepUnlessTombstone(desktop, phone, []);
+assert(fromPhone.pages.some((row) => row[0] === "pantry") && fromPhone.pages.some((row) => row[0] === "kept"), "a page only on the phone was dropped by the desktop");
+const oneDelete = keepUnlessTombstone(desktop, phone, [{ id: "pantry", rev: 1 }]);
+assert(oneDelete.removed.length === 1 && oneDelete.removed[0] === "pantry", "a tombstone left the page in place");
+assert(!oneDelete.pages.some((row) => row[0] === "pantry"), "a tombstoned page stayed in the list");
+assert(oneDelete.pages.some((row) => row[0] === "kept"), "a tombstone removed the page that stayed");
+const mass = keepUnlessTombstone(
+  [["pantry", "oats\n"], ["kept", "ferry = 40\n"], ["harbor", "cake\n"]],
+  [["harbor", "cake\n"]],
+  [{ id: "pantry", rev: 1 }, { id: "kept", rev: 2 }],
+);
+assert(mass.held === true, "a mass delete was applied");
+assert(mass.removed.length === 0, "a mass delete removed a page");
+assert(mass.pages.some((row) => row[0] === "pantry") && mass.pages.some((row) => row[0] === "kept"), "a mass delete dropped the pages");
+const tombs = noteTombstone([], "pantry");
+assert(tombs.length === 1 && tombs[0].id === "pantry" && tombs[0].rev === 1, "a delete was not recorded");
+assert(noteTombstone(tombs, "pantry")[0].rev === 2, "deleting again did not advance the record");
 const remoteKept = [["kept", "ferry = 40\n"]];
 const localBoth = [["kept", "ferry = 40\n"], ["pantry", "oats\n"]];
 const onlyHere = pagesOnlyHere(localBoth, remoteKept);

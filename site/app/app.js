@@ -1010,6 +1010,8 @@ function installLibrary(lib) {
 }
 
 let syncTouched = () => {};
+let syncDeleted = () => {};
+let syncRestored = () => {};
 let applyingRemote = false;
 let syncPlaces = null;
 const sideCollapsed = { vault: false, local: false };
@@ -2401,6 +2403,7 @@ function restoreTrashed(id) {
   saveIndex();
   showSheet();
   toast(`Restored “${title(item.text)}”.`);
+  syncRestored(id);
 }
 
 // ---------------------------------------------------------------------------------
@@ -3755,8 +3758,10 @@ function commitDeletePage(id) {
       state.active = id;
       saveIndex();
       showSheet();
+      syncRestored(id);
     },
   });
+  syncDeleted(id);
 }
 
 function commitDeleteFolder(id) {
@@ -3804,8 +3809,10 @@ function commitDeleteFolder(id) {
       if (pages[0]) state.active = pages[0].id;
       saveIndex();
       showSheet();
+      for (const page of pages) syncRestored(page.id);
     },
   });
+  for (const page of pages) syncDeleted(page.id);
 }
 
 function setDrawer(open) {
@@ -5171,6 +5178,26 @@ function orderPagesLike(nodes, pages) {
   return walk(nodes);
 }
 
+function forgetRemotePage(id) {
+  const text = state.texts.get(id);
+  if (text == null) return;
+  const trash = loadTrash().filter((item) => item.id !== id);
+  trash.unshift({ id, text, handle: state.handles.get(id) || "" });
+  saveTrash(trash);
+  removeNode(state.tree, id);
+  state.texts.delete(id);
+  store.remove("page:" + id);
+  store.remove("sheet:" + id);
+  syncOrder();
+  if (state.active === id) {
+    state.active = state.order[0] ?? null;
+    if (!state.active) addSheet("");
+  }
+  saveIndex();
+  renderSidebar();
+  if (state.active) showSheet();
+}
+
 async function applyRemoteLibrary(nextDoc, pages) {
   await backupBeforeRemote();
   applyingRemote = true;
@@ -5286,6 +5313,13 @@ async function start() {
       onEdit: (fn) => {
         syncTouched = fn;
       },
+      onDelete: (fn) => {
+        syncDeleted = fn;
+      },
+      onRestore: (fn) => {
+        syncRestored = fn;
+      },
+      forget: forgetRemotePage,
       setSyncPlaces,
     });
   }

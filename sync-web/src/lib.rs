@@ -506,7 +506,7 @@ fn sync_keys_pack(
 }
 
 fn parse_meta(text: &str) -> Result<omacus_engine::sync_keys::SyncMeta, SyncKeyError> {
-    use omacus_engine::sync_keys::{DeviceLabel, PageMember, SyncMeta};
+    use omacus_engine::sync_keys::{DeviceLabel, PageMember, SyncMeta, Tombstone};
     if text.trim().is_empty() {
         return Ok(SyncMeta::default());
     }
@@ -554,11 +554,29 @@ fn parse_meta(text: &str) -> Result<omacus_engine::sync_keys::SyncMeta, SyncKeyE
             });
         }
     }
+    let mut tombstones = Vec::new();
+    if let Some(rows) = value.get("tombstones").and_then(Value::as_array) {
+        for row in rows {
+            let id = row
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            if id.is_empty() {
+                continue;
+            }
+            tombstones.push(Tombstone {
+                id,
+                rev: row.get("rev").and_then(Value::as_u64).unwrap_or(0),
+            });
+        }
+    }
     Ok(SyncMeta {
         vault_name,
         name_rev,
         devices,
         membership,
+        tombstones,
     })
 }
 
@@ -799,6 +817,10 @@ fn meta_value(meta: &omacus_engine::sync_keys::SyncMeta) -> Value {
             "id": member.id,
             "rev": member.rev,
             "inVault": member.in_vault,
+        })).collect::<Vec<_>>(),
+        "tombstones": meta.tombstones.iter().map(|tomb| json!({
+            "id": tomb.id,
+            "rev": tomb.rev,
         })).collect::<Vec<_>>(),
     })
 }

@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use zeroize::Zeroize;
 
-use omacus_engine::sync_keys::{DeviceLabel, PageMember, PageSet, SyncMeta};
+use omacus_engine::sync_keys::{DeviceLabel, PageMember, PageSet, SyncMeta, Tombstone};
 use omacus_engine::sync_objects::{Incoming, Outgoing, Slot};
 use omacus_sync_web::desk::{self, Desk};
 use omacus_sync_web::invite;
@@ -191,6 +191,7 @@ pub struct Session {
     revision: u64,
     slots: Vec<Slot>,
     membership: Vec<PageMember>,
+    tombstones: Vec<omacus_engine::sync_keys::Tombstone>,
     doc: Vec<u8>,
     pages: Vec<(String, String)>,
     locked: Vec<String>,
@@ -287,6 +288,7 @@ impl Session {
             revision: 0,
             slots: Vec::new(),
             membership: Vec::new(),
+            tombstones: Vec::new(),
             doc: Vec::new(),
             pages: Vec::new(),
             locked: Vec::new(),
@@ -1334,6 +1336,7 @@ impl Session {
             self.doc = lib.save();
         }
         self.membership.retain(|member| member.id != id);
+        self.note_tombstone(id);
         let _ = fs::remove_file(self.dir.join("pages").join(format!("{id}.txt")));
         if self.on {
             self.dirty = true;
@@ -1341,7 +1344,26 @@ impl Session {
         }
     }
 
+    fn note_tombstone(&mut self, id: &str) {
+        if id.is_empty() {
+            return;
+        }
+        let rev = self
+            .tombstones
+            .iter()
+            .map(|tomb| tomb.rev)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        self.tombstones.retain(|tomb| tomb.id != id);
+        self.tombstones.push(Tombstone {
+            id: id.to_string(),
+            rev,
+        });
+    }
+
     pub fn restore_page(&mut self, id: &str, text: &str) {
+        self.tombstones.retain(|tomb| tomb.id != id);
         self.note_edit(id, text);
         self.set_member_flag(id, true);
         self.dirty = true;
@@ -1961,6 +1983,7 @@ impl Session {
 
     fn install_remote(&mut self, packed: &[u8], combine: bool) -> Result<(), String> {
         let remote = PageSet::from_bytes(packed).map_err(|e| e.message().to_string())?;
+        let local_pages = self.pages.clone();
         let merged = if combine && self.dirty_vs_base() {
             let local = self.page_set()?;
             self.dirty = true;
@@ -1968,11 +1991,11 @@ impl Session {
         } else {
             remote
         };
-        // A page that exists only here stays beside the copy that just arrived.
-        // The next sync publishes both. A shared page keeps the remote text
-        // when this copy has not changed, so a deleted line stays deleted.
-        // A page kept on this computer stays out of that published copy.
-        let extras: Vec<(String, bool, String)> = self
+        // Missing is not a delete. A signed tombstone is, unless it would
+        // remove more than half the pages here. A page that stays is folded
+        // back into the library so the next save publishes it.
+        let kept = pages_after(&local_pages, &merged.pages, &merged.meta.tombstones);
+        let extras: Vec<(String, bool, String)> = kept
             .pages
             .iter()
             .filter(|(id, _)| !merged.pages.iter().any(|(page, _)| page == id))
@@ -1981,19 +2004,7 @@ impl Session {
                 (id.clone(), inside, text.clone())
             })
             .collect();
-        // A synced page that this computer is not keeping waits in Recently
-        // deleted. A page still here is in `extras` and is published instead.
-        let parked: Vec<(String, String)> = self
-            .pages
-            .iter()
-            .filter(|(id, _)| {
-                self.bases.iter().any(|(page, _)| page == id)
-                    && !merged.pages.iter().any(|(page, _)| page == id)
-                    && !extras.iter().any(|(extra, _, _)| extra == id)
-            })
-            .cloned()
-            .collect();
-        self.park_removed(&parked);
+        let republish = kept.held || extras.iter().any(|(_, inside, _)| *inside);
         let locked_pages: Vec<_> = self
             .locked
             .iter()
@@ -2001,7 +2012,7 @@ impl Session {
             .collect();
         self.pre_ids = self.pages.iter().map(|(id, _)| id.clone()).collect();
         self.doc = merged.doc;
-        self.pages = merged.pages;
+        self.pages = kept.pages;
         self.vault_name = if merged.meta.vault_name.is_empty() {
             self.vault_name.clone()
         } else {
@@ -2010,23 +2021,36 @@ impl Session {
         self.name_rev = merged.meta.name_rev.max(self.name_rev);
         self.membership = merged.meta.membership.clone();
         self.absorb_labels(&merged.meta.devices);
+        if !kept.held {
+            for tomb in &merged.meta.tombstones {
+                if let Some(row) = self.tombstones.iter_mut().find(|have| have.id == tomb.id) {
+                    if tomb.rev >= row.rev {
+                        row.rev = tomb.rev;
+                    }
+                } else {
+                    self.tombstones.push(tomb.clone());
+                }
+            }
+        }
+        self.tombstones
+            .retain(|tomb| !self.pages.iter().any(|(id, _)| id == &tomb.id));
         if !extras.is_empty() {
             let mut lib =
                 omacus_doc::Library::load(&self.doc).unwrap_or_else(|_| omacus_doc::Library::new());
             for (id, inside, text) in &extras {
-                if !self.pages.iter().any(|(page, _)| page == id) {
-                    self.pages.push((id.clone(), text.clone()));
-                }
                 lib.reconcile(id, text, None);
                 lib.note_written(id, text);
                 self.set_member_flag(id, *inside);
             }
             self.doc = lib.save();
-            if extras.iter().any(|(_, inside, _)| *inside) {
-                self.dirty = true;
-            }
+        }
+        if republish {
+            self.dirty = true;
         }
         for (id, text) in locked_pages {
+            if kept.removed.iter().any(|(gone, _)| gone == &id) {
+                continue;
+            }
             if !self.pages.iter().any(|(page, _)| page == &id) {
                 self.pages.push((id.clone(), text));
             }
@@ -2037,9 +2061,25 @@ impl Session {
             self.remember_base();
         }
         self.write_pages();
+        self.park_removed(&kept.removed);
         let _ = fs::write(self.dir.join("library.automerge"), &self.doc);
         self.save_book();
         Ok(())
+    }
+
+    fn park_removed(&self, gone: &[(String, String)]) {
+        if gone.is_empty() {
+            return;
+        }
+        let trash = self.dir.join("trash");
+        let _ = fs::create_dir_all(&trash);
+        for (id, text) in gone {
+            let dest = trash.join(format!("{id}.txt"));
+            if !dest.exists() {
+                let _ = fs::write(&dest, text);
+            }
+            let _ = fs::remove_file(self.dir.join("pages").join(format!("{id}.txt")));
+        }
     }
 
     fn notice_clash(&mut self) {
@@ -2071,6 +2111,7 @@ impl Session {
             name_rev: self.name_rev,
             devices: Vec::new(),
             membership: self.membership.clone(),
+            tombstones: self.tombstones.clone(),
         };
         if let Some(desk) = &self.desk {
             let id = self_id(desk);
@@ -2329,6 +2370,14 @@ impl Session {
                 })
                 .collect(),
             seen: self.seen.clone(),
+            tombstones: self
+                .tombstones
+                .iter()
+                .map(|tomb| BookTomb {
+                    id: tomb.id.clone(),
+                    rev: tomb.rev,
+                })
+                .collect(),
         };
         if let Ok(bytes) = serde_json::to_vec_pretty(&book) {
             let _ = fs::create_dir_all(self.dir.join("sync"));
@@ -2374,6 +2423,14 @@ impl Session {
         self.seen = book.seen;
         tidy_ids(&mut self.seen);
         self.labels = book.devices;
+        self.tombstones = book
+            .tombstones
+            .into_iter()
+            .map(|tomb| Tombstone {
+                id: tomb.id,
+                rev: tomb.rev,
+            })
+            .collect();
     }
 
     fn load_disk(&mut self) {
@@ -2403,21 +2460,6 @@ impl Session {
             if !self.pages.iter().any(|(page, _)| page == id) {
                 self.pages.push((id.to_string(), text));
             }
-        }
-    }
-
-    fn park_removed(&self, gone: &[(String, String)]) {
-        if gone.is_empty() {
-            return;
-        }
-        let trash = self.dir.join("trash");
-        let _ = fs::create_dir_all(&trash);
-        for (id, text) in gone {
-            let dest = trash.join(format!("{id}.txt"));
-            if !dest.exists() {
-                let _ = fs::write(&dest, text);
-            }
-            let _ = fs::remove_file(self.dir.join("pages").join(format!("{id}.txt")));
         }
     }
 
@@ -2619,6 +2661,14 @@ struct Book {
     bases: Vec<BookBase>,
     #[serde(default)]
     seen: Vec<String>,
+    #[serde(default)]
+    tombstones: Vec<BookTomb>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+struct BookTomb {
+    id: String,
+    rev: u64,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -2690,6 +2740,48 @@ fn choices_for(words: &[String; 12], n: u8) -> Vec<String> {
     decoys.push(real);
     decoys.sort();
     decoys
+}
+
+struct KeptPages {
+    pages: Vec<(String, String)>,
+    removed: Vec<(String, String)>,
+    held: bool,
+}
+
+fn pages_after(
+    local: &[(String, String)],
+    remote: &[(String, String)],
+    tombstones: &[Tombstone],
+) -> KeptPages {
+    let mut named = Vec::new();
+    for tomb in tombstones {
+        if local.iter().any(|(id, _)| id == &tomb.id) && !named.iter().any(|id| id == &tomb.id) {
+            named.push(tomb.id.clone());
+        }
+    }
+    let held = omacus_engine::sync_objects::mass_delete(local.len(), named.len());
+    let mut pages = remote.to_vec();
+    let mut removed = Vec::new();
+    for (id, text) in local {
+        let doomed = named.iter().any(|tomb| tomb == id);
+        if pages.iter().any(|(page, _)| page == id) {
+            if !held && doomed {
+                pages.retain(|(page, _)| page != id);
+                removed.push((id.clone(), text.clone()));
+            }
+            continue;
+        }
+        if !held && doomed {
+            removed.push((id.clone(), text.clone()));
+            continue;
+        }
+        pages.push((id.clone(), text.clone()));
+    }
+    KeptPages {
+        pages,
+        removed,
+        held,
+    }
 }
 
 fn hash_text(text: &str) -> String {
@@ -3139,6 +3231,113 @@ mod list_note_tests {
         session.ack_list();
         assert_eq!(session.chip(Instant::now()), Chip::Synced);
         assert!(session.list_note_text().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[cfg(test)]
+mod tomb_tests {
+    use super::*;
+
+    fn remote_with(pages: Vec<(String, String)>, tombstones: Vec<Tombstone>) -> Vec<u8> {
+        PageSet {
+            doc: Vec::new(),
+            pages,
+            meta: SyncMeta {
+                tombstones,
+                ..SyncMeta::default()
+            },
+        }
+        .to_bytes()
+        .unwrap()
+    }
+
+    #[test]
+    fn a_page_from_the_phone_stays_until_a_tombstone_names_it() {
+        let dir = std::env::temp_dir().join(format!("omacus-tomb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
+        session.pages = vec![
+            ("pantry".into(), "Pantry\noats\n".into()),
+            ("kept".into(), "Kept\nferry = 40\n".into()),
+            ("harbor".into(), "Harbor\ncake\n".into()),
+        ];
+        session
+            .install_remote(
+                &remote_with(vec![("kept".into(), "Kept\nferry = 40\n".into())], vec![]),
+                false,
+            )
+            .unwrap();
+        assert!(
+            session
+                .pages
+                .iter()
+                .any(|(id, text)| id == "pantry" && text.contains("oats"))
+        );
+        assert!(session.pages.iter().any(|(id, _)| id == "harbor"));
+        assert!(
+            session.dirty,
+            "the pages only here were not published again"
+        );
+        assert!(session.tombstones.is_empty());
+
+        session.dirty = false;
+        session
+            .install_remote(
+                &remote_with(
+                    vec![("kept".into(), "Kept\nferry = 40\n".into())],
+                    vec![Tombstone {
+                        id: "pantry".into(),
+                        rev: 1,
+                    }],
+                ),
+                false,
+            )
+            .unwrap();
+        assert!(!session.pages.iter().any(|(id, _)| id == "pantry"));
+        assert!(session.pages.iter().any(|(id, _)| id == "kept"));
+        assert!(session.pages.iter().any(|(id, _)| id == "harbor"));
+        let parked =
+            std::fs::read_to_string(dir.join("trash").join("pantry.txt")).unwrap_or_default();
+        assert!(parked.contains("oats"), "{parked}");
+        assert!(session.tombstones.iter().any(|tomb| tomb.id == "pantry"));
+
+        session.pages = vec![
+            ("pantry".into(), "Pantry\noats\n".into()),
+            ("kept".into(), "Kept\nferry = 40\n".into()),
+            ("harbor".into(), "Harbor\ncake\n".into()),
+        ];
+        session.tombstones.clear();
+        session
+            .install_remote(
+                &remote_with(
+                    vec![("harbor".into(), "Harbor\ncake\n".into())],
+                    vec![
+                        Tombstone {
+                            id: "pantry".into(),
+                            rev: 1,
+                        },
+                        Tombstone {
+                            id: "kept".into(),
+                            rev: 2,
+                        },
+                    ],
+                ),
+                false,
+            )
+            .unwrap();
+        assert!(
+            session.pages.iter().any(|(id, _)| id == "pantry"),
+            "a mass delete removed pantry"
+        );
+        assert!(
+            session.pages.iter().any(|(id, _)| id == "kept"),
+            "a mass delete removed kept"
+        );
+        assert!(
+            session.tombstones.is_empty(),
+            "a refused delete was recorded"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 }

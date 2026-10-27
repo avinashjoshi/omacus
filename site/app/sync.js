@@ -2,7 +2,7 @@
 // The engine needs those key bytes, so the file cannot be a non-exportable
 // WebCrypto key. The page's strict policy is what keeps other scripts out.
 import { SYNC_URL } from "./sync-config.js";
-import { beginSave, finishSave, noteLocalEdit, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, showTurnOnSync } from "./sync-save.mjs";
+import { beginSave, finishSave, keepUnlessTombstone, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 import { deviceListNote, pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
@@ -101,6 +101,7 @@ export async function mountSync(api) {
     dirty: false,
     editGen: 0,
     basePages: null,
+    tombstones: [],
     saveError: "",
     member: true,
     devices: [],
@@ -192,6 +193,7 @@ export async function mountSync(api) {
       selfId: state.selfId || prev?.selfId || "",
       names: JSON.stringify(state.deviceNames || []),
       membership: JSON.stringify(state.membership || []),
+      tombstones: JSON.stringify(state.tombstones || []),
       ...extra,
     };
   }
@@ -366,6 +368,7 @@ export async function mountSync(api) {
     state.selfId = vault?.selfId || api.storeGet("sync-self-id") || "";
     state.deviceNames = readJson(vault?.names || api.storeGet("sync-names"), []);
     state.membership = readJson(vault?.membership || api.storeGet("sync-membership"), []);
+    state.tombstones = readJson(vault?.tombstones || api.storeGet("sync-tombstones"), []);
     state.seenDeviceIds = String(api.storeGet("sync-device-ids") || "");
   }
 
@@ -412,6 +415,7 @@ export async function mountSync(api) {
     api.storeSet("sync-self-id", state.selfId || "");
     api.storeSet("sync-names", JSON.stringify(state.deviceNames));
     api.storeSet("sync-membership", JSON.stringify(state.membership));
+    api.storeSet("sync-tombstones", JSON.stringify(state.tombstones || []));
   }
 
   function rememberSelf() {
@@ -433,6 +437,7 @@ export async function mountSync(api) {
       nameRev: state.vaultRev || 1,
       devices,
       membership: state.membership.filter((row) => row.id),
+      tombstones: (state.tombstones || []).filter((row) => row.id),
     };
   }
 
@@ -906,11 +911,24 @@ export async function mountSync(api) {
         keptLocal = true;
       }
     }
+    const openedPacked = JSON.parse(sync.unpackPages(packed));
+    if (!openedPacked.ok) throw new Error(openedPacked.message || "Those pages could not be opened.");
+    const decision = keepUnlessTombstone(snapOk ? snap.pages : [], openedPacked.pages || [], openedPacked.meta?.tombstones || []);
+    if (decision.removed.length || decision.keptLocal || decision.held) {
+      const doc = openedPacked.doc ? api.b64ToBytes(openedPacked.doc) : new Uint8Array();
+      packed = await pack(doc, decision.pages);
+    }
+    if (!decision.held) {
+      for (const id of decision.removed) {
+        if (typeof api.forget === "function") await api.forget(id);
+        state.tombstones = noteTombstone(state.tombstones, id);
+      }
+    }
     await installMerged({ packed });
     const kept = JSON.parse(sync.unpackPages(packed));
     const nextPages = kept.ok ? kept.pages : remote.pages;
     const mergedAway = localChanged && packed !== remote.packed;
-    state.dirty = keptLocal || mergedAway || opened.republish === true;
+    state.dirty = decision.keptLocal || decision.held || keptLocal || mergedAway || opened.republish === true;
     if (!state.dirty) await rememberBase(nextPages);
     await saveFile();
     await refreshDevices();
@@ -2791,6 +2809,25 @@ export async function mountSync(api) {
     armSaving();
     schedule();
   });
+
+  if (typeof api.onDelete === "function") {
+    api.onDelete((id) => {
+      state.tombstones = noteTombstone(state.tombstones, id);
+      if (!state.account || !state.member) return;
+      noteLocalEdit(state);
+      armSaving();
+      schedule();
+    });
+  }
+  if (typeof api.onRestore === "function") {
+    api.onRestore((id) => {
+      state.tombstones = (state.tombstones || []).filter((row) => row.id !== id);
+      if (!state.account || !state.member) return;
+      noteLocalEdit(state);
+      armSaving();
+      schedule();
+    });
+  }
 
   vaultBook = loadVaultBook(storeText);
   if (vaultBook.migrated) {
