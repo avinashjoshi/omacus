@@ -68,8 +68,10 @@ if "sync-test.omacus.com" in sw or "omacus-sync-test" in sw:
     errors.append("the offline shell still names the retired sync host")
 if "site/app/device-name.js" not in build or "./device-name.js?v=" not in build:
     errors.append("the published app missed the name helper")
-if 'const CACHE = "omacus-app-28"' not in sw:
-    errors.append("the published app cache changed")
+version_js = (ROOT / "site/app/version.js").read_text()
+shell_version = version_js.split('APP_VERSION = "', 1)[-1].split('"', 1)[0]
+if f'const APP_VERSION = "{shell_version}"' not in sw or "omacus-app-${APP_VERSION}" not in sw:
+    errors.append("the app cache is not named from the release version")
 if '"sync-link.mjs"' not in sw:
     errors.append("the recovery link is not in the offline shell")
 if "site/app/sync-link.mjs" not in build or "./sync-link.mjs?v=" not in build:

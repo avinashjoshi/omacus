@@ -9,6 +9,12 @@ use omacus_engine::sync_keys::SyncKeyError;
 use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
 
+/// The release this engine was built from. The page compares it with the shell.
+#[wasm_bindgen(js_name = appVersion)]
+pub fn app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 pub mod desk;
 pub mod invite;
 use desk::{Desk, b64_decode, b64_encode};
@@ -675,6 +681,22 @@ fn objects_json(objects: &[omacus_engine::sync_objects::Outgoing]) -> Vec<Value>
             })
         })
         .collect()
+}
+
+#[wasm_bindgen(js_name = generation)]
+pub fn generation(id: u32) -> String {
+    call(|| {
+        let generation = with_desk(id, |desk| desk.generation())?;
+        Ok(json!({ "ok": true, "generation": generation }))
+    })
+}
+
+#[wasm_bindgen(js_name = rewindGeneration)]
+pub fn rewind_generation(id: u32, generation: u64) -> String {
+    call(|| {
+        with_desk(id, |desk| desk.rewind_generation(generation))?;
+        Ok(json!({ "ok": true }))
+    })
 }
 
 #[wasm_bindgen(js_name = sealLibrary)]

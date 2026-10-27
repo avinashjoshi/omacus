@@ -120,7 +120,6 @@ export function pagesOnlyHere(local, remote) {
   return out;
 }
 
-// `baseline` is null until a copy has synced. Any page then counts as a local change.
 // A page in the last synced copy that the remote list does not name.
 // It goes to Recently deleted. A page that was never synced is not here.
 export function pagesLeftBehind(baseline, remotePages) {
@@ -133,6 +132,7 @@ export function pagesLeftBehind(baseline, remotePages) {
   return out;
 }
 
+// `baseline` is null until a copy has synced. Any page then counts as a local change.
 export function pagesDiffer(baseline, local) {
   const here = pageMap(local);
   if (baseline == null) return here.size > 0;

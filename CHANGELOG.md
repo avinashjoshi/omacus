@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.2
+
+**The phone offers the new version**
+
+An installed copy notices a new version and asks before it reloads. The page you have open is saved first. Pages already on this phone stay on this phone.
+
+**A page on one device stays**
+
+A page that is only on this phone or computer stays, and the other side gets a copy. Deleting a page is what removes it. That page waits in Recently deleted, and Restore puts it back. A copy that would remove most of the pages here removes none.
+
+**Sync is easier to reach**
+
+A phone that asks to join opens the approval on its own. The recovery word you pick stays marked. Sync in the sidebar opens sync again. List changed can be tapped, and it names who joined and who left. That note does not stop a save.
+
 ## 1.0.1
 
 **Sync on this computer**

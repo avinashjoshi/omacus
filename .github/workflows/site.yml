@@ -61,7 +61,7 @@ jobs:
           cp install.sh _site/install
           cp install.ps1 _site/install.ps1
           # /app stays on this origin only long enough to copy saved pages, then
-          # it opens app.omacus.com. The app itself is deployed by app.yml.
+          # it opens app.omacus.com. The app itself is deployed by the release workflow.
           cp site/bridge/index.html _site/app/index.html
       - name: Build the engine for the browser (the /app bridge still ships the modules)
         # The desktop app's own engine, compiled to WebAssembly. The CLI version must

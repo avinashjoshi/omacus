@@ -52,12 +52,6 @@ toml_path.write_text(toml[:idx] + f'version = "{new}"' + toml[idx + len(old):])
 
 lock_path = pathlib.Path("Cargo.lock")
 locked = lock_path.read_text()
-needle = f'name = "omacus"\nversion = "{current}"\n'
-repl = f'name = "omacus"\nversion = "{new}"\n'
-count = locked.count(needle)
-if count != 1:
-    raise SystemExit(f"expected one omacus entry in Cargo.lock, found {count}")
-lock_path.write_text(locked.replace(needle, repl, 1))
 
 html_path = pathlib.Path("site/app/index.html")
 html = html_path.read_text()
@@ -68,6 +62,26 @@ label_new = f">omacus v{new}<"
 if meta not in html or label not in html:
     raise SystemExit("web app version in site/app/index.html does not match Cargo.toml")
 html_path.write_text(html.replace(meta, meta_new, 1).replace(label, label_new, 1))
+
+def bump_text(path, old, new, label):
+    file = pathlib.Path(path)
+    text = file.read_text()
+    if old not in text:
+        raise SystemExit(f"{label} does not match Cargo.toml")
+    file.write_text(text.replace(old, new, 1))
+
+bump_text("site/app/version.js", f'export const APP_VERSION = "{current}"', f'export const APP_VERSION = "{new}"', "version.js")
+bump_text("site/app/sw.js", f'const APP_VERSION = "{current}"', f'const APP_VERSION = "{new}"', "sw.js")
+bump_text("site/app/version.json", f'"version": "{current}"', f'"version": "{new}"', "version.json")
+
+packages = ["omacus", "omacus-doc", "omacus-engine", "omacus-relay", "omacus-sync-web", "omacus-web"]
+for name in packages:
+    needle = f'name = "{name}"\nversion = "{current}"\n'
+    count = locked.count(needle)
+    if count != 1:
+        raise SystemExit(f"expected one {name} entry in Cargo.lock, found {count}")
+    locked = locked.replace(needle, f'name = "{name}"\nversion = "{new}"\n', 1)
+lock_path.write_text(locked)
 PY
 
 if ! git describe --tags --abbrev=0 --match 'v*' HEAD >/dev/null 2>&1; then

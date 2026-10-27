@@ -1,10 +1,10 @@
 [package]
 name = "omacus-web"
-version = "0.0.0"
+version.workspace = true
 edition = "2024"
 description = "The Omacus engine for the browser (app.omacus.com)"
 license = "MIT"
-publish = false  # internal; the app's version is the one in ../Cargo.toml
+publish = false  # internal; the version is the workspace version in ../Cargo.toml
 
 [lib]
 crate-type = ["cdylib", "rlib"]

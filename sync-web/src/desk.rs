@@ -1950,6 +1950,36 @@ mod tests {
         assert_eq!(left.iter().filter(|(_, _, mine)| *mine).count(), 1);
     }
 
+    #[test]
+    fn a_failed_save_can_still_open_the_copy_already_published() {
+        let (mut founder, _) = confirmed_desk();
+        let first = founder.seal_library(&trip_pages(), &[]).unwrap();
+        let record = founder.library_record().unwrap();
+        let generation = founder.generation();
+        let objects: Vec<_> = first
+            .objects
+            .iter()
+            .map(|object| omacus_engine::sync_objects::Incoming {
+                id: object.id,
+                revision: 1,
+                body: object.body.clone(),
+            })
+            .collect();
+        let _again = founder.seal_library(&trip_pages(), &first.slots).unwrap();
+        assert!(founder.generation() > generation);
+        match founder.open_library(&record, &objects, &first.slots, &[]) {
+            Err(err) => assert_eq!(
+                err.message(),
+                "That copy is older than the one already on this phone."
+            ),
+            Ok(_) => panic!("a seal that never landed blocked the published copy"),
+        }
+        founder.rewind_generation(generation);
+        founder
+            .open_library(&record, &objects, &first.slots, &[])
+            .expect("a save that never landed still opens");
+    }
+
     fn trip_pages() -> Vec<u8> {
         omacus_engine::sync_keys::PageSet {
             doc: Vec::new(),

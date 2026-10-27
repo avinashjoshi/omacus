@@ -441,22 +441,29 @@ jobs:
       pages: write
       id-token: write
 
-  # The web app ships with this release, not on an ordinary push to main.
-  # app.yml has no push trigger, so this is the deploy. It runs when the
-  # release pull request has merged and the tag is published (wait is skipped
-  # on that push; publish is what matters).
+  # The web app ships in this same run, as the same version and tag as the
+  # desktop app. It uses the app environment for CLOUDFLARE_API_TOKEN. A push
+  # to main does not deploy it. app.yml is only a way to retry this job.
   deploy-app:
     needs: [publish, check]
     if: >-
       always() &&
       needs.publish.result == 'success' &&
       needs.check.outputs.release == 'true'
-    # The app workflow writes the build hash onto the GitHub release, so this
-    # call has to allow that write. A caller that only grants a read cannot
-    # start the release workflow.
+    runs-on: ubuntu-latest
+    environment: app
     permissions:
       contents: write
-    uses: ./.github/workflows/app.yml
-    with:
-      ref: ${{ needs.check.outputs.sha }}
-    secrets: inherit
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      EXPECT_VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ needs.check.outputs.sha }}
+      - uses: ./.github/actions/deploy-app
+        with:
+          expect_version: ${{ needs.check.outputs.version }}

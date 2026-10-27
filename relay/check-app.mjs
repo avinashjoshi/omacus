@@ -366,10 +366,11 @@ await shot(pageB, "page-b-desktop-light");
 
 await pageA.setViewportSize({ width: 390, height: 844 });
 await pageB.setViewportSize({ width: 390, height: 844 });
+const expected = fs.readFileSync(new URL("../site/app/version.js", import.meta.url), "utf8").match(/APP_VERSION = "([^"]+)"/)[1];
 const version = (await pageA.locator(".side-version").innerText()).trim();
-if (version !== "omacus 1.0.0") throw new Error(`version line ${version}`);
+if (version !== `omacus v${expected}`) throw new Error(`version line ${version}`);
 const beta = await pageA.locator(".sync-beta").innerText();
-if (!beta.includes("1.0.0")) throw new Error(`phone label ${beta}`);
+if (!beta.includes(expected)) throw new Error(`phone label ${beta}`);
 await pageA.waitForFunction(() => document.querySelector(".side")?.getBoundingClientRect().right <= 0, null, { timeout: 2000 });
 const edge = await pageA.locator(".side").evaluate((node) => {
   const style = getComputedStyle(node);

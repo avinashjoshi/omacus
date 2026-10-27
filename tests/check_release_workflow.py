@@ -38,9 +38,17 @@ if tag_at < 0 or release_at < 0 or tag_at > release_at:
     errors.append("publish must push the tag before creating the GitHub release")
 if "persist-credentials: true" not in publish:
     errors.append("publish must keep credentials so it can push the tag")
-header, _, _ = deploy_app.partition("uses:")
+header, _, steps = deploy_app.partition("steps:")
 if "contents: write" not in header:
-    errors.append("deploy-app must grant contents: write to the called app workflow")
+    errors.append("deploy-app must grant contents: write so it can record the build hash")
+if "environment: app" not in header:
+    errors.append("deploy-app must use the app environment")
+if "uses: ./.github/workflows/app.yml" in deploy_app:
+    errors.append("the web app deploy must run in the release workflow")
+if "EXPECT_VERSION" not in deploy_app and "expect_version" not in deploy_app:
+    errors.append("the web app deploy must ship the same version as the desktop release")
+if "./.github/actions/deploy-app" not in steps:
+    errors.append("deploy-app must publish the web app")
 if "--exclude-drafts" not in update or "--exclude-pre-releases" not in update:
     errors.append("the update job must skip drafts and pre-releases")
 if "^v[0-9]" not in update:

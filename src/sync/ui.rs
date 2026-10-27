@@ -591,7 +591,7 @@ fn home(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
     para(
         ui,
         theme,
-        "A page that left the list is in Recently deleted. Restore puts it back.",
+        "A page you delete is in Recently deleted. Restore puts it back.",
     );
     err(ui, theme, &session.error.clone());
     field_label(ui, theme, "Name for these pages");
@@ -857,7 +857,7 @@ fn recover(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<St
     para(
         ui,
         theme,
-        "Type or paste the 12 recovery words. Numbers and capitals are fine. A page that is not in the list is in Recently deleted. Restore puts it back.",
+        "Type or paste the 12 recovery words. Numbers and capitals are fine. A page you delete is in Recently deleted. Restore puts it back.",
     );
     field_label(ui, theme, "Recovery words");
     let phrase = session.phrase_buf();
