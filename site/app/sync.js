@@ -3,7 +3,7 @@
 // WebCrypto key. The page's strict policy is what keeps other scripts out.
 import { SYNC_URL } from "./sync-config.js";
 import { APP_VERSION } from "./version.js";
-import { beginSave, dedupeWelcome, finishSave, keepUnlessTombstone, noteLocalEdit, noteTombstone, pageHeading, pagesDiffer, pollWait, removalSentence, showTurnOnSync } from "./sync-save.mjs";
+import { approvalCard, beginSave, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, keepUnlessTombstone, noteLocalEdit, noteTombstone, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 import { deviceListNote, pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
@@ -249,7 +249,7 @@ export async function mountSync(api) {
       return;
     }
     const next = mode || "off";
-    const word = text || "Synced";
+    const word = text || "Offline";
     const label = next === "offline" ? "Offline. Edits saved here." : word;
     chip.hidden = false;
     if (chip.dataset.state !== next) {
@@ -299,7 +299,7 @@ export async function mountSync(api) {
     else if (state.removed || pausedFlag()) setChip("Sync paused", "off");
     else if (state.saveError) setChip("Not saved", "error");
     else if (state.listNote && state.member && state.account) setChip("List changed", "list");
-    else if (state.member && state.account) setChip("Synced", "on");
+    else if (state.member && state.account) paintConnection();
     else hideChip();
   }
 
@@ -319,6 +319,34 @@ export async function mountSync(api) {
   }
   globalThis.omacusTurnOnSync = openIntro;
 
+  function paintConnection() {
+    if (!state.account || !state.member) {
+      if (state.removed || pausedFlag()) setChip("Sync paused", "off");
+      else hideChip();
+      return;
+    }
+    if (deviceWaiting()) {
+      setChip("Device waiting", "ask");
+      return;
+    }
+    if (state.saveError) {
+      setChip("Not saved", "error");
+      return;
+    }
+    if (state.listNote) {
+      setChip("List changed", "list");
+      return;
+    }
+    // Syncing is a save that has not landed. The approve button's own wait
+    // is not a save, or Yes would leave the status on Syncing.
+    if (saveWanted) {
+      setChip("Syncing", "busy");
+      return;
+    }
+    if (state.live) setChip("Live", "on");
+    else setChip("Offline", "offline");
+  }
+
   function calm() {
     saveWanted = false;
     clearTimeout(saveTimer);
@@ -326,7 +354,7 @@ export async function mountSync(api) {
     if (state.member && state.account) {
       clearPaused();
       state.saveError = "";
-      setChip("Synced", "on");
+      paintConnection();
     } else if (state.removed || pausedFlag()) {
       setChip("Sync paused", "off");
     } else {
@@ -729,11 +757,15 @@ export async function mountSync(api) {
         headers,
         body: body ? text : undefined,
         cache: "no-store",
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
-    } catch {
-      const error = new Error("Offline. Your pages are still here.");
-      error.offline = true;
-      throw error;
+    } catch (error) {
+      const timed = error && (error.name === "TimeoutError" || error.name === "AbortError");
+      const wrapped = new Error(timed
+        ? "That took too long. Your pages are still here."
+        : "Offline. Your pages are still here.");
+      wrapped.offline = !timed;
+      throw wrapped;
     }
     if (response.status === 304) return { unchanged: true };
     const data = await response.json().catch(() => ({}));
@@ -1196,7 +1228,13 @@ export async function mountSync(api) {
 
   async function tick() {
     if (ticking || !state.desk || !state.account) return;
-    if (["off", "access", "save", "confirm", "recover", "join", "join-start", "join-type", "join-scan", "approve", "remove-ask", "off-ask", "removed"].includes(state.screen)) return;
+    if (state.screen === "approve") {
+      ticking = true;
+      try { await watchApproval(); }
+      finally { ticking = false; }
+      return;
+    }
+    if (["off", "access", "save", "confirm", "recover", "join", "join-start", "join-type", "join-scan", "remove-ask", "off-ask", "removed"].includes(state.screen)) return;
     ticking = true;
     try {
       await ifTabLeader(navigator.locks, lockName(), () => follow());
@@ -1262,6 +1300,54 @@ export async function mountSync(api) {
     }
   }
 
+  function openLive() {
+    if (!state.member || !state.desk || !state.account || state.socket || state.removed) return;
+    const path = `/v1/mailboxes/${state.account}/live`;
+    let signed;
+    try {
+      signed = JSON.parse(sync.signRequest(state.desk, "GET", path, ""));
+    } catch {
+      return;
+    }
+    if (!signed.ok) return;
+    const base = syncOrigin().replace(/^http/, "ws");
+    const query = `device=${encodeURIComponent(signed.device)}&time=${encodeURIComponent(signed.time)}&nonce=${encodeURIComponent(signed.nonce)}&signature=${encodeURIComponent(signed.signature)}`;
+    let socket;
+    try {
+      socket = new WebSocket(`${base}${path}?${query}`);
+    } catch {
+      return;
+    }
+    state.socket = socket;
+    socket.onopen = () => {
+      state.live = true;
+      state.liveWait = 1000;
+      paintConnection();
+    };
+    socket.onmessage = (event) => {
+      let rev = 0;
+      try {
+        const note = JSON.parse(event.data);
+        if (note && Object.hasOwn(note, "record")) return;
+        rev = Number(note && note.rev) || 0;
+      } catch {
+        return;
+      }
+      if (rev && rev !== state.revision) schedule();
+    };
+    socket.onclose = () => {
+      state.live = false;
+      if (state.socket === socket) state.socket = null;
+      paintConnection();
+      const wait = state.liveWait || 1000;
+      state.liveWait = Math.min(wait * 2, 30000);
+      setTimeout(openLive, wait);
+    };
+    socket.onerror = () => {
+      try { socket.close(); } catch { /* close follows the error */ }
+    };
+  }
+
   function nextPoll(delay) {
     clearTimeout(timer);
     timer = setTimeout(runPoll, delay);
@@ -1271,11 +1357,13 @@ export async function mountSync(api) {
     tick().finally(() => {
       const soon = hurry;
       hurry = false;
+      openLive();
       nextPoll(pollWait({
         hidden: document.hidden,
         dirty: state.dirty,
         saving: saveWanted,
         soon,
+        live: state.live === true,
       }));
     });
   }
@@ -2025,16 +2113,14 @@ export async function mountSync(api) {
     state.busy = true;
     state.error = "";
     draw();
-    const approval = JSON.parse(sync.approveDevice(state.desk, state.pending.device));
-    if (!approval.ok) {
-      state.busy = false;
-      state.error = approval.message;
-      draw();
-      return;
-    }
     let published = false;
     let requestId = "";
     try {
+      const approval = JSON.parse(sync.approveDevice(state.desk, state.pending.device));
+      if (!approval.ok) {
+        state.error = approval.message;
+        return;
+      }
       requestId = state.pending.id;
       adoptAskedName(askedCode, askedName);
       const snap = await api.snapshot();
@@ -2095,9 +2181,10 @@ export async function mountSync(api) {
         }
       }
       state.error = plainError(error.message);
+    } finally {
+      state.busy = false;
+      draw();
     }
-    state.busy = false;
-    draw();
   }
 
   async function decline() {
@@ -2309,13 +2396,23 @@ export async function mountSync(api) {
         return;
       }
       const id = state.pending.id;
+      const created = state.pending.created;
       try {
         const data = await callServer("GET", `/v1/mailboxes/${state.account}/requests`);
-        const still = (data.requests || []).some((request) => request.id === id && (!request.state || request.state === "pending"));
-        if (!still && state.screen === "approve" && state.pending && state.pending.id === id && !state.busy) {
-          // The code stays until it expires, so the next phone is asked about.
+        const requests = data.requests || [];
+        const row = requests.find((request) => request.id === id);
+        if (
+          approvalCard(requests, id, Date.now(), created, INVITE_MS) === "expired" &&
+          state.screen === "approve" &&
+          state.pending &&
+          state.pending.id === id &&
+          !state.busy
+        ) {
           state.pending = null;
-          state.error = "";
+          state.busy = false;
+          state.error = row && row.state === "rejected"
+            ? "That phone or computer said no."
+            : "That code expired. Ask for a new one on the other phone or computer.";
           state.screen = "linked";
           draw();
           return;
@@ -2976,7 +3073,8 @@ export async function mountSync(api) {
     if (!state.account || !state.member) return;
     noteLocalEdit(state);
     armSaving();
-    schedule();
+    hurry = true;
+    if (!ticking) nextPoll(PUSH_DEBOUNCE_MS);
   });
 
   if (typeof api.onDelete === "function") {
@@ -3068,7 +3166,14 @@ export async function mountSync(api) {
   }
   if (opened) await applySyncLink(opened);
   runPoll();
-  window.addEventListener("online", () => tick());
+  window.addEventListener("online", () => {
+    state.liveWait = 1000;
+    openLive();
+    tick();
+  });
+  window.addEventListener("focus", () => {
+    if (state.account) schedule();
+  });
   window.addEventListener("offline", () => {
     if (!state.account) return;
     saveWanted = false;

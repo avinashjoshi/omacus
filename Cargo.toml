@@ -34,6 +34,8 @@ base64 = "0.22"
 ed25519-dalek = "3.0.0"
 toml = "1.1.8"
 ureq = "3.4.2"
+# The mailbox socket. rustls verifies the relay the same way the browser does.
+tungstenite = { version = "0.28", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 # Folder picker for the PDF export directory. The default backend is the XDG
 # file portal (no GTK headers). macOS and Windows use their own dialogs.
 rfd = { version = "0.15.4", default-features = false, features = ["xdg-portal", "async-std"] }

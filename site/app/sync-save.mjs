@@ -26,18 +26,50 @@ function pageMap(pages) {
   return map;
 }
 
-// A follow-up after a save is soon. A quiet visible tab waits. A hidden tab waits longer.
+// A follow-up after a save is soon. An edit waits under half a second.
+// A live socket is the notice. Without one, a visible tab asks every couple of seconds.
 export const POLL_SOON_MS = 800;
 export const POLL_ACTIVE_MS = 4000;
+export const PUSH_DEBOUNCE_MS = 400;
+export const FALLBACK_POLL_MS = 2000;
 export const POLL_IDLE_MS = 30000;
 export const POLL_HIDDEN_MS = 60000;
+export const FETCH_TIMEOUT_MS = 12000;
 
 export function pollWait(flags) {
   const row = flags || {};
-  if (row.soon) return POLL_SOON_MS;
+  if (row.dirty || row.saving) return PUSH_DEBOUNCE_MS;
+  if (row.soon || row.waiting) return POLL_SOON_MS;
   if (row.hidden) return POLL_HIDDEN_MS;
-  if (row.dirty || row.saving) return POLL_ACTIVE_MS;
-  return POLL_IDLE_MS;
+  if (row.live) return POLL_IDLE_MS;
+  return FALLBACK_POLL_MS;
+}
+
+// The edit waits, then the mailbox tells the other device in the same write.
+export function liveDeliveryMs() {
+  return PUSH_DEBOUNCE_MS;
+}
+
+// The approval card leaves when the request is gone, refused, or past its window.
+export function approvalCard(requests, id, now, created, inviteMs) {
+  const row = (requests || []).find((item) => item && item.id === id);
+  if (!row) return "expired";
+  if (row.state !== "pending" && row.state !== "approved") return "expired";
+  const born = Number(row.created || created || 0);
+  if (born && now > born + inviteMs) return "expired";
+  return "open";
+}
+
+export function chipLabel(flags) {
+  const row = flags || {};
+  if (row.removed) return "Sync paused";
+  if (row.waiting) return "Device waiting";
+  if (row.error) return "Not saved";
+  if (row.syncing) return "Syncing";
+  if (row.listChanged) return "List changed";
+  if (row.live) return "Live";
+  if (row.member) return "Offline";
+  return "";
 }
 
 // Turn on sync is the entry before setup. A paused cloud is only for a phone

@@ -190,6 +190,62 @@ impl Settings {
         }
         out
     }
+
+    /// Choices that follow the person. The export folder stays on this computer.
+    pub fn shared_prefs(&self) -> serde_json::Value {
+        serde_json::json!({
+            "theme": self.theme.as_str(),
+            "hideAnswers": self.hide_answers,
+            "lockMinutes": self.lock_minutes,
+            "replaceExports": self.replace_exports,
+            "checkForUpdates": self.check_for_updates,
+        })
+    }
+
+    /// Apply a shared settings object. Unknown keys, including a path, are ignored.
+    pub fn apply_shared_prefs(&mut self, prefs: &serde_json::Value) -> bool {
+        let Some(prefs) = prefs.as_object() else {
+            return false;
+        };
+        let mut changed = false;
+        if let Some(theme) = prefs.get("theme").and_then(|value| value.as_str()) {
+            let next = ThemeChoice::parse(theme);
+            if next != self.theme {
+                self.theme = next;
+                changed = true;
+            }
+        }
+        if let Some(hide) = prefs.get("hideAnswers").and_then(|value| value.as_bool())
+            && hide != self.hide_answers
+        {
+            self.hide_answers = hide;
+            changed = true;
+        }
+        if let Some(minutes) = prefs.get("lockMinutes").and_then(|value| value.as_u64()) {
+            let minutes = u32::try_from(minutes).unwrap_or(240).min(240);
+            if minutes != self.lock_minutes {
+                self.lock_minutes = minutes;
+                changed = true;
+            }
+        }
+        if let Some(replace) = prefs
+            .get("replaceExports")
+            .and_then(|value| value.as_bool())
+            && replace != self.replace_exports
+        {
+            self.replace_exports = replace;
+            changed = true;
+        }
+        if let Some(check) = prefs
+            .get("checkForUpdates")
+            .and_then(|value| value.as_bool())
+            && check != self.check_for_updates
+        {
+            self.check_for_updates = check;
+            changed = true;
+        }
+        changed
+    }
 }
 
 fn toml_string(s: &str) -> String {
@@ -518,5 +574,33 @@ mod tests {
         assert!(text.contains("lock_minutes = 15"));
         assert!(text.contains("export_dir = "));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn shared_settings_leave_the_export_folder_and_keep_omarchy() {
+        let export = PathBuf::from("/tmp/harbor");
+        let mut settings = Settings {
+            theme: ThemeChoice::Omarchy,
+            export_dir: Some(export.clone()),
+            ..Settings::default()
+        };
+        let shared = settings.shared_prefs();
+        assert!(shared.get("export_dir").is_none());
+        assert!(shared.get("exportDir").is_none());
+        assert_eq!(
+            shared.get("theme").and_then(|value| value.as_str()),
+            Some("omarchy")
+        );
+        let incoming = serde_json::json!({
+            "hideAnswers": true,
+            "lockMinutes": 15
+        });
+        assert!(settings.apply_shared_prefs(&incoming));
+        assert_eq!(settings.theme, ThemeChoice::Omarchy);
+        assert_eq!(settings.export_dir.as_deref(), Some(export.as_path()));
+        assert!(settings.hide_answers);
+        assert_eq!(settings.lock_minutes, 15);
+        assert!(!settings.apply_shared_prefs(&serde_json::json!({"export_dir": "/tmp/ferry"})));
+        assert_eq!(settings.export_dir.as_deref(), Some(export.as_path()));
     }
 }

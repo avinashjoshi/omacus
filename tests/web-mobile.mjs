@@ -116,7 +116,18 @@ check(html.includes("data-pick"), "a same-line conflict can ask which line to ke
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
 check(sw.includes('"layer.js"'), "the row menu placement is part of the offline shell");
-check(syncJs.includes('setChip("Synced", "on")') && !syncJs.includes('setChip("", "on")'), "a quiet sync says Synced, not an empty pill");
+check(syncJs.includes('setChip("Live", "on")') && !syncJs.includes('setChip("Synced"') && !syncJs.includes('setChip("", "on")'), "a quiet sync says Live, not Synced");
+{
+  const approve = syncJs.slice(syncJs.indexOf("async function approvePending"), syncJs.indexOf("async function decline"));
+  check(approve.includes("try {") && approve.includes("} finally {") && approve.includes("state.busy = false"), "approving always leaves the button");
+  const paint = syncJs.slice(syncJs.indexOf("function paintConnection"), syncJs.indexOf("function calm"));
+  check(paint.includes("if (saveWanted)") && !paint.includes("state.busy"), "Yes leaves the status on Live once the save has landed");
+  check(syncJs.includes("AbortSignal.timeout(FETCH_TIMEOUT_MS)"), "a sync request gives up instead of waiting forever");
+  check(syncJs.includes("That took too long. Your pages are still here."), "a timed-out approval says what happened");
+  const watchers = syncJs.split("function watchApproval").length - 1;
+  check(watchers === 1 && syncJs.includes("approvalCard("), "an expired approval card closes itself");
+}
+check(sw.includes('"library-state.mjs"'), "shared sidebar state is part of the offline shell");
 check(syncJs.includes('setChip("Syncing", "wait")') && !syncJs.includes("Saving…"), "a long save says Syncing");
 {
   const arm = syncJs.slice(syncJs.indexOf("function armSaving"), syncJs.indexOf("function guessDeviceName"));
@@ -411,8 +422,9 @@ function stopServer() {
 }
 
 // Chrome writes the port into the profile once DevTools is up. Reading stdout
-// for the "DevTools listening" line deadlocks when that pipe fills. The first
-// launch on a CI runner sometimes exits before that file exists, so try once more.
+// for the "DevTools listening" line deadlocks when that pipe fills. The
+// launcher process often exits before that file exists; the browser is still
+// starting, so keep looking.
 async function launchChrome(attempt) {
   const profile = join("/tmp", `omacus-chrome-${process.pid}-${attempt}`);
   const child = spawn(chrome, [
@@ -428,8 +440,9 @@ async function launchChrome(attempt) {
   const portFile = join(profile, "DevToolsActivePort");
   const started = Date.now();
   let version = null;
+  // The launcher often exits before DevToolsActivePort exists. The browser
+  // is still starting. Keep looking for the file.
   while (!version && Date.now() - started < 20000) {
-    if (child.exitCode != null) break;
     if (existsSync(portFile)) {
       const port = readFileSync(portFile, "utf8").split("\n")[0].trim();
       try {

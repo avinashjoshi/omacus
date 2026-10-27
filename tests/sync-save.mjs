@@ -1,7 +1,8 @@
 // An edit typed while a save is in flight must stay unsaved.
 // Two phones that each edit offline both keep their lines: the one that was
 // offline merges when its pages differ from the last synced copy.
-import { beginSave, dedupeWelcome, declinedCovers, finishSave, keepUnlessTombstone, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, removalSentence, showTurnOnSync } from "../site/app/sync-save.mjs";
+import { readFileSync } from "node:fs";
+import { approvalCard, beginSave, chipLabel, dedupeWelcome, declinedCovers, finishSave, keepUnlessTombstone, liveDeliveryMs, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, removalSentence, showTurnOnSync } from "../site/app/sync-save.mjs";
 
 function assert(cond, message) {
   if (!cond) throw new Error(message);
@@ -110,10 +111,25 @@ assert(showTurnOnSync({ account: "", removed: false, paused: false }) === true, 
 assert(showTurnOnSync({ account: "harbor", paused: false, removed: false }) === false, "a linked phone still offered Turn on sync");
 assert(showTurnOnSync({ paused: true }) === false, "a paused phone was treated as not set up");
 assert(showTurnOnSync({ removed: true }) === false, "a removed phone was treated as not set up");
-assert(pollWait({ soon: true, hidden: true, dirty: true }) === 800, "a follow-up waited for the idle delay");
-assert(pollWait({ dirty: true }) === 4000, "an unsaved edit waited half a minute");
-assert(pollWait({ saving: true }) === 4000, "a save in flight waited half a minute");
-assert(pollWait({}) === 30000, "a quiet tab polled every 4 seconds");
+assert(pollWait({ soon: true, hidden: true, dirty: true }) === 400, "an edit in a hidden tab waited a minute");
+assert(pollWait({ dirty: true }) === 400, "an unsaved edit waited longer than the debounce");
+assert(pollWait({ saving: true }) === 400, "a save in flight waited longer than the debounce");
+assert(pollWait({ soon: true }) === 800, "a focus pull waited for the idle delay");
+assert(pollWait({}) === 2000, "a quiet tab with no socket waited half a minute");
+assert(pollWait({ live: true }) === 30000, "a live socket still polled every couple of seconds");
 assert(pollWait({ hidden: true }) === 60000, "a hidden tab polled as if it were visible");
+assert(liveDeliveryMs() === 400, "a desktop edit was not scheduled inside half a second");
+assert(approvalCard([{ id: "pantry", state: "pending", created: 1_000 }], "pantry", 2_000, 1_000, 5 * 60 * 1000) === "open", "a fresh approval closed");
+assert(approvalCard([], "pantry", 2_000, 1_000, 5 * 60 * 1000) === "expired", "a missing approval stayed open");
+assert(approvalCard([{ id: "pantry", state: "rejected", created: 1_000 }], "pantry", 2_000, 1_000, 5 * 60 * 1000) === "expired", "a refusal stayed on the card");
+assert(approvalCard([{ id: "pantry", state: "pending", created: 1_000 }], "pantry", 1_000 + 5 * 60 * 1000 + 1, 1_000, 5 * 60 * 1000) === "expired", "an old code stayed open");
+assert(chipLabel({ live: true, member: true }) === "Live", "a connected device said Synced");
+assert(chipLabel({ member: true }) === "Offline", "a device with no socket said Synced");
+assert(chipLabel({ syncing: true, live: true, member: true }) === "Syncing", "a save hid behind Live");
+assert(!chipLabel({}).includes("Synced"), "an empty status said Synced");
+
+const appSource = readFileSync(new URL("../site/app/app.js", import.meta.url), "utf8");
+const saveSettings = appSource.slice(appSource.indexOf("function saveSettings"), appSource.indexOf("function themeName"));
+assert(saveSettings.includes("noteSyncEdit()"), "a settings change stayed on this device");
 
 console.log("sync save ok");

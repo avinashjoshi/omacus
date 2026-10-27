@@ -67,11 +67,14 @@ folder_count(u16)
 page_count(u32)
   object_id(16) page_id(u16-len) revision(u64) sha256(32) content_key(32)
 generation(u64)
+[ "VAULT" object_id(16) content_key(32) revision(u64) sha256(32) ]
 ```
 
 A string is a `u16` length and at most 200 bytes, with no control characters. Folder flag 0 means no parent. Meta is `OMACUS-META/1\n`: vault name (chunk), name revision (`u64`), device-name count (`u16`) of id(16) + rev(`u64`) + name(chunk), then membership count (`u32`) of page id (`u16` length) + rev(`u64`) + one byte (1 if the page is in the synced set).
 
-The manifest is how a device learns which objects to fetch. The server never sees this plaintext. The last eight bytes are a counter. A manifest written before the counter is generation 0. Each new seal uses the next number. A new seal starts with `OMACUS-SEAL/2` and that generation, and the same generation is in the associated data with the page id and the epoch. A generation lower than the last one this phone opened is refused before the seal is opened. An older seal, without that header, still opens. The mailbox revision stays outside the seal and is not that counter.
+The manifest is how a device learns which objects to fetch. The server never sees this plaintext. The eight bytes after the page rows are a counter. A manifest written before the counter is generation 0. Each new seal uses the next number. A new seal starts with `OMACUS-SEAL/2` and that generation, and the same generation is in the associated data with the page id and the epoch. A generation lower than the last one this phone opened is refused before the seal is opened. An older seal, without that header, still opens. The mailbox revision stays outside the seal and is not that counter.
+
+When the library has a sidebar, Recently deleted, handles, or shared settings, the counter is followed by `VAULT` and the id of one more object. That object is sealed like a page. Its plaintext is the stored JSON for those pieces, not a page. A save that does not change them keeps the object id and does not upload it. A manifest with nothing after the counter still opens. A device that does not know this trailer cannot open a library that carries it.
 
 ### Page object
 

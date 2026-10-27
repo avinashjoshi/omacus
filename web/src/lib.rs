@@ -1027,6 +1027,26 @@ pub fn doc_union(left: &[u8], right: &[u8]) -> Vec<u8> {
     }
 }
 
+/// Fold sidebar, trash, handles, and preferences into the document.
+/// The bytes are unchanged when nothing moved.
+#[wasm_bindgen(js_name = docNoteState)]
+pub fn doc_note_state(bytes: &[u8], structural: &str) -> Vec<u8> {
+    let Some(mut lib) = open_doc(bytes) else {
+        return bytes.to_vec();
+    };
+    lib.note_vault(structural);
+    lib.save()
+}
+
+/// What the sidebar, trash, handles, and preferences should show.
+/// Empty when this document has no shared state yet.
+#[wasm_bindgen(js_name = docState)]
+pub fn doc_state(bytes: &[u8]) -> String {
+    open_doc(bytes)
+        .and_then(|lib| lib.vault_present())
+        .unwrap_or_default()
+}
+
 /// The vault id stored on the document.
 #[wasm_bindgen(js_name = docVault)]
 pub fn doc_vault(bytes: &[u8]) -> String {

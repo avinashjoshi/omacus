@@ -3,6 +3,7 @@
 // so a waiting update can be checked without publishing.
 
 import { createServer } from "node:http";
+import { connect as connectNet } from "node:net";
 import { readFileSync, existsSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -62,6 +63,7 @@ const server = createServer((req, res) => {
       "content-security-policy": csp,
       "x-content-type-options": "nosniff",
       "referrer-policy": "strict-origin-when-cross-origin",
+      "cache-control": "no-cache, no-store",
     };
     // The published host answers a missing file with the app page. The worker
     // has to refuse that for anything that is not the page itself.
@@ -95,6 +97,57 @@ const server = createServer((req, res) => {
 server.on("clientError", (_err, socket) => {
   quiet(socket);
   socket.destroy();
+});
+
+// The page's socket is for the mailbox. The relay listens on 8798, and the
+// two-phone box listens on 8799. One test starts one of them.
+const livePorts = [8798, 8799];
+
+function proxyLive(req, socket, head, index) {
+  if (socket.destroyed) return;
+  if (index >= livePorts.length) {
+    socket.destroy();
+    return;
+  }
+  const upstream = connectNet(livePorts[index], "127.0.0.1");
+  let opened = false;
+  upstream.on("error", () => {
+    if (opened) return;
+    opened = true;
+    upstream.destroy();
+    proxyLive(req, socket, head, index + 1);
+  });
+  upstream.once("connect", () => {
+    if (opened) return;
+    opened = true;
+    upstream.removeAllListeners("error");
+    let raw = `GET ${req.url} HTTP/1.1\r\n`;
+    for (const [name, value] of Object.entries(req.headers)) {
+      if (value === undefined) continue;
+      raw += `${name}: ${Array.isArray(value) ? value.join(", ") : value}\r\n`;
+    }
+    raw += "\r\n";
+    upstream.write(raw);
+    if (head && head.length) upstream.write(head);
+    upstream.pipe(socket);
+    socket.pipe(upstream);
+    const drop = () => {
+      socket.destroy();
+      upstream.destroy();
+    };
+    upstream.on("error", drop);
+    socket.on("error", drop);
+  });
+}
+
+server.on("upgrade", (req, socket, head) => {
+  quiet(socket);
+  const url = new URL(req.url || "/", "http://127.0.0.1");
+  if (!url.pathname.startsWith("/v1/")) {
+    socket.destroy();
+    return;
+  }
+  proxyLive(req, socket, head, 0);
 });
 
 server.listen(port, "127.0.0.1");

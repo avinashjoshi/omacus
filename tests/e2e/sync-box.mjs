@@ -1,15 +1,42 @@
 // A mailbox for the two-phone test. It checks the same signatures the relay does.
+import { createHash } from "node:crypto";
 import { appendFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { allowPut, authorize } from "../../relay/worker/auth.js";
 
 const box = { revision: 0, record: "", objects: new Map(), nonces: {} };
+const liveSockets = new Set();
 
 function reset() {
   box.revision = 0;
   box.record = "";
   box.objects = new Map();
   box.nonces = {};
+}
+
+function writeFrame(socket, text) {
+  if (socket.destroyed || !socket.writable) return;
+  const payload = Buffer.from(String(text));
+  const len = payload.length;
+  let header;
+  if (len < 126) header = Buffer.from([0x81, len]);
+  else if (len < 65536) {
+    header = Buffer.alloc(4);
+    header[0] = 0x81;
+    header[1] = 126;
+    header.writeUInt16BE(len, 2);
+  } else {
+    header = Buffer.alloc(10);
+    header[0] = 0x81;
+    header[1] = 127;
+    header.writeBigUInt64BE(BigInt(len), 2);
+  }
+  socket.write(Buffer.concat([header, payload]));
+}
+
+function tellLive() {
+  const note = JSON.stringify({ rev: box.revision });
+  for (const socket of liveSockets) writeFrame(socket, note);
 }
 
 function send(res, status, value) {
@@ -57,6 +84,7 @@ const server = createServer(async (req, res) => {
     for (const object of body.objects || []) box.objects.set(object.id, { revision: 1, body: object.body });
     const objects = [...box.objects].map(([id, row]) => ({ id, revision: row.revision }));
     send(res, 200, { revision: 1, objects });
+    tellLive();
     return;
   }
   const account = path.split("/")[3] || "";
@@ -105,6 +133,7 @@ const server = createServer(async (req, res) => {
     }
     for (const id of body.drop || []) box.objects.delete(id);
     send(res, 200, { revision: box.revision, objects: written });
+    tellLive();
     return;
   }
   if (method === "POST" && path === `${mailboxPath}/objects`) {
@@ -122,6 +151,29 @@ const server = createServer(async (req, res) => {
     return;
   }
   send(res, 404, { message: "No pages for that yet." });
+});
+
+// The status says Live only while this socket stays open. A new revision
+// is the same short note the relay sends, so the other phone pulls at once.
+server.on("upgrade", (req, socket) => {
+  socket.on("error", () => {});
+  const key = req.headers["sec-websocket-key"];
+  const url = new URL(req.url || "/", "http://127.0.0.1");
+  if (!key || !url.pathname.endsWith("/live")) {
+    socket.destroy();
+    return;
+  }
+  const accept = createHash("sha1")
+    .update(String(key) + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+    .digest("base64");
+  socket.write(
+    "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " +
+      accept +
+      "\r\n\r\n",
+  );
+  liveSockets.add(socket);
+  socket.on("close", () => liveSockets.delete(socket));
+  socket.on("data", () => {});
 });
 
 writeFileSync("/tmp/sync-box.log", "");

@@ -1,4 +1,5 @@
-//! One sealed object per page, plus a small sealed manifest.
+//! One sealed object per page, plus the shared sidebar when there is one,
+//! and a small sealed manifest.
 //!
 //! The manifest names the pages, their object ids, and the key for each object.
 //! A save seals only the pages whose text changed. Object ids are random.
@@ -12,6 +13,9 @@ use zeroize::Zeroize;
 use crate::sync_keys::{self, PageSet, SyncKeyError, SyncMeta, VaultKey};
 
 pub const MANIFEST_MAGIC: &[u8] = b"OMACUS-MANIFEST/1\n";
+const VAULT_MARK: &[u8] = b"VAULT";
+/// `VAULT` || object id || content key || revision || sha256.
+const SHARED_TAIL: usize = 5 + 16 + 32 + 8 + 32;
 pub const PAGE_MAGIC: &[u8] = b"OMACUS-PAGE/1\n";
 pub const MANIFEST_ID: &[u8] = b"manifest";
 pub const MAX_MANIFEST: usize = 1024 * 1024;
@@ -248,11 +252,19 @@ fn push_str(out: &mut Vec<u8>, text: &str) -> Result<(), SyncKeyError> {
     Ok(())
 }
 
+struct SharedSeal {
+    object_id: [u8; 16],
+    content_key: [u8; 32],
+    revision: u64,
+    hash: [u8; 32],
+}
+
 fn encode_manifest(
     meta: &SyncMeta,
     slots: &[Slot],
     folders: &[FolderRow],
     generation: u64,
+    shared: Option<&Slot>,
 ) -> Result<Vec<u8>, SyncKeyError> {
     if slots.len() > MAX_PAGE_COUNT || folders.len() > 4096 {
         return Err(SyncKeyError::Corrupt);
@@ -286,6 +298,13 @@ fn encode_manifest(
         out.extend_from_slice(&slot.content_key);
     }
     out.extend_from_slice(&generation.to_be_bytes());
+    if let Some(slot) = shared {
+        out.extend_from_slice(VAULT_MARK);
+        out.extend_from_slice(&slot.object_id);
+        out.extend_from_slice(&slot.content_key);
+        out.extend_from_slice(&slot.revision.to_be_bytes());
+        out.extend_from_slice(&slot.hash);
+    }
     if out.len() > MAX_MANIFEST {
         return Err(SyncKeyError::Corrupt);
     }
@@ -297,6 +316,7 @@ struct Decoded {
     folders: Vec<FolderRow>,
     entries: Vec<Entry>,
     generation: u64,
+    shared: Option<SharedSeal>,
 }
 
 fn take_str(bytes: &[u8], at: &mut usize) -> Result<String, SyncKeyError> {
@@ -410,7 +430,10 @@ fn decode_manifest(bytes: &[u8]) -> Result<Decoded, SyncKeyError> {
     }
     let generation = if at == bytes.len() {
         0
-    } else if at + 8 == bytes.len() {
+    } else {
+        if at + 8 > bytes.len() {
+            return Err(SyncKeyError::Corrupt);
+        }
         let generation = u64::from_be_bytes(
             bytes[at..at + 8]
                 .try_into()
@@ -418,8 +441,11 @@ fn decode_manifest(bytes: &[u8]) -> Result<Decoded, SyncKeyError> {
         );
         at += 8;
         generation
+    };
+    let shared = if at == bytes.len() {
+        None
     } else {
-        return Err(SyncKeyError::Corrupt);
+        Some(decode_shared(bytes, &mut at)?)
     };
     if at != bytes.len() {
         return Err(SyncKeyError::Corrupt);
@@ -429,7 +455,100 @@ fn decode_manifest(bytes: &[u8]) -> Result<Decoded, SyncKeyError> {
         folders,
         entries,
         generation,
+        shared,
     })
+}
+
+fn decode_shared(bytes: &[u8], at: &mut usize) -> Result<SharedSeal, SyncKeyError> {
+    if *at + SHARED_TAIL != bytes.len() || !bytes[*at..].starts_with(VAULT_MARK) {
+        return Err(SyncKeyError::Corrupt);
+    }
+    *at += VAULT_MARK.len();
+    let mut object_id = [0u8; 16];
+    object_id.copy_from_slice(&bytes[*at..*at + 16]);
+    *at += 16;
+    let mut content_key = [0u8; 32];
+    content_key.copy_from_slice(&bytes[*at..*at + 32]);
+    *at += 32;
+    let revision = u64::from_be_bytes(
+        bytes[*at..*at + 8]
+            .try_into()
+            .map_err(|_| SyncKeyError::Corrupt)?,
+    );
+    *at += 8;
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(&bytes[*at..*at + 32]);
+    *at += 32;
+    Ok(SharedSeal {
+        object_id,
+        content_key,
+        revision,
+        hash,
+    })
+}
+
+fn shared_json(doc: &[u8]) -> String {
+    omacus_doc::Library::load(doc)
+        .ok()
+        .and_then(|lib| lib.vault_json())
+        .unwrap_or_default()
+}
+
+/// The sidebar, trash, handles, and preferences travel as their own object.
+/// An empty page id marks that slot. It is not a page.
+fn seal_shared(
+    previous: &[Slot],
+    json: &str,
+    vault: &VaultKey,
+    objects: &mut Vec<Outgoing>,
+) -> Result<Slot, SyncKeyError> {
+    let hash = content_hash(json);
+    if let Some(prev) = previous.iter().find(|slot| slot.page_id.is_empty()) {
+        if prev.hash == hash && !prev.doc.is_empty() {
+            let mut kept = prev.clone();
+            kept.vault_id = *vault.id();
+            return Ok(kept);
+        }
+        let mut key = sync_keys::random_bytes::<32>()?;
+        let body = seal_object(&key, &prev.object_id, json.as_bytes())?;
+        objects.push(Outgoing {
+            id: prev.object_id,
+            body,
+            base: prev.server_rev,
+        });
+        let slot = Slot {
+            page_id: String::new(),
+            object_id: prev.object_id,
+            hash,
+            content_key: key,
+            vault_id: *vault.id(),
+            revision: prev.revision.saturating_add(1),
+            server_rev: prev.server_rev,
+            doc: json.as_bytes().to_vec(),
+        };
+        key.zeroize();
+        return Ok(slot);
+    }
+    let mut key = sync_keys::random_bytes::<32>()?;
+    let object_id = sync_keys::random_bytes::<16>()?;
+    let body = seal_object(&key, &object_id, json.as_bytes())?;
+    objects.push(Outgoing {
+        id: object_id,
+        body,
+        base: 0,
+    });
+    let slot = Slot {
+        page_id: String::new(),
+        object_id,
+        hash,
+        content_key: key,
+        vault_id: *vault.id(),
+        revision: 1,
+        server_rev: 0,
+        doc: json.as_bytes().to_vec(),
+    };
+    key.zeroize();
+    Ok(slot)
 }
 
 /// More than two signed deletes at once waits for a person to confirm.
@@ -532,17 +651,30 @@ pub fn plan(
         .count();
     // A page that is only absent is not deleted. A signed tombstone is.
     // More than two at once drops nothing, until this device confirms.
-    let drop_ids = if mass_delete(previous.len(), named) {
+    let mut drop_ids = if mass_delete(previous.len(), named) {
         Vec::new()
     } else {
         previous
             .iter()
+            .filter(|prev| !prev.page_id.is_empty())
             .filter(|prev| doomed.iter().any(|id| *id == prev.page_id))
             .map(|prev| prev.object_id)
             .collect()
     };
     let folders = folders_of(&set.doc);
-    let manifest = encode_manifest(&set.meta, &slots, &folders, generation)?;
+    let shared_json = shared_json(&set.doc);
+    let shared = if shared_json.is_empty() {
+        if let Some(prev) = previous.iter().find(|slot| slot.page_id.is_empty()) {
+            drop_ids.push(prev.object_id);
+        }
+        None
+    } else {
+        Some(seal_shared(previous, &shared_json, vault, &mut objects)?)
+    };
+    let manifest = encode_manifest(&set.meta, &slots, &folders, generation, shared.as_ref())?;
+    if let Some(slot) = shared {
+        slots.push(slot);
+    }
     let sealed_manifest =
         sync_keys::seal_manifest(vault, epoch, MANIFEST_ID, &manifest, generation)?;
     Ok(Planned {
@@ -566,6 +698,18 @@ pub fn manifest_wants(manifest: &[u8], previous: &[Slot]) -> Result<Vec<[u8; 16]
         });
         if !have {
             want.push(entry.object_id);
+        }
+    }
+    if let Some(shared) = &decoded.shared {
+        let have = previous.iter().any(|slot| {
+            slot.page_id.is_empty()
+                && slot.object_id == shared.object_id
+                && slot.hash == shared.hash
+                && slot.revision == shared.revision
+                && !slot.doc.is_empty()
+        });
+        if !have {
+            want.push(shared.object_id);
         }
     }
     Ok(want)
@@ -677,6 +821,41 @@ pub fn assemble(
         if let Some(folder) = place_of_doc(&slot.doc, &slot.page_id) {
             lib.set_place(&slot.page_id, Some(&folder));
         }
+    }
+    if let Some(shared) = decoded.shared {
+        let prev = previous.iter().find(|slot| slot.page_id.is_empty());
+        let found = incoming.iter().find(|item| item.id == shared.object_id);
+        let (doc, server_rev) = if let Some(item) = found {
+            let doc = open_object(&shared.content_key, &shared.object_id, &item.body)?;
+            (doc, item.revision)
+        } else if let Some(prev) = prev {
+            if prev.object_id != shared.object_id
+                || prev.hash != shared.hash
+                || prev.revision != shared.revision
+                || prev.doc.is_empty()
+            {
+                return Err(SyncKeyError::Corrupt);
+            }
+            (prev.doc.clone(), prev.server_rev)
+        } else {
+            return Err(SyncKeyError::Corrupt);
+        };
+        let json = std::str::from_utf8(&doc).map_err(|_| SyncKeyError::Corrupt)?;
+        if content_hash(json) != shared.hash {
+            return Err(SyncKeyError::Corrupt);
+        }
+        lib.adopt_vault(json);
+        let vault_id = prev.map(|slot| slot.vault_id).unwrap_or([0u8; 16]);
+        slots.push(Slot {
+            page_id: String::new(),
+            object_id: shared.object_id,
+            hash: shared.hash,
+            content_key: shared.content_key,
+            vault_id,
+            revision: shared.revision,
+            server_rev,
+            doc,
+        });
     }
     let packed = PageSet {
         doc: lib.save(),
@@ -1106,6 +1285,72 @@ mod tests {
         assert!(
             mass.drop_ids.is_empty(),
             "more than two deletes dropped an object"
+        );
+    }
+
+    #[test]
+    fn a_joiner_keeps_the_sidebar_trash_and_settings() {
+        let vault = VaultKey::generate().unwrap();
+        let mut lib = omacus_doc::Library::new();
+        assert!(lib.note_vault(
+            r#"{"sidebar":[{"id":"pantry","kind":"folder","name":"Pantry","parent":"","index":0},{"id":"oats","kind":"page","parent":"pantry","index":0},{"id":"ferry","kind":"page","parent":"pantry","index":1},{"id":"bread","kind":"page","parent":"pantry","index":2},{"id":"cake","kind":"page","parent":"pantry","index":3}],"handles":[{"id":"ferry","handle":"pier"}],"trash":[{"id":"kept","text":"old loaf"}],"prefs":{"theme":"dusk","hideAnswers":true,"lockMinutes":15}}"#
+        ));
+        lib.reconcile("oats", "# Oats\nbowl 2\n", None);
+        lib.reconcile("ferry", "# Ferry\n", None);
+        lib.reconcile("bread", "# Bread\n", None);
+        lib.reconcile("cake", "# Cake\n", None);
+        let set = PageSet {
+            doc: lib.save(),
+            pages: vec![
+                ("oats".into(), "# Oats\nbowl 2\n".into()),
+                ("ferry".into(), "# Ferry\n".into()),
+                ("bread".into(), "# Bread\n".into()),
+                ("cake".into(), "# Cake\n".into()),
+            ],
+            meta: SyncMeta::default(),
+        };
+        let planned = plan(&vault, 1, &set, &[], 1).unwrap();
+        assert!(
+            planned.slots.iter().any(|slot| slot.page_id.is_empty()),
+            "the shared sidebar was not sealed"
+        );
+        let incoming: Vec<Incoming> = planned
+            .objects
+            .iter()
+            .map(|object| Incoming {
+                id: object.id,
+                revision: 1,
+                body: object.body.clone(),
+            })
+            .collect();
+        let want = manifest_wants(&planned.manifest, &[]).unwrap();
+        assert!(
+            planned
+                .slots
+                .iter()
+                .filter(|slot| slot.page_id.is_empty())
+                .all(|slot| want.contains(&slot.object_id)),
+            "a joiner was not told to fetch the sidebar"
+        );
+        let opened = assemble(&planned.manifest, &incoming, &[], &[]).unwrap();
+        let round = PageSet::from_bytes(&opened.packed).unwrap();
+        let present = omacus_doc::Library::load(&round.doc)
+            .unwrap()
+            .vault_present()
+            .unwrap_or_default();
+        assert!(present.contains("Pantry"), "{present}");
+        assert!(present.contains("kept"), "{present}");
+        assert!(present.contains("pier"), "{present}");
+        assert!(present.contains("dusk"), "{present}");
+        assert!(round.pages.iter().any(|(id, _)| id == "bread"));
+        let mut slots = opened.slots.clone();
+        for slot in &mut slots {
+            slot.server_rev = 1;
+        }
+        let again = plan(&vault, 1, &set, &slots, 2).unwrap();
+        assert!(
+            again.objects.is_empty(),
+            "an unchanged sidebar was uploaded again"
         );
     }
 }

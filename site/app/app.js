@@ -8,8 +8,10 @@ import init, {
   bindingAt, renameVariable, definitionChange, pageRefAt, rewriteVarRefs, renameBlurb, propagateRename, propagateHandle,
   lockCreate, lockWrap, lockSeal, lockOpen, lockUnwrap, lockOpenPassword, lockIs,
   docMigrate, docSnapshot, docApply, docMergeDisk, docConflicts, docPick, docRemove, docSetFolders, docUnion,
+  docNoteState, docState,
   appVersion,
 } from "./pkg/omacus_web.js";
+import { applyPresent, structuralState, WEB_THEMES } from "./library-state.mjs";
 import { APP_VERSION } from "./version.js";
 import {
   EditorState, StateField, StateEffect, RangeSetBuilder, Prec, EditorView, Decoration, WidgetType, keymap, hoverTooltip,
@@ -742,6 +744,7 @@ let settings = loadSettings();
 
 function saveSettings() {
   store.set("settings", JSON.stringify(settings));
+  noteSyncEdit();
 }
 
 function themeName() {
@@ -779,6 +782,36 @@ function syncThemeChrome() {
     document.head.appendChild(status);
   }
   status.setAttribute("content", "black-translucent");
+}
+
+function applySharedPrefs(prefs) {
+  if (!prefs || typeof prefs !== "object") return;
+  let changed = false;
+  if (typeof prefs.theme === "string" && WEB_THEMES.includes(prefs.theme) && prefs.theme !== settings.theme) {
+    settings.theme = prefs.theme;
+    changed = true;
+  }
+  if (typeof prefs.hideAnswers === "boolean" && prefs.hideAnswers !== !!settings.hideAnswers) {
+    settings.hideAnswers = prefs.hideAnswers;
+    changed = true;
+  }
+  if (Number.isFinite(prefs.lockMinutes)) {
+    const minutes = Math.max(0, Math.min(240, Math.round(prefs.lockMinutes)));
+    if (minutes !== settings.lockMinutes) {
+      settings.lockMinutes = minutes;
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  saveSettings();
+  applySettings();
+  const select = document.querySelector("[data-setting=theme]");
+  if (select) select.value = settings.theme;
+  const hide = document.querySelector("[data-setting=hide-answers]");
+  if (hide) hide.checked = settings.hideAnswers;
+  const lockAfter = document.querySelector("[data-setting=lock-minutes]");
+  if (lockAfter) lockAfter.value = String(settings.lockMinutes ?? 5);
+  updateThemeNote();
 }
 
 function applySettings() {
@@ -1031,7 +1064,33 @@ function setSyncPlaces(places) {
   renderSidebar();
 }
 
-if (document.documentElement.dataset.syncTest === "1") globalThis.omacusShowPlaces = setSyncPlaces;
+if (document.documentElement.dataset.syncTest === "1") {
+  globalThis.omacusShowPlaces = setSyncPlaces;
+  globalThis.omacusBlankLibrary = () => {
+    state.texts = new Map();
+    state.tree = [];
+    state.handles = new Map();
+    state.order = [];
+    state.active = null;
+    docBytes = new Uint8Array();
+    librarySeeded = true;
+    globalThis.__omacusBlank = true;
+    for (const key of storeKeys()) {
+      if (key.startsWith("page:") || key.startsWith("sheet:") || key === "library-doc") store.remove(key);
+    }
+    saveTrash([]);
+    saveIndex();
+    renderSidebar();
+  };
+  globalThis.omacusReplacePage = (id, text) => {
+    if (!id || !state.texts.has(id)) return false;
+    state.texts.set(id, text);
+    if (state.active === id) showSheet();
+    saveSheet(id);
+    renderSidebar();
+    return true;
+  };
+}
 
 function filterSyncedTree(nodes, local) {
   const out = [];
@@ -5162,6 +5221,9 @@ function syncSnapshotPages() {
 }
 
 async function takeSyncSnapshot() {
+  if (globalThis.__omacusBlank && state.texts.size === 0) {
+    return { pages: [], doc: new Uint8Array() };
+  }
   if (pendingSave) {
     clearTimeout(pendingSave);
     pendingSave = null;
@@ -5172,10 +5234,20 @@ async function takeSyncSnapshot() {
       applyingRemote = false;
     }
   }
-  return {
-    pages: syncSnapshotPages(),
-    doc: docBytes && docBytes.length ? new Uint8Array(docBytes) : new Uint8Array(),
-  };
+  let doc = docBytes && docBytes.length ? new Uint8Array(docBytes) : new Uint8Array();
+  try {
+    const structural = structuralState({
+      tree: state.tree,
+      handles: state.handles,
+      trash: loadTrash(),
+      settings,
+    });
+    const next = docNoteState(doc, structural);
+    if (next && next.length) doc = next;
+  } catch {
+    // An older engine still syncs the pages. The sidebar waits for this build.
+  }
+  return { pages: syncSnapshotPages(), doc };
 }
 
 async function backupBeforeRemote() {
@@ -5289,7 +5361,31 @@ async function applyRemoteLibrary(nextDoc, pages) {
     for (const [id, text] of state.texts) {
       if (id && id !== "shared") await store.set("page:" + id, text ?? "");
     }
-    state.tree = orderPagesLike(state.tree, pages);
+    let present = "";
+    try {
+      present = docState(docBytes) || "";
+    } catch {
+      present = "";
+    }
+    if (present) {
+      const applied = applyPresent({
+        tree: state.tree,
+        handles: state.handles,
+        trash: loadTrash(),
+      }, present, pages);
+      state.tree = applied.tree;
+      state.handles = applied.handles instanceof Map ? applied.handles : new Map();
+      saveTrash(applied.trash);
+      for (const item of applied.trash) {
+        if (!item.id) continue;
+        state.texts.delete(item.id);
+        store.remove("page:" + item.id);
+        store.remove("sheet:" + item.id);
+      }
+      applySharedPrefs(applied.prefs);
+    } else {
+      state.tree = orderPagesLike(state.tree, pages);
+    }
     syncOrder();
     if (state.active !== "shared" && !state.order.includes(state.active)) state.active = state.order[0] ?? state.active;
     saveIndex();
@@ -5299,6 +5395,7 @@ async function applyRemoteLibrary(nextDoc, pages) {
     showDocConflicts();
   } finally {
     applyingRemote = false;
+    globalThis.__omacusBlank = false;
   }
 }
 
@@ -5318,15 +5415,22 @@ async function start() {
     open.addEventListener("click", () => (open.href = sharePageUrl(shareEncode(currentText()))));
   } else {
     load();
-    const action = seedAction({
-      pages: state.order.length,
-      seeded: librarySeeded,
-      trash: loadTrash().length,
-    });
-    if (action === "welcome-mark" || action === "mark") librarySeeded = true;
-    if (action === "examples") installLibrary(freshLibrary(WELCOME));
-    else if (action === "welcome" || action === "welcome-mark") addSheet(WELCOME);
-    else if (action === "mark") saveIndex();
+    // A joined proof starts empty. The example pages would be a second library.
+    // The usual checks use the same test store and still need those examples.
+    if (document.documentElement.dataset.syncBlank !== "1") {
+      const action = seedAction({
+        pages: state.order.length,
+        seeded: librarySeeded,
+        trash: loadTrash().length,
+      });
+      if (action === "welcome-mark" || action === "mark") librarySeeded = true;
+      if (action === "examples") installLibrary(freshLibrary(WELCOME));
+      else if (action === "welcome" || action === "welcome-mark") addSheet(WELCOME);
+      else if (action === "mark") saveIndex();
+    } else {
+      librarySeeded = true;
+      saveIndex();
+    }
   }
   await init({ module_or_path: WASM });
   try {

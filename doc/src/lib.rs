@@ -7,6 +7,10 @@
 
 use std::collections::HashSet;
 
+mod state;
+
+pub use state::{merge_vaults, note_structural, present_vault};
+
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ChangeHash, ObjType, ROOT, ReadDoc, ScalarValue, Value};
 use sha2::{Digest, Sha256};
@@ -712,6 +716,7 @@ impl Library {
                 let _ = self.set_parent(&folder.id, folder.parent.as_deref());
             }
         }
+        self.keep_shared_state(other);
     }
 
     fn ensure_page(&mut self, page_id: &str) -> automerge::ObjId {
@@ -1005,6 +1010,7 @@ impl Library {
                 }
             }
         }
+        self.keep_shared_state(&other);
     }
 
     fn str_at_heads(

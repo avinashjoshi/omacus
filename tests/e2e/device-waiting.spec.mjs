@@ -135,7 +135,7 @@ test("a closed Sync panel still shows a phone that is waiting", async ({ browser
 
     const chip = phoneA.locator(".sync-chip");
     const side = phoneA.locator(".side-foot-row[data-device-waiting]");
-    await expect(chip).toHaveText("Synced");
+    await expect(chip).toHaveText("Live", { timeout: 10000 });
     await expect(side).toBeHidden();
     await shot(phoneA, "device-waiting-before-desktop-light");
 
@@ -190,7 +190,7 @@ test("a closed Sync panel still shows a phone that is waiting", async ({ browser
     await new Promise((resolve) => setTimeout(resolve, 1500));
     const clocked = await fetch(BOX + "/__clock", { method: "POST" });
     if (!clocked.ok) throw new Error(await clocked.text());
-    await expect(chip).toHaveText("Synced", { timeout: 20000 });
+    await expect(chip).toHaveText("Live", { timeout: 20000 });
     await expect(side).toBeHidden();
     await expect(phoneA.locator(".rail [data-device-waiting]")).toBeHidden();
 
@@ -207,7 +207,7 @@ test("a closed Sync panel still shows a phone that is waiting", async ({ browser
     await expect(phoneC.getByRole("heading", { name: "Do these match?" })).toBeVisible({ timeout: 30000 });
     await phoneC.getByRole("button", { name: "These match" }).click();
     await expect(phoneC.locator("[data-sync-linked]")).toBeVisible({ timeout: 20000 });
-    await expect(chip).toHaveText("Synced", { timeout: 30000 });
+    await expect(chip).toHaveText("Live", { timeout: 30000 });
     await expect(side).toBeHidden();
     await expect(phoneA.getByText("That code didn't work")).toHaveCount(0);
     await expect(phoneC.getByText("That code didn't work")).toHaveCount(0);

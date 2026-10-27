@@ -108,7 +108,8 @@ fn parity_matrix_runs_end_to_end() {
     assert!(a.leader_ok());
 
     a.done();
-    assert_eq!(a.chip(Instant::now()), Chip::Synced);
+    a.set_socket_live(true);
+    assert_eq!(a.chip(Instant::now()), Chip::Live);
     a.testing_busy(Duration::from_millis(200));
     assert_ne!(a.chip(Instant::now()), Chip::Syncing);
     a.testing_busy(Duration::from_secs(2));

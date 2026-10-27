@@ -333,7 +333,7 @@ await contextA.setOffline(false);
 await contextB.setOffline(false);
 await pageA.waitForFunction(() => {
   const chip = document.querySelector(".sync-chip");
-  return chip?.dataset.state === "on" && chip.textContent === "Synced";
+  return chip?.dataset.state === "on" && chip.textContent === "Live";
 }, null, { timeout: 20000 });
 await pageB.locator(".cm-content").getByText("museum = 12").waitFor({ timeout: 30000 });
 await pageA.locator(".cm-content").getByText("park = 2").waitFor({ timeout: 30000 });
@@ -348,7 +348,7 @@ await pageA.waitForFunction(() => document.querySelector(".sync-chip")?.textCont
 await contextA.setOffline(false);
 await pageA.waitForFunction(() => {
   const chip = document.querySelector(".sync-chip");
-  return chip?.dataset.state === "on" && chip.textContent === "Synced";
+  return chip?.dataset.state === "on" && chip.textContent === "Live";
 }, null, { timeout: 20000 });
 
 await pageA.setViewportSize({ width: 1280, height: 800 });
