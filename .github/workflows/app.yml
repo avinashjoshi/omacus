@@ -5,9 +5,14 @@ name: App
 #
 # A push to main does not deploy. The Release workflow publishes this same
 # commit after it tags the desktop app, using the app environment below.
-# workflow_dispatch is only for retrying that deploy.
+# workflow_dispatch is the retry. A change to this file is the other retry,
+# for a release whose web deploy failed and could not be started by hand.
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/app.yml
 
 permissions:
   contents: write
