@@ -123,6 +123,24 @@ impl Chip {
 /// Shown when the linked phones and computers are not the list last acknowledged.
 pub const LIST_NOTE: &str = "The list of phones and computers changed. One that was removed can still read pages it already saved. New pages stay with the ones still linked. Your recovery words can put the list back.";
 
+/// The relay uses one sentence for a missing mailbox and for a device it will
+/// not authenticate. That is not proof this computer was removed.
+pub const COPY_UNREADABLE: &str = "That copy could not be read.";
+
+/// What a person sees when the saved copy could not be read. Sync stays on.
+pub const COPY_MISSED: &str =
+    "This computer could not read the saved copy. Your pages are still here.";
+
+/// Hover and the paused screen. This computer is actually off the list.
+pub const PAUSED_HINT: &str =
+    "This computer is not on the list. New pages stay here. Open Sync to join again.";
+
+/// The approval dialog, when the red sentence is about the saved copy.
+pub const COPY_NOTE: &str = "That sentence is about the saved copy, not this request. The numbers and the words are still the ones on that phone. Yes adds it only if this computer can save the list.";
+
+/// The approval dialog, when the request itself has no numbers or words.
+pub const REQUEST_UNREADABLE: &str = "This request could not be read, so it is not added.";
+
 /// The first list is the baseline. The same ids, in any order, are quiet.
 pub fn list_ids_changed(previous: &[String], next: &[String]) -> bool {
     if previous.is_empty() {
@@ -261,9 +279,7 @@ impl Session {
         }
         session.load_book();
         session.load_disk();
-        if session.removed {
-            session.member = false;
-        }
+        session.restore_false_pause();
         session
     }
 
@@ -443,6 +459,12 @@ impl Session {
                 self.screen = Screen::Approve;
             }
             "recover" => self.screen = Screen::Recover,
+            "paused" => {
+                self.on = true;
+                self.member = false;
+                self.removed = true;
+                self.screen = Screen::Removed;
+            }
             "off" => self.screen = Screen::OffAsk,
             "pass" | "pass-enter" => self.screen = Screen::PassEnter,
             "pass-set" => self.screen = Screen::PassSet,
@@ -668,9 +690,142 @@ impl Session {
     }
 
     pub fn show_home(&mut self) {
+        if self.removed {
+            self.screen = Screen::Removed;
+            return;
+        }
         if self.on {
             self.screen = Screen::Home;
             self.mark("devices");
+        }
+    }
+
+    /// Sidebar and the collapsed cloud. Sync stays reachable after a pause.
+    pub fn paused(&self) -> bool {
+        self.removed
+    }
+
+    pub fn entry_visible(&self) -> bool {
+        self.offer_setup() || self.on || self.removed
+    }
+
+    pub fn entry_label(&self) -> &'static str {
+        if self.on || self.removed {
+            "Sync"
+        } else {
+            "Turn on sync"
+        }
+    }
+
+    /// Open the sync screen from the sidebar, the cloud, or the status pill.
+    pub fn open_entry(&mut self) {
+        if self.removed {
+            self.screen = Screen::Removed;
+            return;
+        }
+        if !self.pending_id.is_empty() && self.screen == Screen::Closed {
+            self.open_approve();
+            return;
+        }
+        if self.offer_setup() && !self.on {
+            self.open_intro();
+            return;
+        }
+        self.show_home();
+    }
+
+    /// What the status pill does when it is tapped.
+    pub fn status_opens_list(&self, now: Instant) -> bool {
+        self.chip(now) == Chip::ListChanged
+    }
+
+    pub fn open_from_status(&mut self, now: Instant) {
+        match self.chip(now) {
+            Chip::Hidden | Chip::ListChanged => {}
+            Chip::Waiting => self.open_approve(),
+            // A dismissed pause still opens. A screen that is already open stays.
+            Chip::Paused => self.screen = Screen::Removed,
+            _ if self.screen != Screen::Closed => {}
+            _ => self.open_entry(),
+        }
+    }
+
+    /// The sentence under the pill. It names the state. It is not a second label.
+    pub fn chip_hint(&self, now: Instant) -> String {
+        match self.chip(now) {
+            Chip::Hidden => String::new(),
+            Chip::Synced => "These pages are synced. Open Sync to see this computer.".into(),
+            Chip::Syncing => "Saving these pages.".into(),
+            Chip::Offline => "Offline. Edits are saved on this computer.".into(),
+            Chip::Paused => PAUSED_HINT.into(),
+            Chip::NotSaved => {
+                if self.error.is_empty() {
+                    "The last save did not finish. Open Sync to try again.".into()
+                } else {
+                    self.error.clone()
+                }
+            }
+            Chip::Waiting => "A phone or computer is waiting to join.".into(),
+            Chip::ListChanged => "The list of phones and computers changed.".into(),
+        }
+    }
+
+    /// The join request has numbers and four words. A saved-copy error is separate.
+    pub fn request_readable(&self) -> bool {
+        if self.pending_device.is_empty() {
+            return false;
+        }
+        let numbers = desk::code_for_device(&self.pending_device).unwrap_or_default();
+        !numbers.is_empty() && self.four_words().split_whitespace().count() == 4
+    }
+
+    pub fn copy_note(&self) -> &'static str {
+        if !self.request_readable() && self.screen == Screen::Approve {
+            return REQUEST_UNREADABLE;
+        }
+        if self.error == COPY_UNREADABLE {
+            COPY_NOTE
+        } else {
+            ""
+        }
+    }
+
+    /// Ask the server once more. This does not add a device and does not delete pages.
+    pub fn check_again(&mut self) -> Result<(), String> {
+        self.error.clear();
+        let listed = self.desk.as_ref().is_some_and(Desk::member);
+        if listed {
+            self.removed = false;
+            self.member = true;
+            self.on = true;
+        }
+        match self.pull_if_newer() {
+            Ok(()) if !self.removed && self.member => {
+                self.screen = Screen::Home;
+                self.save_book();
+                Ok(())
+            }
+            Ok(()) => {
+                self.screen = if self.removed {
+                    Screen::Removed
+                } else {
+                    Screen::Home
+                };
+                Ok(())
+            }
+            Err(error) => {
+                if listed && self.desk.as_ref().is_some_and(Desk::member) {
+                    self.removed = false;
+                    self.member = true;
+                    self.on = true;
+                }
+                self.screen = if self.removed {
+                    Screen::Removed
+                } else {
+                    Screen::Home
+                };
+                Err(error)
+            }
         }
     }
 
@@ -1167,10 +1322,7 @@ impl Session {
         // Read the latest list first. A phone that joined after this computer
         // last saved has a longer list, and the server refuses an older one.
         for _ in 0..2 {
-            if let Err(error) = self.pull_if_newer() {
-                if self.dropped_from_list(&error) {
-                    self.mark_removed();
-                }
+            if self.pull_if_newer().is_err() {
                 return self.leave_failed();
             }
             if self.removed {
@@ -1568,7 +1720,9 @@ impl Session {
         if self.offline {
             return Chip::Offline;
         }
-        if !self.error.is_empty() && self.member && self.screen == Screen::Closed {
+        // A failed save stays on the pill on every screen, including approval.
+        // Synced is only the quiet case.
+        if !self.error.is_empty() && self.member {
             return Chip::NotSaved;
         }
         if self.busy
@@ -1965,9 +2119,8 @@ impl Session {
                 if let Some(desk) = self.desk.as_mut() {
                     desk.rewind_generation(generation);
                 }
-                if self.dropped_from_list(&error) {
-                    self.mark_removed();
-                    return Ok(());
+                if self.note_missed_copy(&error) {
+                    return Err(self.error.clone());
                 }
                 if retry && error.contains("out of date") {
                     self.pull_if_newer()?;
@@ -2096,11 +2249,38 @@ impl Session {
         Ok(out)
     }
 
-    /// A device that was on the list and then dropped gets the same reply as a
-    /// missing mailbox. The pages stay on this computer and the chip says
-    /// Sync paused. A computer that has never joined still hears the error.
-    fn dropped_from_list(&self, error: &str) -> bool {
-        self.member && error == "No pages for that yet."
+    /// The server says "No pages for that yet" both when the mailbox is missing
+    /// and when this device does not authenticate. That reply does not remove
+    /// this computer. The pages stay, the pill says the copy could not be read,
+    /// and Sync stays open. A real removal is a record whose list leaves this
+    /// computer out.
+    fn note_missed_copy(&mut self, error: &str) -> bool {
+        if !self.member || error != "No pages for that yet." {
+            return false;
+        }
+        self.busy = false;
+        self.error = COPY_MISSED.into();
+        true
+    }
+
+    /// A pause written by an older build, while this computer is still on its
+    /// own list, was a missed read. Resume. A list that no longer includes
+    /// this computer stays paused, and Sync still opens.
+    fn restore_false_pause(&mut self) {
+        if !self.removed {
+            return;
+        }
+        if self.desk.as_ref().is_some_and(Desk::member) {
+            self.removed = false;
+            self.member = true;
+            self.on = true;
+            self.save_book();
+            return;
+        }
+        self.member = false;
+        if self.desk.is_some() {
+            self.on = true;
+        }
     }
 
     fn mark_removed(&mut self) {
@@ -2116,13 +2296,18 @@ impl Session {
         let mailbox = match self.fetch_mailbox() {
             Ok(mailbox) => mailbox,
             Err(error) => {
-                if self.dropped_from_list(&error) {
-                    self.mark_removed();
+                if self.note_missed_copy(&error) {
                     return Ok(());
+                }
+                if !error.starts_with("Offline") {
+                    self.error = error.clone();
                 }
                 return Err(error);
             }
         };
+        if self.error == COPY_MISSED {
+            self.error.clear();
+        }
         let revision = mailbox
             .json
             .get("revision")
@@ -2155,10 +2340,7 @@ impl Session {
         self.revision = revision;
         self.member = opened.member;
         if !opened.member && !opened.replace {
-            self.removed = true;
-            self.member = false;
-            self.screen = Screen::Removed;
-            self.save_book();
+            self.mark_removed();
             self.mark("off");
             return Ok(());
         }
@@ -3614,6 +3796,128 @@ mod list_note_tests {
         assert!(session.list_note, "noting the list stopped sync");
         assert_eq!(session.chip(Instant::now()), Chip::ListChanged);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_missed_copy_does_not_pause_or_hide_sync() {
+        let dir = std::env::temp_dir().join(format!("omacus-miss-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
+        session.on = true;
+        session.member = true;
+        session.screen = Screen::Home;
+        assert!(session.note_missed_copy("No pages for that yet."));
+        assert!(!session.paused());
+        assert!(session.member);
+        assert_eq!(session.error, COPY_MISSED);
+        assert_eq!(session.chip(Instant::now()), Chip::NotSaved);
+        assert_eq!(session.chip_hint(Instant::now()), COPY_MISSED);
+        assert!(session.entry_visible());
+        assert_eq!(session.entry_label(), "Sync");
+        assert!(!session.note_missed_copy("Couldn't sync."));
+        session.error = COPY_UNREADABLE.into();
+        assert_eq!(session.copy_note(), COPY_NOTE);
+        session.screen = Screen::Approve;
+        assert_eq!(session.copy_note(), REQUEST_UNREADABLE);
+        assert!(!session.request_readable());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_pause_still_opens_sync_and_a_false_pause_resumes() {
+        let dir = std::env::temp_dir().join(format!("omacus-paused-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
+        session.on = true;
+        session.member = true;
+        session.mark_removed();
+        assert!(session.paused());
+        assert!(session.on, "pausing must leave the sidebar entry in place");
+        session.on = false;
+        assert!(session.entry_visible());
+        assert_eq!(session.entry_label(), "Sync");
+        session.on = true;
+        assert!(session.entry_visible());
+        assert_eq!(session.entry_label(), "Sync");
+        assert_eq!(session.chip(Instant::now()), Chip::Paused);
+        assert!(
+            session
+                .chip_hint(Instant::now())
+                .contains("not on the list")
+        );
+        assert!(
+            session
+                .chip_hint(Instant::now())
+                .to_lowercase()
+                .contains("join again")
+        );
+        session.screen = Screen::Closed;
+        session.open_from_status(Instant::now());
+        assert_eq!(session.screen, Screen::Removed);
+        session.screen = Screen::Home;
+        session.open_from_status(Instant::now());
+        assert_eq!(session.screen, Screen::Removed);
+        session.removed = false;
+        session.member = true;
+        session.on = true;
+        session.screen = Screen::Home;
+        session.error = "Not saved".into();
+        session.open_from_status(Instant::now());
+        assert_eq!(
+            session.screen,
+            Screen::Home,
+            "a status tap leaves the open sync screen where it is"
+        );
+        session.screen = Screen::Closed;
+        session.open_from_status(Instant::now());
+        assert_eq!(session.screen, Screen::Home);
+        session.error.clear();
+        session.mark_removed();
+        for chip in [
+            Chip::Synced,
+            Chip::Syncing,
+            Chip::Offline,
+            Chip::Paused,
+            Chip::NotSaved,
+            Chip::Waiting,
+            Chip::ListChanged,
+        ] {
+            assert!(chip.label().is_some());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let kept = std::env::temp_dir().join(format!("omacus-resume-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&kept);
+        std::fs::create_dir_all(kept.join("sync")).unwrap();
+        let mut desk = Desk::start_new().unwrap();
+        let words = desk.words().unwrap();
+        let picks: Vec<(u8, &str)> = omacus_sync_web::desk::CONFIRM_AT
+            .into_iter()
+            .map(|n| (n, words[n as usize - 1]))
+            .collect();
+        desk.confirm_saved(&picks).unwrap();
+        assert!(desk.member());
+        let device = desk.export_local().unwrap();
+        let mut blob = Vec::new();
+        blob.extend_from_slice(&u32::try_from(device.len()).unwrap().to_be_bytes());
+        blob.extend_from_slice(&device);
+        keys::save(&kept, &blob).unwrap();
+        std::fs::write(
+            kept.join("sync").join("book.json"),
+            r#"{"account":"","revision":1,"removed":true,"member":false}"#,
+        )
+        .unwrap();
+        let resumed = Session::open(kept.clone(), "http://127.0.0.1:9");
+        assert!(
+            !resumed.paused(),
+            "a computer still on its own list resumes"
+        );
+        assert!(resumed.entry_visible());
+        assert_eq!(resumed.entry_label(), "Sync");
+        assert_eq!(resumed.chip(Instant::now()), Chip::Synced);
+        let book = std::fs::read_to_string(kept.join("sync").join("book.json")).unwrap();
+        assert!(!book.contains("\"removed\": true"));
+        let _ = std::fs::remove_dir_all(kept);
     }
 
     #[test]
