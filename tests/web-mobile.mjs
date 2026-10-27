@@ -116,7 +116,16 @@ check(html.includes("data-pick"), "a same-line conflict can ask which line to ke
 check(js.includes("docMigrate") && js.includes("Keep this line") && js.includes("Use the other line"), "the page document can merge a line and ask for a pick");
 check(sw.includes('"tree.js"'), "the folder tree is part of the offline shell");
 check(sw.includes('"layer.js"'), "the row menu placement is part of the offline shell");
-check(syncJs.includes('setChip("Synced", "on")') && !syncJs.includes('setChip("", "on")'), "a quiet sync says Synced, not an empty pill");
+check(syncJs.includes('setChip("Live", "on")') && !syncJs.includes('setChip("Synced"') && !syncJs.includes('setChip("", "on")'), "a quiet sync says Live, not Synced");
+{
+  const approve = syncJs.slice(syncJs.indexOf("async function approvePending"), syncJs.indexOf("async function decline"));
+  check(approve.includes("try {") && approve.includes("} finally {") && approve.includes("state.busy = false"), "approving always leaves the button");
+  check(syncJs.includes("AbortSignal.timeout(FETCH_TIMEOUT_MS)"), "a sync request gives up instead of waiting forever");
+  check(syncJs.includes("That took too long. Your pages are still here."), "a timed-out approval says what happened");
+  const watchers = syncJs.split("function watchApproval").length - 1;
+  check(watchers === 1 && syncJs.includes("approvalCard("), "an expired approval card closes itself");
+}
+check(sw.includes('"library-state.mjs"'), "shared sidebar state is part of the offline shell");
 check(syncJs.includes('setChip("Syncing", "wait")') && !syncJs.includes("Saving…"), "a long save says Syncing");
 {
   const arm = syncJs.slice(syncJs.indexOf("function armSaving"), syncJs.indexOf("function guessDeviceName"));

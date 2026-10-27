@@ -317,8 +317,71 @@ export class Mailboxes extends DurableObject {
     noteActivity(mailbox);
     return auth;
   }
+  tell(account, rev) {
+    const payload = fanout(account, rev);
+    const sockets = [];
+    if (this.ctx && typeof this.ctx.getWebSockets === "function") {
+      try {
+        const found = this.ctx.getWebSockets();
+        if (found) sockets.push(...found);
+      } catch { /* this runtime has no hibernation list */ }
+    }
+    for (const socket of this.listeners || []) sockets.push(socket);
+    for (const socket of sockets) {
+      try { socket.send(payload); } catch { /* closed */ }
+    }
+  }
+
+  async openLive(request, url) {
+    const path = url.pathname;
+    const match = /^\/v1\/mailboxes\/([0-9a-f]{64})\/live$/.exec(path);
+    if (!match) return json(404, { message: ERR.Unknown[1] });
+    const account = match[1];
+    const headers = new Headers(request.headers);
+    for (const key of ["device", "time", "nonce", "signature"]) {
+      const value = url.searchParams.get(key);
+      if (value) headers.set(`x-omacus-${key}`, value);
+    }
+    let mailbox;
+    try { mailbox = await this.load(account); }
+    catch { return json(404, { message: ERR.Unknown[1] }); }
+    const auth = await authorize("GET", path, "", headers, mailbox.record, this.now(), mailbox);
+    if (!auth || auth.busy) return json(auth && auth.busy ? 429 : 404, { message: (auth && auth.busy ? ERR.Busy : ERR.Unknown)[1] });
+    await this.save(account, mailbox);
+    const rev = Number.isInteger(mailbox.revision) ? mailbox.revision : 0;
+    const payload = JSON.stringify({ rev });
+    if (typeof WebSocketPair === "function" && this.ctx && typeof this.ctx.acceptWebSocket === "function") {
+      const pair = new WebSocketPair();
+      this.ctx.acceptWebSocket(pair[1]);
+      try { pair[1].send(payload); } catch { /* the hello can follow on the next write */ }
+      fanout(account, rev);
+      return liveResponse(payload, pair[0]);
+    }
+    const socket = {
+      sent: [],
+      send(data) { this.sent.push(String(data)); },
+    };
+    if (this.ctx && typeof this.ctx.acceptWebSocket === "function") this.ctx.acceptWebSocket(socket);
+    else {
+      this.listeners = this.listeners || [];
+      this.listeners.push(socket);
+    }
+    fanout(account, rev);
+    try { socket.send(payload); } catch { /* recorded above when send is ours */ }
+    return liveResponse(payload);
+  }
+
   async fetch(request) {
     const url = new URL(request.url);
+    if ((request.headers.get("upgrade") || "").toLowerCase() === "websocket") {
+      try {
+        return await this.openLive(request, url);
+      } catch (e) {
+        const name = Object.hasOwn(ERR, e) ? e : "Other";
+        const [status, message] = ERR[name] || [500, "Try again in a moment."];
+        return json(status, { message });
+      }
+    }
     const access = {
       hash: (request.headers.get("x-omacus-access-hash") || "").toLowerCase(),
       uses: Number(request.headers.get("x-omacus-access-uses") || "0"),
@@ -363,6 +426,11 @@ export class Mailboxes extends DurableObject {
   // A put and an approval can overlap on a slow phone. One transaction keeps
   // both changes; the last write must not roll the saved pages back.
   async change(account, update) {
+    let before = 0;
+    try {
+      const cur = await this.store.get("m:" + account);
+      if (cur && Number.isInteger(cur.revision)) before = cur.revision;
+    } catch { /* a missing mailbox fails inside the transaction */ }
     let out;
     await this.store.transaction(async (txn) => {
       const m = (await txn.get("m:" + account)) || fail("Unknown");
@@ -370,6 +438,10 @@ export class Mailboxes extends DurableObject {
       out = await update(m, txn);
       await txn.put("m:" + account, m);
     });
+    try {
+      const after = await this.store.get("m:" + account);
+      if (after && Number.isInteger(after.revision) && after.revision > before) this.tell(account, after.revision);
+    } catch { /* the write is already saved */ }
     return out;
   }
 
@@ -934,6 +1006,36 @@ export class Mailboxes extends DurableObject {
 
 export function clearPlacement() {
   homed.clear();
+}
+
+// Open sockets for one set of pages. The payload is a revision number.
+const liveHooks = new Map();
+const liveRev = new Map();
+
+export function bindLive(account, send) {
+  const list = liveHooks.get(account) || [];
+  list.push(send);
+  liveHooks.set(account, list);
+  if (liveRev.has(account)) send(JSON.stringify({ rev: liveRev.get(account) }));
+}
+
+function liveResponse(payload, webSocket) {
+  const headers = { "content-type": "application/json", "cache-control": "no-store", "x-omacus-live": "1" };
+  try {
+    return new Response(webSocket ? null : payload, { status: 101, headers, webSocket });
+  } catch {
+    // Node's Response refuses 101. The test relay still treats this as the socket opening.
+    return new Response(payload, { status: 200, headers });
+  }
+}
+
+function fanout(account, rev) {
+  liveRev.set(account, rev);
+  const payload = JSON.stringify({ rev });
+  for (const send of liveHooks.get(account) || []) {
+    try { send(payload); } catch { /* the device already left */ }
+  }
+  return payload;
 }
 
 function box(env, name) {
@@ -1641,6 +1743,7 @@ async function routeClient(env, request) {
   if (mailboxPath) {
     const account = mailboxPath[1];
     await migrateIfAbsent(env, request, account);
+    if (mailboxPath[2] === "/live") return box(env, accountObject(account)).fetch(request);
     const response = await box(env, accountObject(account)).fetch(forward());
     if (response.ok && method === "POST" && mailboxPath[2] === "/invites") await publishInvite(env, request, account, raw);
     if (response.ok && method === "PUT" && !mailboxPath[2]) await remember(env, request, account);
@@ -1777,6 +1880,9 @@ export default {
     if (url.pathname === "/css/tokens.css") return adminAsset(request, env, url.pathname);
     if (url.pathname.startsWith("/v1/admin")) return adminApi(request, env, url);
     if (url.pathname.startsWith("/v1/internal")) return json(404, { message: ERR.Unknown[1] });
+    if ((request.headers.get("upgrade") || "").toLowerCase() === "websocket" && url.pathname.startsWith("/v1/")) {
+      return routeClient(env, request);
+    }
     if (url.pathname.startsWith("/v1/")) {
       const forwarded = await gate(request, env, url);
       if (forwarded instanceof Response) return forwarded;

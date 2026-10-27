@@ -116,7 +116,7 @@ async function commitField(page, label, value) {
 async function settled(page) {
   await page.waitForFunction(() => {
     const chip = document.querySelector(".sync-chip");
-    return chip?.dataset.state === "on" && chip.textContent === "Synced";
+    return chip?.dataset.state === "on" && chip.textContent === "Live";
   }, null, { timeout: 20000 });
 }
 
@@ -376,7 +376,7 @@ try {
     widths.push(chip.width);
     await pageA.waitForTimeout(400);
   }
-  if (samples.some((sample) => sample !== "on:Synced")) {
+  if (samples.some((sample) => sample !== "on:Live")) {
     throw new Error(`chip flickered ${samples.join(" | ")}`);
   }
   if (new Set(widths).size !== 1) throw new Error(`chip width jumped ${widths.join(",")}`);

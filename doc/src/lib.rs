@@ -7,6 +7,10 @@
 
 use std::collections::HashSet;
 
+mod state;
+
+pub use state::{merge_vaults, note_structural, present_vault};
+
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ChangeHash, ObjType, ROOT, ReadDoc, ScalarValue, Value};
 use sha2::{Digest, Sha256};

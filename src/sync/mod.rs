@@ -5,12 +5,14 @@
 //! the device keys, the recovery words, or the page text.
 
 mod keys;
+mod live;
 mod qr;
 mod session;
 mod ui;
 mod wire;
 
 pub use keys::e2e_store;
+pub use live::poll_gap_ms;
 pub use session::{Chip, LocalPages, Screen, Session, Work, intro_lines, release_clipboard};
 pub use ui::show;
 

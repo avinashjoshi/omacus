@@ -511,6 +511,10 @@ pub struct OmacusApp {
     /// The session is on a background step. The window keeps drawing a shell.
     sync_job: Option<std::sync::mpsc::Receiver<sync::Session>>,
     sync_poll: Instant,
+    /// Last sidebar and settings written into the library.
+    shared_noted: String,
+    /// A pull changed the theme. The next frame paints it.
+    theme_from_sync: bool,
     /// Page id and the set it should return to if Undo is tapped.
     sync_undo: Option<(String, bool)>,
     /// The app icon, small (sidebar, help rail) and large (About).
@@ -650,6 +654,8 @@ impl OmacusApp {
             sync: sync::Session::open(sync_dir(), &sync_origin()),
             sync_job: None,
             sync_poll: Instant::now(),
+            shared_noted: String::new(),
+            theme_from_sync: false,
             sync_undo: None,
             switcher: std::env::var("OMACUS_SCREENSHOT_HELP")
                 .is_ok_and(|t| t == "switcher")
@@ -1672,9 +1678,13 @@ rental = rent + 50
                 self.sheet_switched();
             }
             Some(PendingDelete::Folder(id)) => {
+                let pages = self.store.pages_in_folder(&id);
                 let Some(name) = self.store.delete_folder(&id) else {
                     return;
                 };
+                for page in pages {
+                    self.sync.delete_page(&page);
+                }
                 self.trash_at = None;
                 self.toast = Some(Toast::undo(format!("Deleted \u{201c}{name}\u{201d}")));
                 self.sheet_switched();
@@ -2305,15 +2315,28 @@ rental = rent + 50
                     .unwrap_or(true);
                 if changed {
                     self.sync.note_edit(&id, &text);
+                    self.sync_poll = Instant::now();
                 }
             }
         }
-        let wait = self.sync.waiting() || self.sync.screen == sync::Screen::Waiting;
-        let every = if wait {
-            Duration::from_millis(800)
-        } else {
-            Duration::from_secs(4)
-        };
+        let structural = self.store.structural_state(&self.settings.shared_prefs());
+        if structural != self.shared_noted && self.sync.note_structural(&structural) {
+            self.store.note_shared(&structural);
+            self.shared_noted = structural;
+            self.sync_poll = Instant::now();
+        } else if structural != self.shared_noted {
+            self.shared_noted = structural;
+        }
+        let waiting = self.sync.waiting() || self.sync.screen == sync::Screen::Waiting;
+        if self.sync.remote_ready() {
+            self.sync.ack_remote();
+            self.sync_poll = Instant::now() - Duration::from_secs(60);
+        }
+        let every = Duration::from_millis(sync::poll_gap_ms(
+            waiting,
+            self.sync.is_dirty(),
+            self.sync.socket_live(),
+        ));
         let modal = !matches!(
             self.sync.screen,
             sync::Screen::Closed | sync::Screen::Waiting
@@ -2337,7 +2360,19 @@ rental = rent + 50
             Ok(session) => {
                 self.sync_job = None;
                 self.sync = session;
-                if self.store.sync().active_changed {
+                let bytes = self.sync.library_bytes();
+                if let Some(present) = self.sync.take_present() {
+                    self.store.sync();
+                    self.store.adopt_library(&bytes);
+                    let prefs = self.store.apply_shared(&present);
+                    if self.settings.apply_shared_prefs(&prefs) {
+                        self.persist_settings();
+                        self.theme_from_sync = true;
+                    }
+                    self.store.remember_library();
+                    self.shared_noted = self.store.structural_state(&self.settings.shared_prefs());
+                    self.evaluate();
+                } else if self.store.sync().active_changed {
                     self.evaluate();
                 }
             }
@@ -5418,6 +5453,10 @@ impl eframe::App for OmacusApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.reap_sync();
+        if self.theme_from_sync {
+            self.theme_from_sync = false;
+            self.reload_theme(ui.ctx());
+        }
         self.handle_background_updates(&ctx);
         self.take_answers();
         self.take_screenshot(&ctx);

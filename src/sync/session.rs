@@ -97,7 +97,7 @@ pub enum Screen {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Chip {
     Hidden,
-    Synced,
+    Live,
     Syncing,
     Offline,
     Paused,
@@ -110,7 +110,7 @@ impl Chip {
     pub fn label(self) -> Option<&'static str> {
         match self {
             Chip::Hidden => None,
-            Chip::Synced => Some("Synced"),
+            Chip::Live => Some("Live"),
             Chip::Syncing => Some("Syncing"),
             Chip::Offline => Some("Offline"),
             Chip::Paused => Some("Sync paused"),
@@ -309,6 +309,9 @@ pub struct Session {
     retry_save: bool,
     approval_sent: bool,
     key_note: String,
+    live: super::live::Live,
+    /// Sidebar, trash, and settings from the last pull. The window applies it once.
+    pending_present: Option<String>,
     #[cfg(test)]
     fail_key_write: bool,
     #[cfg(test)]
@@ -433,6 +436,8 @@ impl Session {
             retry_save: false,
             approval_sent: false,
             key_note: String::new(),
+            live: super::live::Live::new(),
+            pending_present: None,
             #[cfg(test)]
             fail_key_write: false,
             #[cfg(test)]
@@ -505,6 +510,9 @@ impl Session {
         shell.notice = self.notice.clone();
         shell.key_note = self.key_note.clone();
         shell.approval_sent = self.approval_sent;
+        shell.live = self.live.clone();
+        shell.revision = self.revision;
+        shell.dirty = self.dirty;
         shell.frozen = true;
         shell.progress = work.label().to_string();
         if !work.quiet() && shell.screen == Screen::Closed {
@@ -1094,7 +1102,7 @@ impl Session {
     pub fn chip_hint(&self, now: Instant) -> String {
         match self.chip(now) {
             Chip::Hidden => String::new(),
-            Chip::Synced => "These pages are synced. Open Sync to see this computer.".into(),
+            Chip::Live => "These pages are live on your other devices.".into(),
             Chip::Syncing => "Saving these pages.".into(),
             Chip::Offline => "Offline. Edits are saved on this computer.".into(),
             Chip::Paused => PAUSED_HINT.into(),
@@ -1355,6 +1363,8 @@ impl Session {
             return Ok(());
         }
         if self.member && self.leader_ok() && self.on {
+            #[cfg(not(test))]
+            self.ensure_live();
             if self.dirty {
                 let _ = self.push();
             } else {
@@ -1364,27 +1374,71 @@ impl Session {
         Ok(())
     }
 
+    #[cfg(not(test))]
+    fn ensure_live(&mut self) {
+        if self.live.connected() || self.account.is_empty() {
+            return;
+        }
+        let Some(desk) = self.desk.as_ref() else {
+            return;
+        };
+        let path = format!("/v1/mailboxes/{}/live", self.account);
+        let Ok(auth) = desk.sign_request("GET", &path, b"") else {
+            return;
+        };
+        let (scheme, host) = if let Some(host) = self.origin.strip_prefix("https://") {
+            ("wss://", host)
+        } else if let Some(host) = self.origin.strip_prefix("http://") {
+            ("ws://", host)
+        } else {
+            return;
+        };
+        let url = format!(
+            "{scheme}{host}{path}?device={}&time={}&nonce={}&signature={}",
+            auth.device, auth.time, auth.nonce, auth.signature
+        );
+        self.live.offer(url);
+    }
+
     fn poll_join(&mut self) -> Result<(), String> {
         self.ensure_pass()?;
         let account = self.account.clone();
         let id = self.join_id.clone();
         let path = format!("/v1/mailboxes/{account}/requests/{id}");
         let proof = self.join_proof.clone();
-        let reply = self
+        let reply = match self
             .client
-            .open_headers("GET", &path, None, &[("X-Omacus-Proof", proof)])?;
+            .open_headers("GET", &path, None, &[("X-Omacus-Proof", proof)])
+        {
+            Ok(reply) => reply,
+            Err(message) => {
+                if super::live::join_status(Some(message.as_str()), "") == "expired"
+                    && message == "No pages for that yet."
+                {
+                    self.expire_join();
+                    return Err(self.error.clone());
+                }
+                return Err(message);
+            }
+        };
         let state = reply
             .json
             .get("state")
             .and_then(Value::as_str)
             .unwrap_or("");
-        if state == "pending" {
-            return Ok(());
-        }
-        if state != "approved" {
-            self.error = "That phone or computer said no.".into();
-            self.screen = Screen::Join;
-            return Err(self.error.clone());
+        match super::live::join_status(None, state) {
+            "open" if state == "pending" => return Ok(()),
+            "rejected" => {
+                self.error = "That phone or computer said no.".into();
+                self.join_id.clear();
+                self.screen = Screen::Join;
+                return Err(self.error.clone());
+            }
+            "open" => {}
+            _ => {
+                self.expire_join();
+                return Err(self.error.clone());
+            }
         }
         let chain = reply
             .json
@@ -1406,6 +1460,12 @@ impl Session {
         self.screen = Screen::Match;
         self.mark("approve");
         Ok(())
+    }
+
+    fn expire_join(&mut self) {
+        self.error = "That code expired. Ask for a new one on the other phone or computer.".into();
+        self.join_id.clear();
+        self.screen = Screen::Join;
     }
 
     pub fn accept_match(&mut self) -> Result<(), String> {
@@ -2071,7 +2131,7 @@ impl Session {
             return Chip::Offline;
         }
         // A failed save stays on the pill on every screen, including approval.
-        // Synced is only the quiet case.
+        // Live is a socket that is up. Offline is a member with no socket.
         if !self.error.is_empty() && self.member {
             return Chip::NotSaved;
         }
@@ -2085,11 +2145,60 @@ impl Session {
         if self.list_note && self.member {
             return Chip::ListChanged;
         }
-        if self.member {
-            Chip::Synced
+        if self.member && self.live.connected() {
+            Chip::Live
+        } else if self.member {
+            Chip::Offline
         } else {
             Chip::Hidden
         }
+    }
+
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    pub fn socket_live(&self) -> bool {
+        self.live.connected()
+    }
+
+    /// A notice arrived that this device has not pulled yet.
+    pub fn remote_ready(&self) -> bool {
+        let rev = self.live.revision();
+        rev > self.revision && rev != self.live.acked()
+    }
+
+    pub fn ack_remote(&self) {
+        self.live.ack(self.live.revision());
+    }
+
+    pub fn library_bytes(&self) -> Vec<u8> {
+        self.doc.clone()
+    }
+
+    pub fn take_present(&mut self) -> Option<String> {
+        self.pending_present.take()
+    }
+
+    /// Fold the sidebar, trash, handles, and settings into the sealed library.
+    pub fn note_structural(&mut self, structural: &str) -> bool {
+        let mut lib =
+            omacus_doc::Library::load(&self.doc).unwrap_or_else(|_| omacus_doc::Library::new());
+        if !lib.note_vault(structural) {
+            return false;
+        }
+        self.doc = lib.save();
+        let _ = fs::write(self.dir.join("library.automerge"), &self.doc);
+        if self.on {
+            self.dirty = true;
+            self.mark("folders");
+        }
+        true
+    }
+
+    #[cfg(test)]
+    pub fn set_socket_live(&self, on: bool) {
+        self.live.set_connected(on);
     }
 
     /// Remember the first device list. Later changes stay noted until Got it.
@@ -2869,6 +2978,9 @@ impl Session {
         self.write_pages();
         self.park_removed(&kept.removed);
         self.park_removed(&welcome_park);
+        self.pending_present = omacus_doc::Library::load(&self.doc)
+            .ok()
+            .and_then(|lib| lib.vault_present());
         let _ = fs::write(self.dir.join("library.automerge"), &self.doc);
         self.save_book();
         Ok(())
@@ -4186,7 +4298,8 @@ mod list_note_tests {
         let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
         session.on = true;
         session.member = true;
-        assert_eq!(session.chip(Instant::now()), Chip::Synced);
+        session.set_socket_live(true);
+        assert_eq!(session.chip(Instant::now()), Chip::Live);
         session.list_note = true;
         assert_eq!(session.chip(Instant::now()), Chip::ListChanged);
         assert_eq!(session.list_note_text(), LIST_NOTE);
@@ -4201,7 +4314,7 @@ mod list_note_tests {
         assert_eq!(session.chip(Instant::now()), Chip::Waiting);
         session.pending_id.clear();
         session.ack_list();
-        assert_eq!(session.chip(Instant::now()), Chip::Synced);
+        assert_eq!(session.chip(Instant::now()), Chip::Live);
         assert!(session.list_note_text().is_empty());
         session.list_note = true;
         session.screen = Screen::Closed;
@@ -4287,7 +4400,7 @@ mod list_note_tests {
         session.error.clear();
         session.mark_removed();
         for chip in [
-            Chip::Synced,
+            Chip::Live,
             Chip::Syncing,
             Chip::Offline,
             Chip::Paused,
@@ -4327,7 +4440,7 @@ mod list_note_tests {
         );
         assert!(resumed.entry_visible());
         assert_eq!(resumed.entry_label(), "Sync");
-        assert_eq!(resumed.chip(Instant::now()), Chip::Synced);
+        assert_eq!(resumed.chip(Instant::now()), Chip::Offline);
         let book = std::fs::read_to_string(kept.join("sync").join("book.json")).unwrap();
         assert!(!book.contains("\"removed\": true"));
         let _ = std::fs::remove_dir_all(kept);

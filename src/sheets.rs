@@ -1106,7 +1106,9 @@ impl Store {
                 ordered.push(sheet);
             }
         }
-        for (id, sheet) in by_id {
+        let mut rest: Vec<_> = by_id.into_iter().collect();
+        rest.sort_by(|left, right| left.0.cmp(&right.0));
+        for (id, sheet) in rest {
             self.tree.push(Node::Page { id });
             ordered.push(sheet);
         }
@@ -1114,6 +1116,164 @@ impl Store {
         self.active = active_id
             .and_then(|id| self.sheets.iter().position(|s| s.id == id))
             .unwrap_or(0);
+    }
+
+    /// Sidebar, handles, and trash, with the settings the caller wants to share.
+    pub fn structural_state(&self, prefs: &serde_json::Value) -> String {
+        let mut sidebar = Vec::new();
+        flatten_nodes(&self.tree, "", &mut sidebar);
+        let mut ids: Vec<_> = self.handles.keys().cloned().collect();
+        ids.sort();
+        let handles: Vec<_> = ids
+            .into_iter()
+            .filter_map(|id| {
+                let handle = self.handles.get(&id)?.clone();
+                if handle.is_empty() {
+                    None
+                } else {
+                    Some(serde_json::json!({"id": id, "handle": handle}))
+                }
+            })
+            .collect();
+        let mut trash = Vec::new();
+        if let Some(dir) = self.trash_dir()
+            && let Ok(entries) = std::fs::read_dir(dir)
+        {
+            for entry in entries.flatten() {
+                let name = entry.file_name().into_string().unwrap_or_default();
+                let Some(id) = name.strip_suffix(".txt").map(str::to_string) else {
+                    continue;
+                };
+                let text = std::fs::read_to_string(entry.path()).unwrap_or_default();
+                let handle = self.handles.get(&id).cloned().unwrap_or_default();
+                trash.push(serde_json::json!({"id": id, "text": text, "handle": handle}));
+            }
+            trash.sort_by(|left, right| {
+                left.get("id")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .cmp(
+                        right
+                            .get("id")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or(""),
+                    )
+            });
+        }
+        serde_json::json!({
+            "sidebar": sidebar,
+            "handles": handles,
+            "trash": trash,
+            "prefs": prefs,
+        })
+        .to_string()
+    }
+
+    /// Keep the shared state on the local document so a later save does not drop it.
+    pub fn note_shared(&mut self, structural: &str) {
+        if self.library.is_none() {
+            self.library = Some(Library::new());
+        }
+        if let Some(lib) = self.library.as_mut() {
+            lib.note_vault(structural);
+        }
+    }
+
+    /// The sealed library from a pull replaces the local document.
+    pub fn adopt_library(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        if let Ok(lib) = Library::load(bytes) {
+            self.library = Some(lib);
+        }
+    }
+
+    pub fn remember_library(&mut self) {
+        self.persist_library();
+    }
+
+    /// Put the shared sidebar, trash, and handles on this computer.
+    /// Preferences are returned for the window to apply. The document is not rewritten.
+    pub fn apply_shared(&mut self, present: &str) -> serde_json::Value {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(present) else {
+            return serde_json::Value::Null;
+        };
+        if let Some(nodes) = value
+            .get("sidebar")
+            .and_then(|sidebar| serde_json::from_value::<Vec<Node>>(sidebar.clone()).ok())
+        {
+            self.tree = nodes;
+            self.state_dirty = true;
+        }
+        if let Some(rows) = value.get("handles").and_then(|row| row.as_array()) {
+            for row in rows {
+                let Some(id) = row.get("id").and_then(|item| item.as_str()) else {
+                    continue;
+                };
+                let handle = row
+                    .get("handle")
+                    .and_then(|item| item.as_str())
+                    .unwrap_or("");
+                if handle.is_empty() {
+                    self.handles.remove(id);
+                } else {
+                    self.handles.insert(id.to_string(), handle.to_string());
+                }
+            }
+        }
+        let trash_rows = value
+            .get("trash")
+            .and_then(|row| row.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let trashed_ids: Vec<String> = trash_rows
+            .iter()
+            .filter_map(|row| {
+                row.get("id")
+                    .and_then(|item| item.as_str())
+                    .map(str::to_string)
+            })
+            .collect();
+        if let Some(dir) = &self.dir {
+            let trash = dir.with_file_name("trash");
+            let _ = std::fs::create_dir_all(&trash);
+            for row in &trash_rows {
+                let Some(id) = row.get("id").and_then(|item| item.as_str()) else {
+                    continue;
+                };
+                let text = row.get("text").and_then(|item| item.as_str()).unwrap_or("");
+                let dest = trash.join(format!("{id}.txt"));
+                if !dest.exists() && !text.is_empty() {
+                    let _ = write_atomic(&dest, text.as_bytes());
+                }
+                let _ = std::fs::remove_file(dir.join(format!("{id}.txt")));
+                self.sheets.retain(|sheet| sheet.id != id);
+                let _ = take_node(&mut self.tree, id);
+                if let Some(handle) = row.get("handle").and_then(|item| item.as_str())
+                    && !handle.is_empty()
+                {
+                    self.handles.insert(id.to_string(), handle.to_string());
+                }
+            }
+            if let Ok(entries) = std::fs::read_dir(&trash) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().into_string().unwrap_or_default();
+                    let Some(id) = name.strip_suffix(".txt") else {
+                        continue;
+                    };
+                    if trashed_ids.iter().any(|row| row == id) {
+                        continue;
+                    }
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
+        self.align_sheets();
+        value
+            .get("prefs")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null)
     }
 
     /// Sheets in `trash/`, newest first. Reading the directory is the caller's
@@ -1773,6 +1933,10 @@ impl Store {
         ok
     }
 
+    pub fn pages_in_folder(&self, folder: &str) -> Vec<String> {
+        self.pages_under(folder)
+    }
+
     fn pages_under(&self, folder: &str) -> Vec<String> {
         fn walk(nodes: &[Node], folder: &str, inside: bool, out: &mut Vec<String>) {
             for node in nodes {
@@ -2291,6 +2455,43 @@ fn page_ids_in_nodes(nodes: &[Node]) -> Vec<String> {
         }
     }
     ids
+}
+
+fn flatten_nodes(nodes: &[Node], parent: &str, out: &mut Vec<serde_json::Value>) {
+    for (index, node) in nodes.iter().enumerate() {
+        match node {
+            Node::Page { id } => {
+                out.push(serde_json::json!({
+                    "id": id,
+                    "kind": "page",
+                    "name": "",
+                    "parent": parent,
+                    "index": index,
+                }));
+            }
+            Node::Folder {
+                id,
+                name,
+                collapsed,
+                children,
+                lock,
+            } => {
+                let mut row = serde_json::json!({
+                    "id": id,
+                    "kind": "folder",
+                    "name": name,
+                    "parent": parent,
+                    "index": index,
+                    "collapsed": collapsed,
+                });
+                if let Some(lock) = lock {
+                    row["lock"] = serde_json::to_value(lock).unwrap_or(serde_json::Value::Null);
+                }
+                out.push(row);
+                flatten_nodes(children, id, out);
+            }
+        }
+    }
 }
 
 fn side_entries(nodes: &[Node]) -> Vec<SideEntry> {
@@ -3850,6 +4051,54 @@ mod tests {
         let titles: Vec<_> = again.sheets.iter().map(Sheet::heading).collect::<Vec<_>>();
         assert!(!titles.iter().any(|t| t == "Trip Budget"), "{titles:?}");
         assert!(again.folders().is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_shared_folder_keeps_the_third_page_and_the_trash() {
+        let root = temp_root("shared");
+        let mut store = Store::load_in(Some(root.clone()), "# Welcome");
+        let present = r#"{
+            "sidebar":[{
+                "type":"folder","id":"pantry","name":"Pantry","collapsed":false,
+                "children":[
+                    {"type":"page","id":"oats"},
+                    {"type":"page","id":"ferry"},
+                    {"type":"page","id":"bread"},
+                    {"type":"page","id":"cake"}
+                ]
+            }],
+            "handles":[{"id":"ferry","handle":"pier"}],
+            "trash":[{"id":"kept","text":"Kept\nold\n","handle":"kept"}],
+            "prefs":{"theme":"dusk","hideAnswers":true}
+        }"#;
+        let prefs = store.apply_shared(present);
+        assert_eq!(
+            prefs.get("theme").and_then(|value| value.as_str()),
+            Some("dusk")
+        );
+        let entries = store.side_entries();
+        assert!(matches!(
+            &entries[0].kind,
+            SideKind::Folder { name, .. } if name == "Pantry"
+        ));
+        let pages: Vec<_> = entries
+            .iter()
+            .filter_map(|entry| match &entry.kind {
+                SideKind::Page { id } => Some(id.as_str()),
+                SideKind::Folder { .. } => None,
+            })
+            .collect();
+        assert!(
+            pages.starts_with(&["oats", "ferry", "bread", "cake"]),
+            "{pages:?}"
+        );
+        assert_eq!(pages.len(), 5, "the page already on this computer stays");
+        assert_eq!(store.handles.get("ferry").map(String::as_str), Some("pier"));
+        let gone = store.trashed();
+        assert_eq!(gone.len(), 1);
+        assert_eq!(gone[0].id, "kept");
+        assert!(gone[0].text.contains("old"));
         let _ = std::fs::remove_dir_all(root);
     }
 }

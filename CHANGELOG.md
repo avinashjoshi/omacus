@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+**A change shows up on your other device**
+
+Edit a page here, and the other open app picks it up in about a second. The status says Live while that connection is up, Syncing while a save is going out, and Offline when this device cannot reach your pages.
+
+**Folders, order, and Recently deleted stay together**
+
+The sidebar on each device shows the same folders, the same order, and the same Recently deleted pages. A folder password travels with the folder. The short name you use in a reference stays with the page.
+
+**The same settings on each device**
+
+Theme, where answers sit, and how soon a locked page locks again follow you. Window size, the name of this device, and where the key is stored stay on this device.
+
+**Approving a device finishes or says what happened**
+
+Yes on the approval card finishes, or it tells you the code expired or the other device did not finish. It does not stay on Approving.
+
 ## 1.0.4
 
 **Sync keeps going when the key store is locked**

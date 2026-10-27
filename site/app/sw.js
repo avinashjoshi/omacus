@@ -33,6 +33,7 @@ const APP_FILES = [
   "sync-link.mjs",
   "device-name.js",
   "sync-save.mjs",
+  "library-state.mjs",
   "sync-vaults.mjs",
   "sync-leader.mjs",
   "migrate.js",

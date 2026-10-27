@@ -3,6 +3,7 @@
 // so a waiting update can be checked without publishing.
 
 import { createServer } from "node:http";
+import { connect as connectNet } from "node:net";
 import { readFileSync, existsSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -95,6 +96,34 @@ const server = createServer((req, res) => {
 server.on("clientError", (_err, socket) => {
   quiet(socket);
   socket.destroy();
+});
+
+// The page's socket is for the mailbox. The test relay is on 8798.
+server.on("upgrade", (req, socket, head) => {
+  quiet(socket);
+  const url = new URL(req.url || "/", "http://127.0.0.1");
+  if (!url.pathname.startsWith("/v1/")) {
+    socket.destroy();
+    return;
+  }
+  const upstream = connectNet(8798, "127.0.0.1", () => {
+    let raw = `GET ${req.url} HTTP/1.1\r\n`;
+    for (const [name, value] of Object.entries(req.headers)) {
+      if (value === undefined) continue;
+      raw += `${name}: ${Array.isArray(value) ? value.join(", ") : value}\r\n`;
+    }
+    raw += "\r\n";
+    upstream.write(raw);
+    if (head && head.length) upstream.write(head);
+    upstream.pipe(socket);
+    socket.pipe(upstream);
+  });
+  const drop = () => {
+    socket.destroy();
+    upstream.destroy();
+  };
+  upstream.on("error", drop);
+  socket.on("error", drop);
 });
 
 server.listen(port, "127.0.0.1");
