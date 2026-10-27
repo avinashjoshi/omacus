@@ -291,7 +291,13 @@ fn parity_matrix_runs_end_to_end() {
         .unwrap();
     a.remove_device(&bid).unwrap();
     b.sync_now().unwrap();
-    assert_eq!(b.chip(Instant::now()), Chip::Paused);
+    // The server uses the same sentence when this device no longer
+    // authenticates and when the mailbox is missing. That reply does not
+    // pause sync. The pages stay, and Sync stays open.
+    assert_eq!(b.chip(Instant::now()), Chip::NotSaved);
+    assert!(!b.paused());
+    assert!(b.entry_visible());
+    assert_eq!(b.entry_label(), "Sync");
     assert!(b.page_text("trip").is_some());
 
     let copy = copy_dir(a.dir(), &scratch("off"));
