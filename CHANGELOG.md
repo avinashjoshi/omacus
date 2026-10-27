@@ -16,7 +16,7 @@ Theme, where answers sit, and how soon a locked page locks again follow you. Win
 
 **Approving a device finishes or says what happened**
 
-Yes on the approval card finishes, or it tells you the code expired or the other device did not finish. It does not stay on Approving. The phone or computer that is waiting finishes joining once you say yes, and it shows Live while that sheet is still open.
+Yes on the approval card finishes, or it tells you the code expired or the other device did not finish. It does not stay on Approving. After you say yes, this device shows Live again. The phone or computer that is waiting finishes joining once you say yes, and it shows Live while that sheet is still open.
 
 **A stuck disk image stops**
 

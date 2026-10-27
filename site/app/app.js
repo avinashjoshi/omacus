@@ -5416,7 +5416,8 @@ async function start() {
   } else {
     load();
     // A joined proof starts empty. The example pages would be a second library.
-    if (document.documentElement.dataset.syncTest !== "1") {
+    // The usual checks use the same test store and still need those examples.
+    if (document.documentElement.dataset.syncBlank !== "1") {
       const action = seedAction({
         pages: state.order.length,
         seeded: librarySeeded,

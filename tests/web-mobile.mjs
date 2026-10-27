@@ -120,6 +120,8 @@ check(syncJs.includes('setChip("Live", "on")') && !syncJs.includes('setChip("Syn
 {
   const approve = syncJs.slice(syncJs.indexOf("async function approvePending"), syncJs.indexOf("async function decline"));
   check(approve.includes("try {") && approve.includes("} finally {") && approve.includes("state.busy = false"), "approving always leaves the button");
+  const paint = syncJs.slice(syncJs.indexOf("function paintConnection"), syncJs.indexOf("function calm"));
+  check(paint.includes("if (saveWanted)") && !paint.includes("state.busy"), "Yes leaves the status on Live once the save has landed");
   check(syncJs.includes("AbortSignal.timeout(FETCH_TIMEOUT_MS)"), "a sync request gives up instead of waiting forever");
   check(syncJs.includes("That took too long. Your pages are still here."), "a timed-out approval says what happened");
   const watchers = syncJs.split("function watchApproval").length - 1;

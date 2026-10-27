@@ -337,7 +337,9 @@ export async function mountSync(api) {
       setChip("List changed", "list");
       return;
     }
-    if (saveWanted || state.busy) {
+    // Syncing is a save that has not landed. The approve button's own wait
+    // is not a save, or Yes would leave the status on Syncing.
+    if (saveWanted) {
       setChip("Syncing", "busy");
       return;
     }

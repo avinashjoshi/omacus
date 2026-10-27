@@ -66,7 +66,7 @@ async function arm(context) {
   await context.route("**/app/**", async (route) => {
     if (route.request().resourceType() !== "document") return route.continue();
     const response = await route.fetch();
-    const body = (await response.text()).replace("<html lang=\"en\">", "<html lang=\"en\" data-sync-test=\"1\">");
+    const body = (await response.text()).replace("<html lang=\"en\">", "<html lang=\"en\" data-sync-test=\"1\" data-sync-blank=\"1\">");
     await route.fulfill({ response, body });
   });
   await context.route("**/v1/**", handle);

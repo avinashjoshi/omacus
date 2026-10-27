@@ -99,15 +99,28 @@ server.on("clientError", (_err, socket) => {
   socket.destroy();
 });
 
-// The page's socket is for the mailbox. The test relay is on 8798.
-server.on("upgrade", (req, socket, head) => {
-  quiet(socket);
-  const url = new URL(req.url || "/", "http://127.0.0.1");
-  if (!url.pathname.startsWith("/v1/")) {
+// The page's socket is for the mailbox. The relay listens on 8798, and the
+// two-phone box listens on 8799. One test starts one of them.
+const livePorts = [8798, 8799];
+
+function proxyLive(req, socket, head, index) {
+  if (socket.destroyed) return;
+  if (index >= livePorts.length) {
     socket.destroy();
     return;
   }
-  const upstream = connectNet(8798, "127.0.0.1", () => {
+  const upstream = connectNet(livePorts[index], "127.0.0.1");
+  let opened = false;
+  upstream.on("error", () => {
+    if (opened) return;
+    opened = true;
+    upstream.destroy();
+    proxyLive(req, socket, head, index + 1);
+  });
+  upstream.once("connect", () => {
+    if (opened) return;
+    opened = true;
+    upstream.removeAllListeners("error");
     let raw = `GET ${req.url} HTTP/1.1\r\n`;
     for (const [name, value] of Object.entries(req.headers)) {
       if (value === undefined) continue;
@@ -118,13 +131,23 @@ server.on("upgrade", (req, socket, head) => {
     if (head && head.length) upstream.write(head);
     upstream.pipe(socket);
     socket.pipe(upstream);
+    const drop = () => {
+      socket.destroy();
+      upstream.destroy();
+    };
+    upstream.on("error", drop);
+    socket.on("error", drop);
   });
-  const drop = () => {
+}
+
+server.on("upgrade", (req, socket, head) => {
+  quiet(socket);
+  const url = new URL(req.url || "/", "http://127.0.0.1");
+  if (!url.pathname.startsWith("/v1/")) {
     socket.destroy();
-    upstream.destroy();
-  };
-  upstream.on("error", drop);
-  socket.on("error", drop);
+    return;
+  }
+  proxyLive(req, socket, head, 0);
 });
 
 server.listen(port, "127.0.0.1");
