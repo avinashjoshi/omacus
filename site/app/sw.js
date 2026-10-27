@@ -1,14 +1,19 @@
 // Service worker for the Omacus web app. After the first visit the shell is cached,
 // so a reload — including one that bypasses the HTTP cache — still opens offline.
-// A new version waits. The page saves the open edit, then asks this worker to take over.
+// A new version waits in its own cache. The page saves the open edit, then asks
+// this worker to take over.
+//
+// Taking over deletes older omacus-app caches only. Pages stay in the browser's
+// own store. This file never opens that store.
 
-const CACHE = "omacus-app-28";
-const CACHE_NAME = CACHE;
+const APP_VERSION = "1.0.2";
+const CACHE = `omacus-app-${APP_VERSION}`;
 
 const APP_FILES = [
   "./",
   "index.html",
   "app.js",
+  "version.js",
   "tree.js",
   "layer.js",
   "seed.js",
@@ -35,6 +40,8 @@ const APP_FILES = [
   "manifest.webmanifest",
   "pkg/omacus_web.js",
   "pkg/omacus_web_bg.wasm",
+  "pkg/omacus_sync_web.js",
+  "pkg/omacus_sync_web_bg.wasm",
 ];
 
 const SHARED = [
@@ -57,17 +64,26 @@ function shellUrls() {
 }
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(precache());
+  e.waitUntil((async () => {
+    try {
+      await storeShell();
+    } catch (error) {
+      await caches.delete(CACHE);
+      throw error;
+    }
+  })());
 });
 
 self.addEventListener("activate", (e) => {
-  e.waitUntil(
-    (async () => {
-      const keys = await caches.keys();
-      await Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)));
-      await self.clients.claim();
-    })(),
-  );
+  e.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(
+      keys
+        .filter((key) => key.startsWith("omacus-app-") && key !== CACHE)
+        .map((key) => caches.delete(key)),
+    );
+    await self.clients.claim();
+  })());
 });
 
 function isScript(req) {
@@ -95,7 +111,8 @@ function enqueue(task) {
 }
 
 // Read the whole body before anything is stored. A socket the server dropped
-// must not be the body of a cache write.
+// must not be the body of a cache write. cache: "reload" skips the HTTP cache
+// so this install cannot store a copy the browser already kept.
 function fetchFresh(url, ms) {
   const ctrl = new AbortController();
   let timer;
@@ -106,7 +123,7 @@ function fetchFresh(url, ms) {
     }, ms);
   });
   const done = (async () => {
-    const res = await fetch(url, { signal: ctrl.signal });
+    const res = await fetch(url, { signal: ctrl.signal, cache: "reload" });
     const body = await res.arrayBuffer();
     // fetch already decoded the bytes. Keeping the encoded length or encoding
     // would make the stored body unread, and the next launch would sit on the
@@ -123,25 +140,21 @@ function fetchFresh(url, ms) {
   return Promise.race([done, timeout]).finally(() => clearTimeout(timer));
 }
 
-async function matchAny(cache, req) {
-  return enqueue(async () => (await cache.match(req)) || (await cache.match(req, { ignoreSearch: true })));
-}
-
-async function keep(cache, url) {
-  const req = new Request(url);
-  if (await matchAny(cache, req).then((hit) => hit && honest(hit, req))) return;
-  try {
-    const res = await fetchFresh(req, 15000);
-    if (honest(res, req)) await enqueue(() => cache.put(req, res));
-  } catch {
-    // The shell can be short a file. Pages in the browser are a different store.
-  }
-}
-
-async function precache(extra = []) {
-  const cache = await caches.open(CACHE_NAME);
+// Every shell file is fetched before any of it is stored. A short set is thrown
+// away, so a waiting worker never serves a mix of two versions.
+async function storeShell(extra = []) {
   const urls = [...new Set([...shellUrls(), ...extra])];
-  await Promise.all(urls.map((url) => keep(cache, url)));
+  const fresh = await Promise.all(urls.map(async (url) => {
+    const res = await fetchFresh(url, 20000);
+    if (!honest(res, new Request(url))) throw new Error(url);
+    return [url, res];
+  }));
+  const cache = await caches.open(CACHE);
+  for (const [url, res] of fresh) await enqueue(() => cache.put(url, res));
+  const stored = new Set((await enqueue(() => cache.keys())).map((req) => req.url));
+  for (const url of urls) {
+    if (!stored.has(url)) throw new Error(url);
+  }
   return cache;
 }
 
@@ -160,44 +173,48 @@ function isAppNavigation(pathname) {
   return pathname === root || pathname === bare || pathname === index;
 }
 
+function isVersionProbe(pathname) {
+  return pathname.endsWith("/version.json");
+}
+
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname === "/v1" || url.pathname.startsWith("/v1/")) return;
+  // The open page compares this with the copy it is running. A cached answer
+  // would hide the new version.
+  if (isVersionProbe(url.pathname)) {
+    e.respondWith(fetch(req, { cache: "no-store" }).catch(() => offline()));
+    return;
+  }
   if (req.mode === "navigate") {
     if (isAppNavigation(url.pathname)) e.respondWith(networkFirstPage());
     return;
   }
-  const cachePromise = caches.open(CACHE_NAME);
-  // A cached file is the answer. The fresh copy is stored only after its body
-  // has arrived, so a dropped connection cannot sit in the cache.
-  const refresh = cachePromise.then(async (cache) => {
+  e.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    const hit = await enqueue(() => cache.match(req));
+    if (hit && honest(hit, req)) return hit;
     try {
       const res = await fetchFresh(req, 15000);
-      if (honest(res, req)) await enqueue(() => cache.put(req, res.clone()));
-      return res;
+      if (honest(res, req)) {
+        await enqueue(() => cache.put(req, res.clone()));
+        return res;
+      }
     } catch {
-      return null;
+      // Offline. The shell is whatever this version stored.
     }
-  });
-  e.waitUntil(refresh.then(() => {}));
-  e.respondWith(
-    (async () => {
-      const cache = await cachePromise;
-      const hit = await matchAny(cache, req);
-      if (hit && honest(hit, req)) return hit;
-      return (await refresh) || offline();
-    })(),
-  );
+    return offline();
+  })());
 });
 
 // Fresh when the network answers; the cached shell when it does not. A reload
 // that skips the HTTP cache still comes through here, including with no connection.
 async function networkFirstPage() {
   const key = new URL("./", self.location).href;
-  const cache = await caches.open(CACHE_NAME);
+  const cache = await caches.open(CACHE);
   if (self.navigator.onLine !== false) {
     try {
       const res = await fetchFresh(key, 2500);
@@ -209,7 +226,8 @@ async function networkFirstPage() {
       // Offline, or the reload could not reach the network.
     }
   }
-  const cached = (await matchAny(cache, key)) || (await matchAny(cache, new URL("index.html", self.location).href));
+  const cached = (await enqueue(() => cache.match(key)))
+    || (await enqueue(() => cache.match(new URL("index.html", self.location).href)));
   if (!cached) return offline();
   const headers = new Headers(cached.headers);
   headers.set("X-Omacus-Offline", "1");
@@ -226,7 +244,7 @@ self.addEventListener("message", (e) => {
     const port = e.ports[0];
     e.waitUntil(
       (async () => {
-        const cache = await caches.open(CACHE_NAME);
+        const cache = await caches.open(CACHE);
         const keys = new Set((await enqueue(() => cache.keys())).map((req) => req.url));
         const missing = shellUrls().filter((url) => !keys.has(url));
         const reply = { type: "shell-status", ready: missing.length === 0, missing };
@@ -241,7 +259,7 @@ self.addEventListener("message", (e) => {
   const keep = new Set([...shellUrls(), ...extra]);
   e.waitUntil(
     (async () => {
-      const cache = await precache(extra);
+      const cache = await storeShell(extra);
       const base = new URL("./", self.location).pathname;
       for (const req of await enqueue(() => cache.keys())) {
         const path = new URL(req.url).pathname;

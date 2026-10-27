@@ -25,9 +25,11 @@ def header_values(path: Path, name: str) -> list[str]:
 
 def main() -> int:
     app = (ROOT / ".github" / "workflows" / "app.yml").read_text()
-    if "environment: app" not in app:
+    deploy = (ROOT / ".github" / "actions" / "deploy-app" / "action.yml").read_text()
+    release = (ROOT / ".github" / "workflows" / "release.yml").read_text()
+    if "environment: app" not in app or "environment: app" not in release:
         fail("the web deploy has no app environment")
-    if "web-SHA256SUMS.txt" not in app or "app.omacus.com/SHA256SUMS.txt" not in app:
+    if "web-SHA256SUMS.txt" not in deploy or "app.omacus.com/SHA256SUMS.txt" not in deploy:
         fail("the web deploy does not publish the file list")
 
     build = (ROOT / ".github" / "scripts" / "build-web.sh").read_text()

@@ -1,9 +1,12 @@
 [workspace]
 members = ["engine", "web", "doc", "relay", "sync-web"]
 
+[workspace.package]
+version = "1.0.2"
+
 [package]
 name = "omacus"
-version = "1.0.1"
+version.workspace = true
 edition = "2024"
 license = "MIT"
 authors = ["Avinash Joshi <avinash@hey.com>"]

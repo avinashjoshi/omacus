@@ -2,7 +2,8 @@
 // The engine needs those key bytes, so the file cannot be a non-exportable
 // WebCrypto key. The page's strict policy is what keeps other scripts out.
 import { SYNC_URL } from "./sync-config.js";
-import { beginSave, finishSave, keepUnlessTombstone, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, showTurnOnSync } from "./sync-save.mjs";
+import { APP_VERSION } from "./version.js";
+import { beginSave, finishSave, keepUnlessTombstone, noteLocalEdit, noteTombstone, pagesDiffer, pollWait, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 import { deviceListNote, pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
@@ -15,7 +16,7 @@ import {
   upsertVault,
 } from "./sync-vaults.mjs";
 
-const LABEL = "omacus 1.0.0";
+const LABEL = `omacus v${APP_VERSION}`;
 const FIELD_ERROR_ID = "sync-field-error";
 const PARTIAL_NOTE = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
 const INVITE_MS = 5 * 60 * 1000;
@@ -38,9 +39,14 @@ export async function mountSync(api) {
     const mod = await import("./pkg/omacus_sync_web.js");
     await mod.default();
     sync = mod;
+    if (typeof sync.appVersion === "function") {
+      const reported = sync.appVersion();
+      if (reported) document.documentElement.dataset.syncVersion = reported;
+    }
   } catch {
     return;
   }
+  if (typeof api.settle === "function") api.settle(() => settleBeforeUpdate());
 
   const root = document.querySelector("[data-settings-panel='settings']")?.parentElement;
   const tabs = document.querySelector(".settings-tabs");
@@ -72,9 +78,6 @@ export async function mountSync(api) {
     bar.insertBefore(beta, barActions);
     bar.insertBefore(chip, barActions);
   }
-  const version = document.querySelector("[data-app-version]");
-  if (version) version.textContent = LABEL;
-
   const state = {
     screen: "off",
     desk: null,
@@ -823,14 +826,44 @@ export async function mountSync(api) {
     return data.objects || [];
   }
 
+  function notedGeneration() {
+    try {
+      const prior = JSON.parse(sync.generation(state.desk));
+      return prior.ok ? Number(prior.generation) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  function rewindSeal() {
+    if (state.sealGen == null) return;
+    try {
+      sync.rewindGeneration(state.desk, state.sealGen);
+    } catch {
+      /* the next open still has the pages saved here */
+    }
+    state.sealGen = null;
+  }
+
   async function sealPacked(packed) {
+    state.sealGen = notedGeneration();
     const sealed = JSON.parse(sync.sealLibrary(state.desk, packed, state.slots || "[]"));
-    if (!sealed.ok) throw new Error(sealed.message || "Couldn't sync.");
+    if (!sealed.ok) {
+      rewindSeal();
+      throw new Error(sealed.message || "Couldn't sync.");
+    }
     return sealed;
   }
 
   async function commitSeal(sealed) {
-    const result = await publish(sealed.record, sealed.objects, sealed.drop);
+    let result;
+    try {
+      result = await publish(sealed.record, sealed.objects, sealed.drop);
+    } catch (error) {
+      rewindSeal();
+      throw error;
+    }
+    state.sealGen = null;
     const slots = JSON.parse(sealed.slots || "[]");
     for (const row of result.objects || []) {
       const slot = slots.find((item) => item.objectId === row.id);
@@ -888,28 +921,6 @@ export async function mountSync(api) {
       const merged = JSON.parse(sync.mergePacked(localPacked, remote.packed));
       if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
       packed = merged.packed;
-    } else if (typeof api.park === "function") {
-      const keeping = new Set(
-        (snapOk ? pagesOnlyHere(snap.pages, remote.pages) : []).map((row) => String(row[0])),
-      );
-      for (const [id, text] of pagesLeftBehind(state.basePages, remote.pages)) {
-        if (!keeping.has(String(id))) await api.park(id, text);
-      }
-    }
-    // A page that exists only on this phone stays in the list that gets published.
-    // A page both sides have keeps the merged text, so a deleted line stays deleted.
-    let keptLocal = false;
-    const onlyHere = snapOk ? pagesOnlyHere(snap.pages, remote.pages) : [];
-    if (onlyHere.length) {
-      const openedPacked = JSON.parse(sync.unpackPages(packed));
-      if (!openedPacked.ok) throw new Error(openedPacked.message || "Those pages could not be opened.");
-      const have = new Set((openedPacked.pages || []).map((row) => String(row[0])));
-      const extras = onlyHere.filter((row) => !have.has(row[0]));
-      if (extras.length) {
-        const doc = openedPacked.doc ? api.b64ToBytes(openedPacked.doc) : new Uint8Array();
-        packed = await pack(doc, (openedPacked.pages || []).concat(extras));
-        keptLocal = true;
-      }
     }
     const openedPacked = JSON.parse(sync.unpackPages(packed));
     if (!openedPacked.ok) throw new Error(openedPacked.message || "Those pages could not be opened.");
@@ -928,7 +939,7 @@ export async function mountSync(api) {
     const kept = JSON.parse(sync.unpackPages(packed));
     const nextPages = kept.ok ? kept.pages : remote.pages;
     const mergedAway = localChanged && packed !== remote.packed;
-    state.dirty = decision.keptLocal || decision.held || keptLocal || mergedAway || opened.republish === true;
+    state.dirty = decision.keptLocal || decision.held || mergedAway || opened.republish === true;
     if (!state.dirty) await rememberBase(nextPages);
     await saveFile();
     await refreshDevices();
@@ -938,6 +949,18 @@ export async function mountSync(api) {
     }
     if (opened.slots) state.slots = opened.slots;
     if ((opened.republish || opened.legacy) && opened.replace !== false && state.member && depth < 1) await push();
+  }
+
+  async function settleBeforeUpdate() {
+    const deadline = Date.now() + 8000;
+    while (ticking && Date.now() < deadline) await sleep(40);
+    if (!state.account || !state.member || !state.dirty) return;
+    if (navigator.onLine === false) return;
+    try {
+      await push();
+    } catch {
+      // Pages stay in this browser. Reloading does not remove them.
+    }
   }
 
   async function push() {
@@ -2603,7 +2626,7 @@ export async function mountSync(api) {
     bits.push(
       el("label", { class: "sync-field" }, [`Name this ${onPhone() ? "phone" : "computer"}`]),
       recoverName,
-      el("p", { class: "setting-help" }, ["Type or paste the 12 recovery words. Numbers and capitals are fine. A page that is not in the list is in Recently deleted. Restore puts it back."]),
+      el("p", { class: "setting-help" }, ["Type or paste the 12 recovery words. Numbers and capitals are fine. A page you delete is in Recently deleted. Restore puts it back."]),
     );
     const merged = mergeLine();
     if (merged) bits.push(el("p", { class: "setting-help" }, [merged]));
@@ -2721,6 +2744,7 @@ export async function mountSync(api) {
       home.append(el("p", { class: "sync-note", role: "status", "data-sync-note": "" }, [state.notice]));
     }
     home.append(el("p", { class: "setting-help", "data-sync-linked": "" }, ["Your pages stay on your phones and computers."]));
+    home.append(el("p", { class: "setting-help" }, ["A page you delete is in Recently deleted. Restore puts it back."]));
     if (state.saveError) {
       home.append(el("p", { class: "sync-err", role: "alert", "data-sync-error": "" }, [state.saveError]));
     }

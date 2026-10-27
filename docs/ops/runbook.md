@@ -20,7 +20,7 @@ Do these in this order.
 1. Merge to `main`.
 2. Deploy the production worker, as above.
 3. Smoke test that worker: `GET /v1/health` returns `{"label":"1.0.0"}`, `GET /` redirects to the app, admin is refused when signed out, and a phone can create pages, link a second one, and save.
-4. Publish the sync build to `https://app.omacus.com`. The Release workflow does that after the tag, by calling `.github/workflows/app.yml`. A push to `main` does not publish the app. To publish this commit without a desktop release, start the App workflow by hand (`workflow_dispatch`) on the merged commit. `app.yml` runs `.github/scripts/build-web.sh`.
+4. Publish the sync build to `https://app.omacus.com`. The Release workflow does that in the same run as the desktop app, after the tag, from that same commit. The job uses the `app` environment. A push to `main` does not publish the app. To retry that deploy by hand, start `.github/workflows/app.yml` (`workflow_dispatch`) on the merged commit. It runs `.github/scripts/build-web.sh`.
 5. Smoke test the app: the same phone opens `https://app.omacus.com`, turns sync on, and reaches the worker from step 3.
 
 `site/_headers` is the content security policy and HSTS text for omacus.com. GitHub Pages does not send that file, so those lines are not the live headers. Each page also carries the policy in a meta tag. The live headers are a Cloudflare response rule, and HSTS is the zone setting. The exact clicks and the API body are in `docs/ops/cloudflare-headers.json` and `docs/ops/release-protection.md`. `/app` on this origin keeps the bridge rules, including the engine. app.omacus.com sends its policy from `site/app/_headers`, including HSTS.

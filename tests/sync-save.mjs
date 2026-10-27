@@ -35,6 +35,7 @@ assert(pagesDiffer(synced, fresh) === true, "a new page edited offline was treat
 assert(pagesDiffer(null, synced) === true, "a phone with no synced copy ignored its pages");
 assert(pagesDiffer([], []) === false, "two empty copies differed");
 assert(pagesDiffer(phoneA, phoneB) === true, "bread and cake were treated as the same page");
+
 const desktop = [["pantry", "oats\n"], ["kept", "ferry = 40\n"]];
 const phone = [["kept", "ferry = 40\n"]];
 const fromDesktop = keepUnlessTombstone(phone, desktop, []);
