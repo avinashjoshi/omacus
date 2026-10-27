@@ -91,6 +91,7 @@ pub enum Screen {
     Rename,
     PassSet,
     PassEnter,
+    Keyring,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -190,6 +191,7 @@ pub struct PrintJob {
 pub enum Work {
     LoadKey,
     BeginSetup,
+    PrepareKeyring,
     ContinueAccess,
     Confirm,
     Bring,
@@ -218,6 +220,7 @@ impl Work {
         match self {
             Work::LoadKey => "Opening the sync key…",
             Work::BeginSetup | Work::SubmitPass => "Checking the key store…",
+            Work::PrepareKeyring => "Setting up the key store…",
             Work::Approve => "Approving this phone…",
             Work::SaveKey | Work::AcceptMatch | Work::Confirm | Work::Bring | Work::LeaveFiles => {
                 "Saving the sync key…"
@@ -308,6 +311,8 @@ pub struct Session {
     key_note: String,
     #[cfg(test)]
     fail_key_write: bool,
+    #[cfg(test)]
+    needs_key_setup: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -430,6 +435,8 @@ impl Session {
             key_note: String::new(),
             #[cfg(test)]
             fail_key_write: false,
+            #[cfg(test)]
+            needs_key_setup: false,
         }
     }
 
@@ -528,6 +535,7 @@ impl Session {
                 self.begin_setup();
                 Ok(())
             }
+            Work::PrepareKeyring => self.prepare_keyring(),
             Work::ContinueAccess => self.continue_access(),
             Work::Confirm => self.confirm(),
             Work::Bring => self.bring(),
@@ -555,6 +563,7 @@ impl Session {
         };
         if let Err(error) = result
             && error != "Enter a passphrase."
+            && !keys::wants_key_setup(&error)
             && self.error.is_empty()
         {
             self.error = error;
@@ -588,12 +597,16 @@ impl Session {
             }
             Ok(None) => self.tidy_half_state(),
             Err(error) => {
-                self.error = if keys::wants_passphrase(&error) {
-                    "The key store on this computer can't be opened without a prompt. Your pages on this computer are still here.".into()
+                if keys::wants_key_setup(&error) {
+                    self.screen = Screen::Keyring;
+                    self.error.clear();
+                } else if error == "The key store took too long." {
+                    self.screen = Screen::Keyring;
+                    self.error = "The key store took too long. Try again.".into();
                 } else {
-                    error
-                };
-                self.screen = Screen::Intro;
+                    self.error = error;
+                    self.screen = Screen::Intro;
+                }
             }
         }
     }
@@ -740,6 +753,7 @@ impl Session {
             "off" => self.screen = Screen::OffAsk,
             "pass" | "pass-enter" => self.screen = Screen::PassEnter,
             "pass-set" => self.screen = Screen::PassSet,
+            "keyring" => self.screen = Screen::Keyring,
             _ => self.screen = Screen::Intro,
         }
     }
@@ -778,19 +792,71 @@ impl Session {
 
     pub fn begin_setup(&mut self) {
         self.error.clear();
-        if self.pass_lock.is_none() && self.must_pass() {
-            if keys::has_pass_file(&self.dir) {
-                self.pass_locked = true;
-                self.screen = Screen::PassEnter;
-            } else {
-                self.without_keyring = true;
-                self.key_note = keys::PASS_REASON.into();
-                self.screen = Screen::PassSet;
-            }
+        if self.pass_lock.is_none() && keys::has_pass_file(&self.dir) {
+            self.pass_locked = true;
+            self.screen = Screen::PassEnter;
+            return;
+        }
+        if self.pass_lock.is_none() && self.without_keyring {
+            self.screen = Screen::PassSet;
+            return;
+        }
+        if self.pass_lock.is_none() && self.needs_store_setup() {
+            self.screen = Screen::Keyring;
             return;
         }
         self.screen = Screen::Choice;
         self.mark("choice");
+    }
+
+    /// The key store is running, or this test asked for the setup step.
+    /// A passphrase file is not chosen here.
+    fn needs_store_setup(&self) -> bool {
+        #[cfg(test)]
+        if self.needs_key_setup {
+            return true;
+        }
+        keys::key_store_needs_setup()
+    }
+
+    /// One-time key store setup. The passphrase file is not created here.
+    pub fn prepare_keyring(&mut self) -> Result<(), String> {
+        self.error.clear();
+        #[cfg(test)]
+        {
+            self.needs_key_setup = false;
+            if self.approval_sent {
+                return self.retry_key_write();
+            }
+            self.screen = Screen::Choice;
+            self.mark("choice");
+            Ok(())
+        }
+        #[cfg(not(test))]
+        {
+            match keys::prepare_keyring() {
+                Ok(()) => {
+                    if self.approval_sent {
+                        return self.retry_key_write();
+                    }
+                    self.screen = Screen::Choice;
+                    self.mark("choice");
+                    Ok(())
+                }
+                Err(error) => {
+                    self.error = error;
+                    self.screen = Screen::Keyring;
+                    Err(self.error.clone())
+                }
+            }
+        }
+    }
+
+    /// The person asked for a passphrase file. This is never the default.
+    pub fn choose_passphrase(&mut self) {
+        self.error.clear();
+        self.without_keyring = true;
+        self.screen = Screen::PassSet;
     }
 
     pub fn choose_first(&mut self) {
@@ -1700,6 +1766,12 @@ impl Session {
     }
 
     #[cfg(test)]
+    pub fn testing_needs_key_setup(&mut self) {
+        self.needs_key_setup = true;
+        self.without_keyring = false;
+    }
+
+    #[cfg(test)]
     pub fn set_pass_fields(&mut self, password: &str, again: &str) {
         self.pass_buf = password.to_string();
         self.pass_again = again.to_string();
@@ -1987,6 +2059,7 @@ impl Session {
                     | Screen::OffFailed
                     | Screen::PassSet
                     | Screen::PassEnter
+                    | Screen::Keyring
             )
         {
             return Chip::Hidden;
@@ -2492,7 +2565,10 @@ impl Session {
         self.approval_sent = true;
         self.save_book();
         if let Err(error) = self.save_secret() {
-            if self.screen != Screen::PassSet && self.screen != Screen::PassEnter {
+            if self.screen != Screen::PassSet
+                && self.screen != Screen::PassEnter
+                && self.screen != Screen::Keyring
+            {
                 self.screen = Screen::Home;
                 self.error =
                     "The approval was sent. The key on this computer still needs to be saved."
@@ -2964,12 +3040,15 @@ impl Session {
         };
         match saved {
             Ok(()) => Ok(()),
-            Err(error) if keys::wants_passphrase(&error) => {
-                self.without_keyring = true;
-                self.key_note = keys::PASS_REASON.into();
-                self.screen = Screen::PassSet;
+            Err(error) if keys::wants_key_setup(&error) => {
+                self.screen = Screen::Keyring;
                 self.error.clear();
-                Err("Enter a passphrase.".into())
+                Err(error)
+            }
+            Err(error) if error == "The key store took too long." => {
+                self.screen = Screen::Keyring;
+                self.error = "The key store took too long. Try again.".into();
+                Err(self.error.clone())
             }
             Err(error) => Err(error),
         }
@@ -2987,8 +3066,6 @@ impl Session {
             self.pass_locked = true;
             self.screen = Screen::PassEnter;
         } else {
-            self.without_keyring = true;
-            self.key_note = keys::PASS_REASON.into();
             self.screen = Screen::PassSet;
         }
         Err("Enter a passphrase.".into())

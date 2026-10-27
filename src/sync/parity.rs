@@ -395,6 +395,25 @@ fn parity_matrix_runs_end_to_end() {
     assert_eq!(fresh.screen, Screen::Choice);
     drop(fresh);
 
+    let mut setup = Session::open(scratch("key-setup"), &origin);
+    setup.testing_needs_key_setup();
+    setup.begin_setup();
+    assert_eq!(setup.screen, Screen::Keyring);
+    assert!(!keys::has_pass_file(setup.dir()));
+    setup.prepare_keyring().unwrap();
+    assert_eq!(setup.screen, Screen::Choice);
+    assert!(!keys::has_pass_file(setup.dir()));
+    drop(setup);
+
+    let mut alt = Session::open(scratch("key-pass"), &origin);
+    alt.testing_needs_key_setup();
+    alt.begin_setup();
+    assert_eq!(alt.screen, Screen::Keyring);
+    alt.choose_passphrase();
+    assert_eq!(alt.screen, Screen::PassSet);
+    assert!(!keys::has_pass_file(alt.dir()));
+    drop(alt);
+
     let password = "lantern-dock-42";
     a.testing_rewrap_pass(password).unwrap();
     assert_eq!(keys::kind(a.dir()), Some("pass"));

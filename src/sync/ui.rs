@@ -82,6 +82,7 @@ fn body(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
         Screen::Rename => rename(ui, theme, session),
         Screen::PassSet => passphrase(ui, theme, session, true),
         Screen::PassEnter => passphrase(ui, theme, session, false),
+        Screen::Keyring => keyring(ui, theme, session),
         Screen::Closed => None,
     }
 }
@@ -974,6 +975,34 @@ fn removed(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<St
         }
         if design::quiet(ui, theme, "Check again").clicked() {
             session.ask(Work::CheckAgain);
+        }
+    });
+    None
+}
+
+fn keyring(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<String> {
+    if back(ui, theme, "← Back") {
+        session.open_intro();
+        return None;
+    }
+    title(ui, theme, "Set up your keyring");
+    para(
+        ui,
+        theme,
+        "The key store on this computer is not unlocked. Set it up once. After that, Omacus does not ask for a password when this app opens.",
+    );
+    para(
+        ui,
+        theme,
+        "This leaves the key store without a password. Omacus can open it again without asking. A password on the key store asks again every time.",
+    );
+    err(ui, theme, &session.error.clone());
+    ui.horizontal(|ui| {
+        if design::primary(ui, theme, "Set up the key store").clicked() {
+            session.ask(Work::PrepareKeyring);
+        }
+        if design::quiet(ui, theme, "Use a passphrase instead").clicked() {
+            session.choose_passphrase();
         }
     });
     None
