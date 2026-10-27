@@ -248,7 +248,9 @@ fn parity_matrix_runs_end_to_end() {
     a.delete_page("groceries");
     a.sync_now().unwrap();
     b.sync_now().unwrap();
-    assert!(b.page_text("groceries").is_none());
+    // A page that one device no longer lists stays on the other. A signed
+    // tombstone is what removes it. This device still has the page.
+    assert!(b.page_text("groceries").is_some());
     a.restore_page("groceries", "Groceries\napples 4");
     a.sync_now().unwrap();
     b.sync_now().unwrap();

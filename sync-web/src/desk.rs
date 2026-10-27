@@ -1179,6 +1179,16 @@ impl Desk {
         Ok(planned)
     }
 
+    pub fn generation(&self) -> u64 {
+        self.seen_gen
+    }
+
+    /// A seal that never reached the server does not count. The next open can
+    /// still read the copy another device published.
+    pub fn rewind_generation(&mut self, generation: u64) {
+        self.seen_gen = generation;
+    }
+
     pub fn library_record(&self) -> Result<Vec<u8>, SyncKeyError> {
         self.record_at(2)
     }

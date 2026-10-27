@@ -47,6 +47,22 @@ export function showTurnOnSync(status) {
   return !row.account && !row.removed && !row.paused;
 }
 
+// Pages in `local` whose id is not in `remote`. A shared page is left out,
+// so a deleted line on that page is not put back.
+export function pagesOnlyHere(local, remote) {
+  const there = new Set();
+  for (const row of remote || []) {
+    if (Array.isArray(row) && row[0]) there.add(String(row[0]));
+  }
+  const out = [];
+  for (const row of local || []) {
+    if (!Array.isArray(row) || row.length < 2 || !row[0]) continue;
+    const id = String(row[0]);
+    if (!there.has(id)) out.push([id, String(row[1] ?? "")]);
+  }
+  return out;
+}
+
 // `baseline` is null until a copy has synced. Any page then counts as a local change.
 // A page in the last synced copy that the remote list does not name.
 // It goes to Recently deleted. A page that was never synced is not here.

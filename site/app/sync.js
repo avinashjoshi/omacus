@@ -2,7 +2,7 @@
 // The engine needs those key bytes, so the file cannot be a non-exportable
 // WebCrypto key. The page's strict policy is what keeps other scripts out.
 import { SYNC_URL } from "./sync-config.js";
-import { beginSave, finishSave, noteLocalEdit, pagesDiffer, pagesLeftBehind, pollWait, showTurnOnSync } from "./sync-save.mjs";
+import { beginSave, finishSave, noteLocalEdit, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 import { deviceListNote, pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
@@ -884,15 +884,33 @@ export async function mountSync(api) {
       if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
       packed = merged.packed;
     } else if (typeof api.park === "function") {
+      const keeping = new Set(
+        (snapOk ? pagesOnlyHere(snap.pages, remote.pages) : []).map((row) => String(row[0])),
+      );
       for (const [id, text] of pagesLeftBehind(state.basePages, remote.pages)) {
-        await api.park(id, text);
+        if (!keeping.has(String(id))) await api.park(id, text);
+      }
+    }
+    // A page that exists only on this phone stays in the list that gets published.
+    // A page both sides have keeps the merged text, so a deleted line stays deleted.
+    let keptLocal = false;
+    const onlyHere = snapOk ? pagesOnlyHere(snap.pages, remote.pages) : [];
+    if (onlyHere.length) {
+      const openedPacked = JSON.parse(sync.unpackPages(packed));
+      if (!openedPacked.ok) throw new Error(openedPacked.message || "Those pages could not be opened.");
+      const have = new Set((openedPacked.pages || []).map((row) => String(row[0])));
+      const extras = onlyHere.filter((row) => !have.has(row[0]));
+      if (extras.length) {
+        const doc = openedPacked.doc ? api.b64ToBytes(openedPacked.doc) : new Uint8Array();
+        packed = await pack(doc, (openedPacked.pages || []).concat(extras));
+        keptLocal = true;
       }
     }
     await installMerged({ packed });
     const kept = JSON.parse(sync.unpackPages(packed));
     const nextPages = kept.ok ? kept.pages : remote.pages;
     const mergedAway = localChanged && packed !== remote.packed;
-    state.dirty = mergedAway || opened.republish === true;
+    state.dirty = keptLocal || mergedAway || opened.republish === true;
     if (!state.dirty) await rememberBase(nextPages);
     await saveFile();
     await refreshDevices();

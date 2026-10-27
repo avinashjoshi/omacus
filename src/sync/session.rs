@@ -1709,6 +1709,7 @@ impl Session {
         self.saving_since = Some(Instant::now());
         let packed = self.packed_bytes()?;
         let slots = self.slots.clone();
+        let generation = self.desk.as_ref().map(Desk::generation).unwrap_or(0);
         let planned = {
             let Some(desk) = self.desk.as_mut() else {
                 self.busy = false;
@@ -1717,6 +1718,7 @@ impl Session {
             match desk.seal_library(&packed, &slots) {
                 Ok(planned) => planned,
                 Err(error) => {
+                    desk.rewind_generation(generation);
                     self.busy = false;
                     return Err(error.message().into());
                 }
@@ -1744,6 +1746,9 @@ impl Session {
             }
             Err(error) => {
                 self.busy = false;
+                if let Some(desk) = self.desk.as_mut() {
+                    desk.rewind_generation(generation);
+                }
                 if self.dropped_from_list(&error) {
                     self.mark_removed();
                     return Ok(());
@@ -1963,14 +1968,28 @@ impl Session {
         } else {
             remote
         };
-        // A page that was already synced and is absent from this copy is not
-        // erased. It waits in Recently deleted, and Restore puts it back.
+        // A page that exists only here stays beside the copy that just arrived.
+        // The next sync publishes both. A shared page keeps the remote text
+        // when this copy has not changed, so a deleted line stays deleted.
+        // A page kept on this computer stays out of that published copy.
+        let extras: Vec<(String, bool, String)> = self
+            .pages
+            .iter()
+            .filter(|(id, _)| !merged.pages.iter().any(|(page, _)| page == id))
+            .map(|(id, text)| {
+                let inside = self.meta_in_vault(id) && !self.locked.contains(id);
+                (id.clone(), inside, text.clone())
+            })
+            .collect();
+        // A synced page that this computer is not keeping waits in Recently
+        // deleted. A page still here is in `extras` and is published instead.
         let parked: Vec<(String, String)> = self
             .pages
             .iter()
             .filter(|(id, _)| {
                 self.bases.iter().any(|(page, _)| page == id)
                     && !merged.pages.iter().any(|(page, _)| page == id)
+                    && !extras.iter().any(|(extra, _, _)| extra == id)
             })
             .cloned()
             .collect();
@@ -1991,6 +2010,22 @@ impl Session {
         self.name_rev = merged.meta.name_rev.max(self.name_rev);
         self.membership = merged.meta.membership.clone();
         self.absorb_labels(&merged.meta.devices);
+        if !extras.is_empty() {
+            let mut lib =
+                omacus_doc::Library::load(&self.doc).unwrap_or_else(|_| omacus_doc::Library::new());
+            for (id, inside, text) in &extras {
+                if !self.pages.iter().any(|(page, _)| page == id) {
+                    self.pages.push((id.clone(), text.clone()));
+                }
+                lib.reconcile(id, text, None);
+                lib.note_written(id, text);
+                self.set_member_flag(id, *inside);
+            }
+            self.doc = lib.save();
+            if extras.iter().any(|(_, inside, _)| *inside) {
+                self.dirty = true;
+            }
+        }
         for (id, text) in locked_pages {
             if !self.pages.iter().any(|(page, _)| page == &id) {
                 self.pages.push((id.clone(), text));
@@ -3109,11 +3144,109 @@ mod list_note_tests {
 }
 
 #[cfg(test)]
+mod union_tests {
+    use super::*;
+
+    #[test]
+    fn a_page_only_on_this_computer_stays_beside_the_other_library() {
+        let dir = std::env::temp_dir().join(format!("omacus-union-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
+        let pantry = "Pantry\noats\n";
+        let kept_local = "Kept\nferry = 40\nbread $2\n";
+        let kept_remote = "Kept\nferry = 40\n";
+        let harbor = "Harbor\ncake\n";
+        session.pages = vec![
+            ("pantry".into(), pantry.into()),
+            ("kept".into(), kept_local.into()),
+            ("harbor".into(), harbor.into()),
+        ];
+        session.bases = vec![
+            ("pantry".into(), hash_text(pantry)),
+            ("kept".into(), hash_text(kept_local)),
+            ("harbor".into(), hash_text(harbor)),
+        ];
+        session.membership = vec![
+            PageMember {
+                id: "pantry".into(),
+                rev: 1,
+                in_vault: true,
+            },
+            PageMember {
+                id: "kept".into(),
+                rev: 1,
+                in_vault: true,
+            },
+            PageMember {
+                id: "harbor".into(),
+                rev: 1,
+                in_vault: false,
+            },
+        ];
+        let mut remote_lib = omacus_doc::Library::new();
+        remote_lib.reconcile("kept", kept_remote, None);
+        remote_lib.note_written("kept", kept_remote);
+        let remote = PageSet {
+            doc: remote_lib.save(),
+            pages: vec![("kept".into(), kept_remote.into())],
+            meta: SyncMeta::default(),
+        };
+        session
+            .install_remote(&remote.to_bytes().unwrap(), false)
+            .unwrap();
+        let pantry_text = session
+            .pages
+            .iter()
+            .find(|(id, _)| id == "pantry")
+            .map(|(_, text)| text.as_str())
+            .unwrap_or("");
+        assert!(pantry_text.contains("oats"), "{pantry_text}");
+        let kept_text = session
+            .pages
+            .iter()
+            .find(|(id, _)| id == "kept")
+            .map(|(_, text)| text.as_str())
+            .unwrap_or("");
+        assert!(kept_text.contains("ferry = 40"), "{kept_text}");
+        assert!(!kept_text.contains("bread"), "{kept_text}");
+        assert!(
+            session
+                .pages
+                .iter()
+                .any(|(id, text)| id == "harbor" && text.contains("cake"))
+        );
+        assert!(session.dirty, "the page only here was not published again");
+        assert!(
+            session
+                .membership
+                .iter()
+                .any(|member| member.id == "pantry" && member.in_vault)
+        );
+        assert!(
+            session
+                .membership
+                .iter()
+                .any(|member| member.id == "harbor" && !member.in_vault)
+        );
+        let shown = omacus_doc::Library::load(&session.doc)
+            .unwrap()
+            .snapshot("pantry")
+            .unwrap_or_default();
+        assert!(shown.contains("oats"), "{shown}");
+        let packed = PageSet::from_bytes(&session.packed_bytes().unwrap()).unwrap();
+        assert!(packed.pages.iter().any(|(id, _)| id == "pantry"));
+        assert!(packed.pages.iter().any(|(id, _)| id == "kept"));
+        assert!(!packed.pages.iter().any(|(id, _)| id == "harbor"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[cfg(test)]
 mod park_tests {
     use super::*;
 
     #[test]
-    fn a_synced_page_missing_from_the_other_side_waits_in_recently_deleted() {
+    fn a_page_still_here_is_not_parked_when_the_other_side_omits_it() {
         let dir = std::env::temp_dir().join(format!("omacus-park-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("pages")).unwrap();
@@ -3136,11 +3269,20 @@ mod park_tests {
         session
             .install_remote(&remote.to_bytes().unwrap(), false)
             .unwrap();
-        assert!(session.page_text("pantry").is_none());
+        assert_eq!(session.page_text("pantry"), Some("Pantry\noats\n"));
         assert_eq!(session.page_text("kept"), Some("Kept\n1\n"));
+        assert!(!dir.join("trash").join("pantry.txt").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn restore_puts_a_recently_deleted_page_back() {
+        let dir = std::env::temp_dir().join(format!("omacus-restore-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
+        session.park_removed(&[("pantry".into(), "Pantry\noats\n".into())]);
         let trashed = fs::read_to_string(dir.join("trash").join("pantry.txt")).unwrap();
         assert!(trashed.contains("oats"));
-        assert!(!dir.join("pages").join("pantry.txt").exists());
         session.restore_page("pantry", "Pantry\noats\n");
         assert_eq!(session.page_text("pantry"), Some("Pantry\noats\n"));
         let _ = fs::remove_dir_all(&dir);
