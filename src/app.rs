@@ -505,6 +505,7 @@ pub struct OmacusApp {
     help: Option<help::Tab>,
     updates: Updates,
     update_open: bool,
+    list_open: bool,
     /// Sync in this window. Pages stay files. A sealed copy is what leaves.
     sync: sync::Session,
     sync_poll: Instant,
@@ -544,7 +545,15 @@ impl OmacusApp {
         let settings = settings::load();
         settings::remember(&settings);
         let theme = if std::env::var("OMACUS_SYNC_SCREEN").is_ok() {
-            Theme::resolve(settings::ThemeChoice::Dark, true)
+            let light = std::env::var("OMACUS_SCREENSHOT_THEME").ok().as_deref() == Some("light");
+            Theme::resolve(
+                if light {
+                    settings::ThemeChoice::Light
+                } else {
+                    settings::ThemeChoice::Dark
+                },
+                !light,
+            )
         } else {
             Theme::resolve(settings.theme, system_dark)
         };
@@ -635,6 +644,7 @@ impl OmacusApp {
             },
             // With OMACUS_SCREENSHOT, "update" opens the update window instead of help.
             update_open: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "update"),
+            list_open: false,
             sync: sync::Session::open(sync_dir(), &sync_origin()),
             sync_poll: Instant::now(),
             sync_undo: None,
@@ -686,6 +696,9 @@ impl OmacusApp {
             {
                 let id = sheet.id.clone();
                 app.sync.set_in_set(&id, false);
+            }
+            if kind == "list-sheet" {
+                app.list_open = true;
             }
         }
         if let Ok(mode) = std::env::var("OMACUS_SCREENSHOT_HELP")
@@ -2314,7 +2327,7 @@ rental = rent + 50
             || self.sync.chip(Instant::now()).label().is_some()
     }
 
-    fn sync_title(&self, ui: &mut egui::Ui) {
+    fn sync_title(&mut self, ui: &mut egui::Ui) {
         let theme = &self.theme;
         let heading = self
             .store
@@ -2370,6 +2383,15 @@ rental = rent + 50
                 galley,
                 ink,
             );
+            if self.sync.chip(Instant::now()) == sync::Chip::ListChanged {
+                let hit = ui.interact(chip, ui.scope_id().with("sync-status"), Sense::click());
+                if hit.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if hit.clicked() {
+                    self.list_open = true;
+                }
+            }
         }
         ui.painter().line_segment(
             [
@@ -2477,6 +2499,49 @@ rental = rent + 50
         if close {
             self.update_open = false;
             self.focus_editor = true;
+        }
+    }
+
+    fn show_list_change(&mut self, ctx: &egui::Context) {
+        if !self.list_open {
+            return;
+        }
+        let theme = self.theme.clone();
+        let body = self.sync.list_change_sentence_now();
+        let mut got_it = false;
+        let mut review = false;
+        let frame = design::dialog_pad(&theme, Margin::symmetric(24, 20));
+        let modal = egui::Modal::new(egui::Id::unique("omacus-list-changed"))
+            .frame(frame)
+            .backdrop_color(design::backdrop(&theme))
+            .show(ctx, |ui| {
+                ui.set_width(380.0);
+                ui.label(
+                    egui::RichText::new("List changed")
+                        .size(theme::token::TYPE_TITLE)
+                        .color(theme.foreground),
+                );
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new(body)
+                        .size(theme::token::TYPE_BODY)
+                        .color(theme.dim),
+                );
+                ui.add_space(16.0);
+                ui.horizontal(|ui| {
+                    got_it = design::primary(ui, &theme, "Got it").clicked();
+                    review = design::quiet(ui, &theme, "Review devices").clicked();
+                });
+            });
+        if modal.should_close() {
+            got_it = true;
+        }
+        if review {
+            self.list_open = false;
+            self.sync.show_home();
+        } else if got_it {
+            self.list_open = false;
+            self.sync.ack_list();
         }
     }
 
@@ -3080,6 +3145,24 @@ rental = rent + 50
             );
             if turn_on.on_hover_text("How sync works").clicked() {
                 self.sync.open_intro();
+            }
+            ui.add_space(6.0);
+        }
+        if self.sync.grouped() {
+            let open_sync = ui.add_sized(
+                [ui.available_width(), theme::token::HIT],
+                egui::Button::new(
+                    egui::RichText::new("Sync")
+                        .size(theme::token::TYPE_BODY)
+                        .color(theme.text()),
+                )
+                .fill(theme.background)
+                .stroke(egui::Stroke::new(1.0, theme.border()))
+                .corner_radius(design::radius_row())
+                .min_size(vec2(ui.available_width(), theme::token::HIT)),
+            );
+            if open_sync.on_hover_text("Sync settings").clicked() {
+                self.sync.show_home();
             }
             ui.add_space(6.0);
         }
@@ -5313,6 +5396,7 @@ impl eframe::App for OmacusApp {
         self.popup(&ctx);
         self.show_help(&ctx);
         self.show_update(&ctx);
+        self.show_list_change(&ctx);
         self.show_sync(&ctx);
         self.show_delete(&ctx);
         self.show_pick(&ctx);

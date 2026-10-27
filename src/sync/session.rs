@@ -213,6 +213,8 @@ pub struct Session {
     pub notice: String,
     seen: Vec<String>,
     list_note: bool,
+    /// Screenshot seed. Empty during a real session.
+    list_line: String,
     clash: Option<Clash>,
     pre_ids: Vec<String>,
     rename_id: String,
@@ -310,6 +312,7 @@ impl Session {
             notice: String::new(),
             seen: Vec::new(),
             list_note: false,
+            list_line: String::new(),
             clash: None,
             pre_ids: Vec::new(),
             rename_id: String::new(),
@@ -375,10 +378,30 @@ impl Session {
             "choice" => self.screen = Screen::Choice,
             "start" => self.screen = Screen::Start,
             "words" => {
-                self.words = Some(std::array::from_fn(|i| format!("word{i}")));
+                self.words = Some(sample_words());
+                self.wrote = true;
                 self.screen = Screen::Words;
             }
-            "check" => self.screen = Screen::Check,
+            "check" => {
+                self.words = Some(sample_words());
+                self.wrote = true;
+                self.go_check();
+                let word = self
+                    .words
+                    .as_ref()
+                    .and_then(|words| words.get(self.asks[0] as usize - 1))
+                    .cloned()
+                    .unwrap_or_default();
+                self.pick(0, &word);
+            }
+            "list" | "list-sheet" => {
+                self.on = true;
+                self.member = true;
+                self.list_note = true;
+                self.screen = Screen::Closed;
+                self.list_line =
+                    "Your device list changed: Harbor was added, Ferry was removed.".into();
+            }
             "ready" | "home" => {
                 self.on = true;
                 self.member = true;
@@ -541,6 +564,10 @@ impl Session {
         if which < 3 {
             self.picks[which] = Some(word.to_string());
         }
+    }
+
+    pub fn picked(&self, which: usize) -> Option<&str> {
+        self.picks.get(which).and_then(|word| word.as_deref())
     }
 
     pub fn confirm(&mut self) -> Result<(), String> {
@@ -971,8 +998,15 @@ impl Session {
             .unwrap_or("")
             .to_string();
         self.pending_device = wire::unb64(row.get("device").and_then(Value::as_str).unwrap_or(""))?;
+        self.reveal_request();
         self.mark("waiting");
         Ok(())
+    }
+
+    fn reveal_request(&mut self) {
+        if self.screen == Screen::Closed && !self.pending_id.is_empty() {
+            self.screen = Screen::Approve;
+        }
     }
 
     pub fn open_approve(&mut self) {
@@ -1562,6 +1596,49 @@ impl Session {
 
     pub fn list_note_text(&self) -> &'static str {
         if self.list_note { LIST_NOTE } else { "" }
+    }
+
+    /// Names for the list-changed sheet. `added` and `removed` are device names.
+    pub fn device_change_sentence(added: &[String], removed: &[String]) -> String {
+        let mut parts = Vec::new();
+        for name in added {
+            if !name.is_empty() {
+                parts.push(format!("{name} was added"));
+            }
+        }
+        for name in removed {
+            if !name.is_empty() {
+                parts.push(format!("{name} was removed"));
+            }
+        }
+        if parts.is_empty() {
+            "Your device list changed.".to_string()
+        } else {
+            format!("Your device list changed: {}.", parts.join(", "))
+        }
+    }
+
+    pub fn list_change_sentence_now(&self) -> String {
+        if !self.list_line.is_empty() {
+            return self.list_line.clone();
+        }
+        let current = self.devices();
+        let mut added = Vec::new();
+        let mut removed = Vec::new();
+        for row in &current {
+            if !self.seen.iter().any(|id| id == &row.id) {
+                added.push(row.name.clone());
+            }
+        }
+        for id in &self.seen {
+            if !current.iter().any(|row| &row.id == id) {
+                removed.push(
+                    self.device_name(id)
+                        .unwrap_or_else(|| "A phone or computer".to_string()),
+                );
+            }
+        }
+        Self::device_change_sentence(&added, &removed)
     }
 
     pub fn offer_setup(&self) -> bool {
@@ -2718,6 +2795,14 @@ fn numbered(words: &[String; 12]) -> String {
         .join("\n")
 }
 
+fn sample_words() -> [String; 12] {
+    [
+        "harbor", "ferry", "oats", "bread", "cake", "pantry", "kept", "meadow", "lantern", "river",
+        "cedar", "maple",
+    ]
+    .map(str::to_string)
+}
+
 fn choices_for(words: &[String; 12], n: u8) -> Vec<String> {
     let real = words.get(n as usize - 1).cloned().unwrap_or_default();
     let mut decoys = Vec::new();
@@ -3231,6 +3316,56 @@ mod list_note_tests {
         session.ack_list();
         assert_eq!(session.chip(Instant::now()), Chip::Synced);
         assert!(session.list_note_text().is_empty());
+        session.list_note = true;
+        session.screen = Screen::Closed;
+        session.poll().unwrap();
+        assert!(session.list_note, "noting the list stopped sync");
+        assert_eq!(session.chip(Instant::now()), Chip::ListChanged);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_pending_device_opens_the_approval_screen() {
+        let dir = std::env::temp_dir().join(format!("omacus-approve-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
+        session.on = true;
+        session.screen = Screen::Closed;
+        session.pending_id = "harbor".into();
+        session.reveal_request();
+        assert_eq!(session.screen, Screen::Approve);
+        session.screen = Screen::Home;
+        session.reveal_request();
+        assert_eq!(session.screen, Screen::Home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_list_sheet_names_who_joined_and_who_left() {
+        let text = Session::device_change_sentence(&["Harbor".into()], &["Ferry".into()]);
+        assert_eq!(
+            text,
+            "Your device list changed: Harbor was added, Ferry was removed."
+        );
+        assert_eq!(
+            Session::device_change_sentence(&[], &[]),
+            "Your device list changed."
+        );
+    }
+
+    #[test]
+    fn a_picked_word_stays_picked() {
+        let dir = std::env::temp_dir().join(format!("omacus-pick-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
+        session.pick(0, "harbor");
+        session.pick(0, "ferry");
+        assert_eq!(session.picked(0), Some("ferry"));
+        assert_eq!(session.picked(1), None);
+        session.set_wrote(true);
+        assert!(session.wrote());
+        session.set_wrote(false);
+        assert!(!session.wrote());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

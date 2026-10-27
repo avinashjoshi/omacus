@@ -141,55 +141,91 @@ fn back(ui: &mut egui::Ui, theme: &Theme, label: &str) -> bool {
     .clicked()
 }
 
-fn card(ui: &mut egui::Ui, theme: &Theme, glyph: &str, heading: &str, detail: &str) -> bool {
-    let frame = egui::Frame::NONE
-        .fill(theme.background)
-        .stroke(Stroke::new(1.0, theme.border()))
-        .corner_radius(CornerRadius::same(theme::token::RADIUS_MD))
-        .inner_margin(egui::Margin::same(12));
-    let response = frame
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.horizontal(|ui| {
-                let (tile, _) = ui.allocate_exact_size(vec2(36.0, 36.0), egui::Sense::hover());
-                ui.painter().rect_filled(
-                    tile,
-                    CornerRadius::same(theme::token::RADIUS_MD),
-                    theme.surface(),
-                );
-                ui.painter().text(
-                    tile.center(),
-                    egui::Align2::CENTER_CENTER,
-                    glyph,
-                    egui::FontId::proportional(theme::token::TYPE_TITLE),
-                    theme.accent,
-                );
-                ui.add_space(12.0);
-                let text_width = (ui.available_width() - 28.0).max(40.0);
-                ui.vertical(|ui| {
-                    ui.set_width(text_width);
-                    ui.label(
-                        RichText::new(heading)
-                            .size(theme::token::TYPE_BODY)
-                            .color(theme.foreground)
-                            .strong(),
-                    );
-                    ui.label(
-                        RichText::new(detail)
-                            .size(theme::token::TYPE_CAPTION)
-                            .color(theme.dim),
-                    );
-                });
-                ui.label(
-                    RichText::new("›")
-                        .size(theme::token::TYPE_TITLE)
-                        .color(theme.text_muted()),
-                );
-            });
-        })
-        .response;
+enum CardMark {
+    First,
+    Join,
+    Bring,
+    Leave,
+}
+
+fn card(ui: &mut egui::Ui, theme: &Theme, mark: CardMark, heading: &str, detail: &str) -> bool {
+    let width = ui.available_width();
+    let (rect, response) = ui.allocate_exact_size(vec2(width, 84.0), egui::Sense::click());
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    let painter = ui.painter();
+    painter.rect_filled(
+        rect,
+        CornerRadius::same(theme::token::RADIUS_MD),
+        theme.background,
+    );
+    painter.rect_stroke(
+        rect,
+        CornerRadius::same(theme::token::RADIUS_MD),
+        Stroke::new(1.0, theme.border()),
+        egui::StrokeKind::Inside,
+    );
+    let tile = egui::Rect::from_min_size(rect.min + vec2(12.0, 24.0), vec2(36.0, 36.0));
+    painter.rect_filled(
+        tile,
+        CornerRadius::same(theme::token::RADIUS_MD),
+        theme.surface(),
+    );
+    paint_mark(painter, mark, tile.center(), theme.accent);
+    painter.text(
+        rect.min + vec2(60.0, 22.0),
+        egui::Align2::LEFT_TOP,
+        heading,
+        egui::FontId::proportional(theme::token::TYPE_BODY),
+        theme.foreground,
+    );
+    painter.text(
+        rect.min + vec2(60.0, 44.0),
+        egui::Align2::LEFT_TOP,
+        detail,
+        egui::FontId::proportional(theme::token::TYPE_CAPTION),
+        theme.dim,
+    );
+    let tip = rect.right_center() + vec2(-18.0, 0.0);
+    painter.line_segment(
+        [tip + vec2(-5.0, -5.0), tip],
+        Stroke::new(1.5, theme.text_muted()),
+    );
+    painter.line_segment(
+        [tip + vec2(-5.0, 5.0), tip],
+        Stroke::new(1.5, theme.text_muted()),
+    );
     ui.add_space(8.0);
-    response.interact(egui::Sense::click()).clicked()
+    response.clicked()
+}
+
+fn paint_mark(painter: &egui::Painter, mark: CardMark, at: egui::Pos2, color: egui::Color32) {
+    let stroke = Stroke::new(1.5, color);
+    match mark {
+        CardMark::First => {
+            painter.line_segment([at + vec2(0.0, -8.0), at + vec2(6.0, 0.0)], stroke);
+            painter.line_segment([at + vec2(6.0, 0.0), at + vec2(0.0, 8.0)], stroke);
+            painter.line_segment([at + vec2(0.0, 8.0), at + vec2(-6.0, 0.0)], stroke);
+            painter.line_segment([at + vec2(-6.0, 0.0), at + vec2(0.0, -8.0)], stroke);
+        }
+        CardMark::Join => {
+            painter.line_segment([at + vec2(-8.0, -3.0), at + vec2(6.0, -3.0)], stroke);
+            painter.line_segment([at + vec2(2.0, -7.0), at + vec2(8.0, -3.0)], stroke);
+            painter.line_segment([at + vec2(2.0, 1.0), at + vec2(8.0, -3.0)], stroke);
+            painter.line_segment([at + vec2(8.0, 3.0), at + vec2(-6.0, 3.0)], stroke);
+            painter.line_segment([at + vec2(-2.0, -1.0), at + vec2(-8.0, 3.0)], stroke);
+            painter.line_segment([at + vec2(-2.0, 7.0), at + vec2(-8.0, 3.0)], stroke);
+        }
+        CardMark::Bring => {
+            painter.line_segment([at + vec2(-6.0, 2.0), at + vec2(0.0, -6.0)], stroke);
+            painter.line_segment([at + vec2(6.0, 2.0), at + vec2(0.0, -6.0)], stroke);
+            painter.line_segment([at + vec2(0.0, -6.0), at + vec2(0.0, 8.0)], stroke);
+        }
+        CardMark::Leave => {
+            painter.circle_stroke(at, 7.0, stroke);
+        }
+    }
 }
 
 fn intro(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<String> {
@@ -222,7 +258,7 @@ fn choice(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Str
     if card(
         ui,
         theme,
-        "✦",
+        CardMark::First,
         "This is my first device",
         "Start fresh and keep these pages in sync from here.",
     ) {
@@ -231,7 +267,7 @@ fn choice(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Str
     if card(
         ui,
         theme,
-        "⇄",
+        CardMark::Join,
         "My pages already sync on another device",
         "Join with a code from that phone or computer.",
     ) {
@@ -308,20 +344,21 @@ fn words(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Stri
         });
     }
     ui.add_space(8.0);
-    let mut wrote = session.wrote();
-    if ui
-        .checkbox(
-            &mut wrote,
-            "I wrote these down or printed them somewhere safe.",
-        )
-        .changed()
-    {
-        session.set_wrote(wrote);
-    }
+    ui.horizontal(|ui| {
+        let mut wrote = session.wrote();
+        if design::toggle(ui, theme, &mut wrote).changed() {
+            session.set_wrote(wrote);
+        }
+        ui.label(
+            RichText::new("I wrote these down or printed them somewhere safe.")
+                .size(theme::token::TYPE_BODY)
+                .color(theme.foreground),
+        );
+    });
     ui.add_space(8.0);
     err(ui, theme, &session.error.clone());
     ui.horizontal(|ui| {
-        ui.add_enabled_ui(wrote, |ui| {
+        ui.add_enabled_ui(session.wrote(), |ui| {
             if design::primary(ui, theme, "I saved them").clicked() {
                 session.go_check();
             }
@@ -367,7 +404,13 @@ fn check(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Stri
         let choices = session.choice_list(which).to_vec();
         ui.horizontal_wrapped(|ui| {
             for word in choices {
-                if design::quiet(ui, theme, &word).clicked() {
+                let picked = session.picked(which) == Some(word.as_str());
+                let button = if picked {
+                    design::primary(ui, theme, &word)
+                } else {
+                    design::quiet(ui, theme, &word)
+                };
+                if button.clicked() {
                     session.pick(which, &word);
                 }
             }
@@ -394,7 +437,7 @@ fn pages_here(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option
     if card(
         ui,
         theme,
-        "↑",
+        CardMark::Bring,
         "Bring these pages into sync",
         "They stay as files here, and your other phones get a copy. Nothing is deleted.",
     ) {
@@ -403,7 +446,7 @@ fn pages_here(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option
     if card(
         ui,
         theme,
-        "·",
+        CardMark::Leave,
         "Leave them on this computer",
         "Sync starts empty. These files stay where they are, and they are not uploaded.",
     ) {
