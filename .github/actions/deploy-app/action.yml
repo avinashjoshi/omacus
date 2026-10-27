@@ -54,6 +54,16 @@ runs:
           echo "No release v$version yet. Settings in this build shows the hash."
           exit 0
         fi
+        # dist/SHA256SUMS.txt is the web file list for app.omacus.com. On the
+        # GitHub release that name is the desktop list. Upload a copy whose
+        # basename is the web asset. A label after "#" is not a new name, and
+        # --clobber would replace the desktop checksums.
+        cp dist/SHA256SUMS.txt dist/web-SHA256SUMS.txt
+        if grep -Eq '^[[:xdigit:]]{64} [ *]?(install\.sh|omacus-)' dist/web-SHA256SUMS.txt; then
+          echo "Refusing to upload a desktop checksum list as the web file list."
+          exit 1
+        fi
+        gh release upload "v$version" "dist/web-SHA256SUMS.txt" --clobber
         gh release view "v$version" --json body --jq .body > /tmp/notes.md
         if grep -q "$hash" /tmp/notes.md; then
           echo "The release notes already include this hash."
@@ -78,7 +88,6 @@ runs:
         path.write_text(text)
         PY
         gh release edit "v$version" --notes-file /tmp/notes.md
-        gh release upload "v$version" "dist/SHA256SUMS.txt#web-SHA256SUMS.txt" --clobber
     - name: Publish app.omacus.com
       shell: bash
       env:
