@@ -1740,7 +1740,8 @@ mod tests {
             assert!(after.starts_with("recover="));
             assert!(!link.contains('?'));
             // A single word can also be part of the page address or the picture
-            // markup. The whole phrase is what must stay after the hash.
+            // markup. The whole phrase is what must stay after the hash, and
+            // the page address itself is checked above.
             assert!(!before.contains(&phrase));
             let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
                 .decode(after.trim_start_matches("recover="))
