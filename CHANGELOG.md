@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+**A stuck disk image stops**
+
+Nothing you see in the app changed.
+
+<!-- internal -->
+
 ## 1.0.4
 
 **Sync keeps going when the key store is locked**
