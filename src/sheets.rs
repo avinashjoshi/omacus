@@ -462,7 +462,10 @@ impl Store {
         };
         store.align_sheets();
         store.ensure_handles();
+        // A library that already had its first run stays empty. Welcome is only
+        // the page a brand new library starts with.
         if store.sheets.is_empty()
+            && !state.seeded
             && let Some(welcome) = welcome
         {
             store.new_sheet(welcome);
@@ -3978,6 +3981,23 @@ mod tests {
                 .map(|s| s.id.clone())
                 .collect::<Vec<_>>()
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_marked_empty_library_stays_empty() {
+        let root = temp_root("seed-empty");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("state.json"),
+            r#"{"order":[],"active":"","cursors":{},"sidebar":true,"tree":[],"handles":{},"seeded":true}"#,
+        )
+        .unwrap();
+        let store = open_seeded(root.clone(), "# Welcome to Omacus");
+        let titles: Vec<_> = store.sheets.iter().map(Sheet::heading).collect::<Vec<_>>();
+        assert!(store.seeded);
+        assert!(titles.is_empty(), "{titles:?}");
+        assert!(store.folders().is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
 

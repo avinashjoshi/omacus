@@ -88,6 +88,46 @@ impl Library {
         self.vault_json().map(|json| present_vault(&json))
     }
 
+    /// A second document still carries the sidebar, trash, handles, and preferences.
+    /// Folding its pages in used to leave those behind.
+    pub(crate) fn keep_shared_state(&mut self, other: &Library) {
+        let mut blobs = self.vault_blobs();
+        let before = blobs.len();
+        for blob in other.vault_blobs() {
+            if !blobs.iter().any(|have| have == &blob) {
+                blobs.push(blob);
+            }
+        }
+        if blobs.len() == before {
+            return;
+        }
+        let merged = merge_vaults(&blobs);
+        if self.vault_json().as_deref() == Some(merged.as_str()) {
+            return;
+        }
+        let _ = self.doc.put(ROOT, VAULT_KEY, merged);
+        self.doc.commit();
+    }
+
+    /// Fold a stored copy of the sidebar, trash, handles, and preferences
+    /// into this document. A later revision of each item wins.
+    pub fn adopt_vault(&mut self, stored: &str) {
+        if stored.trim().is_empty() {
+            return;
+        }
+        let mut blobs = self.vault_blobs();
+        if blobs.iter().any(|have| have == stored) {
+            return;
+        }
+        blobs.push(stored.to_string());
+        let merged = merge_vaults(&blobs);
+        if self.vault_json().as_deref() == Some(merged.as_str()) {
+            return;
+        }
+        let _ = self.doc.put(ROOT, VAULT_KEY, merged);
+        self.doc.commit();
+    }
+
     fn vault_blobs(&self) -> Vec<String> {
         let Ok(all) = self.doc.get_all(ROOT, VAULT_KEY) else {
             return Vec::new();
@@ -972,5 +1012,28 @@ mod tests {
         assert_eq!(handles.len(), 1);
         assert_eq!(handles[0].get("id").and_then(Json::as_str), Some("ferry"));
         assert_eq!(handles[0].get("handle").and_then(Json::as_str), Some(""));
+    }
+
+    #[test]
+    fn a_blank_copy_keeps_the_shared_sidebar() {
+        let mut founder = crate::Library::new();
+        assert!(founder.note_vault(
+            r#"{"sidebar":[{"id":"pantry","kind":"folder","name":"Pantry","parent":"","index":0},{"id":"oats","kind":"page","parent":"pantry","index":0}],"trash":[{"id":"kept","text":"old loaf"}],"prefs":{"theme":"dusk"}}"#
+        ));
+        founder.reconcile("oats", "# Oats\nbowl 2\n", None);
+        let mut blank = crate::Library::new();
+        let founder_bytes = founder.save();
+        let blank_bytes = blank.save();
+        let (doc, _) = crate::merge_libraries(
+            &blank_bytes,
+            &[],
+            &founder_bytes,
+            &[("oats".to_string(), "# Oats\nbowl 2\n".to_string())],
+        );
+        let shown = crate::Library::load(&doc).unwrap();
+        let present = shown.vault_present().unwrap_or_default();
+        assert!(present.contains("Pantry"), "{present}");
+        assert!(present.contains("kept"), "{present}");
+        assert!(present.contains("dusk"), "{present}");
     }
 }

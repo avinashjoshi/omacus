@@ -2402,6 +2402,17 @@ impl Session {
             .map(|(_, text)| text.as_str())
     }
 
+    /// Page id and text, for a local proof. Sorted so two devices can be compared.
+    pub fn status_pages(&self) -> Vec<(String, String)> {
+        let mut pages = self.pages.clone();
+        pages.sort_by(|left, right| left.0.cmp(&right.0));
+        pages
+    }
+
+    pub fn has_pending(&self) -> bool {
+        !self.pending_id.is_empty()
+    }
+
     pub fn devices(&self) -> Vec<DeviceRow> {
         let Ok(rows) = self
             .desk

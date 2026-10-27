@@ -22,6 +22,9 @@ mod theme;
 mod update;
 
 fn main() {
+    if std::env::var("OMACUS_E2E_SYNC").ok().as_deref() == Some("1") {
+        std::process::exit(sync::e2e_drive());
+    }
     if std::env::var("OMACUS_E2E_KEYRING").ok().as_deref() == Some("1") {
         let dir = std::env::var("OMACUS_E2E_DIR").unwrap_or_else(|_| {
             std::env::temp_dir()

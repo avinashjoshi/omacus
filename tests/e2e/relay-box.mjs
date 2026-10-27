@@ -79,6 +79,7 @@ const server = createServer(async (req, res) => {
 });
 
 function writeFrame(socket, text) {
+  if (socket.destroyed || !socket.writable) return;
   const payload = Buffer.from(String(text));
   const len = payload.length;
   let header;
@@ -98,6 +99,7 @@ function writeFrame(socket, text) {
 }
 
 server.on("upgrade", async (req, socket) => {
+  socket.on("error", () => {});
   const key = req.headers["sec-websocket-key"];
   if (!key) {
     socket.destroy();
@@ -123,12 +125,16 @@ server.on("upgrade", async (req, socket) => {
   }
   if (response.status !== 101 && response.headers.get("x-omacus-live") !== "1") {
     const body = Buffer.from(await response.arrayBuffer());
-    socket.end(`HTTP/1.1 ${response.status} ${response.statusText}\r\ncontent-type: application/json\r\ncontent-length: ${body.length}\r\n\r\n`);
-    socket.write(body);
+    const head = Buffer.from(
+      `HTTP/1.1 ${response.status} ${response.statusText}\r\ncontent-type: application/json\r\ncontent-length: ${body.length}\r\nconnection: close\r\n\r\n`,
+    );
+    // end() already finishes the socket. A second write emits an error and
+    // takes the whole box down, including the devices that are already Live.
+    socket.end(Buffer.concat([head, body]));
     return;
   }
   const accept = createHash("sha1")
-    .update(String(key) + "258EAFA5-E914-47DA-95CA-C5AB0DC5AB11")
+    .update(String(key) + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
     .digest("base64");
   socket.write(
     "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " +

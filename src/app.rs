@@ -24,6 +24,7 @@ use crate::sync;
 use crate::theme::{self, Theme};
 use crate::update::{self, Method, State, Updates};
 use omacus_engine::{self as engine, Engine, Kind, LineResult, complete};
+use zeroize::Zeroize;
 
 const FONT_SIZE: f32 = 16.0;
 const GAP: f32 = theme::token::SPACE_6;
@@ -536,6 +537,17 @@ pub struct OmacusApp {
     gate_error: String,
     /// Last key or pointer, for the idle lock.
     last_input: Instant,
+    /// Local proof. The window saves its own pixels once each state is on screen.
+    e2e_shots: Option<std::path::PathBuf>,
+    e2e_auto: String,
+    e2e_hold: u32,
+    e2e_shot_pending: bool,
+    e2e_shot_name: Option<String>,
+    e2e_auto_done: bool,
+    e2e_invited: bool,
+    e2e_edit_done: bool,
+    e2e_seen: bool,
+    e2e_status_sig: String,
 }
 
 impl OmacusApp {
@@ -695,6 +707,16 @@ impl OmacusApp {
             gate_password: String::new(),
             gate_error: String::new(),
             last_input: Instant::now(),
+            e2e_shots: std::env::var_os("OMACUS_E2E_SHOT_DIR").map(std::path::PathBuf::from),
+            e2e_auto: std::env::var("OMACUS_E2E_AUTO").unwrap_or_default(),
+            e2e_hold: 0,
+            e2e_shot_pending: false,
+            e2e_shot_name: None,
+            e2e_auto_done: false,
+            e2e_invited: false,
+            e2e_edit_done: false,
+            e2e_seen: false,
+            e2e_status_sig: String::new(),
         };
         if let Ok(kind) = std::env::var("OMACUS_SYNC_SCREEN") {
             seed_sync_screen(&mut app.store, &kind);
@@ -740,8 +762,56 @@ rental = rent + 50
         if std::env::var("OMACUS_SCREENSHOT_HELP").ok().as_deref() == Some("pick") {
             app.store.demo_line_conflict();
         }
+        app.e2e_prepare();
         app.evaluate();
         app
+    }
+
+    /// Unlock a proof window and, when asked, start a join. The passphrase is read
+    /// from a file and not kept.
+    fn e2e_prepare(&mut self) {
+        if std::env::var("OMACUS_E2E_UNLOCK").ok().as_deref() != Some("1") {
+            return;
+        }
+        let Ok(path) = std::env::var("OMACUS_E2E_PASS_FILE") else {
+            return;
+        };
+        let Ok(mut pass) = std::fs::read_to_string(path) else {
+            return;
+        };
+        let mut pass_text = pass.trim().to_string();
+        pass.clear();
+        if self.sync.screen == sync::Screen::PassEnter {
+            self.sync.pass_buf().clone_from(&pass_text);
+            if self.sync.submit_pass().is_err() {
+                eprintln!("omacus: e2e unlock failed");
+            }
+            pass_text.zeroize();
+        } else if std::env::var("OMACUS_E2E_JOIN_FILE").is_ok() {
+            self.sync.choose_passphrase();
+            self.sync.pass_buf().clone_from(&pass_text);
+            self.sync.pass_again().clone_from(&pass_text);
+            if self.sync.submit_pass().is_err() {
+                eprintln!("omacus: e2e unlock failed");
+                pass_text.zeroize();
+                return;
+            }
+            self.sync.set_name("Harbor desk");
+            if let Ok(code_path) = std::env::var("OMACUS_E2E_JOIN_FILE")
+                && let Ok(mut code) = std::fs::read_to_string(code_path)
+            {
+                let mut trimmed = code.trim().to_string();
+                code.zeroize();
+                if self.sync.submit_join(&trimmed).is_err() {
+                    eprintln!("omacus: e2e join failed");
+                }
+                trimmed.zeroize();
+            }
+            pass_text.zeroize();
+        } else {
+            pass_text.zeroize();
+        }
+        self.sync_poll = Instant::now() - Duration::from_secs(60);
     }
 
     /// Every page a `@handle.name` can read, including Recently deleted.
@@ -1821,6 +1891,299 @@ rental = rent + 50
         ctx.request_repaint();
     }
 
+    /// Save the window when a proof state is actually on screen, and apply a
+    /// queued edit through the same save path as typing.
+    fn e2e_frame(&mut self, ctx: &egui::Context) {
+        if self.e2e_shots.is_none() && std::env::var_os("OMACUS_E2E_STATUS").is_none() {
+            return;
+        }
+        ctx.request_repaint_after(Duration::from_millis(50));
+        // A new phone shows "List changed" until Got it. The proof taps that
+        // so the settled chip is Live, the same as a person closing the note.
+        if self.sync.screen == sync::Screen::Closed && !self.sync.list_note_text().is_empty() {
+            self.list_open = false;
+            self.sync.ack_list();
+        }
+        self.e2e_write_status();
+        self.e2e_apply_edit();
+        self.e2e_note_seen();
+        self.e2e_capture(ctx);
+        self.e2e_auto();
+        self.e2e_make_invite();
+    }
+
+    fn e2e_lines(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        for entry in self.store.side_entries() {
+            match entry.kind {
+                crate::sheets::SideKind::Folder { name, .. } => {
+                    lines.push(format!("folder:{name}"));
+                }
+                crate::sheets::SideKind::Page { id } => {
+                    let heading = self
+                        .store
+                        .sheets
+                        .iter()
+                        .find(|sheet| sheet.id == id)
+                        .map(|sheet| sheet.heading())
+                        .unwrap_or_default();
+                    lines.push(format!("page:{heading}"));
+                }
+            }
+        }
+        for item in &self.trash {
+            lines.push(format!("trash:{}", item.title));
+        }
+        lines
+    }
+
+    fn e2e_write_status(&mut self) {
+        let Ok(path) = std::env::var("OMACUS_E2E_STATUS") else {
+            return;
+        };
+        let lines = self.e2e_lines();
+        let chip = self.sync.chip(Instant::now()).label().unwrap_or("");
+        let theme = self.settings.theme.as_str();
+        let screen = format!("{:?}", self.sync.screen);
+        let sig = format!(
+            "{screen}|{chip}|{theme}|{}|{}|{}",
+            self.settings.hide_answers,
+            self.settings.lock_minutes,
+            lines.join(",")
+        );
+        if sig == self.e2e_status_sig {
+            return;
+        }
+        self.e2e_status_sig = sig;
+        let body = serde_json::json!({
+            "screen": screen,
+            "chip": chip,
+            "theme": theme,
+            "hideAnswers": self.settings.hide_answers,
+            "lockMinutes": self.settings.lock_minutes,
+            "lines": lines,
+            "live": self.sync.socket_live(),
+        });
+        let _ = std::fs::write(path, body.to_string());
+    }
+
+    fn e2e_apply_edit(&mut self) {
+        if self.e2e_edit_done {
+            return;
+        }
+        if let Some(dir) = &self.e2e_shots
+            && !dir.join("live-dusk.png").exists()
+        {
+            return;
+        }
+        let Ok(path) = std::env::var("OMACUS_E2E_EDIT") else {
+            return;
+        };
+        if !std::path::Path::new(&path).exists() {
+            return;
+        }
+        let Ok(body) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        let Some((id, text)) = body.split_once('\n') else {
+            return;
+        };
+        let id = id.trim();
+        if id.is_empty() {
+            return;
+        }
+        if let Some(sheet) = self.store.sheets.iter_mut().find(|sheet| sheet.id == id) {
+            sheet.text = text.to_string();
+            sheet.mark_dirty();
+        }
+        self.sync.note_edit(id, text);
+        self.sync_poll = Instant::now();
+        self.e2e_edit_done = true;
+        if let Ok(out) = std::env::var("OMACUS_E2E_EDIT_AT") {
+            let ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_millis())
+                .unwrap_or(0);
+            let _ = std::fs::write(out, ms.to_string());
+        }
+    }
+
+    fn e2e_note_seen(&mut self) {
+        if self.e2e_seen {
+            return;
+        }
+        let Ok(path) = std::env::var("OMACUS_E2E_WAIT") else {
+            return;
+        };
+        let Ok(needle) = std::fs::read_to_string(path) else {
+            return;
+        };
+        let needle = needle.trim();
+        if needle.is_empty() {
+            return;
+        }
+        let found = self
+            .store
+            .sheets
+            .iter()
+            .any(|sheet| sheet.text.contains(needle) || sheet.heading().contains(needle));
+        if !found {
+            return;
+        }
+        self.e2e_seen = true;
+        if let Ok(out) = std::env::var("OMACUS_E2E_SEEN_AT") {
+            let ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_millis())
+                .unwrap_or(0);
+            let _ = std::fs::write(out, ms.to_string());
+        }
+    }
+
+    fn e2e_capture(&mut self, ctx: &egui::Context) {
+        let Some(dir) = self.e2e_shots.clone() else {
+            return;
+        };
+        if self.e2e_shot_pending {
+            let arrived = self
+                .e2e_shot_name
+                .as_ref()
+                .is_some_and(|name| dir.join(name).exists());
+            if !arrived {
+                return;
+            }
+            self.e2e_shot_pending = false;
+            self.e2e_shot_name = None;
+        }
+        let _ = std::fs::create_dir_all(&dir);
+        let live = self.sync.chip(Instant::now()) == sync::Chip::Live;
+        let closed = self.sync.screen == sync::Screen::Closed;
+        let theme = self.settings.theme.as_str();
+        let settings = std::env::var("OMACUS_E2E_SETTINGS").ok().as_deref() == Some("1");
+        let name = if self.sync.screen == sync::Screen::Waiting && !dir.join("waiting.png").exists()
+        {
+            Some("waiting.png")
+        } else if self.sync.screen == sync::Screen::Match && !dir.join("match.png").exists() {
+            Some("match.png")
+        } else if self.sync.screen == sync::Screen::Approve && !dir.join("approve.png").exists() {
+            Some("approve.png")
+        } else if live && closed && theme == "dusk" && !dir.join("live-dusk.png").exists() {
+            self.help = None;
+            Some("live-dusk.png")
+        } else if settings
+            && dir.join("live-dusk.png").exists()
+            && !dir.join("settings-dusk.png").exists()
+        {
+            self.help = Some(help::Tab::Settings);
+            Some("settings-dusk.png")
+        } else if live && closed && theme == "light" && !dir.join("live-light.png").exists() {
+            self.help = None;
+            Some("live-light.png")
+        } else if settings
+            && dir.join("live-light.png").exists()
+            && !dir.join("settings-light.png").exists()
+        {
+            self.help = Some(help::Tab::Settings);
+            Some("settings-light.png")
+        } else {
+            None
+        };
+        let Some(name) = name else {
+            self.e2e_hold = 0;
+            return;
+        };
+        if dir.join(name).exists() {
+            return;
+        }
+        self.e2e_hold += 1;
+        if self.e2e_hold < 8 {
+            return;
+        }
+        self.e2e_hold = 0;
+        self.e2e_shot_pending = true;
+        self.e2e_shot_name = Some(name.to_string());
+        let path = dir.join(name);
+        let ctx2 = ctx.clone();
+        ctx.request_screenshot(move |image| {
+            let bytes: Vec<u8> = image
+                .pixels
+                .iter()
+                .flat_map(|color| color.to_array())
+                .collect();
+            let [w, h] = image.size;
+            if let Err(error) =
+                image::save_buffer(&path, &bytes, w as u32, h as u32, image::ColorType::Rgba8)
+            {
+                eprintln!("omacus: screenshot failed: {error}");
+            }
+            ctx2.request_repaint();
+        });
+    }
+
+    fn e2e_auto(&mut self) {
+        if self.e2e_auto_done {
+            return;
+        }
+        let Some(dir) = &self.e2e_shots else {
+            return;
+        };
+        if self.e2e_auto == "accept"
+            && dir.join("match.png").exists()
+            && self.sync.screen == sync::Screen::Match
+        {
+            self.sync.ask(sync::Work::AcceptMatch);
+            self.e2e_auto_done = true;
+        }
+        if self.e2e_auto == "approve"
+            && dir.join("approve.png").exists()
+            && self.sync.screen == sync::Screen::Approve
+        {
+            self.sync.ask(sync::Work::Approve);
+            self.e2e_auto_done = true;
+        }
+    }
+
+    /// After the parity shots, a flag file asks this window for one invite.
+    /// The code is written to a file and the screen closes again, so a waiting
+    /// phone can be approved from this window.
+    fn e2e_make_invite(&mut self) {
+        if self.e2e_invited {
+            return;
+        }
+        let Ok(flag) = std::env::var("OMACUS_E2E_MAKE_INVITE") else {
+            return;
+        };
+        if !std::path::Path::new(&flag).exists() {
+            return;
+        }
+        let Ok(path) = std::env::var("OMACUS_E2E_INVITE_FILE") else {
+            return;
+        };
+        if self.sync.screen == sync::Screen::Invite && !self.sync.invite_code().is_empty() {
+            let mut code = self.sync.invite_code().to_string();
+            if e2e_write_secret(std::path::Path::new(&path), &code) {
+                self.sync.done();
+                self.e2e_invited = true;
+            }
+            code.zeroize();
+            return;
+        }
+        if self.sync.screen != sync::Screen::Closed
+            || self.sync.chip(Instant::now()) != sync::Chip::Live
+        {
+            return;
+        }
+        if self.sync.start_invite().is_err() {
+            return;
+        }
+        let mut code = self.sync.invite_code().to_string();
+        if e2e_write_secret(std::path::Path::new(&path), &code) {
+            self.sync.done();
+            self.e2e_invited = true;
+        }
+        code.zeroize();
+    }
+
     fn toggle_help(&mut self) {
         self.help = match self.help {
             Some(_) => None,
@@ -2337,11 +2700,11 @@ rental = rent + 50
             self.sync.is_dirty(),
             self.sync.socket_live(),
         ));
-        let modal = !matches!(
-            self.sync.screen,
-            sync::Screen::Closed | sync::Screen::Waiting
-        );
-        if !modal && self.sync.active() && self.sync_poll.elapsed() >= every {
+        let screen_waiting = self.sync.screen == sync::Screen::Waiting;
+        let screen_closed = self.sync.screen == sync::Screen::Closed;
+        if sync::should_poll_sync(self.sync.active(), screen_closed, screen_waiting)
+            && self.sync_poll.elapsed() >= every
+        {
             self.sync_poll = Instant::now();
             self.sync.ask(sync::Work::Poll);
         }
@@ -5460,6 +5823,7 @@ impl eframe::App for OmacusApp {
         self.handle_background_updates(&ctx);
         self.take_answers();
         self.take_screenshot(&ctx);
+        self.e2e_frame(&ctx);
         self.handle_shortcuts(&ctx);
 
         if self.store.sidebar {
@@ -5743,6 +6107,33 @@ enum Icon {
     Gear,
     Folder,
     Cloud,
+}
+
+fn e2e_write_secret(path: &std::path::Path, text: &str) -> bool {
+    if let Some(parent) = path.parent()
+        && std::fs::create_dir_all(parent).is_err()
+    {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+        else {
+            return false;
+        };
+        file.write_all(text.as_bytes()).is_ok()
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, text).is_ok()
+    }
 }
 
 fn sync_dir() -> std::path::PathBuf {
@@ -6344,7 +6735,9 @@ fn is_system_dark(ctx: &egui::Context) -> bool {
 }
 
 pub fn run() -> eframe::Result {
-    let size = if std::env::var("OMACUS_SYNC_SCREEN").is_ok() {
+    let size = if std::env::var("OMACUS_SYNC_SCREEN").is_ok()
+        || std::env::var_os("OMACUS_E2E_SHOT_DIR").is_some()
+    {
         Vec2::new(1280.0, 800.0)
     } else {
         Vec2::new(980.0, 600.0)

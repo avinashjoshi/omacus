@@ -8,7 +8,7 @@ Edit a page here, and the other open app picks it up in about a second. The stat
 
 **Folders, order, and Recently deleted stay together**
 
-The sidebar on each device shows the same folders, the same order, and the same Recently deleted pages. A folder password travels with the folder. The short name you use in a reference stays with the page.
+The sidebar on each device shows the same folders, the same order, and the same Recently deleted pages. A phone or computer that joins keeps that sidebar, not only the pages. A folder password travels with the folder. The short name you use in a reference stays with the page.
 
 **The same settings on each device**
 
@@ -16,7 +16,7 @@ Theme, where answers sit, and how soon a locked page locks again follow you. Win
 
 **Approving a device finishes or says what happened**
 
-Yes on the approval card finishes, or it tells you the code expired or the other device did not finish. It does not stay on Approving.
+Yes on the approval card finishes, or it tells you the code expired or the other device did not finish. It does not stay on Approving. The phone or computer that is waiting finishes joining once you say yes, and it shows Live while that sheet is still open.
 
 ## 1.0.4
 

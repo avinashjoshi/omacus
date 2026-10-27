@@ -1,4 +1,6 @@
 // A write tells every open device the new revision, and nothing else.
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { Mailboxes } from "./worker.js";
 import { MemoryStorage } from "./storage.js";
@@ -81,5 +83,15 @@ const query = new URLSearchParams({
 });
 const refused = await call("GET", `${path}?${query}`, undefined, { upgrade: "websocket" });
 assert(refused.status === 404, `a reused nonce opened a socket ${refused.status}`);
+
+// RFC 6455 section 1.3. A swapped guid makes every real socket fail the handshake.
+const guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+const relayBox = readFileSync(new URL("../../tests/e2e/relay-box.mjs", import.meta.url), "utf8");
+assert(relayBox.includes(guid), "the test relay uses the websocket accept guid");
+assert(!relayBox.includes(guid.replace("DC85B", "DC5AB")), "the old accept guid is gone");
+assert(relayBox.includes("socket.end(Buffer.concat([head, body]))"), "a refused upgrade is one write");
+assert(!relayBox.includes("socket.write(body)"), "a refused upgrade does not write after the socket ended");
+const accept = createHash("sha1").update(`dGhlIHNhbXBsZSBub25jZQ==${guid}`).digest("base64");
+assert(accept === "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=", `accept ${accept}`);
 
 console.log("live ok");

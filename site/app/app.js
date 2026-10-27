@@ -744,6 +744,7 @@ let settings = loadSettings();
 
 function saveSettings() {
   store.set("settings", JSON.stringify(settings));
+  noteSyncEdit();
 }
 
 function themeName() {
@@ -1063,7 +1064,33 @@ function setSyncPlaces(places) {
   renderSidebar();
 }
 
-if (document.documentElement.dataset.syncTest === "1") globalThis.omacusShowPlaces = setSyncPlaces;
+if (document.documentElement.dataset.syncTest === "1") {
+  globalThis.omacusShowPlaces = setSyncPlaces;
+  globalThis.omacusBlankLibrary = () => {
+    state.texts = new Map();
+    state.tree = [];
+    state.handles = new Map();
+    state.order = [];
+    state.active = null;
+    docBytes = new Uint8Array();
+    librarySeeded = true;
+    globalThis.__omacusBlank = true;
+    for (const key of storeKeys()) {
+      if (key.startsWith("page:") || key.startsWith("sheet:") || key === "library-doc") store.remove(key);
+    }
+    saveTrash([]);
+    saveIndex();
+    renderSidebar();
+  };
+  globalThis.omacusReplacePage = (id, text) => {
+    if (!id || !state.texts.has(id)) return false;
+    state.texts.set(id, text);
+    if (state.active === id) showSheet();
+    saveSheet(id);
+    renderSidebar();
+    return true;
+  };
+}
 
 function filterSyncedTree(nodes, local) {
   const out = [];
@@ -5194,6 +5221,9 @@ function syncSnapshotPages() {
 }
 
 async function takeSyncSnapshot() {
+  if (globalThis.__omacusBlank && state.texts.size === 0) {
+    return { pages: [], doc: new Uint8Array() };
+  }
   if (pendingSave) {
     clearTimeout(pendingSave);
     pendingSave = null;
@@ -5365,6 +5395,7 @@ async function applyRemoteLibrary(nextDoc, pages) {
     showDocConflicts();
   } finally {
     applyingRemote = false;
+    globalThis.__omacusBlank = false;
   }
 }
 
@@ -5384,15 +5415,21 @@ async function start() {
     open.addEventListener("click", () => (open.href = sharePageUrl(shareEncode(currentText()))));
   } else {
     load();
-    const action = seedAction({
-      pages: state.order.length,
-      seeded: librarySeeded,
-      trash: loadTrash().length,
-    });
-    if (action === "welcome-mark" || action === "mark") librarySeeded = true;
-    if (action === "examples") installLibrary(freshLibrary(WELCOME));
-    else if (action === "welcome" || action === "welcome-mark") addSheet(WELCOME);
-    else if (action === "mark") saveIndex();
+    // A joined proof starts empty. The example pages would be a second library.
+    if (document.documentElement.dataset.syncTest !== "1") {
+      const action = seedAction({
+        pages: state.order.length,
+        seeded: librarySeeded,
+        trash: loadTrash().length,
+      });
+      if (action === "welcome-mark" || action === "mark") librarySeeded = true;
+      if (action === "examples") installLibrary(freshLibrary(WELCOME));
+      else if (action === "welcome" || action === "welcome-mark") addSheet(WELCOME);
+      else if (action === "mark") saveIndex();
+    } else {
+      librarySeeded = true;
+      saveIndex();
+    }
   }
   await init({ module_or_path: WASM });
   try {

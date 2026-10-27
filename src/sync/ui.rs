@@ -675,8 +675,13 @@ fn invite(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Str
         "On the other phone or computer, open Sync and choose My pages already sync on another device. Type this code. It works for about 5 minutes, and only once.",
     );
     ui.horizontal(|ui| {
+        let invite = if proof_mask() {
+            "····-····-····".to_string()
+        } else {
+            session.invite_code().to_string()
+        };
         ui.label(
-            RichText::new(session.invite_code())
+            RichText::new(invite)
                 .size(theme::token::TYPE_DISPLAY)
                 .color(theme.foreground)
                 .monospace(),
@@ -792,6 +797,26 @@ fn join(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
     None
 }
 
+fn proof_mask() -> bool {
+    std::env::var_os("OMACUS_E2E_SHOT_DIR").is_some()
+}
+
+fn shown_numbers(session: &Session) -> String {
+    if proof_mask() {
+        "······".to_string()
+    } else {
+        session.numbers()
+    }
+}
+
+fn shown_words(session: &Session) -> String {
+    if proof_mask() {
+        "···· ···· ···· ····".to_string()
+    } else {
+        session.four_words()
+    }
+}
+
 fn waiting(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<String> {
     title(ui, theme, "Approve on your other device");
     para(
@@ -800,7 +825,7 @@ fn waiting(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<St
         "The same six numbers should be on that phone or computer. Tap Yes there only if they match.",
     );
     ui.label(
-        RichText::new(session.numbers())
+        RichText::new(shown_numbers(session))
             .size(theme::token::TYPE_DISPLAY)
             .color(theme.foreground)
             .monospace(),
@@ -820,12 +845,12 @@ fn matching(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<S
         "The same six numbers and the same four words should be on your other phone or computer.",
     );
     ui.label(
-        RichText::new(session.numbers())
+        RichText::new(shown_numbers(session))
             .size(theme::token::TYPE_DISPLAY)
             .color(theme.foreground)
             .monospace(),
     );
-    para(ui, theme, &session.four_words());
+    para(ui, theme, &shown_words(session));
     ui.horizontal(|ui| {
         if design::primary(ui, theme, "These match").clicked() {
             session.ask(Work::AcceptMatch);
@@ -852,12 +877,12 @@ fn approve(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<St
         "It wants to open your pages. The same six numbers and the same four words should be on that screen. Those numbers only check this step. Tap Yes, approve it only if they match.",
     );
     ui.label(
-        RichText::new(session.numbers())
+        RichText::new(shown_numbers(session))
             .size(theme::token::TYPE_DISPLAY)
             .color(theme.foreground)
             .monospace(),
     );
-    para(ui, theme, &session.four_words());
+    para(ui, theme, &shown_words(session));
     err(ui, theme, &session.error.clone());
     let note = session.copy_note();
     if !note.is_empty() {

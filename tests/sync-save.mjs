@@ -1,6 +1,7 @@
 // An edit typed while a save is in flight must stay unsaved.
 // Two phones that each edit offline both keep their lines: the one that was
 // offline merges when its pages differ from the last synced copy.
+import { readFileSync } from "node:fs";
 import { approvalCard, beginSave, chipLabel, dedupeWelcome, declinedCovers, finishSave, keepUnlessTombstone, liveDeliveryMs, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, removalSentence, showTurnOnSync } from "../site/app/sync-save.mjs";
 
 function assert(cond, message) {
@@ -126,5 +127,9 @@ assert(chipLabel({ live: true, member: true }) === "Live", "a connected device s
 assert(chipLabel({ member: true }) === "Offline", "a device with no socket said Synced");
 assert(chipLabel({ syncing: true, live: true, member: true }) === "Syncing", "a save hid behind Live");
 assert(!chipLabel({}).includes("Synced"), "an empty status said Synced");
+
+const appSource = readFileSync(new URL("../site/app/app.js", import.meta.url), "utf8");
+const saveSettings = appSource.slice(appSource.indexOf("function saveSettings"), appSource.indexOf("function themeName"));
+assert(saveSettings.includes("noteSyncEdit()"), "a settings change stayed on this device");
 
 console.log("sync save ok");

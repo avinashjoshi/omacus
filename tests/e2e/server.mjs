@@ -63,6 +63,7 @@ const server = createServer((req, res) => {
       "content-security-policy": csp,
       "x-content-type-options": "nosniff",
       "referrer-policy": "strict-origin-when-cross-origin",
+      "cache-control": "no-cache, no-store",
     };
     // The published host answers a missing file with the app page. The worker
     // has to refuse that for anything that is not the page itself.

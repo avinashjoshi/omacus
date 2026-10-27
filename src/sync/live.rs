@@ -20,6 +20,12 @@ pub const FALLBACK_POLL_MS: u64 = 2_000;
 pub const LIVE_FALLBACK_MS: u64 = 30_000;
 pub const WAITING_POLL_MS: u64 = 800;
 
+/// A device that is already syncing keeps the socket up, including while the
+/// sync sheet is open. A join that is still waiting keeps asking too.
+pub fn should_poll_sync(active: bool, _screen_closed: bool, screen_waiting: bool) -> bool {
+    active || screen_waiting
+}
+
 pub fn poll_gap_ms(waiting: bool, dirty: bool, live: bool) -> u64 {
     if waiting {
         return WAITING_POLL_MS;
@@ -199,6 +205,17 @@ mod tests {
         assert_eq!(poll_gap_ms(false, true, true), 400);
         assert_eq!(poll_gap_ms(false, false, true), 30_000);
         assert_eq!(poll_gap_ms(false, false, false), 2_000);
+    }
+
+    #[test]
+    fn a_waiting_join_keeps_asking_until_it_is_approved() {
+        assert!(should_poll_sync(false, false, true));
+        assert!(should_poll_sync(true, true, false));
+        assert!(
+            should_poll_sync(true, false, false),
+            "an open sync sheet still connects"
+        );
+        assert!(!should_poll_sync(false, false, false));
     }
 
     #[test]
