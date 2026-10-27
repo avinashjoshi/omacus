@@ -2567,6 +2567,7 @@ body.answers-inline .md .pill {
 .sync-panel .settings-group .sync-actions {
   flex-direction: row;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-2);
   margin-top: var(--space-3);
 }
