@@ -18,6 +18,12 @@ Theme, where answers sit, and how soon a locked page locks again follow you. Win
 
 Yes on the approval card finishes, or it tells you the code expired or the other device did not finish. It does not stay on Approving. The phone or computer that is waiting finishes joining once you say yes, and it shows Live while that sheet is still open.
 
+**A stuck disk image stops**
+
+Nothing you see in the app changed.
+
+<!-- internal -->
+
 ## 1.0.4
 
 **Sync keeps going when the key store is locked**
