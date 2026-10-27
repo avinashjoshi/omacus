@@ -1,0 +1,36 @@
+name: Apply keyring patch
+
+on:
+  push:
+    branches: [cursor/sync-keyring-words-29c8]
+    paths:
+      - .github/keyring-setup.ready
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: cursor/sync-keyring-words-29c8
+      - name: Apply the setup patch and remove this helper
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat .github/keyring-setup.patch.1 .github/keyring-setup.patch.2 .github/keyring-setup.patch.3 .github/keyring-setup.patch.4 > /tmp/keyring-setup.patch
+          git hash-object /tmp/keyring-setup.patch | grep -qx '47e0788b1eddcd302e4af58f899c0f7624c3cb5c'
+          git apply --check /tmp/keyring-setup.patch
+          git apply /tmp/keyring-setup.patch
+          git rm -f .github/keyring-setup.patch.1 .github/keyring-setup.patch.2 .github/keyring-setup.patch.3 .github/keyring-setup.patch.4 .github/keyring-setup.ready .github/workflows/apply-keyring-patch.yml
+          git config user.name "Avinash Joshi"
+          git config user.email "172230+avinashjoshi@users.noreply.github.com"
+          git commit -m "Ask once to set up an empty key store, then open it without a password" -m "A Linux key store that is running but locked shows Set up your keyring. That step creates a login collection with no password. The next time Omacus opens, Secret Service unlocks it with no prompt. A passphrase file is only created when someone chooses Use a passphrase instead." -m "Co-authored-by: Avinash Joshi <avinashjoshi@users.noreply.github.com>"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:cursor/sync-keyring-words-29c8"
