@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +32,22 @@ def main() -> int:
         fail("the web deploy has no app environment")
     if "web-SHA256SUMS.txt" not in deploy or "app.omacus.com/SHA256SUMS.txt" not in deploy:
         fail("the web deploy does not publish the file list")
+    uploads = [line.strip() for line in deploy.splitlines() if "gh release upload" in line]
+    if uploads != ['gh release upload "v$version" "dist/web-SHA256SUMS.txt" --clobber']:
+        fail("the web deploy must upload web-SHA256SUMS.txt and no other release file")
+    if "SHA256SUMS.txt#" in deploy or "dist/SHA256SUMS.txt\"" in deploy.split("gh release upload", 1)[-1]:
+        fail("the web deploy can replace the desktop checksum file")
+    guard = r"^[[:xdigit:]]{64} [ *]?(install\.sh|omacus-)"
+    if guard not in deploy:
+        fail("the web deploy does not refuse a desktop checksum list")
+    # The same guard, in Python, so a desktop line cannot pass as a web path.
+    desktop = re.compile(r"^[0-9a-f]{64} [ *]?(install\.sh|omacus-)")
+    if not desktop.search("589e09ada2a738fb4cdeb73128859a2aac923a1ecb241fca7342b7b48a3819fc  omacus-linux-x86_64.tar.gz"):
+        fail("the desktop checksum guard missed a package")
+    if desktop.search("22852b99782593c24c2be310b45099264d768d373854f0bd7094cf8905a1cb9e  ./app.js"):
+        fail("the desktop checksum guard matched a web file")
+    if not desktop.search("727f0720f04bc9d9f8390b5f433f23afd2ae24f976660599ed84ded740af4c2c  install.sh"):
+        fail("the desktop checksum guard missed install.sh")
 
     build = (ROOT / ".github" / "scripts" / "build-web.sh").read_text()
     if "SHA256SUMS.txt" not in build:
