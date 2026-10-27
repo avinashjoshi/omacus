@@ -17,6 +17,7 @@ pub enum Tab {
     Tips,
     About,
     Settings,
+    Sync,
 }
 
 impl Tab {
@@ -26,6 +27,7 @@ impl Tab {
             "tips" => Tab::Tips,
             "about" => Tab::About,
             "settings" => Tab::Settings,
+            "sync" => Tab::Sync,
             _ => Tab::Keyboard,
         }
     }
@@ -37,6 +39,7 @@ impl Tab {
             Tab::Tips => "Tips & tricks",
             Tab::About => "About",
             Tab::Settings => "Settings",
+            Tab::Sync => "Sync",
         }
     }
 }
@@ -411,6 +414,7 @@ pub fn show(
                             ui.add_space(18.0);
                             for t in [
                                 Tab::Settings,
+                                Tab::Sync,
                                 Tab::Keyboard,
                                 Tab::Syntax,
                                 Tab::Tips,
@@ -502,6 +506,7 @@ pub fn show(
                                             action = Some(Action::ExportEverything);
                                         }
                                     }
+                                    Tab::Sync => crate::sync::settings_preview::show(ui, theme),
                                     Tab::About => {
                                         if about(ui, theme, logo, updates, available.as_deref()) {
                                             action = Some(Action::OpenUpdate);

@@ -31,6 +31,7 @@ import {
 import { mountSync } from "./sync.js";
 import { captureSyncLink } from "./sync-link.mjs";
 import { allocateHandle, freshLibrary, seedAction } from "./seed.js";
+import { DEMO_TRASH, demoLibrary } from "./sync-settings-mock.js";
 import { backupEntries, mergeBackup, parseBackup, unzipNamed, zipBytes } from "./backup.js";
 
 // Set before any await, so a failed import never looks like a slow start.
@@ -5417,7 +5418,11 @@ async function start() {
     load();
     // A joined proof starts empty. The example pages would be a second library.
     // The usual checks use the same test store and still need those examples.
-    if (document.documentElement.dataset.syncBlank !== "1") {
+    const mock = new URLSearchParams(location.search).get("syncMock");
+    if (mock) {
+      installLibrary(demoLibrary());
+      saveTrash(DEMO_TRASH);
+    } else if (document.documentElement.dataset.syncBlank !== "1") {
       const action = seedAction({
         pages: state.order.length,
         seeded: librarySeeded,
@@ -5477,6 +5482,11 @@ async function start() {
       },
       setSyncPlaces,
     });
+    const mock = new URLSearchParams(location.search).get("syncMock");
+    if (mock) {
+      const { openMock } = await import("./sync-settings-mock.js");
+      openMock(mock, (tab) => openSettings(tab));
+    }
   }
   if (matchMedia("(min-width: 761px)").matches) view.focus();
 }

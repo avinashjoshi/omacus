@@ -9,6 +9,7 @@ mod keys;
 mod live;
 mod qr;
 mod session;
+pub mod settings_preview;
 mod ui;
 mod wire;
 

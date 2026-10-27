@@ -463,7 +463,12 @@ pub fn controls(
     settings != &before
 }
 
-fn group(ui: &mut egui::Ui, theme: &Theme, title: &str, body: impl FnOnce(&mut egui::Ui)) {
+pub(crate) fn group(
+    ui: &mut egui::Ui,
+    theme: &Theme,
+    title: &str,
+    body: impl FnOnce(&mut egui::Ui),
+) {
     ui.label(
         egui::RichText::new(title)
             .size(theme::token::TYPE_CAPTION)
@@ -480,7 +485,7 @@ fn group(ui: &mut egui::Ui, theme: &Theme, title: &str, body: impl FnOnce(&mut e
         });
 }
 
-fn labeled(
+pub(crate) fn labeled(
     ui: &mut egui::Ui,
     theme: &Theme,
     title: &str,
@@ -508,7 +513,7 @@ fn switch_row(ui: &mut egui::Ui, theme: &Theme, title: &str, help: &str, on: &mu
     });
 }
 
-fn caption(ui: &mut egui::Ui, theme: &Theme, text: &str) {
+pub(crate) fn caption(ui: &mut egui::Ui, theme: &Theme, text: &str) {
     ui.label(
         egui::RichText::new(text)
             .size(theme::token::TYPE_CAPTION)

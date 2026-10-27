@@ -278,6 +278,8 @@ pub struct Session {
     on: bool,
     member: bool,
     removed: bool,
+    /// Settings mock only. The sidebar says Sync without turning sync on.
+    preview_named: bool,
     dirty: bool,
     offline: bool,
     busy: bool,
@@ -406,6 +408,7 @@ impl Session {
             on: false,
             member: false,
             removed: false,
+            preview_named: false,
             dirty: false,
             offline: false,
             busy: false,
@@ -497,6 +500,7 @@ impl Session {
         shell.on = self.on;
         shell.member = self.member;
         shell.removed = self.removed;
+        shell.preview_named = self.preview_named;
         shell.error = self.error.clone();
         shell.pass_locked = self.pass_locked;
         shell.offline = self.offline;
@@ -1053,12 +1057,27 @@ impl Session {
         self.removed
     }
 
+    /// The settings mock shows a paused computer with the sidebar button still named Sync.
+    pub fn preview_paused_entry(&mut self) {
+        self.removed = true;
+        self.on = false;
+        self.screen = Screen::Closed;
+    }
+
+    /// The sidebar says Sync while the Settings mock shows a linked computer.
+    pub fn preview_named_entry(&mut self) {
+        self.preview_named = true;
+        self.on = false;
+        self.removed = false;
+        self.screen = Screen::Closed;
+    }
+
     pub fn entry_visible(&self) -> bool {
-        self.offer_setup() || self.on || self.removed
+        self.offer_setup() || self.on || self.removed || self.preview_named
     }
 
     pub fn entry_label(&self) -> &'static str {
-        if self.on || self.removed {
+        if self.on || self.removed || self.preview_named {
             "Sync"
         } else {
             "Turn on sync"

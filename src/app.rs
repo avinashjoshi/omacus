@@ -562,7 +562,13 @@ impl OmacusApp {
         let system_dark = is_system_dark(&cc.egui_ctx);
         let settings = settings::load();
         settings::remember(&settings);
-        let theme = if std::env::var("OMACUS_SYNC_SCREEN").is_ok() {
+        let theme = if std::env::var("OMACUS_SYNC_MOCK").is_ok() {
+            let choice = match std::env::var("OMACUS_SCREENSHOT_THEME").ok().as_deref() {
+                Some("light") => settings::ThemeChoice::Light,
+                _ => settings::ThemeChoice::Dusk,
+            };
+            Theme::resolve(choice, choice != settings::ThemeChoice::Light)
+        } else if std::env::var("OMACUS_SYNC_SCREEN").is_ok() {
             let light = std::env::var("OMACUS_SCREENSHOT_THEME").ok().as_deref() == Some("light");
             Theme::resolve(
                 if light {
@@ -718,7 +724,20 @@ impl OmacusApp {
             e2e_seen: false,
             e2e_status_sig: String::new(),
         };
-        if let Ok(kind) = std::env::var("OMACUS_SYNC_SCREEN") {
+        if std::env::var_os("OMACUS_SYNC_MOCK").is_some() {
+            app.help = Some(help::Tab::Sync);
+        }
+        match std::env::var("OMACUS_SYNC_MOCK").ok().as_deref() {
+            Some("paused") => app.sync.preview_paused_entry(),
+            Some(
+                "join-words" | "join-wait" | "approve" | "approve-timeout" | "devices" | "remove"
+                | "list-changed" | "off",
+            ) => app.sync.preview_named_entry(),
+            _ => {}
+        }
+        if std::env::var_os("OMACUS_SYNC_MOCK").is_none()
+            && let Ok(kind) = std::env::var("OMACUS_SYNC_SCREEN")
+        {
             seed_sync_screen(&mut app.store, &kind);
             app.sync.adopt(local_pages(&app.store));
             app.sync.preview(&kind);
@@ -6735,7 +6754,9 @@ fn is_system_dark(ctx: &egui::Context) -> bool {
 }
 
 pub fn run() -> eframe::Result {
-    let size = if std::env::var("OMACUS_SYNC_SCREEN").is_ok()
+    let size = if std::env::var("OMACUS_SYNC_MOCK").is_ok() {
+        Vec2::new(1600.0, 900.0)
+    } else if std::env::var("OMACUS_SYNC_SCREEN").is_ok()
         || std::env::var_os("OMACUS_E2E_SHOT_DIR").is_some()
     {
         Vec2::new(1280.0, 800.0)

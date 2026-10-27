@@ -1,6 +1,7 @@
 // Sync. A device file stays in this browser. The server receives a sealed record.
 // The engine needs those key bytes, so the file cannot be a non-exportable
 // WebCrypto key. The page's strict policy is what keeps other scripts out.
+import { paintSettingsMock } from "./sync-settings-mock.js";
 import { SYNC_URL } from "./sync-config.js";
 import { APP_VERSION } from "./version.js";
 import { approvalCard, beginSave, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, keepUnlessTombstone, noteLocalEdit, noteTombstone, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, showTurnOnSync } from "./sync-save.mjs";
@@ -2436,6 +2437,11 @@ export async function mountSync(api) {
   }
 
   function draw() {
+    const mock = new URLSearchParams(location.search).get("syncMock");
+    if (mock) {
+      paintSettingsMock(panel, mock);
+      return;
+    }
     paintRemoval();
     if (naming) return;
     if (state.screen !== "approve") {
