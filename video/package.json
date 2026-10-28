@@ -4,6 +4,6 @@
   "type": "module",
   "description": "Renders the Omacus launch video: an HTML composition captured frame by frame, with ElevenLabs narration and a generated music bed.",
   "dependencies": {
-    "puppeteer-core": "^23.11.1"
+    "puppeteer-core": "^25.16.0"
   }
 }
