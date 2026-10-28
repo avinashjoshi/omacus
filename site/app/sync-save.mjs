@@ -76,8 +76,12 @@ export function chipLabel(flags) {
   const row = flags || {};
   if (row.removed) return "Sync paused";
   if (row.waiting) return "Device waiting";
-  if (row.error) return "Not saved";
+  if (row.clock) return "Check the time";
+  if (row.missed) return "Couldn't read";
+  // Not saved is a request that got no reply. A reply from the server is not that.
+  if (row.error && !row.reached) return "Not saved";
   if (row.offline) return "Offline";
+  if (row.error && row.reached) return "Syncing";
   if (row.syncing) return "Syncing";
   if (row.listChanged) return "List changed";
   if (row.live) return "Live";
@@ -88,6 +92,19 @@ export function chipLabel(flags) {
 
 // Turn on sync is the entry before setup. A paused cloud is only for a phone
 // that already turned sync off, or was removed.
+// The server's own sentence stays. "Couldn't reach sync" is only for no reply.
+export function leaveMessage(error, wide) {
+  const noun = wide ? "this computer" : "this phone";
+  const named = wide ? "This computer" : "This phone";
+  const stay = `${named} is still on the list. Try again, or turn off only here. Another phone or computer can still remove this one.`;
+  const message = String((error && error.message) || "").trim();
+  if (error && (error.offline || error.onLine === false)) {
+    return `Sync is offline, so ${noun} is still on the list. Try again, or turn off only here. Another phone or computer can still remove this one.`;
+  }
+  if (message && !/^couldn't sync\.?$/i.test(message)) return `${message} ${stay}`;
+  return `Couldn't reach sync, so ${noun} is still on the list. Try again, or turn off only here. Another phone or computer can still remove this one.`;
+}
+
 export function showTurnOnSync(status) {
   const row = status || {};
   return !row.account && !row.removed && !row.paused;

@@ -306,7 +306,14 @@ export async function authorize(method, path, raw, headers, recordB64, now, mail
   const device = unhex(headers.get("x-omacus-device") || "", 16);
   const nonce = unhex(headers.get("x-omacus-nonce") || "", 16);
   const signature = unhex(headers.get("x-omacus-signature") || "", 64);
-  const time = Number(headers.get("x-omacus-time"));
+  const rawTime = headers.get("x-omacus-time");
+  const time = Number(rawTime);
+  // A wrong clock is reported before the mailbox is opened, so a missing
+  // account and a bad signature still share one reply. A missing time header
+  // is not a clock: that request stays the same as a missing mailbox.
+  if (rawTime && Number.isSafeInteger(time) && (time + WINDOW_MS < now || now + WINDOW_MS < time)) {
+    return { clock: true };
+  }
   if (!device || !nonce || !signature || !Number.isSafeInteger(time)) return null;
   if (time + WINDOW_MS < now || now + WINDOW_MS < time) return null;
   const record = fromB64(recordB64);
