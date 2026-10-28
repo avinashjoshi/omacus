@@ -3,7 +3,7 @@
   "description": "CodeMirror for omacus.com/app, bundled into site/app/editor.js (see build.sh)",
   "scripts": { "build": "./build.sh" },
   "devDependencies": {
-    "@codemirror/autocomplete": "6.18.6",
+    "@codemirror/autocomplete": "6.20.4",
     "@codemirror/commands": "6.8.1",
     "@codemirror/state": "6.5.2",
     "@codemirror/view": "6.36.8",
