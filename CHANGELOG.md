@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.9
+
+**A locked page still opens**
+
+A page locked with a password still opens after this update. A page stored by sync still opens. The encryption of those pages is the same.
+
 ## 1.0.8
 
 **Turn sync off says what the server said**
