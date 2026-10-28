@@ -60,6 +60,18 @@ export function approvalCard(requests, id, now, created, inviteMs) {
   return "open";
 }
 
+// A short code for this set of pages. The same code on two devices means
+// they are talking about the same set. It is not the account id.
+export function setMark(account) {
+  if (!account) return "";
+  let hash = 2166136261;
+  for (let i = 0; i < account.length; i += 1) {
+    hash ^= account.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0").slice(0, 6);
+}
+
 export function chipLabel(flags) {
   const row = flags || {};
   if (row.removed) return "Sync paused";

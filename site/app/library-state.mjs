@@ -48,7 +48,24 @@ export function applyPresent(current, present, pages) {
   const shown = typeof present === "string" ? JSON.parse(present) : present;
   if (!shown || typeof shown !== "object") return current;
   const next = current;
-  if (Array.isArray(shown.sidebar)) next.tree = shown.sidebar;
+  const localTree = Array.isArray(current.tree) ? current.tree : [];
+  const localTrash = Array.isArray(current.trash) ? current.trash : [];
+  if (Array.isArray(shown.sidebar)) next.tree = shown.sidebar.slice();
+  const folderIds = new Set();
+  const collectFolders = (nodes) => {
+    for (const node of nodes || []) {
+      if (!node || node.type !== "folder" || !node.id) continue;
+      folderIds.add(node.id);
+      collectFolders(node.children);
+    }
+  };
+  collectFolders(next.tree);
+  for (const node of localTree) {
+    if (node && node.type === "folder" && node.id && !folderIds.has(node.id)) {
+      next.tree.push(node);
+      folderIds.add(node.id);
+    }
+  }
   const known = new Set();
   const walk = (nodes) => {
     for (const node of nodes || []) {
@@ -58,7 +75,9 @@ export function applyPresent(current, present, pages) {
     }
   };
   walk(next.tree);
-  const trashed = new Set((shown.trash || []).map((item) => item && item.id).filter(Boolean));
+  const trashed = new Set(
+    [...(shown.trash || []), ...localTrash].map((item) => item && item.id).filter(Boolean),
+  );
   const extras = [];
   for (const row of pages || []) {
     const id = Array.isArray(row) ? row[0] : row;
@@ -75,11 +94,15 @@ export function applyPresent(current, present, pages) {
       else next.handles.delete(row.id);
     }
   }
-  next.trash = (shown.trash || []).map((item) => ({
-    id: item.id,
-    text: item.text || "",
-    handle: item.handle || "",
-  }));
+  const trash = new Map();
+  for (const item of localTrash) {
+    if (item && item.id) trash.set(item.id, { id: item.id, text: item.text || "", handle: item.handle || "" });
+  }
+  for (const item of shown.trash || []) {
+    if (item && item.id) trash.set(item.id, { id: item.id, text: item.text || "", handle: item.handle || "" });
+  }
+  for (const id of known) trash.delete(id);
+  next.trash = [...trash.values()];
   next.prefs = shown.prefs && typeof shown.prefs === "object" ? shown.prefs : {};
   return next;
 }

@@ -1230,14 +1230,6 @@ impl Store {
             .and_then(|row| row.as_array())
             .cloned()
             .unwrap_or_default();
-        let trashed_ids: Vec<String> = trash_rows
-            .iter()
-            .filter_map(|row| {
-                row.get("id")
-                    .and_then(|item| item.as_str())
-                    .map(str::to_string)
-            })
-            .collect();
         if let Some(dir) = &self.dir {
             let trash = dir.with_file_name("trash");
             let _ = std::fs::create_dir_all(&trash);
@@ -1259,16 +1251,18 @@ impl Store {
                     self.handles.insert(id.to_string(), handle.to_string());
                 }
             }
+            let shown = page_ids(&self.tree);
             if let Ok(entries) = std::fs::read_dir(&trash) {
                 for entry in entries.flatten() {
                     let name = entry.file_name().into_string().unwrap_or_default();
                     let Some(id) = name.strip_suffix(".txt") else {
                         continue;
                     };
-                    if trashed_ids.iter().any(|row| row == id) {
-                        continue;
+                    // A page that is back in the sidebar has been restored.
+                    // A Recently deleted page the other device has not mentioned stays.
+                    if shown.iter().any(|row| row == id) {
+                        let _ = std::fs::remove_file(entry.path());
                     }
-                    let _ = std::fs::remove_file(entry.path());
                 }
             }
         }

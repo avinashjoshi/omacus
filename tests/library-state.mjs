@@ -59,6 +59,19 @@ const cleared = applyPresent(applied, {
 }, []);
 assert(!cleared.handles.has("ferry"), "a cleared handle stayed");
 assert(applied.trash[0].id === "kept", "Recently deleted was empty");
+const keptLocal = applyPresent({
+  tree: [{ type: "folder", id: "bag", name: "Bag", collapsed: false, children: [{ type: "page", id: "loaf" }] }],
+  handles: new Map(),
+  trash: [{ id: "old", text: "Old\nloaf\n", handle: "old" }],
+}, {
+  sidebar: [{ type: "page", id: "ferry" }],
+  handles: [],
+  trash: [],
+  prefs: {},
+}, [["loaf", "slice"], ["ferry", "pier"]]);
+assert(keptLocal.tree.some((node) => node.type === "folder" && node.id === "bag"), "a local folder was dropped");
+assert(keptLocal.tree.some((node) => node.type === "page" && node.id === "ferry"), "the other page was dropped");
+assert(keptLocal.trash.some((item) => item.id === "old"), "a local Recently deleted page was dropped");
 assert(applied.prefs.theme === "dusk", "the theme stayed light");
 
 console.log("library state ok");

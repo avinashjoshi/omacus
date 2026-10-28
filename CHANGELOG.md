@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+**The web app can say Live**
+
+The quick connection opens in the browser, so the status can leave Syncing and say Live. The Sync tab shows a short set code. The same code on both devices means they share one set of pages.
+
+**A page on one device stays**
+
+A folder, a page, or a Recently deleted page that is on one device stays when the other device syncs. Nothing already here is removed to match the other list.
+
+**Close stays in reach**
+
+On a wide window the Settings card stays below the top bar, so the title and Close can be pressed while Sync is open.
+
 ## 1.0.6
 
 **Sync lives in Settings**

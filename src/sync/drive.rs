@@ -46,6 +46,12 @@ pub fn e2e_drive() -> i32 {
             "join" => join(&mut session),
             "approve" => approve(&mut session),
             "accept" => accept(&mut session),
+            "overlay" => {
+                let path = parts.next().unwrap_or("");
+                overlay(&mut session, Path::new(path))
+            }
+            "sync" => sync_once(&mut session),
+            "show" => Ok(show(&session)),
             "rename" => {
                 let id = parts.next().unwrap_or("");
                 let path = parts.next().unwrap_or("");
@@ -79,14 +85,18 @@ pub fn e2e_drive() -> i32 {
     0
 }
 
-fn setup(session: &mut Session, dir: &Path) -> Result<String, String> {
-    let access = read_secret("OMACUS_E2E_ACCESS_FILE")?;
+fn arm_pass(session: &mut Session) -> Result<(), String> {
     let mut pass = read_secret("OMACUS_E2E_PASS_FILE")?;
     session.choose_passphrase();
     session.pass_buf().clone_from(&pass);
     session.pass_again().clone_from(&pass);
     pass.zeroize();
-    session.submit_pass()?;
+    session.submit_pass()
+}
+
+fn setup(session: &mut Session, dir: &Path) -> Result<String, String> {
+    let access = read_secret("OMACUS_E2E_ACCESS_FILE")?;
+    arm_pass(session)?;
     session.set_name("Harbor desk");
     session.choose_first();
     if session.screen != Screen::Start {
@@ -143,10 +153,66 @@ fn emit(line: &str) {
 
 fn join(session: &mut Session) -> Result<String, String> {
     let mut code = read_secret("OMACUS_E2E_JOIN_FILE")?;
-    session.set_name("Harbor desk");
+    arm_pass(session)?;
+    session.set_name("Harbor phone");
     session.submit_join(&code)?;
     code.zeroize();
     Ok(status(session))
+}
+
+/// A second library pushed by this device: page text, then a sidebar note.
+/// The note is what an older flat list would send. The merge keeps a folder,
+/// a page, or a Recently deleted page the note does not mention.
+fn overlay(session: &mut Session, path: &Path) -> Result<String, String> {
+    let text = fs::read_to_string(path).map_err(|_| "missing page text".to_string())?;
+    let value: serde_json::Value =
+        serde_json::from_str(&text).map_err(|_| "missing page text".to_string())?;
+    if let Some(rows) = value.get("pages").and_then(|row| row.as_array()) {
+        for row in rows {
+            let id = row.get("id").and_then(|item| item.as_str()).unwrap_or("");
+            let body = row.get("text").and_then(|item| item.as_str()).unwrap_or("");
+            if id.is_empty() {
+                continue;
+            }
+            session.note_edit(id, body);
+        }
+    }
+    let structural = match value.get("structural") {
+        Some(serde_json::Value::String(text)) => text.clone(),
+        Some(other) => other.to_string(),
+        None => return Err("missing page text".into()),
+    };
+    session.note_structural(&structural);
+    wait_until(session, 20_000, |session| {
+        !session.is_dirty() && session.error.is_empty()
+    })?;
+    Ok(show(session))
+}
+
+fn sync_once(session: &mut Session) -> Result<String, String> {
+    wait_until(session, 20_000, |session| {
+        let _ = session.sync_now();
+        !session.is_dirty() && session.error.is_empty()
+    })?;
+    Ok(show(session))
+}
+
+fn show(session: &Session) -> String {
+    let bytes = session.library_bytes();
+    let present = omacus_doc::Library::load(&bytes)
+        .ok()
+        .and_then(|lib| lib.vault_present())
+        .unwrap_or_default();
+    let parsed =
+        serde_json::from_str::<serde_json::Value>(&present).unwrap_or(serde_json::Value::Null);
+    serde_json::json!({
+        "screen": screen_name(session.screen),
+        "chip": session.chip(Instant::now()).label().unwrap_or(""),
+        "live": session.socket_live(),
+        "mark": session.set_mark(),
+        "present": parsed,
+    })
+    .to_string()
 }
 
 fn approve(session: &mut Session) -> Result<String, String> {

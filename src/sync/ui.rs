@@ -676,6 +676,10 @@ fn home(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
         para(ui, theme, &session.notice.clone());
     }
     para(ui, theme, "Your pages stay on your phones and computers.");
+    let mark = session.set_mark();
+    if !mark.is_empty() {
+        para(ui, theme, &format!("Set {mark}"));
+    }
     para(
         ui,
         theme,

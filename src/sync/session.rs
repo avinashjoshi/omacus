@@ -106,6 +106,19 @@ pub enum Chip {
     ListChanged,
 }
 
+/// Six hex characters. The same set of pages produces the same code on every device.
+pub fn set_fingerprint(account: &str) -> String {
+    if account.is_empty() {
+        return String::new();
+    }
+    let mut hash: u32 = 2_166_136_261;
+    for byte in account.bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(16_777_619);
+    }
+    format!("{hash:08x}")[..6].to_string()
+}
+
 impl Chip {
     pub fn label(self) -> Option<&'static str> {
         match self {
@@ -118,6 +131,21 @@ impl Chip {
             Chip::Waiting => Some("Device waiting"),
             Chip::ListChanged => Some("List changed"),
         }
+    }
+}
+
+#[cfg(test)]
+mod fingerprint_tests {
+    use super::set_fingerprint;
+
+    #[test]
+    fn the_set_code_matches_the_web_app() {
+        assert_eq!(set_fingerprint("harbor-set"), "71f1e7");
+        assert!(set_fingerprint("").is_empty());
+        let mark = set_fingerprint(&"ab".repeat(32));
+        assert_eq!(mark.len(), 6);
+        assert!(mark.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(&mark, &"ab".repeat(3));
     }
 }
 
@@ -2508,6 +2536,11 @@ impl Session {
 
     pub fn leader_ok(&self) -> bool {
         self.leader.is_some()
+    }
+
+    /// Six letters from the set id, the same on every device that shares it.
+    pub fn set_mark(&self) -> String {
+        set_fingerprint(&self.account)
     }
 
     pub fn vault_name(&self) -> &str {

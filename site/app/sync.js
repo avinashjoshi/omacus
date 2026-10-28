@@ -3,7 +3,7 @@
 // WebCrypto key. The page's strict policy is what keeps other scripts out.
 import { SYNC_URL } from "./sync-config.js";
 import { APP_VERSION } from "./version.js";
-import { approvalCard, beginSave, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, keepUnlessTombstone, noteLocalEdit, noteTombstone, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, showTurnOnSync } from "./sync-save.mjs";
+import { approvalCard, beginSave, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, keepUnlessTombstone, noteLocalEdit, noteTombstone, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, setMark, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 import { deviceListNote, pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
@@ -3078,6 +3078,8 @@ export async function mountSync(api) {
       home.append(el("p", { class: "sync-note", role: "status", "data-sync-note": "" }, [state.notice]));
     }
     home.append(el("p", { class: "setting-help", "data-sync-linked": "" }, ["Your pages stay on your phones and computers."]));
+    const mark = setMark(state.account);
+    if (mark) home.append(el("p", { class: "setting-help", "data-sync-set-mark": "" }, [`Set ${mark}`]));
     home.append(el("p", { class: "setting-help" }, ["A page you delete is in Recently deleted. Restore puts it back."]));
     if (state.saveError) {
       home.append(el("p", { class: "sync-err", role: "alert", "data-sync-error": "" }, [state.saveError]));
