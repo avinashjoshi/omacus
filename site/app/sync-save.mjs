@@ -65,10 +65,12 @@ export function chipLabel(flags) {
   if (row.removed) return "Sync paused";
   if (row.waiting) return "Device waiting";
   if (row.error) return "Not saved";
+  if (row.offline) return "Offline";
   if (row.syncing) return "Syncing";
   if (row.listChanged) return "List changed";
   if (row.live) return "Live";
-  if (row.member) return "Offline";
+  // The quick connection is down. Ordinary requests still save, so this is not Offline.
+  if (row.member) return "Syncing";
   return "";
 }
 

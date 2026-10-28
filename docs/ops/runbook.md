@@ -2,7 +2,7 @@
 
 This is the short list for the day sync goes live. The longer hosting notes are in `docs/sync-ops.md`. This repository does not deploy the worker.
 
-Production is the worker `omacus-sync` at `https://sync.omacus.com`. The notepad at `https://app.omacus.com` needs no sign-up. Sync is invite-only. The worker's health check answers `GET /v1/health` with `{"label":"1.0.0"}`.
+Production is the worker `omacus-sync` at `https://sync.omacus.com`. The notepad at `https://app.omacus.com` needs no sign-up. Sync is invite-only. The worker's health check answers `GET /v1/health` with label `1.0.0` and `"push": true`.
 
 ## Before the first production deploy
 
@@ -10,7 +10,7 @@ Follow "Before the first production deploy" in `docs/sync-ops.md`. In short:
 
 - Set `ACCESS_SECRET`, `ADMIN_KEY`, and `ACCESS_AUD` on `omacus-sync`. Do not set `ALLOW_NO_ACCESS`. `ACCESS_TEAM_DOMAIN` is already `omacus.cloudflareaccess.com` in `relay/worker/wrangler.jsonc`. It is not a secret.
 - Turn on point-in-time recovery for the production Durable Object class `Mailboxes` (binding `MAILBOXES`). That class is in `relay/worker/wrangler.jsonc`. It is not a KV namespace, and the file is not `wrangler.toml`. The R2 binding is `BACKUPS`. The production bucket is `omacus-sync-backups` (prefix `nights/`, delete after 30 days). The nightly copy runs at 07:15 UTC (`15 7 * * *`).
-- From `relay/worker`, `./build.sh` then `npx wrangler deploy`, and only when you mean to. That publishes the worker `omacus-sync`. The file has no other environment.
+- From `relay/worker`, `./build.sh` then `npx wrangler deploy`, and only when you mean to. That publishes the worker `omacus-sync`. The file has no other environment. A release runs that same deploy.
 - After it is up, check `GET /v1/health`, that `GET /` redirects to the app, that admin is refused when signed out, and that a phone can create pages, link a second one, and save.
 
 ## Pages missing after an older sync
@@ -38,7 +38,7 @@ The health workflow below expects the label `1.0.0`. Until this worker is deploy
 
 ## Health
 
-`.github/workflows/sync-health.yml` pings `https://sync.omacus.com/v1/health` at minute 17 of every hour, and when someone starts it by hand. It wants HTTP 200 and `"label":"1.0.0"`. On a failure it opens one GitHub issue labeled `sync-health`. A later failure leaves that issue open. The schedule runs only after the workflow is on the default branch.
+`.github/workflows/sync-health.yml` pings `https://sync.omacus.com/v1/health` at minute 17 of every hour, and when someone starts it by hand. It wants HTTP 200, `"label":"1.0.0"`, and `"push": true`. On a failure it opens one GitHub issue labeled `sync-health`. A later failure leaves that issue open. The schedule runs only after the workflow is on the default branch.
 
 ## Updates
 

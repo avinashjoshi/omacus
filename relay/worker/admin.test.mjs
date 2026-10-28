@@ -469,7 +469,8 @@ const other = "cd".repeat(32);
   const served = await worker.fetch(new Request("https://relay.example/"), serving.env);
   assert(served.status === 200 && await served.text() === "/", "local app worker redirected /");
   const health = await worker.fetch(new Request("https://relay.example/v1/health"), closed.env);
-  assert((await health.json()).label === "1.0.0", "label");
+  const healthBody = await health.json();
+  assert(healthBody.label === "1.0.0" && healthBody.push === true, "label");
 }
 
 {
