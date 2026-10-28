@@ -17,7 +17,7 @@ name: Release
 # the GitHub release. A push to main does the same when the merged version has no tag
 # yet, which is how a one-change pull request ships. A tag or release created by
 # GITHUB_TOKEN does not trigger other workflows, so the builds and the publish job
-# live here. After the tag is published, this run deploys omacus.com and the web app.
+# live here. After the tag is published, this run deploys omacus.com, the web app, and the sync worker.
 #
 # The checks to require on main are `test (ubuntu-22.04)`, `test (windows-latest)`,
 # `test (macos-latest)`, and `wasm`. Auto-merge has to be allowed on the repository.
@@ -487,3 +487,17 @@ jobs:
       - uses: ./.github/actions/deploy-app
         with:
           expect_version: ${{ needs.check.outputs.version }}
+
+  # The sync worker is the same commit as the desktop app. A bare deploy from
+  # relay/worker publishes omacus-sync. There is no second environment.
+  deploy-sync:
+    needs: [publish, check]
+    if: >-
+      always() &&
+      needs.check.result == 'success' &&
+      (
+        (needs.publish.result == 'success' && needs.check.outputs.release == 'true') ||
+        needs.check.outputs.web_catchup == 'true'
+      )
+    uses: ./.github/workflows/sync.yml
+    secrets: inherit

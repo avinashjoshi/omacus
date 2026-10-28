@@ -146,7 +146,7 @@ fn route(
     store: &mut Store,
 ) -> Result<(u16, Value), StoreError> {
     if method == "GET" && path == "/v1/health" {
-        return Ok((200, json!({"label": LABEL})));
+        return Ok((200, json!({"label": LABEL, "push": true})));
     }
     if method == "POST" && path == "/v1/join" {
         store.charge_ip(ip)?;

@@ -124,7 +124,9 @@ assert(approvalCard([], "pantry", 2_000, 1_000, 5 * 60 * 1000) === "expired", "a
 assert(approvalCard([{ id: "pantry", state: "rejected", created: 1_000 }], "pantry", 2_000, 1_000, 5 * 60 * 1000) === "expired", "a refusal stayed on the card");
 assert(approvalCard([{ id: "pantry", state: "pending", created: 1_000 }], "pantry", 1_000 + 5 * 60 * 1000 + 1, 1_000, 5 * 60 * 1000) === "expired", "an old code stayed open");
 assert(chipLabel({ live: true, member: true }) === "Live", "a connected device said Synced");
-assert(chipLabel({ member: true }) === "Offline", "a device with no socket said Synced");
+assert(chipLabel({ member: true }) === "Syncing", "a device with no socket said Offline");
+assert(chipLabel({ member: true, offline: true }) === "Offline", "a failed request said Syncing");
+assert(pollWait({ member: true }) === 2000, "a dropped socket stopped the ordinary poll");
 assert(chipLabel({ syncing: true, live: true, member: true }) === "Syncing", "a save hid behind Live");
 assert(!chipLabel({}).includes("Synced"), "an empty status said Synced");
 

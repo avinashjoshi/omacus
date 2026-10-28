@@ -1866,7 +1866,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
-    if (url.pathname === "/v1/health" && request.method === "GET") return json(200, { label: LABEL });
+    if (url.pathname === "/v1/health" && request.method === "GET") return json(200, { label: LABEL, push: true });
     if (url.pathname === "/admin" || url.pathname === "/admin/" || url.pathname.startsWith("/admin/")) {
       if (!(await adminPageAllowed(request, env))) {
         return new Response("Sign in again.", {

@@ -2,11 +2,9 @@
 
 ## Unreleased
 
-**The web app keeps the shared sidebar file**
+**Sync stays up when the quick connection drops**
 
-The published page includes the same sidebar file the app loads, so that page can open.
-
-<!-- internal -->
+Live means the quick connection is open. If that connection drops, pages still save and the status says Syncing. Offline means this device cannot reach your pages.
 
 ## 1.0.5
 

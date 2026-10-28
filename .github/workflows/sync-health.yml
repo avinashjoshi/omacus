@@ -23,8 +23,9 @@ jobs:
           tmp="$(mktemp)"
           code="$(curl -sS --max-time 20 -o "$tmp" -w '%{http_code}' https://sync.omacus.com/v1/health || true)"
           label="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("label",""))' "$tmp" 2>/dev/null || true)"
-          echo "HTTP ${code} label ${label}"
-          [[ "$code" == "200" && "$label" == "1.0.0" ]]
+          push="$(python3 -c 'import json,sys; print("yes" if json.load(open(sys.argv[1])).get("push") is True else "no")' "$tmp" 2>/dev/null || true)"
+          echo "HTTP ${code} label ${label} push ${push}"
+          [[ "$code" == "200" && "$label" == "1.0.0" && "$push" == "yes" ]]
       - name: Open an issue when sync is down
         if: failure()
         env:

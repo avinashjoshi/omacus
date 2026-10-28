@@ -1103,7 +1103,13 @@ impl Session {
         match self.chip(now) {
             Chip::Hidden => String::new(),
             Chip::Live => "These pages are live on your other devices.".into(),
-            Chip::Syncing => "Saving these pages.".into(),
+            Chip::Syncing => {
+                if self.busy {
+                    "Saving these pages.".into()
+                } else {
+                    "Checking your other devices.".into()
+                }
+            }
             Chip::Offline => "Offline. Edits are saved on this computer.".into(),
             Chip::Paused => PAUSED_HINT.into(),
             Chip::NotSaved => {
@@ -2131,7 +2137,8 @@ impl Session {
             return Chip::Offline;
         }
         // A failed save stays on the pill on every screen, including approval.
-        // Live is a socket that is up. Offline is a member with no socket.
+        // Live is a socket that is up. Syncing is the ordinary poll while that
+        // socket is down. Offline is a request that could not reach the server.
         if !self.error.is_empty() && self.member {
             return Chip::NotSaved;
         }
@@ -2148,7 +2155,7 @@ impl Session {
         if self.member && self.live.connected() {
             Chip::Live
         } else if self.member {
-            Chip::Offline
+            Chip::Syncing
         } else {
             Chip::Hidden
         }
@@ -4324,9 +4331,20 @@ mod list_note_tests {
         session.pending_id = "wait".into();
         assert_eq!(session.chip(Instant::now()), Chip::Waiting);
         session.pending_id.clear();
+        session.set_socket_live(true);
         session.ack_list();
         assert_eq!(session.chip(Instant::now()), Chip::Live);
         assert!(session.list_note_text().is_empty());
+        session.set_socket_live(false);
+        assert_eq!(session.chip(Instant::now()), Chip::Syncing);
+        assert_eq!(
+            crate::sync::poll_gap_ms(false, false, session.socket_live()),
+            2_000
+        );
+        session.offline = true;
+        assert_eq!(session.chip(Instant::now()), Chip::Offline);
+        session.offline = false;
+        session.set_socket_live(true);
         session.list_note = true;
         session.screen = Screen::Closed;
         session.poll().unwrap();
@@ -4451,7 +4469,7 @@ mod list_note_tests {
         );
         assert!(resumed.entry_visible());
         assert_eq!(resumed.entry_label(), "Sync");
-        assert_eq!(resumed.chip(Instant::now()), Chip::Offline);
+        assert_eq!(resumed.chip(Instant::now()), Chip::Syncing);
         let book = std::fs::read_to_string(kept.join("sync").join("book.json")).unwrap();
         assert!(!book.contains("\"removed\": true"));
         let _ = std::fs::remove_dir_all(kept);

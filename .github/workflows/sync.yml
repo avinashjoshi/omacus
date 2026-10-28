@@ -1,0 +1,58 @@
+name: Sync
+
+# Publishes the production sync worker, omacus-sync, at sync.omacus.com.
+# A bare `npx wrangler deploy` from relay/worker is that worker. The config
+# has no second environment, so this cannot create another one.
+#
+# A push that changes the worker publishes it. A release publishes it too,
+# even when that commit did not touch the worker.
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    branches: [main]
+    paths:
+      - "relay/**"
+      - ".github/workflows/sync.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: app
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Publish omacus-sync
+        working-directory: relay/worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          set +x
+          if ! command -v wasm-bindgen >/dev/null 2>&1; then
+            cargo install wasm-bindgen-cli --version 0.2.129 --locked
+          fi
+          ./build.sh
+          npm install --no-save wrangler@4
+          npx wrangler deploy
+          ok=0
+          for _ in 1 2 3 4 5 6; do
+            if curl -fsS --max-time 20 https://sync.omacus.com/v1/health -o /tmp/sync-health.json \
+              && python3 -c 'import json; body=json.load(open("/tmp/sync-health.json")); assert body.get("label")=="1.0.0" and body.get("push") is True'; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          test "$ok" = 1
+          python3 -c 'import json; print(json.load(open("/tmp/sync-health.json")))'

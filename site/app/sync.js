@@ -337,14 +337,19 @@ export async function mountSync(api) {
       setChip("List changed", "list");
       return;
     }
-    // Syncing is a save that has not landed. The approve button's own wait
-    // is not a save, or Yes would leave the status on Syncing.
+    if (navigator.onLine === false) {
+      setChip("Offline", "offline");
+      return;
+    }
+    // Syncing is a save that has not landed, or the quick connection is down
+    // while ordinary requests still reach the pages. The approve button's own
+    // wait is not a save, or Yes would leave the status on Syncing.
     if (saveWanted) {
       setChip("Syncing", "busy");
       return;
     }
     if (state.live) setChip("Live", "on");
-    else setChip("Offline", "offline");
+    else setChip("Syncing", "busy");
   }
 
   function calm() {

@@ -147,7 +147,7 @@ All bodies are JSON. `/v1/` answers are JSON. A missing mailbox is 404.
 
 | Method | Path | Body | Response |
 | --- | --- | --- | --- |
-| GET | `/v1/health` | | `{ label }` |
+| GET | `/v1/health` | | `{ label, push }` |
 | POST | `/v1/access` | `{ code }` | `{ ok: true }` |
 | POST | `/v1/mailboxes` | `{ account, record, code, objects? }` | `{ revision, objects }` |
 | GET | `/v1/mailboxes/:account` | `If-None-Match: "<revision>"` optional | `{ revision, record, objects: [{ id, revision, bytes }] }`, or `304` with an empty body when that revision is still current |

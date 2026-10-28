@@ -58,6 +58,13 @@ if "needs.check.outputs.web_catchup == 'true'" not in deploy_app:
     errors.append("deploy-app must publish when the live web app is behind this version")
 if "needs.check.outputs.release == 'true'" not in deploy_app:
     errors.append("a new version must still publish the web app with the desktop release")
+sync = (ROOT / ".github" / "workflows" / "sync.yml").read_text()
+if "uses: ./.github/workflows/sync.yml" not in text:
+    errors.append("a release must publish the sync worker")
+if "npx wrangler deploy" not in sync or "--env production" in sync:
+    errors.append("the sync worker deploy must publish omacus-sync and no second worker")
+if "push" not in sync:
+    errors.append("the sync worker deploy must check that the live worker can push")
 if "--exclude-drafts" not in update or "--exclude-pre-releases" not in update:
     errors.append("the update job must skip drafts and pre-releases")
 if "^v[0-9]" not in update:
