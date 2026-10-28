@@ -1273,7 +1273,9 @@ body.answers-inline .res {
   top: 50%;
   transform: translate(-50%, -50%);
   width: min(436px, 100%);
-  max-height: calc(100vh - var(--space-6));
+  /* The top bar sits above this window. A card as tall as the page would
+     put Close underneath that bar. */
+  max-height: calc(100vh - 2 * (var(--bar) + var(--safe-top)) - var(--space-6));
   overflow: auto;
   padding: 18px 20px 16px;
   border: 1px solid var(--app-line);
@@ -1294,7 +1296,11 @@ body.answers-inline .res {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 2;
   margin-bottom: 0;
+  background: var(--app-bg);
 }
 
 .settings-card h2 {
