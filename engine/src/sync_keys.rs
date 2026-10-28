@@ -2426,15 +2426,15 @@ fn xchacha(
         return Err(SyncKeyError::Corrupt);
     }
     let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|_| SyncKeyError::Corrupt)?;
-    let nonce = XNonce::from_slice(nonce);
+    let nonce = XNonce::try_from(nonce).map_err(|_| SyncKeyError::Corrupt)?;
     let payload = Payload { msg: input, aad };
     if encrypting {
         cipher
-            .encrypt(nonce, payload)
+            .encrypt(&nonce, payload)
             .map_err(|_| SyncKeyError::Corrupt)
     } else {
         cipher
-            .decrypt(nonce, payload)
+            .decrypt(&nonce, payload)
             .map_err(|_| SyncKeyError::Sealed)
     }
 }
@@ -2568,10 +2568,10 @@ fn aead_seal(
     plaintext: &[u8],
 ) -> Result<Vec<u8>, SyncKeyError> {
     let cipher = ChaCha20Poly1305::new_from_slice(key).map_err(|_| SyncKeyError::Corrupt)?;
-    let nonce = Nonce::from_slice(nonce);
+    let nonce = Nonce::try_from(nonce).map_err(|_| SyncKeyError::Corrupt)?;
     cipher
         .encrypt(
-            nonce,
+            &nonce,
             Payload {
                 msg: plaintext,
                 aad,
@@ -2587,10 +2587,10 @@ fn aead_open(
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, SyncKeyError> {
     let cipher = ChaCha20Poly1305::new_from_slice(key).map_err(|_| SyncKeyError::Corrupt)?;
-    let nonce = Nonce::from_slice(nonce);
+    let nonce = Nonce::try_from(nonce).map_err(|_| SyncKeyError::Corrupt)?;
     cipher
         .decrypt(
-            nonce,
+            &nonce,
             Payload {
                 msg: ciphertext,
                 aad,
@@ -2620,6 +2620,43 @@ mod tests {
 
     fn array<const N: usize>(text: &str) -> [u8; N] {
         unhex(text).try_into().unwrap()
+    }
+
+    /// Bytes sealed by chacha20poly1305 0.10.1. The same key, nonce, and
+    /// associated data must still open, and sealing again must match them.
+    #[test]
+    fn old_ciphertext_still_opens_and_seals_the_same_bytes() {
+        let key = [0x11u8; KEY_LEN];
+        let nonce = [0x22u8; X_NONCE];
+        let aad = b"omacus-page";
+        let plain = b"ferry = 40\n";
+        let old_x = unhex(
+            "222222222222222222222222222222222222222222222222e502957e2599d9b4d17d1ee14d784ab0abd92acb006af361a7dbd9",
+        );
+        let opened = xchacha(false, &key, &nonce, aad, &old_x[X_NONCE..]).unwrap();
+        assert_eq!(opened, plain);
+        let again = xchacha(true, &key, &nonce, aad, plain).unwrap();
+        assert_eq!(again, old_x[X_NONCE..]);
+
+        let nonce12 = [0x33u8; 12];
+        let old_c = unhex("fd30ccf8e0c68d2917f5eea2294033510de81a01cc4774cf2416a0");
+        assert_eq!(aead_open(&key, &nonce12, aad, &old_c).unwrap(), plain);
+        assert_eq!(aead_seal(&key, &nonce12, aad, plain).unwrap(), old_c);
+
+        let vault = VaultKey {
+            id: [0x44u8; 16],
+            key,
+        };
+        let old_page = unhex(
+            "222222222222222222222222222222222222222222222222e502957e2599d9b4d17d1ec21b32080802767847b92b6ced83dd2b",
+        );
+        assert_eq!(open_page(&vault, 1, b"harbor", &old_page).unwrap(), plain);
+        let mut page_aad = bind(b"page", 1, &vault.id, None);
+        page_aad.extend_from_slice(b"harbor");
+        let resealed = xchacha(true, &vault.key, &nonce, &page_aad, plain).unwrap();
+        assert_eq!(resealed, old_page[X_NONCE..]);
+        let fresh = seal_page(&vault, 1, b"harbor", plain).unwrap();
+        assert_eq!(open_page(&vault, 1, b"harbor", &fresh).unwrap(), plain);
     }
 
     #[test]

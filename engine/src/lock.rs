@@ -390,12 +390,12 @@ fn xcrypt(
         return Err(LockError::Corrupt);
     }
     let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|_| LockError::Corrupt)?;
-    let nonce = XNonce::from_slice(nonce);
+    let nonce = XNonce::try_from(nonce).map_err(|_| LockError::Corrupt)?;
     let payload = Payload { msg: input, aad };
     let result = if encrypting {
-        cipher.encrypt(nonce, payload)
+        cipher.encrypt(&nonce, payload)
     } else {
-        cipher.decrypt(nonce, payload)
+        cipher.decrypt(&nonce, payload)
     };
     result.map_err(|_| {
         if encrypting {
@@ -421,6 +421,22 @@ fn random_array<const N: usize>() -> Result<[u8; N], LockError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Ciphertext from chacha20poly1305 0.10.1 for this key, nonce, and page.
+    #[test]
+    fn old_xchacha_bytes_still_seal_and_open() {
+        let key = [0x11u8; KEY_LEN];
+        let nonce = [0x22u8; NONCE_LEN];
+        let aad = b"omacus-page";
+        let plain = b"ferry = 40\n";
+        let old = "e502957e2599d9b4d17d1ee14d784ab0abd92acb006af361a7dbd9";
+        let old: Vec<u8> = (0..old.len())
+            .step_by(2)
+            .map(|index| u8::from_str_radix(&old[index..index + 2], 16).unwrap())
+            .collect();
+        assert_eq!(xcrypt(true, &key, &nonce, aad, plain).unwrap(), old);
+        assert_eq!(xcrypt(false, &key, &nonce, aad, &old).unwrap(), plain);
+    }
 
     #[test]
     fn a_page_round_trips_and_the_file_has_no_plaintext() {
