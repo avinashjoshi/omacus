@@ -2,7 +2,7 @@
 // Two phones that each edit offline both keep their lines: the one that was
 // offline merges when its pages differ from the last synced copy.
 import { readFileSync } from "node:fs";
-import { approvalCard, beginSave, chipLabel, dedupeWelcome, declinedCovers, finishSave, keepUnlessTombstone, liveDeliveryMs, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, removalSentence, showTurnOnSync } from "../site/app/sync-save.mjs";
+import { approvalCard, beginSave, chipLabel, dedupeWelcome, declinedCovers, finishSave, keepUnlessTombstone, liveDeliveryMs, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, removalSentence, setMark, showTurnOnSync } from "../site/app/sync-save.mjs";
 
 function assert(cond, message) {
   if (!cond) throw new Error(message);
@@ -123,6 +123,8 @@ assert(approvalCard([{ id: "pantry", state: "pending", created: 1_000 }], "pantr
 assert(approvalCard([], "pantry", 2_000, 1_000, 5 * 60 * 1000) === "expired", "a missing approval stayed open");
 assert(approvalCard([{ id: "pantry", state: "rejected", created: 1_000 }], "pantry", 2_000, 1_000, 5 * 60 * 1000) === "expired", "a refusal stayed on the card");
 assert(approvalCard([{ id: "pantry", state: "pending", created: 1_000 }], "pantry", 1_000 + 5 * 60 * 1000 + 1, 1_000, 5 * 60 * 1000) === "expired", "an old code stayed open");
+assert(setMark("harbor-set") === "71f1e7", "the set code changed");
+assert(setMark("") === "", "an empty set invented a code");
 assert(chipLabel({ live: true, member: true }) === "Live", "a connected device said Synced");
 assert(chipLabel({ member: true }) === "Syncing", "a device with no socket said Offline");
 assert(chipLabel({ member: true, offline: true }) === "Offline", "a failed request said Syncing");

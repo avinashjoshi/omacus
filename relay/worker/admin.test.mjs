@@ -595,7 +595,7 @@ const other = "cd".repeat(32);
   assert(testBuild.includes("https://sync.omacus.com"), "worker build has no sync host");
   assert(testBuild.split("https://sync-test.omacus.com").length - 1 === 1, "worker build still targets a retired sync host");
   assert(!testBuild.includes("data-sync-test"), "worker build stamps the local storage flag");
-  assert(headers.includes("connect-src") && headers.includes("https://sync.omacus.com") && !headers.includes("https://sync-test.omacus.com"), "production csp names a retired sync host");
+  assert(headers.includes("connect-src") && headers.includes("https://sync.omacus.com") && headers.includes("wss://sync.omacus.com") && !headers.includes("https://sync-test.omacus.com"), "production csp names a retired sync host");
   assert(testBuild.includes("source headers name a retired sync host"), "the worker build does not refuse a retired sync host");
   assert(testBuild.includes("site/app/_headers") && testBuild.includes("Content-Security-Policy") && testBuild.includes("Cache-Control: no-store"), "worker build drops the content security policy");
   assert(!testBuild.includes("printf"), "worker build replaces the headers file");

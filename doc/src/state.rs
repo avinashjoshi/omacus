@@ -191,9 +191,27 @@ pub fn note_structural(current: &str, structural: &str) -> Option<String> {
     let incoming = parse_structural(structural);
     let mut clock = vault.clock;
     let mut changed = false;
-    let sidebar = note_places(&vault.sidebar, &incoming.sidebar, &mut clock, &mut changed);
+    let trash_ids: HashSet<String> = incoming.trash.iter().map(|row| row.id.clone()).collect();
+    let sidebar_ids: HashSet<String> = incoming.sidebar.iter().map(|row| row.id.clone()).collect();
+    // A device that has not seen a folder, a page, or a Recently deleted page
+    // does not delete it. Absence is not a delete. A page moves to Recently
+    // deleted only when this note says so, and comes back only when the note
+    // puts it in the sidebar again.
+    let sidebar = note_places(
+        &vault.sidebar,
+        &incoming.sidebar,
+        &trash_ids,
+        &mut clock,
+        &mut changed,
+    );
     let handles = note_handles(&vault.handles, &incoming.handles, &mut clock, &mut changed);
-    let trash = note_trash(&vault.trash, &incoming.trash, &mut clock, &mut changed);
+    let trash = note_trash(
+        &vault.trash,
+        &incoming.trash,
+        &sidebar_ids,
+        &mut clock,
+        &mut changed,
+    );
     let mut prefs = vault.prefs.clone();
     for (key, value) in &incoming.prefs {
         match prefs.get(key) {
@@ -313,6 +331,7 @@ fn nest(nodes: &[Place], parent: &str, depth: usize, trashed: &HashSet<String>) 
 fn note_places(
     current: &[Place],
     incoming: &[Place],
+    trash_ids: &HashSet<String>,
     clock: &mut u64,
     changed: &mut bool,
 ) -> Vec<Place> {
@@ -323,12 +342,17 @@ fn note_places(
             continue;
         }
         seen.insert(node.id.clone());
-        if let Some(prev) = current.iter().find(|row| row.id == node.id)
-            && !prev.gone
-            && same_place(prev, node)
-        {
-            next.push(prev.clone());
-            continue;
+        if let Some(prev) = current.iter().find(|row| row.id == node.id) {
+            if !prev.gone && same_place(prev, node) {
+                next.push(prev.clone());
+                continue;
+            }
+            // A list that has never seen the folder must not pull the page out of it.
+            let knows_parent = incoming.iter().any(|row| row.id == prev.parent);
+            if !prev.gone && node.parent.is_empty() && !prev.parent.is_empty() && !knows_parent {
+                next.push(prev.clone());
+                continue;
+            }
         }
         *clock += 1;
         *changed = true;
@@ -345,12 +369,16 @@ fn note_places(
             next.push(prev.clone());
             continue;
         }
-        *clock += 1;
-        *changed = true;
-        let mut gone = prev.clone();
-        gone.gone = true;
-        gone.rev = *clock;
-        next.push(gone);
+        if trash_ids.contains(&prev.id) {
+            *clock += 1;
+            *changed = true;
+            let mut gone = prev.clone();
+            gone.gone = true;
+            gone.rev = *clock;
+            next.push(gone);
+            continue;
+        }
+        next.push(prev.clone());
     }
     next
 }
@@ -405,6 +433,7 @@ fn note_handles(
 fn note_trash(
     current: &[Trashed],
     incoming: &[Trashed],
+    sidebar_ids: &HashSet<String>,
     clock: &mut u64,
     changed: &mut bool,
 ) -> Vec<Trashed> {
@@ -441,12 +470,18 @@ fn note_trash(
             next.push(prev.clone());
             continue;
         }
-        *clock += 1;
-        *changed = true;
-        let mut gone = prev.clone();
-        gone.gone = true;
-        gone.rev = *clock;
-        next.push(gone);
+        // Restoring the page puts it back in the sidebar. An empty trash list
+        // from a device that has not seen this page does not remove it.
+        if sidebar_ids.contains(&prev.id) {
+            *clock += 1;
+            *changed = true;
+            let mut gone = prev.clone();
+            gone.gone = true;
+            gone.rev = *clock;
+            next.push(gone);
+            continue;
+        }
+        next.push(prev.clone());
     }
     next
 }
@@ -921,6 +956,44 @@ mod tests {
         );
         let child = &sidebar[0].get("children").and_then(Json::as_array).unwrap()[0];
         assert_eq!(child.get("id").and_then(Json::as_str), Some("oats"));
+    }
+
+    #[test]
+    fn a_flat_list_keeps_the_folder_and_the_other_deleted_page() {
+        let stored = json!({
+            "clock": 2,
+            "sidebar": [
+                place("pantry", "folder", "Pantry", "", 0, 1),
+                place("oats", "page", "", "pantry", 0, 1),
+            ],
+            "trash": [{"id": "kept", "text": "Kept\nold\n", "handle": "kept", "rev": 1, "gone": false}],
+        })
+        .to_string();
+        let flat = r#"{"sidebar":[{"id":"ferry","kind":"page","parent":"","index":0}],"trash":[]}"#;
+        let next = note_structural(&stored, flat).unwrap();
+        let shown: Json = serde_json::from_str(&present_vault(&next)).unwrap();
+        let sidebar = shown.get("sidebar").and_then(Json::as_array).unwrap();
+        let folder = sidebar
+            .iter()
+            .find(|row| row.get("type").and_then(Json::as_str) == Some("folder"))
+            .expect("the folder was dropped");
+        assert_eq!(folder.get("name").and_then(Json::as_str), Some("Pantry"));
+        let child = &folder.get("children").and_then(Json::as_array).unwrap()[0];
+        assert_eq!(child.get("id").and_then(Json::as_str), Some("oats"));
+        let root: Vec<_> = sidebar
+            .iter()
+            .filter_map(|row| {
+                if row.get("type").and_then(Json::as_str) == Some("page") {
+                    row.get("id").and_then(Json::as_str)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(root, ["ferry"]);
+        let trash = shown.get("trash").and_then(Json::as_array).unwrap();
+        assert_eq!(trash.len(), 1);
+        assert_eq!(trash[0].get("id").and_then(Json::as_str), Some("kept"));
     }
 
     #[test]
