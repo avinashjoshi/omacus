@@ -7,6 +7,6 @@
     "@codemirror/commands": "6.8.1",
     "@codemirror/state": "6.5.2",
     "@codemirror/view": "6.36.8",
-    "esbuild": "0.25.5"
+    "esbuild": "0.28.2"
   }
 }
