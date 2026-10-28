@@ -16,7 +16,7 @@ pub use drive::e2e_drive;
 pub use keys::e2e_store;
 pub use live::{poll_gap_ms, should_poll_sync};
 pub use session::{Chip, LocalPages, Screen, Session, Work, intro_lines, release_clipboard};
-pub use ui::show;
+pub use ui::embed;
 
 #[cfg(test)]
 mod parity;

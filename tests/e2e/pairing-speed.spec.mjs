@@ -140,7 +140,8 @@ async function expectHomeGaps(page) {
     return {
       nameToList: box(devices[0]).top - box(name).bottom,
       listToAdd: box(add).top - box(devices.at(-1)).bottom,
-      addToOff: box(off).top - box(add).bottom,
+      addToOff: box(off).left - box(add).right,
+      addToOffOverlap: Math.min(box(off).bottom, box(add).bottom) - Math.max(box(off).top, box(add).top),
       beforeDot: dot.left - box(title).right,
       afterDot: rest.left - dot.right,
       quiet: quiet.textContent,
@@ -151,8 +152,9 @@ async function expectHomeGaps(page) {
   expect(gaps.nameToList).toBeLessThan(18);
   expect(gaps.listToAdd).toBeGreaterThan(14);
   expect(gaps.listToAdd).toBeLessThan(18);
-  expect(gaps.addToOff).toBeGreaterThan(14);
-  expect(gaps.addToOff).toBeLessThan(18);
+  expect(gaps.addToOff).toBeGreaterThan(4);
+  expect(gaps.addToOff).toBeLessThan(20);
+  expect(gaps.addToOffOverlap).toBeGreaterThan(8);
   expect(gaps.beforeDot).toBeGreaterThan(2);
   expect(gaps.afterDot).toBeGreaterThan(2);
   expect(gaps.quiet).toBe(phone ? " · this phone" : " · this computer");

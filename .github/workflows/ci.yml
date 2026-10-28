@@ -133,6 +133,7 @@ jobs:
           node tests/seed.mjs
           node tests/backup.mjs
           node tests/sync-save.mjs
+          node tests/sync-settings-tab.mjs
           node tests/library-state.mjs
           node tests/sync-vaults.mjs
           node tests/sync-leader.mjs

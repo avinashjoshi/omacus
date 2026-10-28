@@ -55,7 +55,9 @@ export async function mountSync(api) {
   if (!root || !tabs) return;
 
   const tab = button("Sync", { type: "button", role: "tab", "data-settings-tab": "sync", "aria-selected": "false" });
-  tabs.append(tab);
+  const about = tabs.querySelector("[data-settings-tab='about']");
+  if (about) tabs.insertBefore(tab, about);
+  else tabs.append(tab);
   const panel = el("div", { "data-settings-panel": "sync", hidden: "" });
   panel.className = "sync-panel";
   root.append(panel);
@@ -71,7 +73,12 @@ export async function mountSync(api) {
   });
   chip.addEventListener("click", () => {
     if (deviceWaiting()) openJoin();
-    else api.openSettings("sync");
+    else {
+      if (state.removed || pausedFlag()) state.screen = "removed";
+      else if (state.listNote && state.member) state.screen = "linked";
+      api.openSettings("sync");
+      draw();
+    }
   });
   const beta = el("span", { class: "sync-beta" }, [LABEL]);
   const bar = document.querySelector(".bar");
@@ -281,7 +288,17 @@ export async function mountSync(api) {
       removed: state.removed,
       paused: pausedFlag(),
     });
-    for (const node of document.querySelectorAll("[data-turn-on-sync]")) node.hidden = !show;
+    const linked = !show && !!(state.account || state.removed || pausedFlag());
+    const label = linked ? "Sync" : "Turn on sync";
+    for (const node of document.querySelectorAll("[data-turn-on-sync]")) {
+      node.hidden = !(show || linked);
+      node.setAttribute("aria-label", label);
+      if (linked && (state.removed || pausedFlag())) node.title = "Sync is paused. Open it to join again.";
+      else node.title = label;
+      const span = node.querySelector("span");
+      if (span) span.textContent = label;
+      else if (node.classList.contains("sync-setup")) node.textContent = label;
+    }
     const ask = deviceWaiting();
     for (const node of document.querySelectorAll("[data-device-waiting]")) node.hidden = !ask;
   }
@@ -310,7 +327,10 @@ export async function mountSync(api) {
   globalThis.omacusShowJoin = openJoin;
 
   function openIntro() {
-    if (!state.account) {
+    if (state.removed || pausedFlag()) {
+      state.screen = "removed";
+      state.error = "";
+    } else if (!state.account) {
       state.screen = "intro";
       state.error = "";
     }
@@ -2471,12 +2491,24 @@ export async function mountSync(api) {
     else if (state.screen === "ready") drawReady();
     else drawLinked();
     if (freshSetup()) hideChip();
+    dress();
     refreshCue();
     if (inviteLive()) queueInviteWatch();
     else {
       clearTimeout(inviteWatch);
       inviteWatch = 0;
     }
+  }
+
+  function dress() {
+    const loose = [...panel.childNodes].filter((node) => {
+      const cls = node.classList;
+      return !(cls && (cls.contains("settings-group") || cls.contains("sync-label")));
+    });
+    if (!loose.length) return;
+    const section = el("section", { class: "settings-group" });
+    loose[0].before(section);
+    section.append(...loose);
   }
 
   function backLink(run, disabled) {
@@ -2777,11 +2809,19 @@ export async function mountSync(api) {
     );
   }
 
+  function shotCard() {
+    return new URLSearchParams(location.search).get("syncCard");
+  }
+
+  function shotDots(dots) {
+    return shotCard() ? dots : "";
+  }
+
   function drawJoin() {
     panel.append(
       el("h2", {}, ["Approve on your other device"]),
       el("p", { class: "setting-help" }, ["The same six numbers should be on that phone or computer. Tap Yes there only if they match."]),
-      el("div", { class: "sync-code" }, [state.code || ""]),
+      el("div", { class: "sync-code" }, [state.code || shotDots("······")]),
       el("p", { class: "setting-help" }, [state.busy ? "Opening your pages…" : "Waiting for that phone or computer"]),
       quietLinks([["Cancel", () => { state.screen = "off"; state.requestId = ""; state.error = ""; draw(); }, state.busy]]),
     );
@@ -2805,12 +2845,46 @@ export async function mountSync(api) {
   }
 
   function drawRemoved() {
+    const noun = onPhone() ? "phone" : "computer";
     panel.append(
-      backLink(() => api.openSettings("settings")),
-      el("h2", {}, [`${hereCap()} was removed from sync`]),
-      el("p", { class: "setting-help", "data-sync-removed": "" }, ["Your pages are still here."]),
-      actionButton("Join again", "primary", () => joinAgain()),
+      el("h2", {}, ["Sync is paused"]),
+      el("p", { class: "setting-help", "data-sync-removed": "" }, [
+        `This ${noun} is not on the list, so new pages stay here. Your pages are still here. The Sync button in the sidebar stays. Join again adds this ${noun} back. Nothing already here is deleted.`,
+      ]),
     );
+    const actions = actionButton("Join again", "primary", () => joinAgain(), state.busy);
+    const stay = button("Sync", { type: "button", class: "btn" });
+    stay.addEventListener("click", () => {
+      state.screen = "removed";
+      draw();
+    });
+    const again = button(state.busy ? "Checking…" : "Check again", { type: "button", class: "btn" });
+    if (state.busy) again.disabled = true;
+    again.addEventListener("click", () => checkAgain());
+    actions.prepend(stay);
+    actions.append(again);
+    panel.append(actions);
+  }
+
+  async function checkAgain() {
+    state.error = "";
+    state.busy = true;
+    draw();
+    try {
+      await refreshDevices();
+      if (state.member && !state.removed && state.account) {
+        state.screen = "linked";
+        await pull(state.account);
+      } else {
+        state.screen = "removed";
+      }
+    } catch (err) {
+      state.error = plainError(err && err.message ? err.message : "Couldn't check. Try again.");
+      state.screen = "removed";
+    }
+    state.busy = false;
+    draw();
+    refreshCue();
   }
 
   async function joinAgain() {
@@ -2829,12 +2903,12 @@ export async function mountSync(api) {
     panel.append(
       el("h2", {}, [heading]),
       el("p", { class: "setting-help" }, ["It wants to open your pages. The same six numbers and the same four words should be on that screen. Those numbers only check this step. Tap Yes, approve it only if they match."]),
-      el("div", { class: "sync-code" }, [state.pending?.code || ""]),
-      el("p", { class: "sync-words" }, [words]),
+      el("div", { class: "sync-code" }, [state.pending?.code || shotDots("······")]),
+      el("p", { class: "sync-words" }, [words || shotDots("···· ···· ···· ····")]),
       actionButton(state.busy ? "Approving…" : "Yes, approve it", "primary", () => approve(), state.busy),
       quietLinks([["No", () => decline(), state.busy]]),
     );
-    watchApproval();
+    if (!shotCard()) watchApproval();
   }
 
   function drawRemoveAsk() {
@@ -2980,12 +3054,25 @@ export async function mountSync(api) {
       el("h2", {}, ["Sync is on"]),
     );
     if (state.listNote) {
-      home.append(el("p", { class: "sync-note", role: "alert", "data-sync-list": "" }, [state.listNote]));
-      home.append(quietLinks([["Got it", () => {
-        rememberDevices(state.devices.map((device) => device.id));
+      const note = button(state.listNote, {
+        type: "button",
+        class: "sync-list-notice",
+        "data-sync-list": "",
+      });
+      note.addEventListener("click", () => {
+        state.screen = "linked";
         draw();
-        refreshCue();
-      }]]));
+      });
+      panel.append(el("section", { class: "settings-group" }, [
+        el("h2", {}, ["List changed"]),
+        note,
+        el("p", { class: "setting-help" }, ["Sync is still on. This note does not stop pages from saving."]),
+        quietLinks([["Got it", () => {
+          rememberDevices(state.devices.map((device) => device.id));
+          draw();
+          refreshCue();
+        }]]),
+      ]));
     }
     if (state.notice) {
       home.append(el("p", { class: "sync-note", role: "status", "data-sync-note": "" }, [state.notice]));
@@ -3236,6 +3323,70 @@ export async function mountSync(api) {
     if (panel.hidden || state.screen === "join-scan" || state.video) return;
     draw();
   });
+
+  const card = new URLSearchParams(location.search).get("syncCard");
+  if (card) showSyncCard(card);
+
+  function showSyncCard(name) {
+    state.error = "";
+    state.busy = false;
+    state.words = [];
+    state.code = "";
+    state.phrase = "";
+    state.joinCode = "";
+    state.accessCode = "";
+    state.joinWords = "";
+    state.pending = null;
+    state.listNote = "";
+    state.removed = false;
+    state.member = false;
+    state.account = "";
+    state.devices = [];
+    state.removing = null;
+    state.vaultName = "My pages";
+    state.selfName = "Harbor desk";
+    const linked = () => {
+      state.account = "harbor";
+      state.member = true;
+      state.devices = [
+        { id: "desk", name: "Harbor desk", self: true },
+        { id: "phone", name: "Harbor phone", self: false },
+      ];
+    };
+    if (name === "choice") state.screen = "off";
+    else if (name === "fresh") state.screen = "access";
+    else if (name === "join") state.screen = "join-type";
+    else if (name === "join-wait") state.screen = "join";
+    else if (name === "approve" || name === "approve-timeout") {
+      linked();
+      state.screen = "approve";
+      state.pending = { name: "Harbor phone", code: "" };
+      if (name === "approve-timeout") state.error = "That took too long. Your pages are still here.";
+    } else if (name === "devices") {
+      linked();
+      state.screen = "linked";
+    } else if (name === "remove") {
+      linked();
+      state.screen = "remove-ask";
+      state.removing = { id: "phone", name: "Harbor phone", self: false };
+    } else if (name === "paused") {
+      state.account = "harbor";
+      state.member = false;
+      state.removed = true;
+      state.screen = "removed";
+    } else if (name === "list-changed") {
+      linked();
+      state.screen = "linked";
+      state.listNote = "Harbor phone is now on the list.";
+    } else if (name === "off") {
+      linked();
+      state.screen = "off-ask";
+    } else if (name === "recover") state.screen = "recover";
+    else state.screen = "intro";
+    api.openSettings("sync");
+    draw();
+    paintEntry();
+  }
 }
 
 function cloudIcon(mode) {
