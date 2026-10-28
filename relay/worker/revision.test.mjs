@@ -123,6 +123,16 @@ const replay = await call(nonceBox, "GET", noncePath, undefined, seen[0]);
 assert(replay.status === 429, `a captured request was not busy ${replay.status} ${replay.raw}`);
 assert(replay.json.message === "Sync is busy. Try again in a moment.", `busy message ${replay.raw}`);
 assert(!replay.raw.includes("No pages for that yet"), "a replay looked like a missing mailbox");
+const skewed = await authHeaders(nonceDevice, "GET", noncePath, "");
+skewed["x-omacus-time"] = "1";
+const clocked = await call(nonceBox, "GET", noncePath, undefined, skewed);
+assert(clocked.status === 400 && /clock/i.test(clocked.json.message || ""), `clock ${clocked.status} ${clocked.raw}`);
+const hidden = await call(nonceBox, "GET", `/v1/mailboxes/${"ef".repeat(32)}`, undefined, skewed);
+assert(hidden.status === 404 && hidden.json.message === "No pages for that yet.", `a missing mailbox changed ${hidden.status} ${hidden.raw}`);
+const freshHeaders = await authHeaders(nonceDevice, "GET", noncePath, "");
+freshHeaders["x-omacus-signature"] = "ab".repeat(64);
+const forged = await call(nonceBox, "GET", noncePath, undefined, freshHeaders);
+assert(forged.status === 404 && forged.json.message === "No pages for that yet.", `a bad signature changed ${forged.status} ${forged.raw}`);
 
 const phones = [
   await makeDevice(nonceAccount),

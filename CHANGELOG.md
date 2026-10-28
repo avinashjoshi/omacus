@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+**Turn sync off says what the server said**
+
+If the server answers, that sentence is shown, and the status does not say Not saved. Not saved is only when this computer gets no reply. A wrong clock says to set the time. Just turn off here keeps the pages on this computer.
+
 ## 1.0.7
 
 **The web app can say Live**

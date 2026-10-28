@@ -2,7 +2,7 @@
 // Two phones that each edit offline both keep their lines: the one that was
 // offline merges when its pages differ from the last synced copy.
 import { readFileSync } from "node:fs";
-import { approvalCard, beginSave, chipLabel, dedupeWelcome, declinedCovers, finishSave, keepUnlessTombstone, liveDeliveryMs, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, removalSentence, setMark, showTurnOnSync } from "../site/app/sync-save.mjs";
+import { approvalCard, beginSave, chipLabel, dedupeWelcome, declinedCovers, finishSave, keepUnlessTombstone, leaveMessage, liveDeliveryMs, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, removalSentence, setMark, showTurnOnSync } from "../site/app/sync-save.mjs";
 
 function assert(cond, message) {
   if (!cond) throw new Error(message);
@@ -128,6 +128,19 @@ assert(setMark("") === "", "an empty set invented a code");
 assert(chipLabel({ live: true, member: true }) === "Live", "a connected device said Synced");
 assert(chipLabel({ member: true }) === "Syncing", "a device with no socket said Offline");
 assert(chipLabel({ member: true, offline: true }) === "Offline", "a failed request said Syncing");
+assert(chipLabel({ error: true }) === "Not saved", "a request with no reply said the server answered");
+assert(chipLabel({ error: true, reached: true, message: "That copy could not be read." }) === "Syncing", "a reply from the server said Not saved");
+assert(chipLabel({ clock: true, error: true, reached: true }) === "Check the time", "a wrong clock said Not saved");
+assert(chipLabel({ missed: true, error: true, reached: true }) === "Couldn't read", "a refused read said Not saved");
+{
+  const told = leaveMessage({ message: "The clock on this phone or computer is off. Set the time, then try again.", status: 400 }, true);
+  assert(told.includes("clock on this phone or computer"), "turn off hid the server's sentence");
+  assert(told.includes("still on the list"), "turn off dropped the list sentence");
+  assert(!told.startsWith("Couldn't reach sync"), "a reply was called unreachable");
+  const offline = leaveMessage({ message: "Offline. Your pages are still here.", offline: true }, true);
+  assert(offline.startsWith("Sync is offline"), "no reply was given the server's sentence");
+  assert(offline.includes("turn off only here"), "turn off here was dropped");
+}
 assert(pollWait({ member: true }) === 2000, "a dropped socket stopped the ordinary poll");
 assert(chipLabel({ syncing: true, live: true, member: true }) === "Syncing", "a save hid behind Live");
 assert(!chipLabel({}).includes("Synced"), "an empty status said Synced");

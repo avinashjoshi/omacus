@@ -167,7 +167,8 @@ check(syncJs.includes('return ["intro", "access", "save", "confirm"].includes(st
 {
   const off = syncJs.slice(syncJs.indexOf("async function leaveList("), syncJs.indexOf("async function startInvite("));
   check(off.includes("sync.removeDevice") && off.includes("hideChip()") && !off.includes('setChip("Sync paused"'), "turning sync off removes this phone and leaves the status quiet");
-  check(syncJs.includes("If this is the last one, that is fine.") && syncJs.includes("Just turn off here") && syncJs.includes("Another phone or computer can still remove this one."), "turning sync off says the words still open the pages");
+  const syncSave = readFileSync(join(site, "app/sync-save.mjs"), "utf8");
+  check(syncJs.includes("If this is the last one, that is fine.") && syncJs.includes("Just turn off here") && syncSave.includes("Another phone or computer can still remove this one.") && syncJs.includes("leaveMessage"), "turning sync off says the words still open the pages");
 }
 check(syncJs.includes("takeSyncLink") && syncJs.includes('found.kind === "recover"') && syncJs.includes("pageOrigin()") && !syncJs.includes("captureSyncLink") && !syncJs.includes("console."), "the sync screen reads a recovery link and does not record it");
 check(js.includes("captureSyncLink") && js.includes("history.replaceState"), "a recovery link is taken out of the address bar before a share link");

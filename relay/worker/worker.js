@@ -48,6 +48,7 @@ const RECORD_MAGIC_V2 = enc.encode("OMACUS-SYNC/2\n");
 const CHAIN_MAGIC = enc.encode("OMACUS-DEVICES/1");
 const ERR = {
   Unknown: [404, "No pages for that yet."],
+  Clock: [400, "The clock on this phone or computer is off. Set the time, then try again."],
   Conflict: [409, "That copy is already here."],
   Revision: [409, "That copy is out of date. Try again."],
   Full: [429, "Sync is full."],
@@ -312,6 +313,7 @@ export class Mailboxes extends DurableObject {
   }
   async guard(method, path, raw, headers, mailbox) {
     const auth = await authorize(method, path, raw, headers, mailbox.record, Date.now(), mailbox);
+    if (auth && auth.clock) fail("Clock");
     if (auth && auth.busy) fail("Busy");
     if (!auth) fail("Unknown");
     noteActivity(mailbox);
@@ -346,6 +348,7 @@ export class Mailboxes extends DurableObject {
     try { mailbox = await this.load(account); }
     catch { return json(404, { message: ERR.Unknown[1] }); }
     const auth = await authorize("GET", path, "", headers, mailbox.record, this.now(), mailbox);
+    if (auth && auth.clock) return json(ERR.Clock[0], { message: ERR.Clock[1] });
     if (!auth || auth.busy) return json(auth && auth.busy ? 429 : 404, { message: (auth && auth.busy ? ERR.Busy : ERR.Unknown)[1] });
     await this.save(account, mailbox);
     const rev = Number.isInteger(mailbox.revision) ? mailbox.revision : 0;

@@ -3,7 +3,7 @@
 // WebCrypto key. The page's strict policy is what keeps other scripts out.
 import { SYNC_URL } from "./sync-config.js";
 import { APP_VERSION } from "./version.js";
-import { approvalCard, beginSave, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, keepUnlessTombstone, noteLocalEdit, noteTombstone, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, setMark, showTurnOnSync } from "./sync-save.mjs";
+import { approvalCard, beginSave, chipLabel, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, keepUnlessTombstone, leaveMessage, noteLocalEdit, noteTombstone, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, setMark, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 import { deviceListNote, pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
@@ -115,6 +115,9 @@ export async function mountSync(api) {
     basePages: null,
     tombstones: [],
     saveError: "",
+    saveReached: false,
+    saveClock: false,
+    saveMissed: false,
     member: true,
     devices: [],
     name: matchMedia("(pointer: coarse)").matches ? "This phone" : "This browser",
@@ -314,7 +317,7 @@ export async function mountSync(api) {
     if (!settle) return;
     if (navigator.onLine === false && state.account) setChip("Offline", "offline");
     else if (state.removed || pausedFlag()) setChip("Sync paused", "off");
-    else if (state.saveError) setChip("Not saved", "error");
+    else if (state.saveError) paintConnection();
     else if (state.listNote && state.member && state.account) setChip("List changed", "list");
     else if (state.member && state.account) paintConnection();
     else hideChip();
@@ -349,8 +352,20 @@ export async function mountSync(api) {
       setChip("Device waiting", "ask");
       return;
     }
-    if (state.saveError) {
+    if (state.saveError && !state.saveReached) {
       setChip("Not saved", "error");
+      return;
+    }
+    if (state.saveError) {
+      const label = chipLabel({
+        clock: state.saveClock,
+        missed: state.saveMissed,
+        error: true,
+        reached: state.saveReached,
+        member: state.member,
+      });
+      const mode = label === "Syncing" ? "busy" : "error";
+      setChip(label, mode);
       return;
     }
     if (state.listNote) {
@@ -379,6 +394,9 @@ export async function mountSync(api) {
     if (state.member && state.account) {
       clearPaused();
       state.saveError = "";
+      state.saveReached = false;
+      state.saveClock = false;
+      state.saveMissed = false;
       paintConnection();
     } else if (state.removed || pausedFlag()) {
       setChip("Sync paused", "off");
@@ -1311,9 +1329,16 @@ export async function mountSync(api) {
       } else if (/that code didn't work/i.test(error.message || "")) {
         // The phone that typed the code hears about it. This phone keeps its pages.
       } else {
+        const clock = /clock on this/i.test(error.message || "");
+        const missed = error.status === 404 && /no pages for that yet/i.test(error.message || "");
+        state.saveClock = clock;
+        state.saveMissed = missed;
+        state.saveReached = Number.isInteger(error.status) || (!error.offline && await serverAnswers());
         state.saveError = plainError(error.message);
-        setChip("Not saved", "error");
-        if ((state.screen === "linked" || state.screen === "invite") && !panel.hidden) draw();
+        paintConnection();
+        // A reply means the server is up. Try the save again instead of leaving Not saved.
+        if (state.saveReached && !clock) schedule();
+        if ((state.screen === "linked" || state.screen === "invite" || state.screen === "off-ask") && !panel.hidden) draw();
       }
       try {
         await noticeJoin();
@@ -1669,10 +1694,19 @@ export async function mountSync(api) {
   }
 
   function leaveError(error) {
-    if (error && (error.offline || navigator.onLine === false)) {
-      return `Sync is offline, so ${here()} is still on the list. Try again, or turn off only here. Another phone or computer can still remove this one.`;
+    return leaveMessage(error, !onPhone());
+  }
+
+  async function serverAnswers() {
+    try {
+      const response = await fetch(`${syncOrigin()}/v1/health`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(2000),
+      });
+      return response.ok;
+    } catch {
+      return false;
     }
-    return `Couldn't reach sync, so ${here()} is still on the list. Try again, or turn off only here. Another phone or computer can still remove this one.`;
   }
 
   async function restoreDesk(prior) {
@@ -1726,6 +1760,13 @@ export async function mountSync(api) {
         state.busy = false;
         state.offFailed = true;
         state.error = localOnly ? "Sync is still on. Try again." : leaveError(error);
+        const clock = /clock on this/i.test(error.message || "");
+        const missed = error.status === 404 && /no pages for that yet/i.test(error.message || "");
+        state.saveClock = clock;
+        state.saveMissed = missed;
+        state.saveReached = Number.isInteger(error.status) || (!error.offline && await serverAnswers());
+        if (state.saveReached) state.saveError = plainError(error.message);
+        paintConnection();
         draw();
         return;
       }
