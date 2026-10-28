@@ -10,7 +10,7 @@ publish = false  # internal; the version is the workspace version in ../Cargo.to
 # app and, compiled to WebAssembly, in the browser.
 [dependencies]
 argon2 = "0.5"
-base64 = "0.22"
+base64 = "0.23"
 chacha20poly1305 = "0.10"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std", "wasmbind"] }
 chrono-tz = "0.10.4"
