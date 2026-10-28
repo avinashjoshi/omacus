@@ -87,8 +87,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"
-          # index.html carries the same version the sidebar shows.
-          git add Cargo.toml Cargo.lock CHANGELOG.md site/app/index.html
+          # The sidebar, the worker, and the version probe carry the same version.
+          git add Cargo.toml Cargo.lock CHANGELOG.md site/app/index.html site/app/version.js site/app/sw.js site/app/version.json
           git commit -m "Release v$version"
           git push origin "HEAD:$branch"
           {
