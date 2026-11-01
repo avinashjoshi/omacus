@@ -34,11 +34,11 @@ window.OMACUS_DEMO = [
    },
    {
     "text": "total",
-    "result": "$9,910.06"
+    "result": "$9,926.50"
    },
    {
     "text": "each = prev / 4",
-    "result": "$2,477.51"
+    "result": "$2,481.63"
    },
    {
     "text": "",
@@ -46,11 +46,11 @@ window.OMACUS_DEMO = [
    },
    {
     "text": "each in EUR",
-    "result": "2,203.79 EUR"
+    "result": "2,222.44 EUR"
    },
    {
     "text": "each in GBP",
-    "result": "1,860.21 GBP"
+    "result": "1,853.65 GBP"
    },
    {
     "text": "",
@@ -62,7 +62,7 @@ window.OMACUS_DEMO = [
    },
    {
     "text": "Call home 8pm JST in New York",
-    "result": "7:00 AM EDT"
+    "result": "6:00 AM EST"
    }
   ]
  },
@@ -108,7 +108,7 @@ window.OMACUS_DEMO = [
    },
    {
     "text": "prev in EUR",
-    "result": "6,173.94 EUR"
+    "result": "6,215.86 EUR"
    }
   ]
  },
@@ -122,19 +122,19 @@ window.OMACUS_DEMO = [
    },
    {
     "text": "9:30am PST in New York",
-    "result": "12:30 PM EDT"
+    "result": "12:30 PM EST"
    },
    {
     "text": "9:30am PST in London",
-    "result": "5:30 PM BST"
+    "result": "5:30 PM GMT"
    },
    {
     "text": "9:30am PST in Berlin",
-    "result": "6:30 PM CEST"
+    "result": "6:30 PM CET"
    },
    {
     "text": "9:30am PST in Tokyo",
-    "result": "1:30 AM JST (next day)"
+    "result": "2:30 AM JST (next day)"
    }
   ]
  },

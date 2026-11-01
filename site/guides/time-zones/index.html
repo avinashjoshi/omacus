@@ -189,17 +189,17 @@
 <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
     <tbody>
-      <tr><td><code>6pm PST in Tokyo</code></td><td class="ans">10:00 AM JST (next day)</td></tr>
-      <tr><td><code>9am EST in London</code></td><td class="ans">2:00 PM BST</td></tr>
-      <tr><td><code>10:30 London to New York</code></td><td class="ans">5:30 AM EDT</td></tr>
+      <tr><td><code>6pm PST in Tokyo</code></td><td class="ans">11:00 AM JST (next day)</td></tr>
+      <tr><td><code>9am EST in London</code></td><td class="ans">2:00 PM GMT</td></tr>
+      <tr><td><code>10:30 London to New York</code></td><td class="ans">5:30 AM EST</td></tr>
       <tr><td><code>noon UTC in Sydney</code></td><td class="ans">11:00 PM AEDT</td></tr>
-      <tr><td><code>4pm Paris in San Francisco</code></td><td class="ans">7:00 AM PDT</td></tr>
-      <tr><td><code>9am Germany in Japan</code></td><td class="ans">4:00 PM JST</td></tr>
-      <tr><td><code>3pm PST in IST</code></td><td class="ans">3:30 AM IST (next day)</td></tr>
+      <tr><td><code>4pm Paris in San Francisco</code></td><td class="ans">7:00 AM PST</td></tr>
+      <tr><td><code>9am Germany in Japan</code></td><td class="ans">5:00 PM JST</td></tr>
+      <tr><td><code>3pm PST in IST</code></td><td class="ans">4:30 AM IST (next day)</td></tr>
       <tr><td><code>11pm JST in UTC</code></td><td class="ans">2:00 PM UTC</td></tr>
     </tbody>
   </table>
-    <p class="note-line">Answers were calculated on 17 October 2026. Omacus always uses the date you're typing on, so daylight saving is right for today.</p>
+    <p class="note-line">Answers were calculated on 1 November 2026. Omacus always uses the date you're typing on, so daylight saving is right for today.</p>
 
     <h2 id="names">Three ways to name a place</h2>
     <h3>Abbreviations</h3>
@@ -209,8 +209,8 @@
 <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
     <tbody>
-      <tr><td><code>2:15pm Chicago in Paris</code></td><td class="ans">9:15 PM CEST</td></tr>
-      <tr><td><code>8pm Seattle in Sydney</code></td><td class="ans">2:00 PM AEDT (next day)</td></tr>
+      <tr><td><code>2:15pm Chicago in Paris</code></td><td class="ans">9:15 PM CET</td></tr>
+      <tr><td><code>8pm Seattle in Sydney</code></td><td class="ans">3:00 PM AEDT (next day)</td></tr>
       <tr><td><code>7am Singapore in Dubai</code></td><td class="ans">3:00 AM GST</td></tr>
     </tbody>
   </table>
@@ -219,8 +219,8 @@
 <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
     <tbody>
-      <tr><td><code>9am France in Japan</code></td><td class="ans">4:00 PM JST</td></tr>
-      <tr><td><code>10am America/New_York in Europe/Zurich</code></td><td class="ans">4:00 PM CEST</td></tr>
+      <tr><td><code>9am France in Japan</code></td><td class="ans">5:00 PM JST</td></tr>
+      <tr><td><code>10am America/New_York in Europe/Zurich</code></td><td class="ans">4:00 PM CET</td></tr>
       <tr><td><code>noon UTC in Asia/Kathmandu</code></td><td class="ans">5:45 PM NPT</td></tr>
     </tbody>
   </table>
@@ -230,9 +230,9 @@
 <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
     <tbody>
-      <tr><td><code>9am PST in New York</code></td><td class="ans">12:00 PM EDT</td></tr>
-      <tr><td><code>9am EST in London</code></td><td class="ans">2:00 PM BST</td></tr>
-      <tr><td><code>5pm CET in EST</code></td><td class="ans">11:00 AM EDT</td></tr>
+      <tr><td><code>9am PST in New York</code></td><td class="ans">12:00 PM EST</td></tr>
+      <tr><td><code>9am EST in London</code></td><td class="ans">2:00 PM GMT</td></tr>
+      <tr><td><code>5pm CET in EST</code></td><td class="ans">11:00 AM EST</td></tr>
     </tbody>
   </table>
     <p>That's also why <code>EST</code> above came back as <code>EDT</code>: on the day these answers were calculated, New York was on daylight time.</p>
@@ -242,7 +242,7 @@
 <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
     <tbody>
-      <tr><td><code>9am PST in Tokyo</code></td><td class="ans">1:00 AM JST (next day)</td></tr>
+      <tr><td><code>9am PST in Tokyo</code></td><td class="ans">2:00 AM JST (next day)</td></tr>
       <tr><td><code>9am IST in EST</code></td><td class="ans">11:30 PM EDT (prev day)</td></tr>
       <tr><td><code>midnight UTC in PST</code></td><td class="ans">5:00 PM PDT (prev day)</td></tr>
     </tbody>
@@ -254,8 +254,8 @@
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
     <tbody>
       <tr><td><code>3pm PST on Dec 1 in London</code></td><td class="ans">11:00 PM GMT, Tue 1 Dec</td></tr>
-      <tr><td><code>9am PST tomorrow in Tokyo</code></td><td class="ans">1:00 AM JST, Mon 19 Oct</td></tr>
-      <tr><td><code>next Monday 10am ET in Berlin</code></td><td class="ans">4:00 PM CEST, Mon 19 Oct</td></tr>
+      <tr><td><code>9am PST tomorrow in Tokyo</code></td><td class="ans">2:00 AM JST, Tue 3 Nov</td></tr>
+      <tr><td><code>next Monday 10am ET in Berlin</code></td><td class="ans">4:00 PM CET, Mon 2 Nov</td></tr>
       <tr><td><code>Launch 2026-11-02 10am ET in Paris</code></td><td class="ans">4:00 PM CET, Mon 2 Nov</td></tr>
     </tbody>
   </table>
@@ -265,8 +265,8 @@
 <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
     <tbody>
-      <tr><td><code>9:30am PST + 2 hours in London</code></td><td class="ans">7:30 PM BST</td></tr>
-      <tr><td><code>3pm CET + 90 min in New York</code></td><td class="ans">10:30 AM EDT</td></tr>
+      <tr><td><code>9:30am PST + 2 hours in London</code></td><td class="ans">7:30 PM GMT</td></tr>
+      <tr><td><code>3pm CET + 90 min in New York</code></td><td class="ans">10:30 AM EST</td></tr>
       <tr><td><code>11pm UTC + 2 hours</code></td><td class="ans">1:00 AM UTC (next day)</td></tr>
     </tbody>
   </table>
@@ -276,9 +276,9 @@
 <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
     <tbody>
-      <tr><td><code>15:30 CET in IST</code></td><td class="ans">7:00 PM IST</td></tr>
-      <tr><td><code>9:30 am pst in ist</code></td><td class="ans">10:00 PM IST</td></tr>
-      <tr><td><code>noon AEST to PST</code></td><td class="ans">6:00 PM PDT (prev day)</td></tr>
+      <tr><td><code>15:30 CET in IST</code></td><td class="ans">8:00 PM IST</td></tr>
+      <tr><td><code>9:30 am pst in ist</code></td><td class="ans">11:00 PM IST</td></tr>
+      <tr><td><code>noon AEST to PST</code></td><td class="ans">5:00 PM PST (prev day)</td></tr>
     </tbody>
   </table>
 
@@ -287,9 +287,9 @@
 <table class="ex">
     <thead><tr><th>You type</th><th>Omacus shows</th></tr></thead>
     <tbody>
-      <tr><td><code>Standup 9:30am PST in Berlin</code></td><td class="ans">6:30 PM CEST</td></tr>
-      <tr><td><code>Flight lands 6:40pm CET in New York</code></td><td class="ans">12:40 PM EDT</td></tr>
-      <tr><td><code>Payroll cutoff 5pm ET in London</code></td><td class="ans">10:00 PM BST</td></tr>
+      <tr><td><code>Standup 9:30am PST in Berlin</code></td><td class="ans">6:30 PM CET</td></tr>
+      <tr><td><code>Flight lands 6:40pm CET in New York</code></td><td class="ans">12:40 PM EST</td></tr>
+      <tr><td><code>Payroll cutoff 5pm ET in London</code></td><td class="ans">10:00 PM GMT</td></tr>
     </tbody>
   </table>
 
@@ -303,15 +303,15 @@
   <ol class="sheet-lines">
     <li><span class="src"><span class="t-head"># Weekly sync, Tuesday</span></span><span class="res"></span></li>
     <li><span class="src"><span class="t-com">// proposed: 9am in San Francisco</span></span><span class="res"></span></li>
-    <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> New York</span><span class="res">12:00 PM EDT</span></li>
-    <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> London</span><span class="res">5:00 PM BST</span></li>
-    <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> Berlin</span><span class="res">6:00 PM CEST</span></li>
-    <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> Tokyo</span><span class="res">1:00 AM JST (next day)</span></li>
+    <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> New York</span><span class="res">12:00 PM EST</span></li>
+    <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> London</span><span class="res">5:00 PM GMT</span></li>
+    <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> Berlin</span><span class="res">6:00 PM CET</span></li>
+    <li><span class="src"><span class="t-num">9am</span> PST <span class="t-kw">in</span> Tokyo</span><span class="res">2:00 AM JST (next day)</span></li>
     <li><span class="src"> </span><span class="res"></span></li>
     <li><span class="src"><span class="t-com">// Tokyo would be up at 1am. Try the afternoon:</span></span><span class="res"></span></li>
-    <li><span class="src"><span class="t-num">4pm</span> PST <span class="t-kw">in</span> Tokyo</span><span class="res">8:00 AM JST (next day)</span></li>
-    <li><span class="src"><span class="t-num">4pm</span> PST <span class="t-kw">in</span> Berlin</span><span class="res">1:00 AM CEST (next day)</span></li>
-    <li><span class="src"><span class="t-num">4pm</span> PST <span class="t-kw">in</span> London</span><span class="res">12:00 AM BST (next day)</span></li>
+    <li><span class="src"><span class="t-num">4pm</span> PST <span class="t-kw">in</span> Tokyo</span><span class="res">9:00 AM JST (next day)</span></li>
+    <li><span class="src"><span class="t-num">4pm</span> PST <span class="t-kw">in</span> Berlin</span><span class="res">1:00 AM CET (next day)</span></li>
+    <li><span class="src"><span class="t-num">4pm</span> PST <span class="t-kw">in</span> London</span><span class="res">12:00 AM GMT (next day)</span></li>
   </ol>
 </figure>
     <p>See more pages like this on the <a href="/use-cases/">use cases</a> page.</p>
