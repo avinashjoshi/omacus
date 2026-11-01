@@ -422,6 +422,13 @@ fn random_array<const N: usize>() -> Result<[u8; N], LockError> {
 mod tests {
     use super::*;
 
+    fn hex(text: &str) -> Vec<u8> {
+        (0..text.len())
+            .step_by(2)
+            .map(|index| u8::from_str_radix(&text[index..index + 2], 16).unwrap())
+            .collect()
+    }
+
     /// Ciphertext from chacha20poly1305 0.10.1 for this key, nonce, and page.
     #[test]
     fn old_xchacha_bytes_still_seal_and_open() {
@@ -436,6 +443,39 @@ mod tests {
             .collect();
         assert_eq!(xcrypt(true, &key, &nonce, aad, plain).unwrap(), old);
         assert_eq!(xcrypt(false, &key, &nonce, aad, &old).unwrap(), plain);
+    }
+
+    /// A passphrase file sealed by argon2 0.5.3. The header is 64 MiB, 3 passes,
+    /// one lane. Argon2id version 0x13 is passed in explicitly.
+    #[test]
+    fn a_passphrase_file_from_argon2_0_5_still_opens() {
+        assert_eq!(DEVICE_MEMORY_KIB, 64 * 1024);
+        assert_eq!(DEVICE_ITERATIONS, 3);
+        assert_eq!(LANES, 1);
+        assert_eq!(MEMORY_KIB, 19 * 1024);
+        assert_eq!(ITERATIONS, 2);
+        let params = Params::new(DEVICE_MEMORY_KIB, DEVICE_ITERATIONS, LANES, Some(KEY_LEN))
+            .expect("device params");
+        assert_eq!(params.m_cost(), DEVICE_MEMORY_KIB);
+        assert_eq!(params.t_cost(), DEVICE_ITERATIONS);
+        assert_eq!(params.p_cost(), LANES);
+        let stored = hex(
+            "00010000000000030000000111111111111111111111111111111111222222222222222222222222222222222222222222222222ee187c919a35727fb9c2854a00577c5c6d0590c1a04eea7597328f1e6db1478d93",
+        );
+        let (plain, _) = open_with_passphrase("harbor-passphrase", &stored).unwrap();
+        assert_eq!(plain, b"omacus-device-key");
+        let kek = hash_password(
+            "harbor-passphrase",
+            &[0x11; SALT_LEN],
+            DEVICE_MEMORY_KIB,
+            DEVICE_ITERATIONS,
+            LANES,
+        )
+        .unwrap();
+        assert_eq!(
+            kek,
+            hex("526960d7026828c84b072acf563ab72fa98090a51f31a194011d9b04b3e2c086").as_slice()
+        );
     }
 
     #[test]
