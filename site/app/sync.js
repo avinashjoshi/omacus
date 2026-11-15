@@ -3153,10 +3153,10 @@ export async function mountSync(api) {
       actionButton(state.busy ? "Working…" : "Add a phone or computer", "primary", () => startInvite(), state.busy),
       quietLinks([
         ["Done", () => { state.screen = "linked"; state.error = ""; draw(); }],
+        ["Turn sync off", () => { state.wiping = false; state.screen = "off-ask"; state.error = ""; draw(); }, state.busy],
         ["Force sync", () => forceSync(), state.busy],
         ["Copy logs", () => copyLogs(), state.busy],
         ["Start fresh", () => { state.wiping = true; state.offFailed = false; state.screen = "off-ask"; state.error = ""; draw(); }, state.busy],
-        ["Turn sync off", () => { state.wiping = false; state.screen = "off-ask"; state.error = ""; draw(); }, state.busy],
       ]),
     );
   }
@@ -3241,16 +3241,18 @@ export async function mountSync(api) {
       list.append(el("p", { class: "setting-help" }, ["Remove stops that phone or computer from getting new changes. Pages it already saved stay readable on it. New edits stay with the phones and computers that are still linked. Rename changes the name on every phone and computer."]));
     }
     home.append(list);
-    home.append(el("p", { class: "setting-help" }, ["A local log of counts. It does not include page names or keys."]));
-    home.append(el("pre", { class: "sync-log", "data-sync-log": "" }, [state.logs.join("\n") || "No log yet."]));
     const actions = actionButton(state.busy ? "Working…" : "Add a phone or computer", "primary", () => startInvite(), state.busy);
     actions.append(quietLinks([
-      ["Force sync", () => forceSync(), state.busy],
-      ["Copy logs", () => copyLogs(), state.busy],
-      ["Start fresh", () => { state.wiping = true; state.offFailed = false; state.screen = "off-ask"; state.error = ""; draw(); }, state.busy],
       ["Turn sync off", () => { state.wiping = false; state.screen = "off-ask"; state.error = ""; draw(); }, state.busy],
     ]));
     home.append(actions);
+    home.append(el("p", { class: "setting-help" }, ["A local log of counts. It does not include page names or keys."]));
+    home.append(el("pre", { class: "sync-log", "data-sync-log": "" }, [state.logs.join("\n") || "No log yet."]));
+    home.append(quietLinks([
+      ["Force sync", () => forceSync(), state.busy],
+      ["Copy logs", () => copyLogs(), state.busy],
+      ["Start fresh", () => { state.wiping = true; state.offFailed = false; state.screen = "off-ask"; state.error = ""; draw(); }, state.busy],
+    ]));
     panel.append(home);
   }
 
