@@ -582,12 +582,16 @@ fn path_is_collection(path: &str) -> bool {
 /// Secret Service is up, and the default or login collection exists and is unlocked.
 /// A locked collection gets one Secret Service unlock. An empty password opens
 /// with no prompt. A passworded collection stays locked, and its prompt is dismissed.
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(test, unix, not(target_os = "macos")))]
+fn collection_unlocked() -> bool {
+    alias_open("default") || alias_open("login")
+}
+
+#[cfg(all(not(test), unix, not(target_os = "macos")))]
 fn collection_unlocked() -> bool {
     if alias_open("default") || alias_open("login") {
         return true;
     }
-    #[cfg(not(test))]
     if collection_path().is_some() {
         unlock_empty();
         return alias_open("default") || alias_open("login");

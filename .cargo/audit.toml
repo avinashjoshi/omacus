@@ -1,0 +1,10 @@
+# zvariant, zvariant_derive, and zbus_names have no patched release.
+# They were folded into zbus 6. This tree reaches them only through
+# rfd 0.16, which uses ashpd 0.11, which requires zbus 5. Omacus does
+# not call those crates. The file dialog talks to the portal through rfd.
+[advisories]
+ignore = [
+    "RUSTSEC-2026-0370",
+    "RUSTSEC-2026-0371",
+    "RUSTSEC-2026-0372",
+]
