@@ -15,6 +15,8 @@ assert(sync.includes('get("syncCard")'), "a card preview can open the real sync 
 }
 assert(sync.includes("Sync is paused") && sync.includes("Join again") && sync.includes("Check again"), "a paused card keeps Join again and Check again");
 assert(sync.includes("The Sync button in the sidebar stays"), "a pause keeps the Sync button");
+assert(sync.includes("Force sync") && sync.includes("Copy logs") && sync.includes("Start fresh"), "the Sync tab is missing a recovery action");
+assert(sync.includes("data-sync-log"), "the Sync tab has no local log");
 assert(sync.includes('class: "sync-list-notice"') && sync.includes("data-sync-list"), "the list change is a button");
 assert(sync.includes("This note does not stop pages from saving."), "the list change says saving continues");
 

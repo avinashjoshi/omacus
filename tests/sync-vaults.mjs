@@ -5,6 +5,8 @@ import { readFileSync } from "node:fs";
 import {
   activeVault,
   bookJson,
+  clearSyncKeys,
+  dropVault,
   legacyMirror,
   loadVaultBook,
   upsertVault,
@@ -81,5 +83,16 @@ assert(keys.includes('b"omacus/v1/account-sign"'), "the account id derivation ch
 assert(keys.includes('pub const VAULT_ID: &str = "personal"'), "the sealed marker changed");
 const module = readFileSync(new URL("../site/app/sync-vaults.mjs", import.meta.url), "utf8");
 assert(!module.includes("account-sign"), "the vault list started deriving account ids");
+
+const dropped = dropVault(again, "harbor");
+assert(dropped.vaults.length === 1, "turning sync off removed the other set");
+assert(dropped.vaults[0].account === "lantern", "turning sync off kept the wrong set");
+assert(!bookJson(dropped).includes("harbor"), "the set id stayed after turn off");
+const gone = dropVault(dropped, "lantern");
+assert(gone.vaults.length === 0, "the last set stayed");
+assert(clearSyncKeys(gone).includes("sync-account"), "an empty phone kept the set id");
+assert(clearSyncKeys(gone).includes("sync-slots"), "an empty phone kept the cursors");
+assert(clearSyncKeys(gone).includes("sync-device-ids"), "an empty phone kept the old device list");
+assert(clearSyncKeys(again).length === 0, "a phone that still has a set cleared it");
 
 console.log("sync vaults ok");

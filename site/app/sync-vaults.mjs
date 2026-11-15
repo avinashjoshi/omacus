@@ -4,6 +4,13 @@
 
 export const VAULTS_KEY = "sync-vaults";
 
+// Written beside the vault list. Cleared when this phone has no set left.
+export const EXTRA_SYNC_KEYS = [
+  "sync-device-ids",
+  "sync-removal-declined",
+  "sync-tombstones",
+];
+
 const LEGACY = {
   deviceFile: "device-file",
   account: "sync-account",
@@ -104,6 +111,25 @@ export function upsertVault(book, vault) {
     .filter((row) => row.account !== next.account);
   vaults.push(next);
   return { active: next.account || text(book && book.active), vaults };
+}
+
+// The open set leaves this phone. Another set stored here stays.
+export function dropVault(book, account) {
+  const id = text(account).trim().toLowerCase();
+  const vaults = (book && Array.isArray(book.vaults) ? book.vaults : [])
+    .map(normalizeVault)
+    .filter((row) => row.account && row.account !== id);
+  const active = text(book && book.active).trim().toLowerCase();
+  const next = vaults.some((row) => row.account === active)
+    ? active
+    : (vaults.find((row) => row.account)?.account || "");
+  return { active: next, vaults };
+}
+
+// Keys to delete once no set remains on this phone.
+export function clearSyncKeys(book) {
+  if (activeVault(book)) return [];
+  return [...Object.values(LEGACY), ...EXTRA_SYNC_KEYS];
 }
 
 export function bookJson(book) {

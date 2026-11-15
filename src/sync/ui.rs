@@ -63,7 +63,13 @@ fn screen_heading(session: &Session) -> String {
         Screen::Match => "Do these match?".into(),
         Screen::Approve => approve_heading(session),
         Screen::Recover => "Use your recovery words".into(),
-        Screen::OffAsk | Screen::OffFailed => "Turn sync off on this computer?".into(),
+        Screen::OffAsk | Screen::OffFailed => {
+            if session.starting_fresh() {
+                "Start fresh on this computer?".into()
+            } else {
+                "Turn sync off on this computer?".into()
+            }
+        }
         Screen::RemoveAsk => remove_heading(session),
         Screen::Removed => "Sync is paused".into(),
         Screen::PagesHere => "Pages already on this computer".into(),
@@ -705,6 +711,30 @@ fn home(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
     if design::primary(ui, theme, "Add a phone or computer").clicked() {
         session.ask(Work::StartInvite);
     }
+    settings::caption(
+        ui,
+        theme,
+        "A local log of counts. It does not include page names or keys.",
+    );
+    let log = if session.log_text().is_empty() {
+        "No log yet.".to_string()
+    } else {
+        session.log_text()
+    };
+    ui.label(
+        RichText::new(log)
+            .size(theme::token::TYPE_CAPTION)
+            .color(theme.text_muted()),
+    );
+    if design::quiet(ui, theme, "Force sync").clicked() {
+        session.ask(Work::ForceSync);
+    }
+    if design::quiet(ui, theme, "Copy logs").clicked() {
+        let _ = session.copy_logs();
+    }
+    if design::quiet(ui, theme, "Start fresh").clicked() {
+        session.ask_fresh();
+    }
     if design::quiet(ui, theme, "Turn sync off").clicked() {
         session.ask_off();
     }
@@ -1007,23 +1037,62 @@ fn recover(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<St
 }
 
 fn off(ui: &mut egui::Ui, theme: &Theme, session: &mut Session, failed: bool) -> Option<String> {
+    let wiping = session.starting_fresh();
     if back(ui, theme, "← Back") {
         session.show_home();
     }
-    title(ui, theme, "Turn sync off on this computer?");
-    para(
-        ui,
-        theme,
-        "Your pages stay here. This computer leaves the list, so the other phones and computers stop showing it. If this is the last one, that is fine. The recovery words still open the pages.",
-    );
+    if wiping {
+        title(ui, theme, "Start fresh on this computer?");
+        para(
+            ui,
+            theme,
+            "This computer leaves the set. The key on this computer is deleted, and this computer forgets how far it had synced. Pages on this computer stay. Do this on every phone and computer to reset them all.",
+        );
+    } else {
+        title(ui, theme, "Turn sync off on this computer?");
+        para(
+            ui,
+            theme,
+            "Your pages stay here. This computer leaves the list, so the other phones and computers stop showing it. If this is the last one, that is fine. The recovery words still open the pages.",
+        );
+    }
     err(ui, theme, &session.error.clone());
     ui.horizontal(|ui| {
-        let label = if failed { "Try again" } else { "Turn sync off" };
-        if design::primary(ui, theme, label).clicked() {
-            session.ask(Work::TurnOff);
+        let label = if failed {
+            "Try again"
+        } else if wiping {
+            "Start fresh"
+        } else {
+            "Turn sync off"
+        };
+        if wiping && !failed {
+            if design::danger(ui, theme, label).clicked() {
+                session.ask(Work::StartFresh);
+            }
+        } else if design::primary(ui, theme, label).clicked() {
+            if wiping {
+                session.ask(Work::StartFresh);
+            } else {
+                session.ask(Work::TurnOff);
+            }
         }
-        if failed && design::quiet(ui, theme, "Just turn off here").clicked() {
-            session.turn_off_here();
+        if failed
+            && design::quiet(
+                ui,
+                theme,
+                if wiping {
+                    "Start fresh here"
+                } else {
+                    "Just turn off here"
+                },
+            )
+            .clicked()
+        {
+            if wiping {
+                session.start_fresh_here();
+            } else {
+                session.turn_off_here();
+            }
         }
         if design::quiet(ui, theme, "Not now").clicked() {
             session.show_home();

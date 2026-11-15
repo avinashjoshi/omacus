@@ -1353,4 +1353,61 @@ mod tests {
             "an unchanged sidebar was uploaded again"
         );
     }
+
+    #[test]
+    fn a_new_folder_arrives_in_the_same_order() {
+        let vault = VaultKey::generate().unwrap();
+        let mut lib = omacus_doc::Library::new();
+        assert!(lib.note_vault(
+            r#"{"sidebar":[{"id":"pantry","kind":"folder","name":"Pantry","parent":"","index":0},{"id":"oats","kind":"page","parent":"pantry","index":0}],"handles":[],"trash":[],"prefs":{}}"#
+        ));
+        lib.reconcile("oats", "# Oats\nbowl 2\n", None);
+        let first = PageSet {
+            doc: lib.save(),
+            pages: vec![("oats".into(), "# Oats\nbowl 2\n".into())],
+            meta: SyncMeta::default(),
+        };
+        let planned = plan(&vault, 1, &first, &[], 1).unwrap();
+        let mut slots = planned.slots.clone();
+        for slot in &mut slots {
+            slot.server_rev = 1;
+        }
+        let mut next = omacus_doc::Library::load(&first.doc).unwrap();
+        assert!(next.note_vault(
+            r#"{"sidebar":[{"id":"spice","kind":"folder","name":"Spice","parent":"","index":0},{"id":"pantry","kind":"folder","name":"Pantry","parent":"","index":1},{"id":"oats","kind":"page","parent":"pantry","index":0}],"handles":[],"trash":[],"prefs":{}}"#
+        ));
+        let second = PageSet {
+            doc: next.save(),
+            pages: first.pages.clone(),
+            meta: SyncMeta::default(),
+        };
+        let sent = plan(&vault, 1, &second, &slots, 2).unwrap();
+        assert!(
+            sent.objects
+                .iter()
+                .all(|object| { !String::from_utf8_lossy(&object.body).contains("Spice") }),
+            "the folder name left in the clear"
+        );
+        let incoming: Vec<Incoming> = sent
+            .objects
+            .iter()
+            .map(|object| Incoming {
+                id: object.id,
+                revision: 1,
+                body: object.body.clone(),
+            })
+            .collect();
+        let opened = assemble(&sent.manifest, &incoming, &slots, &first.doc).unwrap();
+        let round = PageSet::from_bytes(&opened.packed).unwrap();
+        let present = omacus_doc::Library::load(&round.doc)
+            .unwrap()
+            .vault_present()
+            .unwrap_or_default();
+        let spice = present.find("\"spice\"").expect("spice was dropped");
+        let pantry = present.find("\"pantry\"").expect("pantry was dropped");
+        assert!(spice < pantry, "{present}");
+        assert!(
+            present.contains("\"type\":\"folder\"") || present.contains("\"type\": \"folder\"")
+        );
+    }
 }

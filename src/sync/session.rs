@@ -241,6 +241,8 @@ pub enum Work {
     SaveKey,
     Poll,
     SyncNow,
+    ForceSync,
+    StartFresh,
 }
 
 impl Work {
@@ -346,6 +348,8 @@ pub struct Session {
     live: super::live::Live,
     /// Sidebar, trash, and settings from the last pull. The window applies it once.
     pending_present: Option<String>,
+    logs: Vec<String>,
+    wiping: bool,
     #[cfg(test)]
     fail_key_write: bool,
     #[cfg(test)]
@@ -475,6 +479,8 @@ impl Session {
             key_note: String::new(),
             live: super::live::Live::new(),
             pending_present: None,
+            logs: Vec::new(),
+            wiping: false,
             #[cfg(test)]
             fail_key_write: false,
             #[cfg(test)]
@@ -548,6 +554,8 @@ impl Session {
         shell.key_note = self.key_note.clone();
         shell.approval_sent = self.approval_sent;
         shell.live = self.live.clone();
+        shell.logs = self.logs.clone();
+        shell.wiping = self.wiping;
         shell.revision = self.revision;
         shell.dirty = self.dirty;
         shell.frozen = true;
@@ -605,6 +613,8 @@ impl Session {
             Work::SaveKey => self.retry_key_write(),
             Work::Poll => self.poll(),
             Work::SyncNow => self.sync_now(),
+            Work::ForceSync => self.force_sync(),
+            Work::StartFresh => self.start_fresh(),
         };
         if let Err(error) = result
             && error != "Enter a passphrase."
@@ -1118,6 +1128,7 @@ impl Session {
     }
 
     pub fn show_home(&mut self) {
+        self.wiping = false;
         if self.removed {
             self.screen = Screen::Removed;
             return;
@@ -1809,8 +1820,86 @@ impl Session {
     }
 
     pub fn ask_off(&mut self) {
+        self.wiping = false;
         self.screen = Screen::OffAsk;
         self.mark("off");
+    }
+
+    pub fn ask_fresh(&mut self) {
+        self.wiping = true;
+        self.screen = Screen::OffAsk;
+        self.mark("off");
+    }
+
+    pub fn starting_fresh(&self) -> bool {
+        self.wiping
+    }
+
+    pub fn log_text(&self) -> String {
+        self.logs.join("\n")
+    }
+
+    pub fn copy_logs(&mut self) -> Result<(), String> {
+        let text = self.log_text();
+        copy_plain(&text, "Copy didn't work.")
+    }
+
+    /// Pull the saved copy, combine it with the pages here, and send the result.
+    pub fn force_sync(&mut self) -> Result<(), String> {
+        self.log_kind("force");
+        if self.member {
+            let _ = self.pull_if_newer();
+        }
+        self.dirty = true;
+        self.push()
+    }
+
+    pub fn start_fresh(&mut self) -> Result<(), String> {
+        self.wiping = true;
+        self.turn_off()
+    }
+
+    pub fn start_fresh_here(&mut self) {
+        self.wiping = true;
+        self.turn_off_here();
+    }
+
+    #[cfg(test)]
+    pub fn revision_now(&self) -> u64 {
+        self.revision
+    }
+
+    #[cfg(test)]
+    pub fn testing_notice(&self, rev: u64) {
+        self.live.testing_notice(rev);
+    }
+
+    fn log_kind(&mut self, kind: &'static str) {
+        self.log_kind_objects(kind, usize::MAX);
+    }
+
+    fn log_kind_objects(&mut self, kind: &'static str, objects: usize) {
+        let folders = folder_count(&self.doc);
+        let mut line = format!(
+            "{kind} rev={} pages={} folders={folders} devices={}",
+            self.revision,
+            self.pages.len(),
+            self.devices().len()
+        );
+        if objects != usize::MAX {
+            line.push_str(&format!(" objects={objects}"));
+        }
+        self.push_log(&line);
+    }
+
+    fn push_log(&mut self, line: &str) {
+        if !log_line_ok(line) {
+            return;
+        }
+        if self.logs.len() >= 80 {
+            self.logs.remove(0);
+        }
+        self.logs.push(line.to_string());
     }
 
     pub fn turn_off(&mut self) -> Result<(), String> {
@@ -1905,6 +1994,23 @@ impl Session {
         self.wipe_words();
         self.phrase.zeroize();
         self.phrase.clear();
+        // The set id, the revision, and the page cursors are sync state.
+        // The pages in this folder stay.
+        let kind = if self.wiping { "fresh" } else { "off" };
+        self.wiping = false;
+        self.account.clear();
+        self.revision = 0;
+        self.membership.clear();
+        self.bases.clear();
+        self.seen.clear();
+        self.labels.clear();
+        self.tombstones.clear();
+        self.removal_declined.clear();
+        self.removal_ask.clear();
+        self.list_note = false;
+        self.list_line.clear();
+        self.approval_sent = false;
+        self.log_kind(kind);
         self.save_book();
     }
 
@@ -2684,6 +2790,7 @@ impl Session {
                 self.save_secret()?;
                 self.save_book();
                 let _ = fs::remove_file(self.dir.join("sync").join("outbox.bin"));
+                self.log_kind_objects("push", objects.len());
                 Ok(())
             }
             Err(error) => {
@@ -3096,6 +3203,7 @@ impl Session {
             .and_then(|lib| lib.vault_present());
         let _ = fs::write(self.dir.join("library.automerge"), &self.doc);
         self.save_book();
+        self.log_kind("pull");
         Ok(())
     }
 
@@ -4186,6 +4294,78 @@ fn clear_board(board: &mut ClipBoard) -> Result<(), String> {
     }
 }
 
+fn log_line_ok(line: &str) -> bool {
+    let mut parts = line.split(' ');
+    let Some(kind) = parts.next() else {
+        return false;
+    };
+    if !matches!(kind, "pull" | "push" | "force" | "off" | "fresh") {
+        return false;
+    }
+    let mut saw_rev = false;
+    let mut saw_pages = false;
+    let mut saw_folders = false;
+    let mut saw_devices = false;
+    let mut saw_objects = false;
+    for part in parts {
+        let Some((key, value)) = part.split_once('=') else {
+            return false;
+        };
+        if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+            return false;
+        }
+        match key {
+            "rev" if !saw_rev => saw_rev = true,
+            "pages" if !saw_pages => saw_pages = true,
+            "folders" if !saw_folders => saw_folders = true,
+            "devices" if !saw_devices => saw_devices = true,
+            "objects" if !saw_objects => saw_objects = true,
+            _ => return false,
+        }
+    }
+    saw_rev && saw_pages && saw_folders && saw_devices
+}
+
+fn folder_count(doc: &[u8]) -> usize {
+    let Ok(lib) = omacus_doc::Library::load(doc) else {
+        return 0;
+    };
+    let Some(present) = lib.vault_present() else {
+        return 0;
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&present) else {
+        return 0;
+    };
+    fn walk(nodes: &Value, count: &mut usize) {
+        let Some(rows) = nodes.as_array() else {
+            return;
+        };
+        for row in rows {
+            if row.get("type").and_then(Value::as_str) == Some("folder") {
+                *count += 1;
+                if let Some(children) = row.get("children") {
+                    walk(children, count);
+                }
+            }
+        }
+    }
+    let mut count = 0;
+    if let Some(sidebar) = value.get("sidebar") {
+        walk(sidebar, &mut count);
+    }
+    count
+}
+
+fn copy_plain(text: &str, miss: &str) -> Result<(), String> {
+    let mut hold = clip_hold().lock().map_err(|_| miss.to_string())?;
+    if hold.board.is_none() {
+        hold.board = Some(open_board().map_err(|_| miss.to_string())?);
+    }
+    let board = hold.board.as_mut().ok_or_else(|| miss.to_string())?;
+    publish(board, text).map_err(|_| miss.to_string())?;
+    Ok(())
+}
+
 fn copy_secret(text: &str, miss: &str) -> Result<String, String> {
     let mut hold = clip_hold().lock().map_err(|_| miss.to_string())?;
     if hold.board.is_none() {
@@ -5009,6 +5189,55 @@ mod park_tests {
         assert!(trashed.contains("oats"));
         session.restore_page("pantry", "Pantry\noats\n");
         assert_eq!(session.page_text("pantry"), Some("Pantry\noats\n"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sync_log_keeps_counts_and_drops_a_title() {
+        let dir = std::env::temp_dir().join(format!("omacus-log-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let mut session = Session::blank(dir, "http://127.0.0.1:9");
+        session.push_log("push rev=2 pages=1 folders=1 devices=1");
+        session.push_log("Spice");
+        session.push_log("push rev=2 pages=1 folders=1 devices=1 meadow");
+        assert_eq!(session.log_text(), "push rev=2 pages=1 folders=1 devices=1");
+    }
+
+    #[test]
+    fn turning_sync_off_here_drops_the_set_and_keeps_the_page() {
+        let dir = std::env::temp_dir().join(format!("omacus-off-here-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("sync")).unwrap();
+        fs::create_dir_all(dir.join("pages")).unwrap();
+        fs::write(
+            dir.join("sync").join("book.json"),
+            r#"{"account":"abc","revision":4,"bases":[{"id":"trip","hash":"aa"}],"seen":["dev"]}"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("pages").join("trip.txt"),
+            "Trip Budget\ndock fee 18\n",
+        )
+        .unwrap();
+        fs::write(dir.join("sync").join("outbox.bin"), b"sealed").unwrap();
+        let mut session = Session::open(dir.clone(), "http://127.0.0.1:9");
+        session.turn_off_here();
+        let book = fs::read_to_string(dir.join("sync").join("book.json")).unwrap();
+        assert!(!book.contains("abc"), "{book}");
+        assert!(
+            !book.contains("\"revision\": 4") && !book.contains("\"revision\":4"),
+            "{book}"
+        );
+        assert!(!book.contains("trip"), "{book}");
+        assert!(!dir.join("sync").join("outbox.bin").exists());
+        assert!(
+            fs::read_to_string(dir.join("pages").join("trip.txt"))
+                .unwrap()
+                .contains("dock fee")
+        );
+        assert!(session.log_text().starts_with("off "));
+        assert!(!session.log_text().contains("Trip"));
+        assert!(!session.log_text().contains("abc"));
         let _ = fs::remove_dir_all(&dir);
     }
 }

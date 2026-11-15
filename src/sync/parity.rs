@@ -249,6 +249,36 @@ fn parity_matrix_runs_end_to_end() {
     b.sync_now().unwrap();
     assert_eq!(a.place_of("trip").as_deref(), Some("trips"), "a");
     assert_eq!(b.place_of("trip").as_deref(), Some("trips"), "b");
+    let structural = serde_json::json!({
+        "sidebar": [
+            {"id": "spice", "kind": "folder", "name": "Spice", "parent": "", "index": 0},
+            {"id": "pantry", "kind": "folder", "name": "Pantry", "parent": "", "index": 1},
+            {"id": "oats", "kind": "page", "name": "", "parent": "pantry", "index": 0}
+        ],
+        "handles": [],
+        "trash": [],
+        "prefs": {}
+    })
+    .to_string();
+    let started = Instant::now();
+    assert!(a.note_structural(&structural));
+    std::thread::sleep(Duration::from_millis(super::live::PUSH_DEBOUNCE_MS));
+    a.sync_now().unwrap();
+    b.testing_notice(a.revision_now());
+    assert!(b.remote_ready(), "the live notice did not arrive");
+    b.poll().unwrap();
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "the folder took {:?}",
+        started.elapsed()
+    );
+    assert_eq!(
+        root_folders(&b.library_bytes()),
+        vec!["spice".to_string(), "pantry".to_string()]
+    );
+    assert!(!a.log_text().contains("Spice"));
+    assert!(!b.log_text().contains("Spice"));
+    assert!(a.log_text().contains("push"));
     covered.push("folders");
 
     a.unlock_page("harbor");
@@ -466,6 +496,25 @@ fn parity_matrix_runs_end_to_end() {
     let mut expected = PARITY_ROWS.to_vec();
     expected.sort();
     assert_eq!(covered, expected, "missing parity rows");
+}
+
+fn root_folders(bytes: &[u8]) -> Vec<String> {
+    let present = omacus_doc::Library::load(bytes)
+        .ok()
+        .and_then(|lib| lib.vault_present())
+        .unwrap_or_default();
+    let value: serde_json::Value =
+        serde_json::from_str(&present).unwrap_or(serde_json::Value::Null);
+    value
+        .get("sidebar")
+        .and_then(|row| row.as_array())
+        .map(|rows| {
+            rows.iter()
+                .filter(|row| row.get("type").and_then(|kind| kind.as_str()) == Some("folder"))
+                .filter_map(|row| row.get("id").and_then(|id| id.as_str()).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn library(pages: &[(&str, &str)]) -> (Vec<u8>, Vec<(String, String)>) {

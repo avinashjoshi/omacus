@@ -256,6 +256,63 @@ export function pagesLeftBehind(baseline, remotePages) {
   return out;
 }
 
+// Ids, parents, and indexes. Names stay out of this mark, and out of the log.
+export function structureMark(structural) {
+  let value = structural;
+  if (typeof structural === "string") {
+    if (!structural) return "";
+    try {
+      value = JSON.parse(structural);
+    } catch {
+      return "";
+    }
+  }
+  if (!value || typeof value !== "object") return "";
+  const sidebar = Array.isArray(value) ? value : value.sidebar;
+  if (!Array.isArray(sidebar)) return "";
+  const rows = [];
+  const flat = sidebar.some((row) => row && (row.kind === "folder" || row.kind === "page"));
+  if (flat) {
+    for (const row of sidebar) {
+      if (!row || !row.id) continue;
+      const kind = row.kind === "folder" || row.kind === "page" ? row.kind : "";
+      if (!kind) continue;
+      rows.push(`${kind}:${row.id}:${row.parent || ""}:${Number(row.index) || 0}`);
+    }
+    return rows.join("|");
+  }
+  const walk = (nodes, parent) => {
+    (nodes || []).forEach((node, index) => {
+      if (!node || !node.id) return;
+      if (node.type === "folder") {
+        rows.push(`folder:${node.id}:${parent}:${index}`);
+        walk(node.children, node.id);
+      } else if (node.type === "page") {
+        rows.push(`page:${node.id}:${parent}:${index}`);
+      }
+    });
+  };
+  walk(sidebar, "");
+  return rows.join("|");
+}
+
+const LOG_LINE = /^(pull|push|force|off|fresh) rev=\d+ pages=\d+ folders=\d+ devices=\d+( objects=\d+)?$/;
+
+function logCount(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.floor(n);
+}
+
+// A log line is a kind and counts. Anything else is dropped.
+export function syncLogLine(kind, counts) {
+  const row = counts || {};
+  if (row.objects != null && !Number.isFinite(Number(row.objects))) return "";
+  const objects = row.objects == null ? "" : ` objects=${logCount(row.objects)}`;
+  const line = `${kind} rev=${logCount(row.rev)} pages=${logCount(row.pages)} folders=${logCount(row.folders)} devices=${logCount(row.devices)}${objects}`;
+  return LOG_LINE.test(line) ? line : "";
+}
+
 // `baseline` is null until a copy has synced. Any page then counts as a local change.
 export function pagesDiffer(baseline, local) {
   const here = pageMap(local);

@@ -89,6 +89,13 @@ impl Live {
         self.flag.store(on, Ordering::Relaxed);
     }
 
+    /// What the socket would store when a write tells this device the new revision.
+    #[cfg(test)]
+    pub fn testing_notice(&self, rev: u64) {
+        self.rev.store(rev, Ordering::Relaxed);
+        self.flag.store(true, Ordering::Relaxed);
+    }
+
     pub fn revision(&self) -> u64 {
         self.rev.load(Ordering::Relaxed)
     }

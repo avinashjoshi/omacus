@@ -3,7 +3,7 @@
 // WebCrypto key. The page's strict policy is what keeps other scripts out.
 import { SYNC_URL } from "./sync-config.js";
 import { APP_VERSION } from "./version.js";
-import { approvalCard, beginSave, chipLabel, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, keepUnlessTombstone, leaveMessage, noteLocalEdit, noteTombstone, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, setMark, showTurnOnSync } from "./sync-save.mjs";
+import { approvalCard, beginSave, chipLabel, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, keepUnlessTombstone, leaveMessage, noteLocalEdit, noteTombstone, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, setMark, showTurnOnSync, structureMark, syncLogLine } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 import { deviceListNote, pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
@@ -12,6 +12,8 @@ import { WORD_CHECK_ERROR, buildChoices, usableList } from "./word-check.js";
 import {
   activeVault,
   bookJson,
+  clearSyncKeys,
+  dropVault,
   legacyMirror,
   loadVaultBook,
   normalizeVault,
@@ -111,6 +113,9 @@ export async function mountSync(api) {
     error: "",
     busy: false,
     dirty: false,
+    logs: [],
+    structureMark: "",
+    wiping: false,
     editGen: 0,
     basePages: null,
     tombstones: [],
@@ -191,7 +196,29 @@ export async function mountSync(api) {
     await api.storeSet("sync-vaults", bookJson(vaultBook));
     const mirror = legacyMirror(currentVault());
     for (const [key, value] of Object.entries(mirror.set)) await api.storeSet(key, value);
-    for (const key of mirror.remove) if (api.storeRemove) await api.storeRemove(key);
+    const remove = new Set([...mirror.remove, ...clearSyncKeys(vaultBook)]);
+    for (const key of remove) if (api.storeRemove) await api.storeRemove(key);
+  }
+
+  function rememberLog(kind, extra) {
+    const counts = typeof api.counts === "function" ? api.counts() : {};
+    const line = syncLogLine(kind, {
+      rev: state.revision,
+      pages: counts.pages,
+      folders: counts.folders,
+      devices: (state.devices || []).length,
+      ...extra,
+    });
+    if (!line) return;
+    state.logs.push(line);
+    if (state.logs.length > 80) state.logs.shift();
+  }
+
+  async function wipeSyncStore(all) {
+    vaultBook = all ? { active: "", vaults: [] } : dropVault(vaultBook, state.account);
+    await persistVaultBook();
+    if (all && api.storeRemove) await api.storeRemove("sync-remote-backup");
+    if (typeof api.dropShells === "function") api.dropShells();
   }
 
   function snapshotVault(extra) {
@@ -1147,9 +1174,13 @@ export async function mountSync(api) {
       await refreshDevices();
       return;
     }
-    const localChanged = pagesDiffer(state.basePages, snap.pages) || opened.combine === true;
+    const localChanged = pagesDiffer(state.basePages, snap.pages)
+      || structureMark(snap.structure) !== state.structureMark
+      || opened.combine === true;
     const joined = await combineRemote(snap, remote);
     await installMerged({ packed: joined.packed });
+    if (typeof api.structure === "function") state.structureMark = api.structure();
+    rememberLog("pull");
     const upload = (snap.pages || []).some((row) => {
       const id = row && row[0];
       return id && !joined.remoteIds.has(id) && joined.pages.some((page) => page[0] === id) && pageInVault(id);
@@ -1192,6 +1223,15 @@ export async function mountSync(api) {
     try {
       await commitSeal(sealed);
       await rememberBase(snap.pages);
+      if (typeof api.structure === "function") state.structureMark = api.structure();
+      let objects = 0;
+      try {
+        const listed = JSON.parse(sealed.objects || "[]");
+        if (Array.isArray(listed)) objects = listed.length;
+      } catch {
+        objects = 0;
+      }
+      rememberLog("push", { objects });
       finishSave(state, started);
       state.saveError = "";
       if (!state.dirty) calm();
@@ -1310,7 +1350,9 @@ export async function mountSync(api) {
       }
       if (state.member && navigator.onLine !== false) {
         const snap = await api.snapshot().catch(() => null);
-        if (snap && pagesDiffer(state.basePages, snap.pages)) state.dirty = true;
+        if (snap && (pagesDiffer(state.basePages, snap.pages) || structureMark(snap.structure) !== state.structureMark)) {
+          state.dirty = true;
+        }
       }
       if (state.dirty && state.member) {
         armSaving();
@@ -1745,17 +1787,38 @@ export async function mountSync(api) {
     }
   }
 
-  async function turnOff(localOnly) {
-    if (state.busy) return;
+  async function forceSync() {
+    if (state.busy || !state.member) return;
     state.busy = true;
     state.error = "";
     draw();
     await asLeader(async () => {
       try {
+        rememberLog("force");
+        const mailbox = await readMailbox();
+        if (mailbox && mailbox.revision !== state.revision) await pull(mailbox);
+        state.dirty = true;
+        await push();
+      } catch (error) {
+        state.error = plainError(error.message);
+      } finally {
+        state.busy = false;
+        draw();
+      }
+    });
+  }
+
+  async function turnOff(localOnly) {
+    if (state.busy) return;
+    state.busy = true;
+    state.error = "";
+    draw();
+    const kind = state.wiping ? "fresh" : "off";
+    await asLeader(async () => {
+      try {
         if (!localOnly && !state.leftRemote) await leaveList();
         state.leftRemote = !localOnly;
-        await writeVault(snapshotVault({ paused: false, deviceFile: "" }));
-        if (api.storeRemove) await api.storeRemove("sync-paused");
+        await wipeSyncStore(state.wiping);
       } catch (error) {
         state.busy = false;
         state.offFailed = true;
@@ -1787,6 +1850,8 @@ export async function mountSync(api) {
       state.offFailed = false;
       state.error = "";
       state.screen = "off";
+      state.wiping = false;
+      rememberLog(kind);
       state.busy = false;
       // A save started by the last edit must not put Syncing back after this.
       dropSaving();
@@ -3006,22 +3071,41 @@ export async function mountSync(api) {
 
   function drawOffAsk() {
     const failed = !!state.offFailed;
+    const wiping = state.wiping;
     const cancel = () => {
       state.screen = "linked";
       state.error = "";
       state.offFailed = false;
+      state.wiping = false;
       draw();
     };
+    const hereWord = here();
+    const hereCapWord = hereCap();
     const links = failed
-      ? [["Just turn off here", () => turnOff(true), state.busy], ["Not now", cancel, state.busy]]
+      ? [[wiping ? "Start fresh here" : "Just turn off here", () => turnOff(true), state.busy], ["Not now", cancel, state.busy]]
       : [["Not now", cancel, state.busy]];
+    const heading = wiping ? `Start fresh on ${hereWord}?` : `Turn sync off on ${hereWord}?`;
+    const body = wiping
+      ? `${hereCapWord} leaves the set. The key on ${hereWord} is deleted, and ${hereWord} forgets how far it had synced. Pages on ${hereWord} stay. Do this on every phone and computer to reset them all.`
+      : `Your pages stay here. ${hereCapWord} leaves the list, so the other phones and computers stop showing it. If this is the last one, that is fine. The recovery words still open the pages.`;
+    const label = state.busy ? "Working…" : (failed ? "Try again" : (wiping ? "Start fresh" : "Turn sync off"));
     panel.append(
       backLink(cancel, state.busy),
-      el("h2", {}, [`Turn sync off on ${here()}?`]),
-      el("p", { class: "setting-help" }, [`Your pages stay here. ${hereCap()} leaves the list, so the other phones and computers stop showing it. If this is the last one, that is fine. The recovery words still open the pages.`]),
-      actionButton(state.busy ? "Working…" : (failed ? "Try again" : "Turn sync off"), "primary", () => turnOff(), state.busy),
+      el("h2", {}, [heading]),
+      el("p", { class: "setting-help" }, [body]),
+      actionButton(label, wiping && !failed ? "danger" : "primary", () => turnOff(), state.busy),
       quietLinks(links),
     );
+  }
+
+  async function copyLogs() {
+    const text = state.logs.join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      state.error = "Copy didn't work.";
+      draw();
+    }
   }
 
   function deviceLine(device, right) {
@@ -3069,7 +3153,10 @@ export async function mountSync(api) {
       actionButton(state.busy ? "Working…" : "Add a phone or computer", "primary", () => startInvite(), state.busy),
       quietLinks([
         ["Done", () => { state.screen = "linked"; state.error = ""; draw(); }],
-        ["Turn sync off", () => { state.screen = "off-ask"; state.error = ""; draw(); }, state.busy],
+        ["Force sync", () => forceSync(), state.busy],
+        ["Copy logs", () => copyLogs(), state.busy],
+        ["Start fresh", () => { state.wiping = true; state.offFailed = false; state.screen = "off-ask"; state.error = ""; draw(); }, state.busy],
+        ["Turn sync off", () => { state.wiping = false; state.screen = "off-ask"; state.error = ""; draw(); }, state.busy],
       ]),
     );
   }
@@ -3154,9 +3241,14 @@ export async function mountSync(api) {
       list.append(el("p", { class: "setting-help" }, ["Remove stops that phone or computer from getting new changes. Pages it already saved stay readable on it. New edits stay with the phones and computers that are still linked. Rename changes the name on every phone and computer."]));
     }
     home.append(list);
+    home.append(el("p", { class: "setting-help" }, ["A local log of counts. It does not include page names or keys."]));
+    home.append(el("pre", { class: "sync-log", "data-sync-log": "" }, [state.logs.join("\n") || "No log yet."]));
     const actions = actionButton(state.busy ? "Working…" : "Add a phone or computer", "primary", () => startInvite(), state.busy);
     actions.append(quietLinks([
-      ["Turn sync off", () => { state.screen = "off-ask"; state.error = ""; draw(); }, state.busy],
+      ["Force sync", () => forceSync(), state.busy],
+      ["Copy logs", () => copyLogs(), state.busy],
+      ["Start fresh", () => { state.wiping = true; state.offFailed = false; state.screen = "off-ask"; state.error = ""; draw(); }, state.busy],
+      ["Turn sync off", () => { state.wiping = false; state.screen = "off-ask"; state.error = ""; draw(); }, state.busy],
     ]));
     home.append(actions);
     panel.append(home);
@@ -3407,6 +3499,10 @@ export async function mountSync(api) {
       if (name === "approve-timeout") state.error = "That took too long. Your pages are still here.";
     } else if (name === "devices") {
       linked();
+      state.logs = [
+        "pull rev=2 pages=4 folders=1 devices=2",
+        "push rev=3 pages=4 folders=2 devices=2",
+      ];
       state.screen = "linked";
     } else if (name === "remove") {
       linked();

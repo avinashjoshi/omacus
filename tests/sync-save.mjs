@@ -2,7 +2,7 @@
 // Two phones that each edit offline both keep their lines: the one that was
 // offline merges when its pages differ from the last synced copy.
 import { readFileSync } from "node:fs";
-import { approvalCard, beginSave, chipLabel, dedupeWelcome, declinedCovers, finishSave, keepUnlessTombstone, leaveMessage, liveDeliveryMs, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, removalSentence, setMark, showTurnOnSync } from "../site/app/sync-save.mjs";
+import { approvalCard, beginSave, chipLabel, dedupeWelcome, declinedCovers, finishSave, keepUnlessTombstone, leaveMessage, liveDeliveryMs, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, removalSentence, setMark, showTurnOnSync, structureMark, syncLogLine } from "../site/app/sync-save.mjs";
 
 function assert(cond, message) {
   if (!cond) throw new Error(message);
@@ -145,8 +145,32 @@ assert(pollWait({ member: true }) === 2000, "a dropped socket stopped the ordina
 assert(chipLabel({ syncing: true, live: true, member: true }) === "Syncing", "a save hid behind Live");
 assert(!chipLabel({}).includes("Synced"), "an empty status said Synced");
 
+const folderMark = structureMark({
+  sidebar: [
+    { id: "spice", kind: "folder", name: "Spice", parent: "", index: 0 },
+    { id: "pantry", kind: "folder", name: "Pantry", parent: "", index: 1 },
+    { id: "oats", kind: "page", name: "", parent: "pantry", index: 0 },
+  ],
+});
+assert(folderMark.startsWith("folder:spice::0|folder:pantry::1|page:oats:pantry:0"), "a new folder lost its place");
+assert(!folderMark.includes("Spice"), "the folder mark kept a name");
+const nested = structureMark({
+  sidebar: [
+    { type: "folder", id: "spice", name: "Spice", children: [] },
+    { type: "folder", id: "pantry", name: "Pantry", children: [{ type: "page", id: "oats" }] },
+  ],
+});
+assert(nested === "folder:spice::0|folder:pantry::1|page:oats:pantry:0", "the other phone rebuilt the folder order");
+assert(syncLogLine("push", { rev: 3, pages: 4, folders: 2, devices: 2, objects: 1 }) === "push rev=3 pages=4 folders=2 devices=2 objects=1", "a push log dropped a count");
+assert(syncLogLine("Spice", { rev: 1, pages: 1, folders: 1, devices: 1 }) === "", "a page name became a log line");
+assert(syncLogLine("push", { rev: 1, pages: 1, folders: 1, devices: 1, objects: "meadow" }) === "", "a word became a log count");
+assert(liveDeliveryMs() < 5000, "a live save waits longer than a few seconds");
+
 const appSource = readFileSync(new URL("../site/app/app.js", import.meta.url), "utf8");
 const saveSettings = appSource.slice(appSource.indexOf("function saveSettings"), appSource.indexOf("function themeName"));
 assert(saveSettings.includes("noteSyncEdit()"), "a settings change stayed on this device");
+const saveIndex = appSource.slice(appSource.indexOf("function saveIndex"), appSource.indexOf("function installLibrary"));
+assert(saveIndex.includes("noteSyncEdit()"), "a new folder stayed on this device");
+assert(saveIndex.includes("structureMark"), "a folder change was compared by its name");
 
 console.log("sync save ok");

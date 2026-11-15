@@ -2,11 +2,13 @@
 
 ## Unreleased
 
-**Behind-the-scenes improvements**
+**A new folder shows up on your other devices**
 
-Nothing you see in the app changed.
+A folder you create here shows up on the other phones and computers, in the same order.
 
-<!-- internal -->
+**Force sync, a local log, and Start fresh**
+
+Force sync pulls, combines, and sends again. Copy logs copies a short local log of counts. Start fresh leaves the set and forgets sync on this phone or computer. The pages stay.
 
 ## 1.0.9
 

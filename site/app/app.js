@@ -12,6 +12,7 @@ import init, {
   appVersion,
 } from "./pkg/omacus_web.js";
 import { applyPresent, structuralState, WEB_THEMES } from "./library-state.mjs";
+import { structureMark } from "./sync-save.mjs";
 import { APP_VERSION } from "./version.js";
 import {
   EditorState, StateField, StateEffect, RangeSetBuilder, Prec, EditorView, Decoration, WidgetType, keymap, hoverTooltip,
@@ -1026,6 +1027,17 @@ function syncOrder() {
 
 let librarySeeded = false;
 
+let lastStructureMark = "";
+
+function currentStructure() {
+  return structuralState({
+    tree: state.tree,
+    handles: state.handles,
+    trash: loadTrash(),
+    settings,
+  });
+}
+
 function saveIndex() {
   syncOrder();
   store.set("index", JSON.stringify({
@@ -1035,6 +1047,13 @@ function saveIndex() {
     handles: Object.fromEntries(state.handles),
     seeded: librarySeeded,
   }));
+  // A new folder changes no page text. Tell sync anyway, or the other
+  // phone never hears about it.
+  if (applyingRemote) return;
+  const mark = structureMark(currentStructure());
+  if (mark === lastStructureMark) return;
+  lastStructureMark = mark;
+  noteSyncEdit();
 }
 
 function installLibrary(lib) {
@@ -5248,19 +5267,15 @@ async function takeSyncSnapshot() {
     }
   }
   let doc = docBytes && docBytes.length ? new Uint8Array(docBytes) : new Uint8Array();
+  let structure = "";
   try {
-    const structural = structuralState({
-      tree: state.tree,
-      handles: state.handles,
-      trash: loadTrash(),
-      settings,
-    });
-    const next = docNoteState(doc, structural);
+    structure = currentStructure();
+    const next = docNoteState(doc, structure);
     if (next && next.length) doc = next;
   } catch {
     // An older engine still syncs the pages. The sidebar waits for this build.
   }
-  return { pages: syncSnapshotPages(), doc };
+  return { pages: syncSnapshotPages(), doc, structure };
 }
 
 async function backupBeforeRemote() {
@@ -5401,6 +5416,7 @@ async function applyRemoteLibrary(nextDoc, pages) {
     }
     syncOrder();
     if (state.active !== "shared" && !state.order.includes(state.active)) state.active = state.order[0] ?? state.active;
+    lastStructureMark = structureMark(currentStructure());
     saveIndex();
     renderSidebar();
     const activeAfter = state.active && state.active !== "shared" ? (state.texts.get(state.active) ?? "") : null;
@@ -5469,6 +5485,14 @@ async function start() {
       closeSettings: () => closeSettings(),
       snapshot: takeSyncSnapshot,
       apply: applyRemoteLibrary,
+      counts: () => ({
+        pages: state.order.length,
+        folders: folders(state.tree).length,
+      }),
+      structure: () => structureMark(currentStructure()),
+      dropShells: () => {
+        navigator.serviceWorker?.controller?.postMessage({ type: "drop-older" });
+      },
       bytesToB64,
       b64ToBytes,
       docUnion,

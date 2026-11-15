@@ -266,6 +266,17 @@ self.addEventListener("message", (e) => {
     );
     return;
   }
+  if (e.data?.type === "drop-older") {
+    e.waitUntil((async () => {
+      const keys = await caches.keys();
+      await Promise.all(
+        keys
+          .filter((key) => key.startsWith("omacus-app-") && key !== CACHE)
+          .map((key) => caches.delete(key)),
+      );
+    })());
+    return;
+  }
   if (e.data?.type !== "cache") return;
   const extra = Array.isArray(e.data.urls) ? e.data.urls : [];
   const keep = new Set([...shellUrls(), ...extra]);

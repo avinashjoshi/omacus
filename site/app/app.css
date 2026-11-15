@@ -3042,6 +3042,15 @@ body.answers-inline .md .pill {
   color: var(--app-fg);
 }
 
+.sync-log {
+  margin: 0 0 var(--space-3);
+  max-height: 8rem;
+  overflow: auto;
+  color: var(--app-comment);
+  font: 400 var(--type-caption) / 1.4 var(--mono);
+  white-space: pre-wrap;
+}
+
 .sync-err {
   margin: var(--space-2) 0 var(--space-3);
   color: var(--app-danger);
