@@ -2,7 +2,7 @@
 // Two phones that each edit offline both keep their lines: the one that was
 // offline merges when its pages differ from the last synced copy.
 import { readFileSync } from "node:fs";
-import { approvalCard, beginSave, chipLabel, dedupeWelcome, declinedCovers, finishSave, followWaits, keepUnlessTombstone, leaveMessage, liveDeliveryMs, noteLocalEdit, NOTICE_PULL_MS, noticeWait, POLL_SOON_MS, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, removalSentence, setMark, showTurnOnSync } from "../site/app/sync-save.mjs";
+import { approvalCard, beginSave, chipLabel, dedupeWelcome, declinedCovers, finishSave, followWaits, keepUnlessTombstone, leaveMessage, liveDeliveryMs, noteLocalEdit, NOTICE_PULL_MS, noticeWait, openedLabel, POLL_SOON_MS, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, removalSentence, setMark, showTurnOnSync } from "../site/app/sync-save.mjs";
 
 function assert(cond, message) {
   if (!cond) throw new Error(message);
@@ -24,6 +24,15 @@ assert(noticeWait(60000) === NOTICE_PULL_MS, "the first notice after a quiet spe
 assert(noticeWait(Infinity) === NOTICE_PULL_MS, "the first notice ever waited");
 // The other device is typing: a notice every half second is not a pull every half second.
 assert(noticeWait(400) === POLL_SOON_MS, "every notice in a burst pulled at once");
+
+// The device list says when another device was last opened.
+const day = 86400;
+const noon = 1794873600;
+assert(openedLabel(noon, noon - 60) === "Opened today", "a device opened a minute ago");
+assert(openedLabel(noon, noon - day - 5) === "Opened yesterday", "a device opened yesterday");
+assert(openedLabel(noon, noon - 12 * day) === "Opened 12 days ago", "a device opened twelve days ago");
+assert(openedLabel(noon, noon - 90 * day) === "Opened over a month ago", "a device left in a drawer");
+assert(openedLabel(noon, noon + 500) === "Opened today", "a clock that is ahead went negative");
 
 const inflight = { dirty: true, editGen: 2 };
 const started = beginSave(inflight);

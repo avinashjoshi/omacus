@@ -72,9 +72,15 @@ pub fn e2e_drive() -> i32 {
                 session.turn_off().map(|()| status(&session))
             }
             "devices" => {
-                let names: Vec<String> =
-                    session.devices().into_iter().map(|row| row.name).collect();
-                Ok(serde_json::json!({ "devices": names }).to_string())
+                let rows = session.devices();
+                let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
+                // The devices that have said when they were last opened.
+                let opened: Vec<&str> = rows
+                    .iter()
+                    .filter(|row| row.seen.is_some())
+                    .map(|row| row.name.as_str())
+                    .collect();
+                Ok(serde_json::json!({ "devices": names, "opened": opened }).to_string())
             }
             "text" => {
                 let id = parts.next().unwrap_or("");

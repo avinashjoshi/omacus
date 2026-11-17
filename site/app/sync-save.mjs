@@ -69,6 +69,16 @@ export function followWaits(screen) {
   return FOLLOW_WAITS.includes(screen);
 }
 
+// "Opened today", for the device list. Both times are seconds since 1970.
+export function openedLabel(now, seen) {
+  const days = Math.floor(Math.max(0, Number(now) - Number(seen)) / 86400);
+  if (!Number.isFinite(days)) return "";
+  if (days === 0) return "Opened today";
+  if (days === 1) return "Opened yesterday";
+  if (days < 30) return `Opened ${days} days ago`;
+  return "Opened over a month ago";
+}
+
 // The edit waits, then the mailbox tells the other device in the same write.
 export function liveDeliveryMs() {
   return PUSH_DEBOUNCE_MS;

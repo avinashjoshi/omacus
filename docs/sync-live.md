@@ -12,6 +12,8 @@ A device that joins has its own sidebar, handles, and settings, with revision nu
 
 The folders, the order, and the short names sync too. Changing one of them changes no page text, so the web app tells sync when its saved sidebar differs from the one it last sent. It keeps the document it sent, so the next change is numbered after it.
 
+Each device writes when it was last opened into the sealed library, beside the sidebar and the settings, at most once in ten minutes. It is seconds since 1970, keyed by the device id on the list. A merge keeps the later time for each device. The server cannot read it. An older app that rewrites the sidebar leaves the times out, and each newer device writes its own again the next time it opens.
+
 Sync now, on the Sync card, reads the server's copy and sends this device's. Nothing depends on it.
 
 The status says Live while the socket is up, Syncing while a save is going out, and Offline when this device is not connected. It does not say Synced.

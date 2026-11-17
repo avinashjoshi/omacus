@@ -166,6 +166,8 @@ test("a line from the other phone lands while this one is typing", async ({ brow
     await phoneA.locator("[data-settings-tab='sync']").click();
     // The card from setup is still up on this phone. Done leaves it for the usual one.
     await phoneA.getByRole("button", { name: "Done" }).click();
+    // The other phone said when it was opened, and this list shows it.
+    await expect(phoneA.locator("[data-sync-opened]")).toHaveText("Opened today", { timeout: 20000 });
     const asked = phoneA.waitForRequest((req) => req.method() === "GET" && /\/v1\/mailboxes\/[0-9a-f]{64}$/.test(new URL(req.url()).pathname));
     const sent = saved(phoneA);
     await phoneA.getByRole("button", { name: "Sync now" }).click();

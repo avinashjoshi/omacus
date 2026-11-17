@@ -3,7 +3,7 @@
 // WebCrypto key. The page's strict policy is what keeps other scripts out.
 import { SYNC_URL } from "./sync-config.js";
 import { APP_VERSION } from "./version.js";
-import { approvalCard, beginSave, chipLabel, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, followWaits, keepUnlessTombstone, leaveMessage, noteLocalEdit, noteTombstone, noticeWait, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, setMark, showTurnOnSync } from "./sync-save.mjs";
+import { approvalCard, beginSave, chipLabel, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, followWaits, keepUnlessTombstone, leaveMessage, noteLocalEdit, noteTombstone, noticeWait, openedLabel, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, setMark, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 import { deviceListNote, pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
@@ -1333,6 +1333,14 @@ export async function mountSync(api) {
       if (mailbox && mailbox.revision !== state.revision) {
         armSaving();
         await pull(mailbox);
+      }
+      // Once per visit, after the pull, say this device opened the pages.
+      if (state.member && !state.openedNoted && typeof api.noteOpened === "function") {
+        const self = (state.devices || []).find((device) => device.self);
+        if (self && self.id) {
+          state.openedNoted = true;
+          if (api.noteOpened(self.id, Math.floor(Date.now() / 1000))) state.dirty = true;
+        }
       }
       if (state.member && navigator.onLine !== false) {
         const snap = await api.snapshot().catch(() => null);
@@ -3063,6 +3071,12 @@ export async function mountSync(api) {
     if (device.self) name.append(el("span", { class: "sync-dot", "aria-hidden": "true" }, ["●"]));
     name.append(el("b", {}, [deviceTitle(device)]));
     if (device.self) name.append(el("span", { class: "sync-quiet" }, [` · this ${onPhone() ? "phone" : "computer"}`]));
+    // Another device that has not been opened in weeks may hold an old copy.
+    const seen = !device.self && typeof api.opened === "function" ? Number(api.opened()[device.id]) : 0;
+    if (seen > 0) {
+      const label = openedLabel(Math.floor(Date.now() / 1000), seen);
+      if (label) name.append(el("span", { class: "sync-opened", "data-sync-opened": "" }, [label]));
+    }
     row.append(name);
     if (right) row.append(right);
     return row;

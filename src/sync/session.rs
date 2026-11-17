@@ -208,6 +208,23 @@ pub struct DeviceRow {
     pub id: String,
     pub name: String,
     pub here: bool,
+    /// When that device last opened these pages, in seconds since 1970.
+    pub seen: Option<u64>,
+}
+
+/// How often a device says it was opened. Often enough to tell a device in
+/// use from one in a drawer, and rare enough that it is not a save a minute.
+pub const OPENED_EVERY_SECS: u64 = 10 * 60;
+
+/// "Opened today", for the device list. `now` and `seen` are seconds since 1970.
+pub fn opened_label(now: u64, seen: u64) -> String {
+    let days = now.saturating_sub(seen) / 86_400;
+    match days {
+        0 => "Opened today".to_string(),
+        1 => "Opened yesterday".to_string(),
+        2..=29 => format!("Opened {days} days ago"),
+        _ => "Opened over a month ago".to_string(),
+    }
 }
 
 pub struct PrintJob {
@@ -351,6 +368,8 @@ pub struct Session {
     live: super::live::Live,
     /// Sidebar, trash, and settings from the last pull. The window applies it once.
     pending_present: Option<String>,
+    /// This run has already said when the pages were opened.
+    opened_noted: bool,
     #[cfg(test)]
     fail_key_write: bool,
     #[cfg(test)]
@@ -481,6 +500,7 @@ impl Session {
             key_note: String::new(),
             live: super::live::Live::new(),
             pending_present: None,
+            opened_noted: false,
             #[cfg(test)]
             fail_key_write: false,
             #[cfg(test)]
@@ -699,11 +719,14 @@ impl Session {
                 id: "desk".into(),
                 name: "Harbor desk".into(),
                 here: true,
+                seen: None,
             },
             DeviceRow {
                 id: "phone".into(),
                 name: "Harbor phone".into(),
                 here: false,
+                // Three days back from whenever the picture is taken.
+                seen: Some(now_secs().saturating_sub(3 * 86_400)),
             },
         ]
     }
@@ -1459,6 +1482,7 @@ impl Session {
         };
         if result.is_ok() {
             self.observe_list();
+            self.note_opened(now_secs());
         }
         result
     }
@@ -1483,8 +1507,9 @@ impl Session {
             self.ensure_live();
             if self.dirty {
                 let _ = self.push();
-            } else {
-                let _ = self.pull_if_newer();
+            } else if self.pull_if_newer().is_ok() {
+                // After the pull, so the time is written on the latest copy.
+                self.note_opened(now_secs());
             }
         }
         Ok(())
@@ -2317,6 +2342,32 @@ impl Session {
         self.live.connected()
     }
 
+    /// Say once per run that this computer opened the pages, so the other
+    /// devices can tell one in use from one that has not been opened in weeks.
+    fn note_opened(&mut self, now: u64) {
+        if self.opened_noted || !self.member || !self.on || now == 0 {
+            return;
+        }
+        let Some(id) = self
+            .devices()
+            .into_iter()
+            .find(|row| row.here)
+            .map(|row| row.id)
+        else {
+            return;
+        };
+        self.opened_noted = true;
+        let Ok(mut lib) = omacus_doc::Library::load(&self.doc) else {
+            return;
+        };
+        if !lib.note_seen(&id, now, OPENED_EVERY_SECS) {
+            return;
+        }
+        self.doc = lib.save();
+        let _ = fs::write(self.dir.join("library.automerge"), &self.doc);
+        self.dirty = true;
+    }
+
     /// The window sleeps between frames. This is how a notice from the other
     /// device wakes it, so the change shows without waiting for the next poll.
     pub fn wake_with(&self, call: impl Fn() + Send + 'static) {
@@ -2586,12 +2637,24 @@ impl Session {
         else {
             return Vec::new();
         };
+        let opened = omacus_doc::Library::load(&self.doc)
+            .map(|lib| lib.seen())
+            .unwrap_or_default();
         rows.into_iter()
             .map(|(id, _code, here)| {
                 let name = self
                     .device_name(&id)
                     .unwrap_or_else(|| "Phone or computer".to_string());
-                DeviceRow { id, name, here }
+                let seen = opened
+                    .iter()
+                    .find(|(device, _)| device == &id)
+                    .map(|(_, at)| *at);
+                DeviceRow {
+                    id,
+                    name,
+                    here,
+                    seen,
+                }
             })
             .collect()
     }
@@ -3864,6 +3927,13 @@ struct BookBase {
     hash: String,
 }
 
+pub fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|at| at.as_secs())
+        .unwrap_or(0)
+}
+
 pub fn guess_name() -> String {
     let os = match std::env::consts::OS {
         "macos" => "Mac",
@@ -4669,6 +4739,25 @@ mod list_note_tests {
         session.reveal_request();
         assert_eq!(session.screen, Screen::Approve);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_device_list_says_when_each_one_was_opened() {
+        let day = 86_400;
+        let now = 1_794_873_600;
+        assert_eq!(opened_label(now, now - 60), "Opened today");
+        assert_eq!(opened_label(now, now - day - 5), "Opened yesterday");
+        assert_eq!(opened_label(now, now - 12 * day), "Opened 12 days ago");
+        assert_eq!(opened_label(now, now - 90 * day), "Opened over a month ago");
+        // A clock that is behind the other device's does not go negative.
+        assert_eq!(opened_label(now, now + 500), "Opened today");
+
+        let dir = std::env::temp_dir().join(format!("omacus-opened-{}", std::process::id()));
+        let mut session = Session::blank(dir, "http://127.0.0.1:9");
+        // Not linked: nothing is written, and nothing asks for a save.
+        session.note_opened(now);
+        assert!(!session.dirty);
+        assert!(!session.opened_noted);
     }
 
     #[test]

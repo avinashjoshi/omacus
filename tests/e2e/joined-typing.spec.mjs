@@ -372,6 +372,14 @@ test("desktop and web keep each other's lines while both type", async ({ browser
     const kept = (await sideState(page)).rows;
     await page.getByRole("button", { name: "Settings" }).click();
     await page.locator("[data-settings-tab='sync']").click();
+    // Each device list says when the other one was last opened.
+    await expect(page.locator("[data-sync-opened]")).toHaveText("Opened today", { timeout: 20000 });
+    await expect
+      .poll(async () => {
+        await driver.send("sync");
+        return (await driver.send("devices")).detail.opened;
+      }, { timeout: 20000 })
+      .toContain("Harbor web");
     await page.getByRole("button", { name: "Turn sync off" }).click();
     await expect(page.getByRole("heading", { name: /^Turn sync off on this/ })).toBeVisible();
     await page.getByRole("button", { name: "Turn sync off", exact: true }).click();

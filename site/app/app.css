@@ -3178,6 +3178,7 @@ body.answers-inline .md .pill {
 
 .sync-device-name {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   min-width: 0;
 }
@@ -3208,6 +3209,13 @@ body.answers-inline .md .pill {
 
 .sync-panel [data-sync-set] > .sync-actions {
   margin-top: var(--space-4);
+}
+
+/* When another device last opened the pages. Under its name, quiet. */
+.sync-opened {
+  flex-basis: 100%;
+  color: var(--app-comment);
+  font: 400 12px / 1.3 var(--sans);
 }
 
 .sync-when {

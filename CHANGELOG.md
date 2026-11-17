@@ -18,6 +18,10 @@ With sync on, a new folder shows in the sidebar right away, and a collapsed fold
 
 When the other device types the code, the computer showing that code goes straight to the approval. The code no longer blinks while it waits.
 
+**See when each device was last opened**
+
+The list of phones and computers says when each other one was last opened: today, yesterday, 12 days ago, or over a month ago. A device left in a drawer may hold an old copy, and now you can tell.
+
 **Sync now**
 
 The Sync card has Sync now, on the desktop and on the web. Sync still runs on its own. This is for when you want to be sure.

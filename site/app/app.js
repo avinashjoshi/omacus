@@ -8,7 +8,7 @@ import init, {
   bindingAt, renameVariable, definitionChange, pageRefAt, rewriteVarRefs, renameBlurb, propagateRename, propagateHandle,
   lockCreate, lockWrap, lockSeal, lockOpen, lockUnwrap, lockOpenPassword, lockIs,
   docMigrate, docSnapshot, docApply, docMergeDisk, docConflicts, docPick, docRemove, docSetFolders, docUnion,
-  docNoteState, docState,
+  docNoteState, docNoteSeen, docState,
   appVersion,
 } from "./pkg/omacus_web.js";
 import { applyPresent, changedSpan, structuralState, WEB_THEMES } from "./library-state.mjs";
@@ -1327,6 +1327,33 @@ function sameBytes(a, b) {
     if (a[i] !== b[i]) return false;
   }
   return true;
+}
+
+// This device opened the pages. Written into the sealed library at most every
+// ten minutes, so the other devices can tell one in use from one left in a drawer.
+function noteDeviceOpened(id, seconds) {
+  if (!id || !docBytes || !docBytes.length || docHeld) return false;
+  let next;
+  try {
+    next = docNoteSeen(docBytes, id, seconds, 600);
+  } catch {
+    return false;
+  }
+  if (!next || !next.length || sameBytes(next, docBytes)) return false;
+  docBytes = next;
+  docSaved = bytesToB64(next);
+  Promise.resolve(store.set("library-doc", docSaved)).catch(() => {});
+  return true;
+}
+
+// When each device last opened the pages: id to seconds since 1970.
+function devicesOpened() {
+  try {
+    const shown = JSON.parse(docState(docBytes) || "{}");
+    return shown && typeof shown.seen === "object" && shown.seen ? shown.seen : {};
+  } catch {
+    return {};
+  }
 }
 
 function b64ToBytes(text) {
@@ -5597,6 +5624,8 @@ async function start() {
         syncRestored = fn;
       },
       forget: forgetRemotePage,
+      noteOpened: noteDeviceOpened,
+      opened: devicesOpened,
       settle: (fn) => {
         settleSync = fn;
       },

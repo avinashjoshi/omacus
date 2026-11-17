@@ -7,7 +7,7 @@ use crate::design;
 use crate::settings;
 use crate::theme::{self, Theme};
 
-use super::session::{CLIPBOARD_NOTE, Screen, Session, Work};
+use super::session::{CLIPBOARD_NOTE, Screen, Session, Work, now_secs, opened_label};
 
 /// The open sync step, as a Settings card. `Some(id)` asks the window to
 /// unlock that page with the password already on this computer.
@@ -745,7 +745,8 @@ fn devices(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) {
         // One line, centered on the buttons. A plain horizontal row set the
         // name before it knew how tall the buttons were, and the name sat high.
         let line = vec2(ui.available_width(), theme::token::HIT);
-        let across = egui::Layout::left_to_right(egui::Align::Center);
+        // The buttons move to the next line before the row pushes the card wider.
+        let across = egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true);
         ui.allocate_ui_with_layout(line, across, |ui| {
             if row.here {
                 let (rect, _) = ui.allocate_exact_size(vec2(8.0, 8.0), egui::Sense::hover());
@@ -769,6 +770,17 @@ fn devices(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) {
                 session.ask_remove(&row.id);
             }
         });
+        // Another device that has not been opened in weeks may hold an old
+        // copy. This says so, under its name, before someone goes looking
+        // there for a page.
+        if let (false, Some(seen)) = (row.here, row.seen) {
+            ui.label(
+                RichText::new(opened_label(now_secs(), seen))
+                    .size(theme::token::TYPE_CAPTION)
+                    .color(theme.text_muted()),
+            );
+            ui.add_space(4.0);
+        }
     }
     ui.add_space(8.0);
 }
