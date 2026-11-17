@@ -59,9 +59,40 @@ struct Vault {
     handles: Vec<Handle>,
     trash: Vec<Trashed>,
     prefs: HashMap<String, Pref>,
+    /// When each device last opened these pages, in seconds since 1970. A
+    /// device writes its own. A merge keeps the later time.
+    seen: HashMap<String, u64>,
 }
 
 impl Library {
+    /// This device opened the pages at `at`. Written at most once in `every`
+    /// seconds, so opening the app does not become a save on every sync.
+    pub fn note_seen(&mut self, device: &str, at: u64, every: u64) -> bool {
+        if device.is_empty() {
+            return false;
+        }
+        let current = self.vault_json().unwrap_or_else(empty_vault);
+        let mut vault = parse_vault(&current);
+        let last = vault.seen.get(device).copied().unwrap_or(0);
+        if last != 0 && at < last.saturating_add(every) {
+            return false;
+        }
+        vault.seen.insert(device.to_string(), at);
+        let _ = self.doc.put(ROOT, VAULT_KEY, write_vault(&vault));
+        self.doc.commit();
+        true
+    }
+
+    /// When each device last opened the pages.
+    pub fn seen(&self) -> Vec<(String, u64)> {
+        let Some(current) = self.vault_json() else {
+            return Vec::new();
+        };
+        let mut rows: Vec<_> = parse_vault(&current).seen.into_iter().collect();
+        rows.sort();
+        rows
+    }
+
     /// The merged library state, if any device has written one.
     pub fn vault_json(&self) -> Option<String> {
         let blobs = self.vault_blobs();
@@ -81,6 +112,32 @@ impl Library {
         let _ = self.doc.put(ROOT, VAULT_KEY, next);
         self.doc.commit();
         true
+    }
+
+    /// This library is joining pages that already sync. Its revisions were
+    /// counted on this device alone, so they say nothing about which copy is
+    /// later. After this, a folder, handle, deleted page, or setting that both
+    /// copies have is the one already syncing. One that is only here stays.
+    pub fn yield_shared(&mut self) {
+        let Some(current) = self.vault_json() else {
+            return;
+        };
+        let mut vault = parse_vault(&current);
+        vault.clock = 0;
+        for row in &mut vault.sidebar {
+            row.rev = 0;
+        }
+        for row in &mut vault.handles {
+            row.rev = 0;
+        }
+        for row in &mut vault.trash {
+            row.rev = 0;
+        }
+        for pref in vault.prefs.values_mut() {
+            pref.rev = 0;
+        }
+        let _ = self.doc.put(ROOT, VAULT_KEY, write_vault(&vault));
+        self.doc.commit();
     }
 
     /// What the sidebar, trash, handles, and preferences should show.
@@ -170,6 +227,13 @@ pub fn merge_vaults(blobs: &[String]) -> String {
             }
         }
     }
+    let mut seen: HashMap<String, u64> = HashMap::new();
+    for vault in &vaults {
+        for (device, at) in &vault.seen {
+            let have = seen.entry(device.clone()).or_insert(0);
+            *have = (*have).max(*at);
+        }
+    }
     clock = clock
         .max(sidebar.iter().map(|row| row.rev).max().unwrap_or(0))
         .max(handles.iter().map(|row| row.rev).max().unwrap_or(0))
@@ -181,6 +245,7 @@ pub fn merge_vaults(blobs: &[String]) -> String {
         handles,
         trash,
         prefs,
+        seen,
     })
 }
 
@@ -238,6 +303,7 @@ pub fn note_structural(current: &str, structural: &str) -> Option<String> {
         handles,
         trash,
         prefs,
+        seen: vault.seen.clone(),
     }))
 }
 
@@ -288,13 +354,16 @@ pub fn present_vault(stored: &str) -> String {
             prefs.insert(key, pref.value.clone());
         }
     }
-    json!({
+    let mut out = json!({
         "sidebar": sidebar,
         "handles": handles,
         "trash": trash,
         "prefs": Json::Object(prefs),
-    })
-    .to_string()
+    });
+    if !vault.seen.is_empty() {
+        out["seen"] = seen_json(&vault.seen);
+    }
+    out.to_string()
 }
 
 fn nest(nodes: &[Place], parent: &str, depth: usize, trashed: &HashSet<String>) -> Vec<Json> {
@@ -689,7 +758,27 @@ fn parse_vault(text: &str) -> Vault {
             );
         }
     }
+    if let Some(seen) = value.get("seen").and_then(Json::as_object) {
+        for (device, at) in seen {
+            if let Some(at) = at.as_u64() {
+                vault.seen.insert(device.clone(), at);
+            }
+        }
+    }
     vault
+}
+
+/// The `seen` map with its keys in order, so the same state is the same text.
+fn seen_json(seen: &HashMap<String, u64>) -> Json {
+    let mut keys: Vec<_> = seen.keys().cloned().collect();
+    keys.sort();
+    let mut out = Map::new();
+    for key in keys {
+        if let Some(at) = seen.get(&key) {
+            out.insert(key, json!(at));
+        }
+    }
+    Json::Object(out)
 }
 
 struct Structural {
@@ -853,14 +942,19 @@ fn write_vault(vault: &Vault) -> String {
             prefs.insert(key, json!({"v": pref.value, "rev": pref.rev}));
         }
     }
-    json!({
+    let mut out = json!({
         "clock": vault.clock,
         "sidebar": sidebar,
         "handles": handles,
         "trash": trash,
         "prefs": Json::Object(prefs),
-    })
-    .to_string()
+    });
+    // Left out while empty, so a library nobody has opened since this was
+    // added is written as it always was.
+    if !vault.seen.is_empty() {
+        out["seen"] = seen_json(&vault.seen);
+    }
+    out.to_string()
 }
 
 #[cfg(test)]
@@ -994,6 +1088,133 @@ mod tests {
         let trash = shown.get("trash").and_then(Json::as_array).unwrap();
         assert_eq!(trash.len(), 1);
         assert_eq!(trash[0].get("id").and_then(Json::as_str), Some("kept"));
+    }
+
+    fn theme_of(doc: &[u8]) -> String {
+        let lib = Library::load(doc).unwrap();
+        let shown: Json = serde_json::from_str(&lib.vault_present().unwrap()).unwrap();
+        shown["prefs"]["theme"].as_str().unwrap_or("").to_string()
+    }
+
+    fn handle_of(doc: &[u8], page: &str) -> String {
+        let lib = Library::load(doc).unwrap();
+        let shown: Json = serde_json::from_str(&lib.vault_present().unwrap()).unwrap();
+        shown["handles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == page)
+            .and_then(|row| row["handle"].as_str())
+            .unwrap_or("")
+            .to_string()
+    }
+
+    #[test]
+    fn a_device_that_joins_keeps_the_settings_already_syncing() {
+        // The set: one page, a chosen theme, a short handle.
+        let mut set = Library::new();
+        set.reconcile("ferry", "Ferry\npier 2\n", None);
+        set.note_vault(
+            &json!({
+                "sidebar": [{"id": "ferry", "kind": "page", "parent": "", "index": 0}],
+                "handles": [{"id": "ferry", "handle": "pier"}],
+                "prefs": {"theme": "dusk", "lockMinutes": 15},
+            })
+            .to_string(),
+        );
+        // The joining device: its own page, default settings, and more edits
+        // behind it, so every one of its revisions is the higher number.
+        let mut joiner = Library::new();
+        joiner.reconcile("oats", "Oats\nbowl 2\n", None);
+        for theme in ["paper", "light", "dark", "auto"] {
+            joiner.note_vault(
+                &json!({
+                    "sidebar": [
+                        {"id": "tins", "kind": "folder", "name": "Tins", "parent": "", "index": 0},
+                        {"id": "oats", "kind": "page", "parent": "tins", "index": 0},
+                    ],
+                    "handles": [{"id": "oats", "handle": "oats"}],
+                    "prefs": {"theme": theme, "lockMinutes": 5},
+                })
+                .to_string(),
+            );
+        }
+        let set_pages = vec![("ferry".to_string(), "Ferry\npier 2\n".to_string())];
+        let own_pages = vec![("oats".to_string(), "Oats\nbowl 2\n".to_string())];
+        let (set_doc, own_doc) = (set.save(), joiner.save());
+
+        let (plain, _) = crate::merge_libraries(&own_doc, &own_pages, &set_doc, &set_pages);
+        assert_eq!(
+            theme_of(&plain),
+            "auto",
+            "the plain merge keeps the higher number"
+        );
+
+        let (doc, pages) = crate::join_libraries(&own_doc, &own_pages, &set_doc, &set_pages);
+        assert_eq!(theme_of(&doc), "dusk");
+        assert_eq!(handle_of(&doc, "ferry"), "pier");
+        // What only the joining device had is still there.
+        assert_eq!(handle_of(&doc, "oats"), "oats");
+        assert_eq!(pages.len(), 2);
+        let shown: Json =
+            serde_json::from_str(&Library::load(&doc).unwrap().vault_present().unwrap()).unwrap();
+        let folder = shown["sidebar"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == "tins")
+            .expect("the joining device's folder was dropped");
+        assert_eq!(folder["children"][0]["id"], "oats");
+
+        // The first device takes that copy back and still has its own theme.
+        let (back, _) = crate::merge_libraries(&set_doc, &set_pages, &doc, &pages);
+        assert_eq!(theme_of(&back), "dusk");
+
+        // Once both hold one document, a later change here wins as usual.
+        let mut joined = Library::load(&doc).unwrap();
+        joined.note_vault(&json!({"prefs": {"theme": "paper"}}).to_string());
+        let (next, _) = crate::join_libraries(&joined.save(), &pages, &doc, &pages);
+        assert_eq!(theme_of(&next), "paper");
+    }
+
+    #[test]
+    fn each_device_says_when_it_was_last_opened() {
+        let mut desk = Library::new();
+        desk.note_vault(&json!({"prefs": {"theme": "dusk"}}).to_string());
+        let before = desk.vault_json().unwrap();
+        assert!(
+            !before.contains("seen"),
+            "an unopened library changed shape"
+        );
+        assert!(desk.seen().is_empty());
+
+        assert!(desk.note_seen("desk", 1_000, 600));
+        assert_eq!(desk.seen(), [("desk".to_string(), 1_000)]);
+        // Opened again a minute later: not worth a save.
+        assert!(!desk.note_seen("desk", 1_060, 600));
+        assert!(desk.note_seen("desk", 1_700, 600));
+        assert!(!desk.note_seen("", 9_000, 600));
+
+        // The phone has the same library and opens it later.
+        let mut phone = Library::load(&desk.save()).unwrap();
+        assert!(phone.note_seen("phone", 5_000, 600));
+        // A sidebar change on the desk keeps the times.
+        desk.note_vault(&json!({"prefs": {"theme": "paper"}}).to_string());
+        let merged = desk.union(phone);
+        assert_eq!(
+            merged.seen(),
+            [("desk".to_string(), 1_700), ("phone".to_string(), 5_000)]
+        );
+        let shown: Json = serde_json::from_str(&merged.vault_present().unwrap()).unwrap();
+        assert_eq!(shown["seen"]["phone"], 5_000);
+        assert_eq!(shown["prefs"]["theme"], "paper");
+
+        // Two copies of one device's time: the later one stays.
+        let older = json!({"clock": 1, "seen": {"desk": 10, "phone": 99}}).to_string();
+        let newer = json!({"clock": 1, "seen": {"desk": 50}}).to_string();
+        let both: Json = serde_json::from_str(&merge_vaults(&[older, newer])).unwrap();
+        assert_eq!(both["seen"]["desk"], 50);
+        assert_eq!(both["seen"]["phone"], 99);
     }
 
     #[test]

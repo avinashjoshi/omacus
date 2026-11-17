@@ -1,5 +1,55 @@
 # Changelog
 
+## 1.0.11
+
+**Keep typing while your other device edits the same page**
+
+A line from your other device no longer moves the cursor to the top of the page in the web app, and the letters you type while it arrives stay. Both devices keep both lines, on the desktop and on the web.
+
+**A change shows up on an idle computer right away**
+
+The desktop app picks up an edit from the web app in about a second when its window is left alone. It used to wait up to half a minute.
+
+**Folders sync as you make them**
+
+With sync on, a new folder shows in the sidebar right away, and a collapsed folder stays there. A folder you make, rename, or move a page into reaches your other devices without waiting for the next line you type.
+
+**The approval shows up where you are looking**
+
+When the other device types the code, the computer showing that code goes straight to the approval. The code no longer blinks while it waits.
+
+**See when each device was last opened**
+
+The list of phones and computers says when each other one was last opened: today, yesterday, 12 days ago, or over a month ago. A device left in a drawer may hold an old copy, and now you can tell.
+
+**A narrow browser window is still a computer**
+
+The web app says "this computer" on a computer however narrow the window is, and "this phone" only on a phone.
+
+**Sync now**
+
+The Sync card has Sync now, on the desktop and on the web. Sync still runs on its own. This is for when you want to be sure.
+
+**A change from your computer reaches the browser sooner**
+
+The web app picks up an edit from your other device in under a second. It used to wait almost a second before it looked.
+
+**Turning sync off works after the page is reopened**
+
+Turn sync off no longer says the copy is out of date when your other device changed something before you reopened the web app.
+
+**Sync setup fits a narrow window**
+
+On the desktop, the two setup choices keep their text inside the card, the recovery words stay inside the window, the words to pick wrap onto the next line, and each name lines up with its buttons.
+
+**A second data folder leaves the first one signed in**
+
+Turning sync off in a copy of Omacus that keeps its key behind a passphrase no longer removes the key the installed app keeps in your login keyring.
+
+**Joining keeps the settings you already chose**
+
+A phone or computer that joins your pages takes the theme, the lock time, and the short names already there. Its own defaults no longer replace them.
+
 ## 1.0.10
 
 **Your page still opens after a damaged link**

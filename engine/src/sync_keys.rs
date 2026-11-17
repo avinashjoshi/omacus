@@ -2252,6 +2252,17 @@ impl PageSet {
     /// side is kept. A page that left the synced set stays out of it, and is
     /// not copied into a second page. A backup of the previous copy is the caller's job.
     pub fn merge(self, other: Self) -> Self {
+        self.fold(other, false)
+    }
+
+    /// This device's pages, joining `set` for the first time. Every page on
+    /// either side is kept, as in [`PageSet::merge`]. A setting, handle, or
+    /// folder that both sides have is the one from `set`.
+    pub fn join(self, set: Self) -> Self {
+        self.fold(set, true)
+    }
+
+    fn fold(self, other: Self, joining: bool) -> Self {
         let meta = self.meta.clone().merge(other.meta.clone());
         let mut local = self;
         let mut remote = other;
@@ -2259,8 +2270,11 @@ impl PageSet {
         remote.meta = meta.clone();
         local.retain_vault();
         remote.retain_vault();
-        let (doc, pages) =
-            omacus_doc::merge_libraries(&local.doc, &local.pages, &remote.doc, &remote.pages);
+        let (doc, pages) = if joining {
+            omacus_doc::join_libraries(&local.doc, &local.pages, &remote.doc, &remote.pages)
+        } else {
+            omacus_doc::merge_libraries(&local.doc, &local.pages, &remote.doc, &remote.pages)
+        };
         let mut merged = Self { doc, pages, meta };
         merged.retain_vault();
         merged

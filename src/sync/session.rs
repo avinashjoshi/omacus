@@ -24,6 +24,8 @@ use super::qr;
 use super::wire::{self, Client};
 
 pub const CLIPBOARD_SECS: u64 = 60;
+/// How long the server keeps an invite code.
+pub const INVITE_SECS: u64 = 5 * 60;
 pub const CLIPBOARD_NOTE: &str =
     "A clipboard history may keep these words. Printing them, or writing them down, is safest.";
 pub const PARTIAL_NOTE: &str = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
@@ -206,6 +208,23 @@ pub struct DeviceRow {
     pub id: String,
     pub name: String,
     pub here: bool,
+    /// When that device last opened these pages, in seconds since 1970.
+    pub seen: Option<u64>,
+}
+
+/// How often a device says it was opened. Often enough to tell a device in
+/// use from one in a drawer, and rare enough that it is not a save a minute.
+pub const OPENED_EVERY_SECS: u64 = 10 * 60;
+
+/// "Opened today", for the device list. `now` and `seen` are seconds since 1970.
+pub fn opened_label(now: u64, seen: u64) -> String {
+    let days = now.saturating_sub(seen) / 86_400;
+    match days {
+        0 => "Opened today".to_string(),
+        1 => "Opened yesterday".to_string(),
+        2..=29 => format!("Opened {days} days ago"),
+        _ => "Opened over a month ago".to_string(),
+    }
 }
 
 pub struct PrintJob {
@@ -254,6 +273,7 @@ impl Work {
                 "Saving the sync key…"
             }
             Work::Poll => "",
+            Work::SyncNow => "Syncing…",
             _ => "Saving…",
         }
     }
@@ -303,6 +323,8 @@ pub struct Session {
     pending_name: String,
     invite_code: String,
     invite_link: String,
+    /// When the code on screen was made. The server keeps it for five minutes.
+    invite_at: Option<Instant>,
     on: bool,
     member: bool,
     removed: bool,
@@ -346,6 +368,8 @@ pub struct Session {
     live: super::live::Live,
     /// Sidebar, trash, and settings from the last pull. The window applies it once.
     pending_present: Option<String>,
+    /// This run has already said when the pages were opened.
+    opened_noted: bool,
     #[cfg(test)]
     fail_key_write: bool,
     #[cfg(test)]
@@ -437,6 +461,7 @@ impl Session {
             pending_name: String::new(),
             invite_code: String::new(),
             invite_link: String::new(),
+            invite_at: None,
             on: false,
             member: false,
             removed: false,
@@ -475,6 +500,7 @@ impl Session {
             key_note: String::new(),
             live: super::live::Live::new(),
             pending_present: None,
+            opened_noted: false,
             #[cfg(test)]
             fail_key_write: false,
             #[cfg(test)]
@@ -539,6 +565,11 @@ impl Session {
         shell.offline = self.offline;
         shell.account = self.account.clone();
         shell.join_code = self.join_code.clone();
+        // The invite screen stays up while a poll runs. Without the code the
+        // card blinked to an empty one on every poll.
+        shell.invite_code = self.invite_code.clone();
+        shell.invite_link = self.invite_link.clone();
+        shell.invite_at = self.invite_at;
         shell.pending_device = self.pending_device.clone();
         shell.pending_id = self.pending_id.clone();
         shell.pending_name = self.pending_name.clone();
@@ -688,11 +719,14 @@ impl Session {
                 id: "desk".into(),
                 name: "Harbor desk".into(),
                 here: true,
+                seen: None,
             },
             DeviceRow {
                 id: "phone".into(),
                 name: "Harbor phone".into(),
                 here: false,
+                // Three days back from whenever the picture is taken.
+                seen: Some(now_secs().saturating_sub(3 * 86_400)),
             },
         ]
     }
@@ -1328,9 +1362,21 @@ impl Session {
         secret.zeroize();
         self.invite_code = code;
         self.invite_link = link;
+        self.invite_at = Some(Instant::now());
         self.screen = Screen::Invite;
         self.mark("scan");
         Ok(())
+    }
+
+    /// A code is out and nobody has typed it yet. A join is not a write, so
+    /// the socket says nothing about it. With the socket up this computer
+    /// only asked every half minute, and the approval showed up that late.
+    pub fn invite_open(&self) -> bool {
+        self.on
+            && self.pending_id.is_empty()
+            && self
+                .invite_at
+                .is_some_and(|at| at.elapsed() < Duration::from_secs(INVITE_SECS))
     }
 
     pub fn invite_code(&self) -> &str {
@@ -1436,6 +1482,7 @@ impl Session {
         };
         if result.is_ok() {
             self.observe_list();
+            self.note_opened(now_secs());
         }
         result
     }
@@ -1460,8 +1507,9 @@ impl Session {
             self.ensure_live();
             if self.dirty {
                 let _ = self.push();
-            } else {
-                let _ = self.pull_if_newer();
+            } else if self.pull_if_newer().is_ok() {
+                // After the pull, so the time is written on the latest copy.
+                self.note_opened(now_secs());
             }
         }
         Ok(())
@@ -1597,7 +1645,7 @@ impl Session {
             }
         };
         self.slots = slots;
-        self.install_remote(&packed, true)?;
+        self.install_joined(&packed)?;
         self.member = true;
         self.on = true;
         self.removed = false;
@@ -1681,8 +1729,11 @@ impl Session {
         Ok(())
     }
 
+    /// The code on the invite screen was just typed on the other device, so
+    /// the approval is the next thing to show. That screen used to stay on
+    /// the code, and the request waited behind it until the card was closed.
     fn reveal_request(&mut self) {
-        if self.screen == Screen::Closed && !self.pending_id.is_empty() {
+        if matches!(self.screen, Screen::Closed | Screen::Invite) && !self.pending_id.is_empty() {
             self.screen = Screen::Approve;
         }
     }
@@ -1752,6 +1803,7 @@ impl Session {
         self.pending_id.clear();
         self.pending_device.clear();
         self.invite_code.clear();
+        self.invite_at = None;
         self.screen = Screen::Home;
         Ok(())
     }
@@ -2005,7 +2057,7 @@ impl Session {
             packed
         };
         if !peeked.partial {
-            self.install_remote(&packed, true)?;
+            self.install_joined(&packed)?;
             self.member = self.desk.as_ref().is_some_and(Desk::member);
             self.on = true;
             self.removed = false;
@@ -2044,6 +2096,40 @@ impl Session {
         if self.on && self.meta_in_vault(id) {
             self.dirty = true;
             self.mark("merge");
+        }
+    }
+
+    /// The window's copy of a page, which was `base` when the window and sync
+    /// last held the same text, is now `text`. When the other device's lines
+    /// reached sync in between, both are kept, and the text the window should
+    /// show comes back. Sending `text` alone took those lines out again.
+    pub fn note_edit_since(&mut self, id: &str, base: &str, text: &str) -> Option<String> {
+        let theirs = self.page_text(id).map(str::to_string);
+        let merged = match theirs {
+            Some(theirs)
+                if theirs != base && theirs != text && !self.locked.iter().any(|at| at == id) =>
+            {
+                omacus_doc::Library::load(&self.doc)
+                    .ok()
+                    .and_then(|mut lib| {
+                        lib.reconcile(id, base, None);
+                        lib.reconcile(id, text, Some(&theirs));
+                        let merged = lib.snapshot(id)?;
+                        self.doc = lib.save();
+                        Some(merged)
+                    })
+            }
+            _ => None,
+        };
+        match merged {
+            Some(merged) => {
+                self.note_edit(id, &merged);
+                (merged != text).then_some(merged)
+            }
+            None => {
+                self.note_edit(id, text);
+                None
+            }
         }
     }
 
@@ -2254,6 +2340,38 @@ impl Session {
 
     pub fn socket_live(&self) -> bool {
         self.live.connected()
+    }
+
+    /// Say once per run that this computer opened the pages, so the other
+    /// devices can tell one in use from one that has not been opened in weeks.
+    fn note_opened(&mut self, now: u64) {
+        if self.opened_noted || !self.member || !self.on || now == 0 {
+            return;
+        }
+        let Some(id) = self
+            .devices()
+            .into_iter()
+            .find(|row| row.here)
+            .map(|row| row.id)
+        else {
+            return;
+        };
+        self.opened_noted = true;
+        let Ok(mut lib) = omacus_doc::Library::load(&self.doc) else {
+            return;
+        };
+        if !lib.note_seen(&id, now, OPENED_EVERY_SECS) {
+            return;
+        }
+        self.doc = lib.save();
+        let _ = fs::write(self.dir.join("library.automerge"), &self.doc);
+        self.dirty = true;
+    }
+
+    /// The window sleeps between frames. This is how a notice from the other
+    /// device wakes it, so the change shows without waiting for the next poll.
+    pub fn wake_with(&self, call: impl Fn() + Send + 'static) {
+        self.live.on_notice(call);
     }
 
     /// A notice arrived that this device has not pulled yet.
@@ -2519,12 +2637,24 @@ impl Session {
         else {
             return Vec::new();
         };
+        let opened = omacus_doc::Library::load(&self.doc)
+            .map(|lib| lib.seen())
+            .unwrap_or_default();
         rows.into_iter()
             .map(|(id, _code, here)| {
                 let name = self
                     .device_name(&id)
                     .unwrap_or_else(|| "Phone or computer".to_string());
-                DeviceRow { id, name, here }
+                let seen = opened
+                    .iter()
+                    .find(|(device, _)| device == &id)
+                    .map(|(_, at)| *at);
+                DeviceRow {
+                    id,
+                    name,
+                    here,
+                    seen,
+                }
             })
             .collect()
     }
@@ -2951,12 +3081,26 @@ impl Session {
     }
 
     fn install_remote(&mut self, packed: &[u8], combine: bool) -> Result<(), String> {
+        self.install_set(packed, combine, false)
+    }
+
+    /// The first copy of a set this computer is joining. The settings already
+    /// syncing stay. This computer's own were never part of that set.
+    fn install_joined(&mut self, packed: &[u8]) -> Result<(), String> {
+        self.install_set(packed, true, true)
+    }
+
+    fn install_set(&mut self, packed: &[u8], combine: bool, joining: bool) -> Result<(), String> {
         let remote = PageSet::from_bytes(packed).map_err(|e| e.message().to_string())?;
         let local_pages = self.pages.clone();
         // Always a merge. A page that is only here stays in the result and is
         // published. The remote list does not replace this library.
         let local = self.page_set()?;
-        let mut merged = local.merge(remote.clone());
+        let mut merged = if joining {
+            local.join(remote.clone())
+        } else {
+            local.merge(remote.clone())
+        };
         if combine {
             self.dirty = true;
         }
@@ -3783,6 +3927,13 @@ struct BookBase {
     hash: String,
 }
 
+pub fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|at| at.as_secs())
+        .unwrap_or(0)
+}
+
 pub fn guess_name() -> String {
     let os = match std::env::consts::OS {
         "macos" => "Mac",
@@ -4583,6 +4734,63 @@ mod list_note_tests {
         session.screen = Screen::Home;
         session.reveal_request();
         assert_eq!(session.screen, Screen::Home);
+        // The invite code is on screen and the other device has typed it.
+        session.screen = Screen::Invite;
+        session.reveal_request();
+        assert_eq!(session.screen, Screen::Approve);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_device_list_says_when_each_one_was_opened() {
+        let day = 86_400;
+        let now = 1_794_873_600;
+        assert_eq!(opened_label(now, now - 60), "Opened today");
+        assert_eq!(opened_label(now, now - day - 5), "Opened yesterday");
+        assert_eq!(opened_label(now, now - 12 * day), "Opened 12 days ago");
+        assert_eq!(opened_label(now, now - 90 * day), "Opened over a month ago");
+        // A clock that is behind the other device's does not go negative.
+        assert_eq!(opened_label(now, now + 500), "Opened today");
+
+        let dir = std::env::temp_dir().join(format!("omacus-opened-{}", std::process::id()));
+        let mut session = Session::blank(dir, "http://127.0.0.1:9");
+        // Not linked: nothing is written, and nothing asks for a save.
+        session.note_opened(now);
+        assert!(!session.dirty);
+        assert!(!session.opened_noted);
+    }
+
+    #[test]
+    fn an_open_invite_keeps_asking_for_the_join() {
+        let dir = std::env::temp_dir().join(format!("omacus-invite-open-{}", std::process::id()));
+        let mut session = Session::blank(dir, "http://127.0.0.1:9");
+        session.on = true;
+        assert!(!session.invite_open(), "no code was made");
+        session.invite_at = Some(Instant::now());
+        assert!(session.invite_open());
+        assert!(session.display_shell(&Work::Poll).invite_open());
+        // Once a device is waiting, the faster waiting poll takes over.
+        session.pending_id = "harbor".into();
+        assert!(!session.invite_open());
+        session.pending_id.clear();
+        // The server has dropped the code by now.
+        session.invite_at = Instant::now().checked_sub(Duration::from_secs(INVITE_SECS + 1));
+        assert!(!session.invite_open());
+    }
+
+    #[test]
+    fn the_invite_code_stays_on_screen_while_a_poll_runs() {
+        let dir = std::env::temp_dir().join(format!("omacus-invite-shell-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
+        session.on = true;
+        session.screen = Screen::Invite;
+        session.invite_code = "K7QM-4R2P-9HNX".into();
+        session.invite_link = "https://app.omacus.com/#join=harbor".into();
+        let shell = session.display_shell(&Work::Poll);
+        assert_eq!(shell.screen, Screen::Invite);
+        assert_eq!(shell.invite_code(), "K7QM-4R2P-9HNX");
+        assert_eq!(shell.invite_modules().ok(), session.invite_modules().ok());
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -4717,6 +4925,39 @@ mod tomb_tests {
         );
         assert!(session.pages.iter().any(|(id, _)| id == "harbor"));
         assert_eq!(session.removal_count(), 0, "two deletes asked first");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn typing_while_the_other_device_edits_keeps_both() {
+        let dir = std::env::temp_dir().join(format!("omacus-typed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
+        let agreed = "Bread\nloaf 2\n";
+        session.note_edit("bread", agreed);
+
+        // The other device's line reaches sync while this window is mid-word.
+        let theirs = "Bread\nloaf 2\ncrust 1\n";
+        session.note_edit("bread", theirs);
+        let typed = "Bread\nloaf 2\n\ncrumb";
+
+        let shown = session
+            .note_edit_since("bread", agreed, typed)
+            .expect("the window was not given the other device's line");
+        assert!(shown.contains("crust 1"), "{shown}");
+        assert!(shown.contains("crumb"), "{shown}");
+        assert_eq!(session.page_text("bread"), Some(shown.as_str()));
+        let on_disk = std::fs::read_to_string(dir.join("pages").join("bread.txt")).unwrap();
+        assert_eq!(on_disk, shown);
+
+        // Nothing arrived in between: the typed page is the page.
+        let next = format!("{shown}s");
+        assert_eq!(session.note_edit_since("bread", &shown, &next), None);
+        assert_eq!(session.page_text("bread"), Some(next.as_str()));
+
+        // A line removed here stays removed when nothing arrived.
+        assert_eq!(session.note_edit_since("bread", &next, "Bread\n"), None);
+        assert_eq!(session.page_text("bread"), Some("Bread\n"));
         let _ = std::fs::remove_dir_all(dir);
     }
 

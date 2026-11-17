@@ -19,6 +19,8 @@ pub const FALLBACK_POLL_MS: u64 = 2_000;
 /// A live socket is the notice. This poll only catches a missed one.
 pub const LIVE_FALLBACK_MS: u64 = 30_000;
 pub const WAITING_POLL_MS: u64 = 800;
+/// While an invite code is out, look for the join this often.
+pub const INVITE_POLL_MS: u64 = 2_000;
 
 /// A device that is already syncing keeps the socket up, including while the
 /// sync sheet is open. A join that is still waiting keeps asking too.
@@ -56,9 +58,22 @@ pub fn join_status(message: Option<&str>, state: &str) -> &'static str {
     }
 }
 
+/// Called from the socket thread when a notice lands or the socket opens or
+/// drops. The window is asleep between frames, so something has to wake it.
+type Wake = Arc<Mutex<Option<Box<dyn Fn() + Send>>>>;
+
+fn wake(slot: &Wake) {
+    if let Ok(slot) = slot.lock()
+        && let Some(call) = slot.as_ref()
+    {
+        call();
+    }
+}
+
 /// One socket for this set of pages. The thread starts on the first address.
 #[derive(Clone)]
 pub struct Live {
+    wake: Wake,
     flag: Arc<AtomicBool>,
     rev: Arc<AtomicU64>,
     seen: Arc<AtomicU64>,
@@ -71,12 +86,21 @@ impl Live {
     pub fn new() -> Self {
         let (tx, rx) = mpsc::channel();
         Self {
+            wake: Arc::new(Mutex::new(None)),
             flag: Arc::new(AtomicBool::new(false)),
             rev: Arc::new(AtomicU64::new(0)),
             seen: Arc::new(AtomicU64::new(0)),
             tx,
             started: Arc::new(AtomicBool::new(false)),
             take_rx: Arc::new(Mutex::new(Some(rx))),
+        }
+    }
+
+    /// What to call when the other device's write is announced. Without it
+    /// the window only looks again on its slow fallback poll.
+    pub fn on_notice(&self, call: impl Fn() + Send + 'static) {
+        if let Ok(mut slot) = self.wake.lock() {
+            *slot = Some(Box::new(call));
         }
     }
 
@@ -113,13 +137,14 @@ impl Live {
         }
         let flag = Arc::clone(&self.flag);
         let rev = Arc::clone(&self.rev);
+        let wake = Arc::clone(&self.wake);
         let rx = self.take_rx.lock().ok().and_then(|mut slot| slot.take());
         let Some(rx) = rx else {
             return;
         };
         thread::Builder::new()
             .name("omacus-live".into())
-            .spawn(move || run(rx, flag, rev))
+            .spawn(move || run(rx, flag, rev, wake))
             .ok();
     }
 }
@@ -130,7 +155,7 @@ impl Default for Live {
     }
 }
 
-fn run(rx: Receiver<String>, flag: Arc<AtomicBool>, rev: Arc<AtomicU64>) {
+fn run(rx: Receiver<String>, flag: Arc<AtomicBool>, rev: Arc<AtomicU64>, wake_slot: Wake) {
     let mut wait = Duration::from_secs(1);
     let mut last = String::new();
     loop {
@@ -150,24 +175,33 @@ fn run(rx: Receiver<String>, flag: Arc<AtomicBool>, rev: Arc<AtomicU64>) {
         }
         last = url.clone();
         flag.store(false, Ordering::Relaxed);
-        if connect_once(&url, &flag, &rev).is_ok() {
+        if connect_once(&url, &flag, &rev, &wake_slot).is_ok() {
             wait = Duration::from_secs(1);
         } else {
             wait = (wait * 2).min(Duration::from_secs(30));
         }
         flag.store(false, Ordering::Relaxed);
+        // The status leaves Live, and the window goes back to asking.
+        wake(&wake_slot);
     }
 }
 
-fn connect_once(url: &str, flag: &AtomicBool, rev: &AtomicU64) -> Result<(), ()> {
+fn connect_once(url: &str, flag: &AtomicBool, rev: &AtomicU64, wake_slot: &Wake) -> Result<(), ()> {
     let (mut socket, _) = connect(url).map_err(|_| ())?;
     flag.store(true, Ordering::Relaxed);
+    wake(wake_slot);
     loop {
         match socket.read() {
-            Ok(Message::Text(text)) => note_rev(&text, rev),
+            Ok(Message::Text(text)) => {
+                if note_rev(&text, rev) {
+                    wake(wake_slot);
+                }
+            }
             Ok(Message::Binary(bytes)) => {
-                if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                    note_rev(&text, rev);
+                if let Ok(text) = String::from_utf8(bytes.to_vec())
+                    && note_rev(&text, rev)
+                {
+                    wake(wake_slot);
                 }
             }
             Ok(Message::Ping(payload)) => {
@@ -180,22 +214,55 @@ fn connect_once(url: &str, flag: &AtomicBool, rev: &AtomicU64) -> Result<(), ()>
     }
 }
 
-fn note_rev(text: &str, rev: &AtomicU64) {
+/// True when the message was a revision notice.
+fn note_rev(text: &str, rev: &AtomicU64) -> bool {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
-        return;
+        return false;
     };
     // A notice is a generation number. The sealed library is a separate pull.
     if value.get("record").is_some() || value.get("objects").is_some() {
-        return;
+        return false;
     }
     if let Some(n) = value.get("rev").and_then(|item| item.as_u64()) {
         rev.store(n, Ordering::Relaxed);
+        return true;
     }
+    false
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The window is asleep between frames. A notice that only stored a
+    /// number sat there until the fallback poll, half a minute later.
+    #[test]
+    fn a_notice_wakes_the_window() {
+        let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = server.local_addr().unwrap().port();
+        let host = thread::spawn(move || {
+            let (stream, _) = server.accept().unwrap();
+            let mut socket = tungstenite::accept(stream).unwrap();
+            socket.send(Message::text(r#"{"rev":7}"#)).unwrap();
+            // Hold the socket until the device has heard the notice.
+            let _ = socket.read();
+        });
+        let live = Live::new();
+        let (tx, woke) = mpsc::channel();
+        live.on_notice(move || {
+            let _ = tx.send(());
+        });
+        live.offer(format!("ws://127.0.0.1:{port}/live"));
+        let limit = Duration::from_secs(20);
+        let start = std::time::Instant::now();
+        while live.revision() != 7 {
+            woke.recv_timeout(limit.saturating_sub(start.elapsed()))
+                .expect("the notice did not wake the window");
+        }
+        assert!(live.connected());
+        drop(live);
+        drop(host);
+    }
 
     #[test]
     fn an_edit_waits_under_half_a_second_and_a_live_socket_does_not_poll() {
@@ -205,6 +272,7 @@ mod tests {
         assert_eq!(poll_gap_ms(false, true, true), 400);
         assert_eq!(poll_gap_ms(false, false, true), 30_000);
         assert_eq!(poll_gap_ms(false, false, false), 2_000);
+        assert_eq!(INVITE_POLL_MS, 2_000);
     }
 
     #[test]

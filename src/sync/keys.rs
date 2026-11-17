@@ -77,11 +77,37 @@ pub fn load(dir: &Path) -> Result<Option<Vec<u8>>, String> {
 }
 
 pub fn remove(dir: &Path) {
+    // The login keyring has one slot for Omacus, shared by every data folder
+    // of this user. Only the profile whose key is in that slot may empty it.
+    // A profile locked with a passphrase, or a test profile, used to empty
+    // it too, and the installed app then could not open its own pages.
+    let in_system_store = uses_system_store(dir);
     let _ = fs::remove_file(path(dir));
     #[cfg(target_os = "macos")]
-    let _ = keychain_delete();
+    if in_system_store {
+        let _ = keychain_delete();
+    }
     #[cfg(all(unix, not(target_os = "macos")))]
-    let _ = secret_delete();
+    if in_system_store {
+        let _ = secret_delete();
+    }
+    // Windows keeps the key in the pointer file itself. There is no slot to empty.
+    #[cfg(not(unix))]
+    let _ = in_system_store;
+}
+
+/// Whether this profile's pointer names the login keyring or keychain.
+fn uses_system_store(dir: &Path) -> bool {
+    let Ok(bytes) = fs::read(path(dir)) else {
+        return false;
+    };
+    let Some(rest) = bytes.strip_prefix(MARK) else {
+        return false;
+    };
+    matches!(
+        rest.split(|b| *b == b'\n').next(),
+        Some(b"secret" | b"keychain")
+    )
 }
 
 #[cfg(test)]
@@ -1215,6 +1241,39 @@ fn secret_delete() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The login keyring has one slot for every data folder. Turning sync
+    /// off in a profile that keeps its key elsewhere must leave that slot.
+    #[test]
+    fn only_the_profile_in_the_keyring_may_empty_it() {
+        let dir = std::env::temp_dir().join(format!("omacus-slot-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("sync")).unwrap();
+        assert!(
+            !uses_system_store(&dir),
+            "a profile with no key owns the slot"
+        );
+        for (line, owns) in [
+            ("secret", true),
+            ("keychain", true),
+            ("pass", false),
+            ("test", false),
+            ("file", false),
+            ("dpapi", false),
+        ] {
+            let mut bytes = MARK.to_vec();
+            bytes.extend_from_slice(line.as_bytes());
+            bytes.extend_from_slice(b"\nrest");
+            fs::write(path(&dir), bytes).unwrap();
+            assert_eq!(uses_system_store(&dir), owns, "{line}");
+        }
+        fs::write(path(&dir), b"not a pointer").unwrap();
+        assert!(!uses_system_store(&dir));
+        // The pointer goes either way.
+        remove(&dir);
+        assert!(!path(&dir).exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn the_device_file_is_private_to_this_user() {

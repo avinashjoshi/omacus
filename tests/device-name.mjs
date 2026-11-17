@@ -1,5 +1,5 @@
 // Default names for a browser and the desktop app.
-import { guessDeviceName } from "../site/app/device-name.js";
+import { guessDeviceName, isPhone } from "../site/app/device-name.js";
 
 const names = [
   ["Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36", "Chrome on Linux"],
@@ -19,6 +19,28 @@ const names = [
 for (const [ua, expect] of names) {
   const got = guessDeviceName(ua);
   if (got !== expect) throw new Error(`${got} !== ${expect}`);
+}
+
+// "This phone" or "this computer" goes by the device. A narrow browser window
+// on a computer used to be called a phone.
+const linux = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const iphone = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+const android = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
+const tablet = "Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const ipad = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15";
+const phones = [
+  [linux, undefined, false],
+  [iphone, undefined, true],
+  [android, undefined, true],
+  [tablet, undefined, false],
+  [ipad, undefined, false],
+  // The browser's own answer wins over the name it gives.
+  [linux, true, true],
+  [android, false, false],
+  ["", undefined, false],
+];
+for (const [ua, mobile, expect] of phones) {
+  if (isPhone(ua, mobile) !== expect) throw new Error(`isPhone(${ua.slice(13, 40)}, ${mobile}) !== ${expect}`);
 }
 
 console.log("device names ok");

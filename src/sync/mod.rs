@@ -14,7 +14,7 @@ mod wire;
 
 pub use drive::e2e_drive;
 pub use keys::e2e_store;
-pub use live::{poll_gap_ms, should_poll_sync};
+pub use live::{INVITE_POLL_MS, poll_gap_ms, should_poll_sync};
 pub use session::{Chip, LocalPages, Screen, Session, Work, intro_lines, release_clipboard};
 pub use ui::embed;
 

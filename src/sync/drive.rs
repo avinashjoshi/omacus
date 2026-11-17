@@ -67,6 +67,25 @@ pub fn e2e_drive() -> i32 {
                 await_text(&mut session, id, Path::new(path), ms)
             }
             "status" => Ok(status(&session)),
+            "off" => {
+                session.ask_off();
+                session.turn_off().map(|()| status(&session))
+            }
+            "devices" => {
+                let rows = session.devices();
+                let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
+                // The devices that have said when they were last opened.
+                let opened: Vec<&str> = rows
+                    .iter()
+                    .filter(|row| row.seen.is_some())
+                    .map(|row| row.name.as_str())
+                    .collect();
+                Ok(serde_json::json!({ "devices": names, "opened": opened }).to_string())
+            }
+            "text" => {
+                let id = parts.next().unwrap_or("");
+                Ok(serde_json::json!({ "text": session.page_text(id) }).to_string())
+            }
             "quit" => {
                 emit(r#"{"ok":true,"cmd":"quit"}"#);
                 return 0;
@@ -189,12 +208,43 @@ fn overlay(session: &mut Session, path: &Path) -> Result<String, String> {
     Ok(show(session))
 }
 
+/// With the socket up, a pull follows a notice. Asking the server on every
+/// call would spend the read allowance of a real mailbox in under a minute,
+/// so a quiet call waits a moment for a notice and asks only now and then.
 fn sync_once(session: &mut Session) -> Result<String, String> {
-    wait_until(session, 20_000, |session| {
-        let _ = session.sync_now();
-        !session.is_dirty() && session.error.is_empty()
-    })?;
+    let start = Instant::now();
+    while quiet(session) && start.elapsed() < Duration::from_millis(400) {
+        thread::sleep(Duration::from_millis(50));
+    }
+    if !quiet(session) {
+        note_asked();
+        wait_until(session, 20_000, |session| {
+            let _ = session.sync_now();
+            !session.is_dirty() && session.error.is_empty()
+        })?;
+    }
     Ok(show(session))
+}
+
+fn last_asked() -> &'static std::sync::Mutex<Option<Instant>> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<Option<Instant>>> = std::sync::OnceLock::new();
+    AT.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+fn note_asked() {
+    if let Ok(mut at) = last_asked().lock() {
+        *at = Some(Instant::now());
+    }
+}
+
+/// Nothing to send, nothing announced, and the server was asked recently.
+fn quiet(session: &Session) -> bool {
+    let recent = last_asked()
+        .lock()
+        .ok()
+        .and_then(|at| *at)
+        .is_some_and(|at| at.elapsed() < Duration::from_secs(3));
+    session.socket_live() && !session.is_dirty() && !session.remote_ready() && recent
 }
 
 fn show(session: &Session) -> String {
@@ -268,7 +318,10 @@ fn wait_until(
         if ready(session) {
             return Ok(());
         }
-        let _ = session.poll();
+        if !quiet(session) || session.screen != Screen::Home && session.screen != Screen::Closed {
+            note_asked();
+            let _ = session.poll();
+        }
         if ready(session) {
             return Ok(());
         }
@@ -293,12 +346,16 @@ fn wait_until(
         if left == 0 {
             break;
         }
-        thread::sleep(Duration::from_millis(gap.min(left)));
+        // The window wakes on a live notice. This loop has no waker, so it looks often.
+        thread::sleep(Duration::from_millis(gap.min(left).min(250)));
     }
     if ready(session) {
         Ok(())
-    } else {
+    } else if session.error.is_empty() {
         Err("timed out".into())
+    } else {
+        // What the server last said, when it is a sentence that is safe to print.
+        Err(session.error.clone())
     }
 }
 
@@ -367,6 +424,9 @@ fn safe_error(error: &str) -> String {
         "missing page text",
         "missing needle",
         "the live connection did not open",
+        "Try again in a moment.",
+        "Sync is busy. Try again in a moment.",
+        "That copy is out of date. Try again.",
     ];
     if SAFE.contains(&error) || error.starts_with("That's not word ") {
         error.to_string()

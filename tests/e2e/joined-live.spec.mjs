@@ -9,12 +9,17 @@ import { expect, test } from "@playwright/test";
 const BOX = "http://127.0.0.1:8798";
 const BIN = process.env.OMACUS_BIN || "/tmp/omacus-106/target/debug/omacus";
 const ROOT = "/tmp/omacus-joined-proof";
-const ART = "/opt/cursor/artifacts/screenshots";
+const ART = process.env.OMACUS_ART || "/opt/cursor/artifacts/screenshots";
 const ROWS = ["Pantry", "Oats", "Ferry", "Bread", "Cake"];
 
 test.skip(!process.env.OMACUS_JOINED, "joined proof needs the desktop binary and a display");
 test.skip(({ browserName }) => browserName !== "chromium", "joined proof runs in chromium");
-test.use({ actionTimeout: 20000 });
+// The page and the sync box are both on this machine. Chromium asks before a
+// page opens a socket to a local address, and a test has nobody to say yes.
+test.use({
+  actionTimeout: 20000,
+  launchOptions: { args: ["--disable-features=LocalNetworkAccessChecks,LocalNetworkAccessChecksWebSockets"] },
+});
 
 function startBox() {
   const child = spawn(process.execPath, ["--import", "./relay/worker/register-cf.mjs", "tests/e2e/relay-box.mjs"], {
@@ -541,7 +546,7 @@ test("joined devices share one library and finish approval", async ({ browser })
     await late.close();
 
     writeFileSync(
-      "/opt/cursor/artifacts/joined-live-latency.json",
+      process.env.OMACUS_ART ? `${ART}/joined-live-latency.json` : "/opt/cursor/artifacts/joined-live-latency.json",
       JSON.stringify({ desktopToWebMs, webToDesktopMs, themeMs }, null, 2),
     );
     await compose(`${shots}/live-dusk.png`, `${ROOT}/web-dusk-sidebar.png`, `${ART}/joined-dusk-sidebar.png`);

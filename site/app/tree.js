@@ -176,6 +176,24 @@ export function coveringLock(nodes, id) {
 }
 
 /// Page ids inside a folder, including pages in nested folders.
+// The tree under the synced caption: pages that sync, and the folders around
+// them. A folder whose pages all stay on this device is left out, because
+// those pages are listed under the other caption. A folder with no pages at
+// all stays: it used to be dropped too, so a new folder never appeared.
+export function syncedTree(nodes, local) {
+  const out = [];
+  for (const node of nodes ?? []) {
+    if (!node) continue;
+    if (node.type === "page") {
+      if (!local.has(node.id)) out.push(node);
+    } else if (node.type === "folder") {
+      const children = syncedTree(node.children, local);
+      if (children.length || pageIds(node.children).length === 0) out.push({ ...node, children });
+    }
+  }
+  return out;
+}
+
 export function pagesUnder(nodes, folderId) {
   const out = [];
   const walk = (list, inside) => {

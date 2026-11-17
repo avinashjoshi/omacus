@@ -8,10 +8,10 @@ import init, {
   bindingAt, renameVariable, definitionChange, pageRefAt, rewriteVarRefs, renameBlurb, propagateRename, propagateHandle,
   lockCreate, lockWrap, lockSeal, lockOpen, lockUnwrap, lockOpenPassword, lockIs,
   docMigrate, docSnapshot, docApply, docMergeDisk, docConflicts, docPick, docRemove, docSetFolders, docUnion,
-  docNoteState, docState,
+  docNoteState, docNoteSeen, docState,
   appVersion,
 } from "./pkg/omacus_web.js";
-import { applyPresent, structuralState, WEB_THEMES } from "./library-state.mjs";
+import { applyPresent, changedSpan, structuralState, WEB_THEMES } from "./library-state.mjs";
 import { APP_VERSION } from "./version.js";
 import {
   EditorState, StateField, StateEffect, RangeSetBuilder, Prec, EditorView, Decoration, WidgetType, keymap, hoverTooltip,
@@ -20,7 +20,8 @@ import {
 } from "./editor.js";
 import {
   appendMissing, canNest, collectPageIds, coveringLock, createFolder, expandFolder, expandTo, folderOf, folders, fromPages,
-  insertNode, moveSibling, pageIds, pagesUnder, place, removeNode, renameFolder, sanitize, siblingEnds, toggleFolder, validDrop,
+  insertNode, moveSibling, pageIds, pagesUnder, place, removeNode, renameFolder, sanitize, siblingEnds, syncedTree, toggleFolder,
+  validDrop,
   visible,
 } from "./tree.js";
 import { placeRowMenu, swallowDrawerTap } from "./layer.js";
@@ -1026,6 +1027,9 @@ function syncOrder() {
 
 let librarySeeded = false;
 
+// The folders, the order, and the short names as sync last heard of them.
+let indexNoted = null;
+
 function saveIndex() {
   syncOrder();
   store.set("index", JSON.stringify({
@@ -1035,6 +1039,14 @@ function saveIndex() {
     handles: Object.fromEntries(state.handles),
     seeded: librarySeeded,
   }));
+  // A new folder, a move, or a rename changes no page text, so nothing told
+  // sync about it. It only left this device with the next line typed.
+  const shape = JSON.stringify([state.tree, [...state.handles]]);
+  if (shape === indexNoted) return;
+  const first = indexNoted === null;
+  indexNoted = shape;
+  // The copy sync is installing is not this device's own change.
+  if (!first && !applyingRemote) noteSyncEdit();
 }
 
 function installLibrary(lib) {
@@ -1095,6 +1107,7 @@ if (document.documentElement.dataset.syncTest === "1") {
     saveIndex();
     renderSidebar();
   };
+  globalThis.omacusPageText = (id) => state.texts.get(id) ?? null;
   globalThis.omacusReplacePage = (id, text) => {
     if (!id || !state.texts.has(id)) return false;
     state.texts.set(id, text);
@@ -1103,20 +1116,6 @@ if (document.documentElement.dataset.syncTest === "1") {
     renderSidebar();
     return true;
   };
-}
-
-function filterSyncedTree(nodes, local) {
-  const out = [];
-  for (const node of nodes || []) {
-    if (!node) continue;
-    if (node.type === "page") {
-      if (!local.has(node.id)) out.push(node);
-    } else if (node.type === "folder") {
-      const children = filterSyncedTree(node.children, local);
-      if (children.length) out.push({ ...node, children });
-    }
-  }
-  return out;
 }
 
 function sideCaption(text, kind, count) {
@@ -1289,8 +1288,13 @@ function commitSyncMove() {
   }, 10000);
   renderSidebar();
 }
+// A save that lands while a synced copy is being installed is told to sync
+// once the install is done, so the edit does not wait for the next poll.
+let editDuringRemote = false;
+
 function noteSyncEdit() {
-  if (!applyingRemote) syncTouched();
+  if (applyingRemote) editDuringRemote = true;
+  else syncTouched();
 }
 
 function saveSheet(id) {
@@ -1315,6 +1319,41 @@ function bytesToB64(bytes) {
     binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
   }
   return btoa(binary);
+}
+
+function sameBytes(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+// This device opened the pages. Written into the sealed library at most every
+// ten minutes, so the other devices can tell one in use from one left in a drawer.
+function noteDeviceOpened(id, seconds) {
+  if (!id || !docBytes || !docBytes.length || docHeld) return false;
+  let next;
+  try {
+    next = docNoteSeen(docBytes, id, seconds, 600);
+  } catch {
+    return false;
+  }
+  if (!next || !next.length || sameBytes(next, docBytes)) return false;
+  docBytes = next;
+  docSaved = bytesToB64(next);
+  Promise.resolve(store.set("library-doc", docSaved)).catch(() => {});
+  return true;
+}
+
+// When each device last opened the pages: id to seconds since 1970.
+function devicesOpened() {
+  try {
+    const shown = JSON.parse(docState(docBytes) || "{}");
+    return shown && typeof shown.seen === "object" && shown.seen ? shown.seen : {};
+  } catch {
+    return {};
+  }
 }
 
 function b64ToBytes(text) {
@@ -1932,6 +1971,16 @@ function onInput() {
   syncEmpty();
 }
 
+// The other device's lines arrived in the open page. Nothing was typed here, so
+// there is nothing to save or send. The answers and the sidebar still follow.
+function onRemoteInput() {
+  const text = view.state.doc.toString();
+  if (keyFor(state.active)) plains.set(state.active, text);
+  evaluate();
+  renderSidebar();
+  syncEmpty();
+}
+
 // Each sheet keeps its own editor state while the page is open, so undo stays per sheet.
 const editorStates = new Map();
 let shownId = null;
@@ -2046,7 +2095,7 @@ function renderSidebar() {
     if (sidePick.size) rows.push(sidePickNote());
     rows.push(sideCaption(syncPlaces.vaultName || "My pages", "vault", vaultIds.length));
     if (!sideCollapsed.vault) {
-      for (const entry of visible(filterSyncedTree(state.tree, local))) {
+      for (const entry of visible(syncedTree(state.tree, local))) {
         rows.push(entry.type === "folder" ? folderRow(entry) : pageRow(entry.id, shownPlain(entry.id), false, entry.depth, "synced"));
       }
     }
@@ -3131,13 +3180,14 @@ const editorExtensions = [
     if (update.docChanged) {
       try {
         noteCrossUndo(update);
-        if (!committingTyped && !switchingPage) {
+        if (!committingTyped && !switchingPage && !remoteEdit) {
           noteDefinitionEdit(update.view, update.startState.doc.toString(), update.state.doc.toString());
         }
       } catch {
         // The rename offer can fail. The typed line still has to be kept.
       }
-      onInput();
+      if (remoteEdit) onRemoteInput();
+      else onInput();
     }
     if (update.docChanged || update.selectionSet) syncRenameButton();
     if (!armingExplicit && !completionOpen(update.state)) explicitCompletion = false;
@@ -5253,6 +5303,8 @@ async function takeSyncSnapshot() {
       await saveSheet(state.active);
     } finally {
       applyingRemote = false;
+      // This save is the copy being sent. It is not a new edit.
+      editDuringRemote = false;
     }
   }
   let doc = docBytes && docBytes.length ? new Uint8Array(docBytes) : new Uint8Array();
@@ -5264,7 +5316,17 @@ async function takeSyncSnapshot() {
       settings,
     });
     const next = docNoteState(doc, structural);
-    if (next && next.length) doc = next;
+    if (next && next.length) {
+      // Keep what was noted. Each change gets the next revision number, and
+      // starting again from the older document gave a rename the number the
+      // folder was made with. The other device then kept the old name.
+      if (docBytes && docBytes.length && !docHeld && !sameBytes(next, docBytes)) {
+        docBytes = next;
+        docSaved = bytesToB64(next);
+        Promise.resolve(store.set("library-doc", docSaved)).catch(() => {});
+      }
+      doc = next;
+    }
   } catch {
     // An older engine still syncs the pages. The sidebar waits for this build.
   }
@@ -5335,10 +5397,66 @@ function forgetRemotePage(id) {
   if (state.active) showSheet();
 }
 
-async function applyRemoteLibrary(nextDoc, pages) {
+// Text typed after sync read a page is in neither copy sync merged. Fold it
+// into the merged page. `before` is the text sync read, `mine` is the page now,
+// and `theirs` is the merged copy. Returns the document and the page text.
+function foldTyped(doc, id, before, mine, theirs) {
+  if (theirs === before) return [doc, mine];
+  if (!doc || !doc.length || isLock(before) || isLock(mine) || isLock(theirs)) return [doc, mine];
+  try {
+    let next = docApply(doc, id, before);
+    next = docMergeDisk(next, id, mine, theirs);
+    const text = docSnapshot(next, id);
+    if (!text && mine) return [doc, mine];
+    return [next, text];
+  } catch {
+    return [doc, mine];
+  }
+}
+
+// The open page changed underneath the editor. Only the part that differs is
+// replaced, so the cursor, the selection, and undo stay where they were.
+let remoteEdit = false;
+
+function refreshOpenEditor() {
+  if (!patchOpenEditor()) showSheet();
+}
+
+// False when the open page cannot be patched in place and has to be shown again.
+function patchOpenEditor() {
+  const id = state.active;
+  if (!view || !id || id === "shared" || shownId !== id || pageConcealed(id)) return false;
+  const next = shownPlain(id);
+  const now = view.state.doc.toString();
+  if (now === next) return true;
+  const span = changedSpan(now, next);
+  const spec = { changes: { from: span.from, to: span.to, insert: span.insert } };
+  try {
+    const quiet = view.state.update({}).constructor.addToHistory;
+    if (quiet) spec.annotations = quiet.of(false);
+  } catch {
+    // The change still lands. Undo then steps over it like a typed one.
+  }
+  remoteEdit = true;
+  try {
+    view.dispatch(spec);
+  } catch {
+    return false;
+  } finally {
+    remoteEdit = false;
+  }
+  return true;
+}
+
+async function applyRemoteLibrary(nextDoc, pages, basePages) {
   await backupBeforeRemote();
   applyingRemote = true;
+  let typed = false;
   try {
+    const before = new Map();
+    for (const row of basePages || []) {
+      if (Array.isArray(row) && row[0]) before.set(row[0], String(row[1] ?? ""));
+    }
     // `nextDoc` is already the merged document. Folding it into the copy
     // already on this device would put a deleted line back.
     let doc = nextDoc && nextDoc.length ? nextDoc : (docBytes && docBytes.length ? docBytes : null);
@@ -5347,7 +5465,12 @@ async function applyRemoteLibrary(nextDoc, pages) {
     for (const [id, text] of pages) {
       if (!id || id === "shared") continue;
       if (stay.has(id) && state.texts.has(id)) continue;
-      const body = typeof text === "string" ? text : "";
+      let body = typeof text === "string" ? text : "";
+      const mine = state.texts.get(id);
+      if (mine != null && before.has(id) && mine !== before.get(id) && mine !== body) {
+        typed = true;
+        [doc, body] = foldTyped(doc, id, before.get(id), mine, body);
+      }
       if (doc && doc.length && !isLock(body)) {
         let shown = "";
         try {
@@ -5373,6 +5496,10 @@ async function applyRemoteLibrary(nextDoc, pages) {
         if (plains.has(id) && !isLock(body)) plains.set(id, body);
       }
     }
+    // Nothing has waited since the pages were read above. The editor still
+    // shows the open page as it was, and the next key pressed would save that
+    // older text over the merged page. Show the merged page first.
+    patchOpenEditor();
     if (doc && doc.length) {
       docBytes = doc;
       const encoded = bytesToB64(doc);
@@ -5412,11 +5539,15 @@ async function applyRemoteLibrary(nextDoc, pages) {
     saveIndex();
     renderSidebar();
     const activeAfter = state.active && state.active !== "shared" ? (state.texts.get(state.active) ?? "") : null;
-    if (activeBefore !== activeAfter && state.active && state.active !== "shared") showSheet();
+    if (activeBefore !== activeAfter && state.active && state.active !== "shared") refreshOpenEditor();
     showDocConflicts();
   } finally {
     applyingRemote = false;
     globalThis.__omacusBlank = false;
+    if (typed || editDuringRemote) {
+      editDuringRemote = false;
+      syncTouched();
+    }
   }
 }
 
@@ -5493,6 +5624,8 @@ async function start() {
         syncRestored = fn;
       },
       forget: forgetRemotePage,
+      noteOpened: noteDeviceOpened,
+      opened: devicesOpened,
       settle: (fn) => {
         settleSync = fn;
       },

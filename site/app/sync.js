@@ -3,9 +3,9 @@
 // WebCrypto key. The page's strict policy is what keeps other scripts out.
 import { SYNC_URL } from "./sync-config.js";
 import { APP_VERSION } from "./version.js";
-import { approvalCard, beginSave, chipLabel, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, keepUnlessTombstone, leaveMessage, noteLocalEdit, noteTombstone, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, setMark, showTurnOnSync } from "./sync-save.mjs";
+import { approvalCard, beginSave, chipLabel, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, followWaits, keepUnlessTombstone, leaveMessage, noteLocalEdit, noteTombstone, noticeWait, openedLabel, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, setMark, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
-import { guessDeviceName as nameFromAgent } from "./device-name.js";
+import { guessDeviceName as nameFromAgent, isPhone } from "./device-name.js";
 import { deviceListNote, pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
 import { RECOVERY_WORDS } from "./recovery-words.js";
 import { WORD_CHECK_ERROR, buildChoices, usableList } from "./word-check.js";
@@ -702,7 +702,7 @@ export async function mountSync(api) {
   }
 
   function onPhone() {
-    return matchMedia("(max-width: 760px)").matches;
+    return isPhone(navigator.userAgent, navigator.userAgentData?.mobile);
   }
 
   function here() {
@@ -820,12 +820,12 @@ export async function mountSync(api) {
     return data;
   }
 
-  async function installMerged(merged) {
+  async function installMerged(merged, readPages) {
     const unpacked = JSON.parse(sync.unpackPages(merged.packed));
     if (unpacked.ok) adoptMeta(unpacked.meta);
     if (!unpacked.ok) throw new Error(unpacked.message || "Those pages could not be opened.");
     const doc = unpacked.doc ? api.b64ToBytes(unpacked.doc) : new Uint8Array();
-    await api.apply(doc, unpacked.pages || []);
+    await api.apply(doc, unpacked.pages || [], readPages);
   }
 
   async function pack(doc, pages) {
@@ -1103,6 +1103,7 @@ export async function mountSync(api) {
   }
 
   async function pull(mailbox, depth = 0) {
+    state.pulledAt = Date.now();
     const wanted = JSON.parse(sync.wantedObjects(state.desk, mailbox.record, state.slots || "[]"));
     if (!wanted.ok) throw new Error(wanted.message || "Those pages could not be opened.");
     const fetched = await fetchObjects(wanted.want || []);
@@ -1149,7 +1150,8 @@ export async function mountSync(api) {
     }
     const localChanged = pagesDiffer(state.basePages, snap.pages) || opened.combine === true;
     const joined = await combineRemote(snap, remote);
-    await installMerged({ packed: joined.packed });
+    // `snap` is older than this line. A page typed since then is folded in.
+    await installMerged({ packed: joined.packed }, snap.pages);
     const upload = (snap.pages || []).some((row) => {
       const id = row && row[0];
       return id && !joined.remoteIds.has(id) && joined.pages.some((page) => page[0] === id) && pageInVault(id);
@@ -1157,6 +1159,10 @@ export async function mountSync(api) {
     state.dirty = upload || joined.welcomeRemoved.length > 0 || localChanged || opened.republish === true;
     if (!state.dirty) await rememberBase(joined.pages);
     paintRemoval();
+    // Before the save below. These are the object revisions this copy was
+    // read at. Saved after it, a reload came back with the older ones, and
+    // the next write named revisions the server no longer had.
+    if (opened.slots) state.slots = opened.slots;
     await saveFile();
     await refreshDevices();
     if (dropped || state.removed) {
@@ -1277,12 +1283,32 @@ export async function mountSync(api) {
       finally { ticking = false; }
       return;
     }
-    if (["off", "access", "save", "confirm", "recover", "join", "join-start", "join-type", "join-scan", "remove-ask", "off-ask", "removed"].includes(state.screen)) return;
+    if (followWaits(state.screen)) return;
     ticking = true;
     try {
       await ifTabLeader(navigator.locks, lockName(), () => follow());
     } finally {
       ticking = false;
+    }
+  }
+
+  // Sync runs on its own. This reads the server's copy and sends this
+  // device's, for the moment someone wants to be sure.
+  async function syncNow() {
+    if (state.syncingNow || !state.member || !state.desk) return;
+    state.syncingNow = true;
+    draw();
+    try {
+      const deadline = Date.now() + 8000;
+      while (ticking && Date.now() < deadline) await sleep(40);
+      noteLocalEdit(state);
+      armSaving();
+      clearTimeout(timer);
+      await tick();
+    } finally {
+      state.syncingNow = false;
+      if (state.screen === "linked" && !panel.hidden) draw();
+      nextPoll(pollWait({ soon: true }));
     }
   }
 
@@ -1307,6 +1333,14 @@ export async function mountSync(api) {
       if (mailbox && mailbox.revision !== state.revision) {
         armSaving();
         await pull(mailbox);
+      }
+      // Once per visit, after the pull, say this device opened the pages.
+      if (state.member && !state.openedNoted && typeof api.noteOpened === "function") {
+        const self = (state.devices || []).find((device) => device.self);
+        if (self && self.id) {
+          state.openedNoted = true;
+          if (api.noteOpened(self.id, Math.floor(Date.now() / 1000))) state.dirty = true;
+        }
       }
       if (state.member && navigator.onLine !== false) {
         const snap = await api.snapshot().catch(() => null);
@@ -1383,7 +1417,10 @@ export async function mountSync(api) {
       } catch {
         return;
       }
-      if (rev && rev !== state.revision) schedule();
+      if (rev && rev !== state.revision) {
+        hurry = true;
+        if (!ticking) nextPoll(noticeWait(Date.now() - (state.pulledAt || 0)));
+      }
     };
     socket.onclose = () => {
       state.live = false;
@@ -1724,7 +1761,9 @@ export async function mountSync(api) {
       let changed = false;
       try {
         const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
-        if (mailbox.revision !== state.revision) await pull(mailbox);
+        // A refused write means something here is older than the server's
+        // copy, even when the revision matches. Read it again before the retry.
+        if (mailbox.revision !== state.revision || attempt > 0) await pull(mailbox);
         await refreshDevices();
         const self = state.devices.find((device) => device.self);
         if (!self) throw new Error("Couldn't sync.");
@@ -2093,7 +2132,8 @@ export async function mountSync(api) {
       }
       const remote = await asSet(packed);
       const snap = await api.snapshot();
-      const merged = JSON.parse(sync.mergePacked(await pack(snap.doc, snap.pages), remote.packed));
+      // The settings already syncing stay. This phone's own were never part of that set.
+      const merged = JSON.parse(sync.joinPacked(await pack(snap.doc, snap.pages), remote.packed));
       if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
       await installMerged(merged);
       state.revision = mailbox.revision;
@@ -3031,7 +3071,17 @@ export async function mountSync(api) {
     if (device.self) name.append(el("span", { class: "sync-dot", "aria-hidden": "true" }, ["●"]));
     name.append(el("b", {}, [deviceTitle(device)]));
     if (device.self) name.append(el("span", { class: "sync-quiet" }, [` · this ${onPhone() ? "phone" : "computer"}`]));
-    row.append(name);
+    // Another device that has not been opened in weeks may hold an old copy.
+    const seen = !device.self && typeof api.opened === "function" ? Number(api.opened()[device.id]) : 0;
+    const label = seen > 0 ? openedLabel(Math.floor(Date.now() / 1000), seen) : "";
+    if (label) {
+      row.append(el("div", { class: "sync-device-who" }, [
+        name,
+        el("span", { class: "sync-opened", "data-sync-opened": "" }, [label]),
+      ]));
+    } else {
+      row.append(name);
+    }
     if (right) row.append(right);
     return row;
   }
@@ -3156,6 +3206,7 @@ export async function mountSync(api) {
     home.append(list);
     const actions = actionButton(state.busy ? "Working…" : "Add a phone or computer", "primary", () => startInvite(), state.busy);
     actions.append(quietLinks([
+      [state.syncingNow ? "Syncing…" : "Sync now", () => syncNow(), state.busy || state.syncingNow],
       ["Turn sync off", () => { state.screen = "off-ask"; state.error = ""; draw(); }, state.busy],
     ]));
     home.append(actions);

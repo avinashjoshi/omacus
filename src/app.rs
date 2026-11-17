@@ -513,6 +513,9 @@ pub struct OmacusApp {
     /// The session is on a background step. The window keeps drawing a shell.
     sync_job: Option<std::sync::mpsc::Receiver<sync::Session>>,
     sync_poll: Instant,
+    /// Each open page as the window and sync last both had it. A page that
+    /// differs from this was typed in here, or changed by the other device.
+    sync_base: HashMap<String, String>,
     /// Last sidebar and settings written into the library.
     shared_noted: String,
     /// A pull changed the theme. The next frame paints it.
@@ -676,9 +679,15 @@ impl OmacusApp {
             // With OMACUS_SCREENSHOT, "update" opens the update window instead of help.
             update_open: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "update"),
             sync_tab_armed: false,
-            sync: sync::Session::open(sync_dir(), &sync_origin()),
+            sync: {
+                let session = sync::Session::open(sync_dir(), &sync_origin());
+                let ctx = cc.egui_ctx.clone();
+                session.wake_with(move || ctx.request_repaint());
+                session
+            },
             sync_job: None,
             sync_poll: Instant::now(),
+            sync_base: HashMap::new(),
             shared_noted: String::new(),
             theme_from_sync: false,
             sync_undo: None,
@@ -2741,22 +2750,48 @@ rental = rent + 50
             return;
         }
         if self.sync.active() && self.sync.screen == sync::Screen::Closed {
-            let edits: Vec<(String, String)> = self
+            let edits: Vec<(String, String, bool)> = self
                 .store
                 .sheets
                 .iter()
                 .filter(|sheet| sheet.revealed())
-                .map(|sheet| (sheet.id.clone(), sheet.text.clone()))
+                .map(|sheet| (sheet.id.clone(), sheet.text.clone(), sheet.locked()))
                 .collect();
-            for (id, text) in edits {
-                let changed = self
-                    .sync
-                    .page_text(&id)
-                    .map(|have| have != text)
-                    .unwrap_or(true);
-                if changed {
-                    self.sync.note_edit(&id, &text);
-                    self.sync_poll = Instant::now();
+            for (id, text, locked) in edits {
+                let have = self.sync.page_text(&id).map(str::to_string);
+                if have.as_deref() == Some(text.as_str()) {
+                    if self.sync_base.get(&id) != Some(&text) {
+                        self.sync_base.insert(id, text);
+                    }
+                    continue;
+                }
+                let base = self.sync_base.get(&id).cloned();
+                // A page typed in while the other device's lines arrived has
+                // neither copy whole. Both are kept, and the page shows them.
+                let shown = match (base, have) {
+                    (Some(base), Some(have)) if !locked && base == text => Some(have),
+                    (Some(base), Some(_)) if !locked => {
+                        let merged = self.sync.note_edit_since(&id, &base, &text);
+                        self.sync_poll = Instant::now();
+                        merged
+                    }
+                    _ => {
+                        self.sync.note_edit(&id, &text);
+                        self.sync_poll = Instant::now();
+                        None
+                    }
+                };
+                match shown {
+                    Some(shown) => {
+                        if let Some(cursor) = self.store.show_synced(&id, &shown) {
+                            self.pending_cursor = Some(cursor);
+                            self.evaluate();
+                        }
+                        self.sync_base.insert(id, shown);
+                    }
+                    None => {
+                        self.sync_base.insert(id, text);
+                    }
                 }
             }
         }
@@ -2773,11 +2808,14 @@ rental = rent + 50
             self.sync.ack_remote();
             self.sync_poll = Instant::now() - Duration::from_secs(60);
         }
-        let every = Duration::from_millis(sync::poll_gap_ms(
+        let mut every = Duration::from_millis(sync::poll_gap_ms(
             waiting,
             self.sync.is_dirty(),
             self.sync.socket_live(),
         ));
+        if self.sync.invite_open() {
+            every = every.min(Duration::from_millis(sync::INVITE_POLL_MS));
+        }
         let screen_waiting = self.sync.screen == sync::Screen::Waiting;
         let screen_closed = self.sync.screen == sync::Screen::Closed;
         if sync::should_poll_sync(self.sync.active(), screen_closed, screen_waiting)
@@ -3326,7 +3364,11 @@ rental = rent + 50
         let viewing = self.preview.clone();
         let mut dropped: Option<(String, Place)> = None;
         let mut expand_id: Option<String> = None;
-        let vault_rows = vault_row_indexes(&entries, |id| self.sync.in_set(id));
+        let vault_rows = vault_row_indexes(
+            &entries,
+            |id| self.sync.in_set(id),
+            |folder| self.store.pages_in_folder(folder),
+        );
         let passes = if grouped {
             vec![SidePass::Vault, SidePass::Here]
         } else {
@@ -3518,13 +3560,21 @@ rental = rent + 50
                         }
                     }
                     if grouped && pass == SidePass::Here && shown == 0 {
-                        let (hint, _) = ui
-                            .allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
-                        ui.painter().text(
-                            pos2(hint.left() + 14.0, hint.center().y),
-                            Align2::LEFT_CENTER,
-                            "Pages you move here stay on this computer.",
+                        // Wrapped to the sidebar. On one line it ran off the edge
+                        // at the usual width and read "stay o".
+                        let galley = ui.painter().layout(
+                            "Pages you move here stay on this computer.".to_string(),
                             FontId::proportional(theme::token::TYPE_CAPTION),
+                            theme.text_muted(),
+                            (ui.available_width() - 28.0).max(40.0),
+                        );
+                        let (hint, _) = ui.allocate_exact_size(
+                            vec2(ui.available_width(), galley.size().y + 12.0),
+                            Sense::hover(),
+                        );
+                        ui.painter().galley(
+                            pos2(hint.left() + 14.0, hint.top() + 6.0),
+                            galley,
                             theme.text_muted(),
                         );
                     }
@@ -6565,41 +6615,29 @@ enum SidePass {
     Here,
 }
 
-/// Folder rows that still hold a page in My pages, plus those pages.
+/// The rows under My pages: each synced page, and each folder that holds one.
+///
+/// `pages_in` lists every page inside a folder, shown or not. A collapsed
+/// folder has no page rows, and counting only the rows on screen dropped the
+/// folder itself, with no row left to open it again. A folder with no pages
+/// stays too, so a new folder does not disappear.
 fn vault_row_indexes(
     entries: &[crate::sheets::SideEntry],
     in_vault: impl Fn(&str) -> bool,
+    pages_in: impl Fn(&str) -> Vec<String>,
 ) -> HashSet<usize> {
-    let mut show = HashSet::new();
-    let mut stack: Vec<(usize, usize, bool)> = Vec::new();
-    for (index, entry) in entries.iter().enumerate() {
-        while stack
-            .last()
-            .is_some_and(|(_, depth, _)| *depth >= entry.depth)
-        {
-            let (idx, _, has) = stack.pop().unwrap();
-            if has {
-                show.insert(idx);
+    entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| match &entry.kind {
+            SideKind::Page { id } => in_vault(id),
+            SideKind::Folder { id, .. } => {
+                let pages = pages_in(id);
+                pages.is_empty() || pages.iter().any(|page| in_vault(page))
             }
-        }
-        match &entry.kind {
-            SideKind::Folder { .. } => stack.push((index, entry.depth, false)),
-            SideKind::Page { id } => {
-                if in_vault(id) {
-                    show.insert(index);
-                    for item in &mut stack {
-                        item.2 = true;
-                    }
-                }
-            }
-        }
-    }
-    while let Some((idx, _, has)) = stack.pop() {
-        if has {
-            show.insert(idx);
-        }
-    }
-    show
+        })
+        .map(|(index, _)| index)
+        .collect()
 }
 
 /// "Pages", "Recently deleted": lined up with the page names below.
@@ -7169,6 +7207,7 @@ mod tests {
         sidebar_accent, sidebar_label_job, switcher_takes_focus, take_chords, take_name_field_key,
         take_switcher_edits,
     };
+    use super::{SideKind, vault_row_indexes};
     use eframe::egui::{Color32, Event, FontId, ImeEvent, Key, Modifiers, Rect, pos2, vec2};
     use std::time::Duration;
 
@@ -7684,5 +7723,50 @@ mod tests {
         let mut esc = vec![press(Key::Escape, Modifiers::NONE, false)];
         assert_eq!(take_name_field_key(&mut esc), Some(NameFieldKey::Cancel));
         assert!(esc.is_empty());
+    }
+    #[test]
+    fn a_collapsed_folder_stays_under_my_pages() {
+        use crate::sheets::SideEntry;
+        let folder = |id: &str, depth, collapsed| SideEntry {
+            depth,
+            kind: SideKind::Folder {
+                id: id.into(),
+                name: id.into(),
+                collapsed,
+            },
+        };
+        let page = |id: &str, depth| SideEntry {
+            depth,
+            kind: SideKind::Page { id: id.into() },
+        };
+        let inside = |folder: &str| -> Vec<String> {
+            match folder {
+                "pantry" => vec!["oats".into(), "bread".into()],
+                "local" => vec!["draft".into()],
+                _ => Vec::new(),
+            }
+        };
+        let synced = |id: &str| id != "draft";
+
+        // Open: the folder and its pages are rows.
+        let open = [
+            page("ferry", 0),
+            folder("pantry", 0, false),
+            page("oats", 1),
+            page("bread", 1),
+        ];
+        assert_eq!(vault_row_indexes(&open, synced, inside).len(), 4);
+
+        // Collapsed: its pages are not rows, and the folder is still there.
+        let shut = [
+            page("ferry", 0),
+            folder("pantry", 0, true),
+            folder("local", 0, true),
+            folder("empty", 0, false),
+        ];
+        let rows = vault_row_indexes(&shut, synced, inside);
+        assert!(rows.contains(&1), "a collapsed folder left the sidebar");
+        assert!(!rows.contains(&2), "a folder of unsynced pages was listed");
+        assert!(rows.contains(&3), "an empty folder left the sidebar");
     }
 }

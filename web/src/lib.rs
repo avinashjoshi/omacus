@@ -1038,6 +1038,23 @@ pub fn doc_note_state(bytes: &[u8], structural: &str) -> Vec<u8> {
     lib.save()
 }
 
+/// Say that `device` opened the pages at `at`, seconds since 1970. At most
+/// once in `every` seconds. The same bytes come back when nothing was written.
+#[wasm_bindgen(js_name = docNoteSeen)]
+pub fn doc_note_seen(bytes: &[u8], device: &str, at: f64, every: f64) -> Vec<u8> {
+    let Some(mut lib) = open_doc(bytes) else {
+        return bytes.to_vec();
+    };
+    if !at.is_finite() || at < 0.0 || !every.is_finite() || every < 0.0 {
+        return bytes.to_vec();
+    }
+    if lib.note_seen(device, at as u64, every as u64) {
+        lib.save()
+    } else {
+        bytes.to_vec()
+    }
+}
+
 /// What the sidebar, trash, handles, and preferences should show.
 /// Empty when this document has no shared state yet.
 #[wasm_bindgen(js_name = docState)]
