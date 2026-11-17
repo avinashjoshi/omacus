@@ -1,7 +1,7 @@
 //! Sync screens in this window. Copy matches the web app, and the six
 //! desktop dialogs match the approved mockups. Colors come from the theme.
 
-use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, vec2};
+use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, pos2, vec2};
 
 use crate::design;
 use crate::settings;
@@ -240,7 +240,24 @@ enum CardMark {
 
 fn card(ui: &mut egui::Ui, theme: &Theme, mark: CardMark, heading: &str, detail: &str) -> bool {
     let width = ui.available_width();
-    let (rect, response) = ui.allocate_exact_size(vec2(width, 84.0), egui::Sense::click());
+    // The words wrap between the tile and the chevron. On one line they ran
+    // over the chevron and out of the card in a narrow window.
+    let room = (width - 60.0 - 36.0).max(80.0);
+    let heading = ui.painter().layout(
+        heading.to_string(),
+        egui::FontId::proportional(theme::token::TYPE_BODY),
+        theme.foreground,
+        room,
+    );
+    let detail = ui.painter().layout(
+        detail.to_string(),
+        egui::FontId::proportional(theme::token::TYPE_CAPTION),
+        theme.dim,
+        room,
+    );
+    let words = heading.size().y + 4.0 + detail.size().y;
+    let height = (words + 40.0).max(84.0);
+    let (rect, response) = ui.allocate_exact_size(vec2(width, height), egui::Sense::click());
     if response.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -256,27 +273,20 @@ fn card(ui: &mut egui::Ui, theme: &Theme, mark: CardMark, heading: &str, detail:
         Stroke::new(1.0, theme.border()),
         egui::StrokeKind::Inside,
     );
-    let tile = egui::Rect::from_min_size(rect.min + vec2(12.0, 24.0), vec2(36.0, 36.0));
+    let tile = egui::Rect::from_min_size(
+        pos2(rect.left() + 12.0, rect.center().y - 18.0),
+        vec2(36.0, 36.0),
+    );
     painter.rect_filled(
         tile,
         CornerRadius::same(theme::token::RADIUS_MD),
         theme.surface(),
     );
     paint_mark(painter, mark, tile.center(), theme.accent);
-    painter.text(
-        rect.min + vec2(60.0, 22.0),
-        egui::Align2::LEFT_TOP,
-        heading,
-        egui::FontId::proportional(theme::token::TYPE_BODY),
-        theme.foreground,
-    );
-    painter.text(
-        rect.min + vec2(60.0, 44.0),
-        egui::Align2::LEFT_TOP,
-        detail,
-        egui::FontId::proportional(theme::token::TYPE_CAPTION),
-        theme.dim,
-    );
+    let top = rect.center().y - words / 2.0;
+    let below = top + heading.size().y + 4.0;
+    painter.galley(pos2(rect.left() + 60.0, top), heading, theme.foreground);
+    painter.galley(pos2(rect.left() + 60.0, below), detail, theme.dim);
     let tip = rect.right_center() + vec2(-18.0, 0.0);
     painter.line_segment(
         [tip + vec2(-5.0, -5.0), tip],
@@ -420,7 +430,11 @@ fn words(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Stri
         "These 12 words are the only way back in if you lose every device. Omacus never keeps a copy, and you won't see them again.",
     );
     if let Some(grid) = session.words_grid().cloned() {
-        egui::Grid::new("sync-words").num_columns(3).show(ui, |ui| {
+        // Room between the columns, so a word does not run into the next number.
+        let words = egui::Grid::new("sync-words")
+            .num_columns(3)
+            .spacing([28.0, 8.0]);
+        words.show(ui, |ui| {
             for (i, word) in grid.iter().enumerate() {
                 ui.label(
                     RichText::new(format!("{}. {word}", i + 1))
@@ -440,11 +454,19 @@ fn words(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Stri
         if design::toggle(ui, theme, &mut wrote).changed() {
             session.set_wrote(wrote);
         }
-        ui.label(
-            RichText::new("I wrote these down or printed them somewhere safe.")
-                .size(theme::token::TYPE_BODY)
-                .color(theme.foreground),
-        );
+        // Wrapped beside the switch. Unwrapped, this line made the whole
+        // card wider than a narrow window.
+        ui.vertical(|ui| {
+            ui.set_max_width(ui.available_width());
+            ui.add(
+                egui::Label::new(
+                    RichText::new("I wrote these down or printed them somewhere safe.")
+                        .size(theme::token::TYPE_BODY)
+                        .color(theme.foreground),
+                )
+                .wrap(),
+            );
+        });
     });
     ui.add_space(8.0);
     err(ui, theme, &session.error.clone());
@@ -493,11 +515,13 @@ fn check(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Stri
                 .color(theme.foreground),
         );
         let choices = session.choice_list(which).to_vec();
-        ui.horizontal_wrapped(|ui| {
-            for (index, word) in choices.into_iter().enumerate() {
-                // Each row used the same automatic ids, so a click landed on
-                // another row and the word that was tapped did not stay marked.
-                ui.push_id((which, index), |ui| {
+        // Each row used the same automatic ids, so a click landed on another
+        // row and the word that was tapped did not stay marked. The id is on
+        // the row, not on each word: a word in its own box could not move to
+        // the next line, and the last one was set one letter to a line.
+        ui.push_id(which, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for word in choices {
                     let picked = session.picked(which) == Some(word.as_str());
                     let button = if picked {
                         design::primary(ui, theme, &word)
@@ -507,8 +531,8 @@ fn check(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Stri
                     if button.clicked() {
                         session.pick(which, &word);
                     }
-                });
-            }
+                }
+            });
         });
         ui.add_space(6.0);
     }
@@ -718,7 +742,11 @@ fn home(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
 fn devices(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) {
     let rows = session.devices();
     for row in rows {
-        ui.horizontal(|ui| {
+        // One line, centered on the buttons. A plain horizontal row set the
+        // name before it knew how tall the buttons were, and the name sat high.
+        let line = vec2(ui.available_width(), theme::token::HIT);
+        let across = egui::Layout::left_to_right(egui::Align::Center);
+        ui.allocate_ui_with_layout(line, across, |ui| {
             if row.here {
                 let (rect, _) = ui.allocate_exact_size(vec2(8.0, 8.0), egui::Sense::hover());
                 ui.painter()
@@ -812,7 +840,10 @@ fn join(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
     );
     field_label(ui, theme, "Join code");
     let mut scan = false;
-    ui.horizontal(|ui| {
+    // The field and the button share one center line.
+    let line = vec2(ui.available_width(), theme::token::HIT);
+    let across = egui::Layout::left_to_right(egui::Align::Center);
+    ui.allocate_ui_with_layout(line, across, |ui| {
         let code = session.join_buf();
         ui.add(
             egui::TextEdit::singleline(code)

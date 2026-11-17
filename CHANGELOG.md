@@ -30,6 +30,10 @@ The web app picks up an edit from your other device in under a second. It used t
 
 Turn sync off no longer says the copy is out of date when your other device changed something before you reopened the web app.
 
+**Sync setup fits a narrow window**
+
+On the desktop, the two setup choices keep their text inside the card, the recovery words stay inside the window, the words to pick wrap onto the next line, and each name lines up with its buttons.
+
 **A second data folder leaves the first one signed in**
 
 Turning sync off in a copy of Omacus that keeps its key behind a passphrase no longer removes the key the installed app keeps in your login keyring.
