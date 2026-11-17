@@ -22,6 +22,10 @@ When the other device types the code, the computer showing that code goes straig
 
 The list of phones and computers says when each other one was last opened: today, yesterday, 12 days ago, or over a month ago. A device left in a drawer may hold an old copy, and now you can tell.
 
+**A narrow browser window is still a computer**
+
+The web app says "this computer" on a computer however narrow the window is, and "this phone" only on a phone.
+
 **Sync now**
 
 The Sync card has Sync now, on the desktop and on the web. Sync still runs on its own. This is for when you want to be sure.

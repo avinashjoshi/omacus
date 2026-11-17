@@ -380,7 +380,7 @@ The other sync screens use the same words as the web app.
 
 The setup cards wrap their two lines of text between the icon tile and the chevron, and the card grows to fit. The words to pick on the check screen wrap as a row.
 
-The web app's Sync card has the same list and the same two quiet links. Its sidebar footer rows each have an icon and a word: a cloud for Sync, a gear for Settings, a circled i for About.
+The web app's Sync card has the same list and the same two quiet links. It says "this phone" on a phone and "this computer" anywhere else. That goes by the device, not by the width of the window: a narrow browser window on a computer is still a computer. Its sidebar footer rows each have an icon and a word: a cloud for Sync, a gear for Settings, a circled i for About.
 
 ### Sync test
 

@@ -117,7 +117,8 @@ async function shot(page, name) {
 }
 
 async function expectHomeGaps(page) {
-  const phone = await page.evaluate(() => matchMedia("(max-width: 760px)").matches);
+  // The words go by the device. A narrow window on a computer is still a computer.
+  const phone = await page.evaluate(() => navigator.userAgentData?.mobile ?? /iPhone|iPod|Android.*Mobile/.test(navigator.userAgent));
   await expect(page.locator(".sync-quiet")).toHaveText(phone ? " · this phone" : " · this computer");
   const gaps = await page.evaluate(() => {
     const box = (node) => node.getBoundingClientRect();
@@ -190,7 +191,8 @@ async function expectJoinLayout(page) {
   await expect(page.getByRole("button", { name: "Use recovery words" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Join", exact: true })).toBeVisible();
   await expect(page.locator(".sync-panel .sync-links")).toHaveCount(0);
-  const phone = await page.evaluate(() => matchMedia("(max-width: 760px)").matches);
+  // The words go by the device. A narrow window on a computer is still a computer.
+  const phone = await page.evaluate(() => navigator.userAgentData?.mobile ?? /iPhone|iPod|Android.*Mobile/.test(navigator.userAgent));
   await expect(page.getByText(phone
     ? "Pages already on this phone will be combined with your synced pages. Nothing is deleted."
     : "Pages already on this computer will be combined with your synced pages. Nothing is deleted.")).toBeVisible();
@@ -290,7 +292,8 @@ test("an invite notices a join within 5 seconds", async ({ browser }) => {
     await shot(phoneA, "sync-access-desktop-dark");
     await theme(phoneA, "light");
     await phoneA.setViewportSize({ width: 390, height: 844 });
-    await expect(phoneA.getByRole("heading", { name: "Start fresh on this phone" })).toBeVisible();
+    // The window is narrow now. It is still a computer, and the words say so.
+    await expect(phoneA.getByRole("heading", { name: "Start fresh on this computer" })).toBeVisible();
     await shot(phoneA, "sync-access-phone-light");
     await theme(phoneA, "dark");
     await shot(phoneA, "sync-access-phone-dark");

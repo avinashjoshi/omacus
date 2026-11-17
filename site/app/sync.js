@@ -5,7 +5,7 @@ import { SYNC_URL } from "./sync-config.js";
 import { APP_VERSION } from "./version.js";
 import { approvalCard, beginSave, chipLabel, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, followWaits, keepUnlessTombstone, leaveMessage, noteLocalEdit, noteTombstone, noticeWait, openedLabel, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, setMark, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
-import { guessDeviceName as nameFromAgent } from "./device-name.js";
+import { guessDeviceName as nameFromAgent, isPhone } from "./device-name.js";
 import { deviceListNote, pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
 import { RECOVERY_WORDS } from "./recovery-words.js";
 import { WORD_CHECK_ERROR, buildChoices, usableList } from "./word-check.js";
@@ -702,7 +702,7 @@ export async function mountSync(api) {
   }
 
   function onPhone() {
-    return matchMedia("(max-width: 760px)").matches;
+    return isPhone(navigator.userAgent, navigator.userAgentData?.mobile);
   }
 
   function here() {
@@ -3073,11 +3073,15 @@ export async function mountSync(api) {
     if (device.self) name.append(el("span", { class: "sync-quiet" }, [` · this ${onPhone() ? "phone" : "computer"}`]));
     // Another device that has not been opened in weeks may hold an old copy.
     const seen = !device.self && typeof api.opened === "function" ? Number(api.opened()[device.id]) : 0;
-    if (seen > 0) {
-      const label = openedLabel(Math.floor(Date.now() / 1000), seen);
-      if (label) name.append(el("span", { class: "sync-opened", "data-sync-opened": "" }, [label]));
+    const label = seen > 0 ? openedLabel(Math.floor(Date.now() / 1000), seen) : "";
+    if (label) {
+      row.append(el("div", { class: "sync-device-who" }, [
+        name,
+        el("span", { class: "sync-opened", "data-sync-opened": "" }, [label]),
+      ]));
+    } else {
+      row.append(name);
     }
-    row.append(name);
     if (right) row.append(right);
     return row;
   }
