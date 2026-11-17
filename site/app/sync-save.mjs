@@ -31,6 +31,17 @@ function pageMap(pages) {
 export const POLL_SOON_MS = 800;
 export const POLL_ACTIVE_MS = 4000;
 export const PUSH_DEBOUNCE_MS = 400;
+// The socket said the other device wrote. There is nothing to wait for, so the
+// pull starts almost at once. It used to wait the 800 ms a follow-up waits.
+export const NOTICE_PULL_MS = 100;
+// Someone typing on the other device sends a notice every half second. Each
+// pull is two requests, and a mailbox allows a set number a minute, so a
+// notice that follows a pull closely waits like any other follow-up.
+export const NOTICE_QUIET_MS = 1500;
+
+export function noticeWait(sinceLastPullMs) {
+  return sinceLastPullMs >= NOTICE_QUIET_MS ? NOTICE_PULL_MS : POLL_SOON_MS;
+}
 export const FALLBACK_POLL_MS = 2000;
 export const POLL_IDLE_MS = 30000;
 export const POLL_HIDDEN_MS = 60000;

@@ -18,6 +18,18 @@ With sync on, a new folder shows in the sidebar right away, and a collapsed fold
 
 When the other device types the code, the computer showing that code goes straight to the approval. The code no longer blinks while it waits.
 
+**Sync now**
+
+The Sync card has Sync now, on the desktop and on the web. Sync still runs on its own. This is for when you want to be sure.
+
+**A change from your computer reaches the browser sooner**
+
+The web app picks up an edit from your other device in under a second. It used to wait almost a second before it looked.
+
+**Turning sync off works after the page is reopened**
+
+Turn sync off no longer says the copy is out of date when your other device changed something before you reopened the web app.
+
 **Joining keeps the settings you already chose**
 
 A phone or computer that joins your pages takes the theme, the lock time, and the short names already there. Its own defaults no longer replace them.

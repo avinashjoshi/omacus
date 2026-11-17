@@ -12,7 +12,12 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync, readFileSync, chmodSync, rmSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 
-const BOX = "http://127.0.0.1:8798";
+// OMACUS_LIVE_SYNC names a real sync server. The run then uses that server,
+// the built web app at OMACUS_LIVE_APP, and the invite code in the file
+// OMACUS_LIVE_ACCESS. Each run starts one new set there.
+const LIVE = process.env.OMACUS_LIVE_SYNC || "";
+const BOX = LIVE || "http://127.0.0.1:8798";
+const APP = process.env.OMACUS_LIVE_APP || "/app/";
 const BIN = process.env.OMACUS_BIN || "target/debug/omacus";
 const ROOT = "/tmp/omacus-joined-typing";
 
@@ -72,13 +77,13 @@ async function handle(route) {
 }
 
 async function arm(context) {
-  await context.route("**/app/**", async (route) => {
+  await context.route(LIVE ? `${APP}*` : "**/app/**", async (route) => {
     if (route.request().resourceType() !== "document") return route.continue();
     const response = await route.fetch();
     const body = (await response.text()).replace("<html lang=\"en\">", "<html lang=\"en\" data-sync-test=\"1\">");
     await route.fulfill({ response, body });
   });
-  await context.route("**/v1/**", handle);
+  if (!LIVE) await context.route("**/v1/**", handle);
 }
 
 function secretFile(path, text) {
@@ -184,12 +189,15 @@ test("desktop and web keep each other's lines while both type", async ({ browser
   test.setTimeout(300000);
   rmSync(ROOT, { recursive: true, force: true });
   mkdirSync(ROOT, { recursive: true });
-  const box = startBox();
-  const children = [box.child];
-  await box.ready;
+  const children = [];
+  if (!LIVE) {
+    const box = startBox();
+    children.push(box.child);
+    await box.ready;
+  }
   try {
     secretFile(`${ROOT}/pass`, randomBytes(18).toString("hex"));
-    secretFile(`${ROOT}/access`, await mint());
+    secretFile(`${ROOT}/access`, LIVE ? readFileSync(process.env.OMACUS_LIVE_ACCESS, "utf8").trim() : await mint());
     const driver = startDriver(`${ROOT}/desk`, {
       OMACUS_E2E_PASS_FILE: `${ROOT}/pass`,
       OMACUS_E2E_ACCESS_FILE: `${ROOT}/access`,
@@ -205,7 +213,7 @@ test("desktop and web keep each other's lines while both type", async ({ browser
     const page = await context.newPage();
     const errors = [];
     page.on("pageerror", (error) => errors.push(String(error)));
-    await page.goto("/app/", { waitUntil: "domcontentloaded" });
+    await page.goto(APP, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("[data-loading]", { state: "detached", timeout: 60000 });
     await page.waitForFunction(() => typeof globalThis.omacusTurnOnSync === "function");
     expect((await settings(page)).theme).toBe("auto");
@@ -234,14 +242,19 @@ test("desktop and web keep each other's lines while both type", async ({ browser
     });
 
     // Typed on the web, read on the desktop.
+    const timing = {};
     await openPage(page, "Oats");
     await page.keyboard.type("\nweb tin 3", { delay: 20 });
-    await expect.poll(() => deskText(driver, "oats"), { timeout: 15000 }).toContain("web tin 3");
+    let at = Date.now();
+    await expect.poll(() => deskText(driver, "oats"), { timeout: 15000, intervals: [100] }).toContain("web tin 3");
+    timing.webToDesktopMs = Date.now() - at;
 
     // Typed on the desktop, shown in the page that is open on the web.
     writeFileSync(`${ROOT}/oats.txt`, "# Oats\nbowl 2\n\nweb tin 3\ndesk jar 4\n");
+    at = Date.now();
     await driver.send(`rename oats ${ROOT}/oats.txt`);
     await expect(page.locator(".cm-content")).toContainText("desk jar 4", { timeout: 15000 });
+    timing.desktopToWebMs = Date.now() - at;
 
     // Both at once, page after page. Each side keeps the other's line, and
     // the web cursor stays on the line it was typing.
@@ -355,8 +368,54 @@ test("desktop and web keep each other's lines while both type", async ({ browser
     expect(await page.evaluate(() => document.documentElement.dataset.appTheme)).toBe("light");
     expect((await driver.send("sync")).detail.present.prefs.theme).toBe("light");
 
+    // Turning sync off on the web takes it off the desktop's list, and the pages stay.
+    const kept = (await sideState(page)).rows;
+    await page.getByRole("button", { name: "Settings" }).click();
+    await page.locator("[data-settings-tab='sync']").click();
+    await page.getByRole("button", { name: "Turn sync off" }).click();
+    await expect(page.getByRole("heading", { name: /^Turn sync off on this/ })).toBeVisible();
+    await page.getByRole("button", { name: "Turn sync off", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Turn on sync" })).toBeVisible({ timeout: 30000 });
+    await expect(page.locator(".sync-chip")).toBeHidden();
+    await expect
+      .poll(async () => {
+        await driver.send("sync");
+        return (await driver.send("devices")).detail.devices;
+      }, { timeout: 30000 })
+      .not.toContain("Harbor web");
+    await page.evaluate(() => {
+      const root = document.querySelector("[data-settings]");
+      if (root && !root.hidden) root.querySelector(".settings-head [data-action='close-settings']")?.click();
+    });
+    expect((await sideState(page)).rows).toEqual(kept);
+
+    // A page changed on each side while the web is off.
+    writeFileSync(`${ROOT}/oats-off.txt`, "# Oats\nbowl 2\n\nweb tin 3\ndesk jar 4\ndesk while off\n");
+    await driver.send(`rename oats ${ROOT}/oats-off.txt`);
+    await openPage(page, "Ferry");
+    await page.keyboard.type("\nweb while off");
+
+    // Joining again brings both back together.
+    await driver.send("invite");
+    const again = readFileSync(`${ROOT}/invite`, "utf8").trim();
+    await joinWith(page, again, "Harbor web");
+    await expect(page.getByRole("heading", { name: "Approve on your other device" })).toBeVisible();
+    await driver.send("approve", 40000);
+    await expect(page.getByRole("heading", { name: "Do these match?" })).toBeVisible({ timeout: 20000 });
+    await page.getByRole("button", { name: "These match" }).click();
+    await expect(page.locator(".sync-chip")).toHaveText(/^(Live|List changed)$/, { timeout: 30000 });
+    await expect.poll(() => webText(page, "oats"), { timeout: 20000 }).toContain("desk while off");
+    await expect.poll(() => deskText(driver, "ferry"), { timeout: 20000 }).toContain("web while off");
+    expect(await webText(page, "ferry")).toContain("desk crust 1");
+    expect((await sideState(page)).rows.filter((row) => row === "Pantry")).toHaveLength(1);
+
+    // The desktop turns sync off last. Its pages stay too.
+    const off = await driver.send("off", 60000);
+    expect(off.detail.error).toBe("");
+    expect(off.detail.pages.some((row) => row.startsWith("oats:"))).toBe(true);
+
+    console.log(`TIMING ${JSON.stringify(timing)}`);
     expect(errors).toEqual([]);
-    await expect(page.locator(".sync-chip")).toHaveText("Live");
     await context.close();
   } finally {
     for (const child of children) child.kill();

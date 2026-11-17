@@ -705,6 +705,10 @@ fn home(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
     if design::primary(ui, theme, "Add a phone or computer").clicked() {
         session.ask(Work::StartInvite);
     }
+    // Sync runs on its own. This is for the moment someone wants to be sure.
+    if design::quiet(ui, theme, "Sync now").clicked() {
+        session.ask(Work::SyncNow);
+    }
     if design::quiet(ui, theme, "Turn sync off").clicked() {
         session.ask_off();
     }
@@ -1242,6 +1246,7 @@ mod tests {
     fn paused_and_list_change_live_in_the_settings_card() {
         let src = include_str!("ui.rs");
         assert!(src.contains("Check again"));
+        assert!(src.contains("Sync now"));
         assert!(src.contains("The Sync button in the sidebar stays"));
         assert!(src.contains("This note does not stop pages from saving."));
         let modal = format!("{}{}", "Modal::", "new");

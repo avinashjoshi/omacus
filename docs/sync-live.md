@@ -10,6 +10,10 @@ A page can be typed in while the pull is under way. The pull reads the page, mer
 
 A device that joins has its own sidebar, handles, and settings, with revision numbers that were only ever counted on that device. On the first merge those numbers are set aside, so the copy already syncing wins where both have the same item, and anything only the new device has is kept. After that the two share one document and a later change wins as usual. The background pull does not run on the web while that first copy is being installed.
 
+The folders, the order, and the short names sync too. Changing one of them changes no page text, so the web app tells sync when its saved sidebar differs from the one it last sent. It keeps the document it sent, so the next change is numbered after it.
+
+Sync now, on the Sync card, reads the server's copy and sends this device's. Nothing depends on it.
+
 The status says Live while the socket is up, Syncing while a save is going out, and Offline when this device is not connected. It does not say Synced.
 
 ## Later: more than one person in a page

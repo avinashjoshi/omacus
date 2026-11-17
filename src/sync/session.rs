@@ -24,6 +24,8 @@ use super::qr;
 use super::wire::{self, Client};
 
 pub const CLIPBOARD_SECS: u64 = 60;
+/// How long the server keeps an invite code.
+pub const INVITE_SECS: u64 = 5 * 60;
 pub const CLIPBOARD_NOTE: &str =
     "A clipboard history may keep these words. Printing them, or writing them down, is safest.";
 pub const PARTIAL_NOTE: &str = "Some changes made after a phone or computer was removed may be missing. They were locked to phones and computers that are no longer linked. Pages already here were combined with the ones these words could open. Nothing was deleted.";
@@ -254,6 +256,7 @@ impl Work {
                 "Saving the sync key…"
             }
             Work::Poll => "",
+            Work::SyncNow => "Syncing…",
             _ => "Saving…",
         }
     }
@@ -303,6 +306,8 @@ pub struct Session {
     pending_name: String,
     invite_code: String,
     invite_link: String,
+    /// When the code on screen was made. The server keeps it for five minutes.
+    invite_at: Option<Instant>,
     on: bool,
     member: bool,
     removed: bool,
@@ -437,6 +442,7 @@ impl Session {
             pending_name: String::new(),
             invite_code: String::new(),
             invite_link: String::new(),
+            invite_at: None,
             on: false,
             member: false,
             removed: false,
@@ -543,6 +549,7 @@ impl Session {
         // card blinked to an empty one on every poll.
         shell.invite_code = self.invite_code.clone();
         shell.invite_link = self.invite_link.clone();
+        shell.invite_at = self.invite_at;
         shell.pending_device = self.pending_device.clone();
         shell.pending_id = self.pending_id.clone();
         shell.pending_name = self.pending_name.clone();
@@ -1332,9 +1339,21 @@ impl Session {
         secret.zeroize();
         self.invite_code = code;
         self.invite_link = link;
+        self.invite_at = Some(Instant::now());
         self.screen = Screen::Invite;
         self.mark("scan");
         Ok(())
+    }
+
+    /// A code is out and nobody has typed it yet. A join is not a write, so
+    /// the socket says nothing about it. With the socket up this computer
+    /// only asked every half minute, and the approval showed up that late.
+    pub fn invite_open(&self) -> bool {
+        self.on
+            && self.pending_id.is_empty()
+            && self
+                .invite_at
+                .is_some_and(|at| at.elapsed() < Duration::from_secs(INVITE_SECS))
     }
 
     pub fn invite_code(&self) -> &str {
@@ -1759,6 +1778,7 @@ impl Session {
         self.pending_id.clear();
         self.pending_device.clear();
         self.invite_code.clear();
+        self.invite_at = None;
         self.screen = Screen::Home;
         Ok(())
     }
@@ -4649,6 +4669,24 @@ mod list_note_tests {
         session.reveal_request();
         assert_eq!(session.screen, Screen::Approve);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_open_invite_keeps_asking_for_the_join() {
+        let dir = std::env::temp_dir().join(format!("omacus-invite-open-{}", std::process::id()));
+        let mut session = Session::blank(dir, "http://127.0.0.1:9");
+        session.on = true;
+        assert!(!session.invite_open(), "no code was made");
+        session.invite_at = Some(Instant::now());
+        assert!(session.invite_open());
+        assert!(session.display_shell(&Work::Poll).invite_open());
+        // Once a device is waiting, the faster waiting poll takes over.
+        session.pending_id = "harbor".into();
+        assert!(!session.invite_open());
+        session.pending_id.clear();
+        // The server has dropped the code by now.
+        session.invite_at = Instant::now().checked_sub(Duration::from_secs(INVITE_SECS + 1));
+        assert!(!session.invite_open());
     }
 
     #[test]

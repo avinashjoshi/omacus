@@ -2,7 +2,7 @@
 // Two phones that each edit offline both keep their lines: the one that was
 // offline merges when its pages differ from the last synced copy.
 import { readFileSync } from "node:fs";
-import { approvalCard, beginSave, chipLabel, dedupeWelcome, declinedCovers, finishSave, followWaits, keepUnlessTombstone, leaveMessage, liveDeliveryMs, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, removalSentence, setMark, showTurnOnSync } from "../site/app/sync-save.mjs";
+import { approvalCard, beginSave, chipLabel, dedupeWelcome, declinedCovers, finishSave, followWaits, keepUnlessTombstone, leaveMessage, liveDeliveryMs, noteLocalEdit, NOTICE_PULL_MS, noticeWait, POLL_SOON_MS, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, removalSentence, setMark, showTurnOnSync } from "../site/app/sync-save.mjs";
 
 function assert(cond, message) {
   if (!cond) throw new Error(message);
@@ -16,6 +16,14 @@ assert(followWaits("recover") === true, "a pull ran beside recovery");
 assert(followWaits("linked") === false, "a linked device stopped following");
 assert(followWaits("approve") === false, "an approval stopped following");
 assert(followWaits(undefined) === false, "a closed card stopped following");
+
+// A notice from the socket is pulled sooner than an ordinary follow-up.
+assert(NOTICE_PULL_MS <= 150, "a notice from the other device waited before the pull");
+assert(NOTICE_PULL_MS < POLL_SOON_MS, "a notice waited as long as a follow-up");
+assert(noticeWait(60000) === NOTICE_PULL_MS, "the first notice after a quiet spell waited");
+assert(noticeWait(Infinity) === NOTICE_PULL_MS, "the first notice ever waited");
+// The other device is typing: a notice every half second is not a pull every half second.
+assert(noticeWait(400) === POLL_SOON_MS, "every notice in a burst pulled at once");
 
 const inflight = { dirty: true, editGen: 2 };
 const started = beginSave(inflight);

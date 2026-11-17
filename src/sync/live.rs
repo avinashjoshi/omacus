@@ -19,6 +19,8 @@ pub const FALLBACK_POLL_MS: u64 = 2_000;
 /// A live socket is the notice. This poll only catches a missed one.
 pub const LIVE_FALLBACK_MS: u64 = 30_000;
 pub const WAITING_POLL_MS: u64 = 800;
+/// While an invite code is out, look for the join this often.
+pub const INVITE_POLL_MS: u64 = 2_000;
 
 /// A device that is already syncing keeps the socket up, including while the
 /// sync sheet is open. A join that is still waiting keeps asking too.
@@ -270,6 +272,7 @@ mod tests {
         assert_eq!(poll_gap_ms(false, true, true), 400);
         assert_eq!(poll_gap_ms(false, false, true), 30_000);
         assert_eq!(poll_gap_ms(false, false, false), 2_000);
+        assert_eq!(INVITE_POLL_MS, 2_000);
     }
 
     #[test]

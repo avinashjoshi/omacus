@@ -3,7 +3,7 @@
 // WebCrypto key. The page's strict policy is what keeps other scripts out.
 import { SYNC_URL } from "./sync-config.js";
 import { APP_VERSION } from "./version.js";
-import { approvalCard, beginSave, chipLabel, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, followWaits, keepUnlessTombstone, leaveMessage, noteLocalEdit, noteTombstone, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, setMark, showTurnOnSync } from "./sync-save.mjs";
+import { approvalCard, beginSave, chipLabel, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, followWaits, keepUnlessTombstone, leaveMessage, noteLocalEdit, noteTombstone, noticeWait, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, setMark, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 import { deviceListNote, pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
@@ -1103,6 +1103,7 @@ export async function mountSync(api) {
   }
 
   async function pull(mailbox, depth = 0) {
+    state.pulledAt = Date.now();
     const wanted = JSON.parse(sync.wantedObjects(state.desk, mailbox.record, state.slots || "[]"));
     if (!wanted.ok) throw new Error(wanted.message || "Those pages could not be opened.");
     const fetched = await fetchObjects(wanted.want || []);
@@ -1158,6 +1159,10 @@ export async function mountSync(api) {
     state.dirty = upload || joined.welcomeRemoved.length > 0 || localChanged || opened.republish === true;
     if (!state.dirty) await rememberBase(joined.pages);
     paintRemoval();
+    // Before the save below. These are the object revisions this copy was
+    // read at. Saved after it, a reload came back with the older ones, and
+    // the next write named revisions the server no longer had.
+    if (opened.slots) state.slots = opened.slots;
     await saveFile();
     await refreshDevices();
     if (dropped || state.removed) {
@@ -1287,6 +1292,26 @@ export async function mountSync(api) {
     }
   }
 
+  // Sync runs on its own. This reads the server's copy and sends this
+  // device's, for the moment someone wants to be sure.
+  async function syncNow() {
+    if (state.syncingNow || !state.member || !state.desk) return;
+    state.syncingNow = true;
+    draw();
+    try {
+      const deadline = Date.now() + 8000;
+      while (ticking && Date.now() < deadline) await sleep(40);
+      noteLocalEdit(state);
+      armSaving();
+      clearTimeout(timer);
+      await tick();
+    } finally {
+      state.syncingNow = false;
+      if (state.screen === "linked" && !panel.hidden) draw();
+      nextPoll(pollWait({ soon: true }));
+    }
+  }
+
   async function noticeJoin() {
     if (state.screen !== "linked" && state.screen !== "invite" && state.screen !== "ready") return;
     const found = await findRequest();
@@ -1384,7 +1409,10 @@ export async function mountSync(api) {
       } catch {
         return;
       }
-      if (rev && rev !== state.revision) schedule();
+      if (rev && rev !== state.revision) {
+        hurry = true;
+        if (!ticking) nextPoll(noticeWait(Date.now() - (state.pulledAt || 0)));
+      }
     };
     socket.onclose = () => {
       state.live = false;
@@ -1725,7 +1753,9 @@ export async function mountSync(api) {
       let changed = false;
       try {
         const mailbox = await callServer("GET", `/v1/mailboxes/${state.account}`);
-        if (mailbox.revision !== state.revision) await pull(mailbox);
+        // A refused write means something here is older than the server's
+        // copy, even when the revision matches. Read it again before the retry.
+        if (mailbox.revision !== state.revision || attempt > 0) await pull(mailbox);
         await refreshDevices();
         const self = state.devices.find((device) => device.self);
         if (!self) throw new Error("Couldn't sync.");
@@ -3158,6 +3188,7 @@ export async function mountSync(api) {
     home.append(list);
     const actions = actionButton(state.busy ? "Working…" : "Add a phone or computer", "primary", () => startInvite(), state.busy);
     actions.append(quietLinks([
+      [state.syncingNow ? "Syncing…" : "Sync now", () => syncNow(), state.busy || state.syncingNow],
       ["Turn sync off", () => { state.screen = "off-ask"; state.error = ""; draw(); }, state.busy],
     ]));
     home.append(actions);

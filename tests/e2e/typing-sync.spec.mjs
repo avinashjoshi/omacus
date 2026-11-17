@@ -161,6 +161,33 @@ test("a line from the other phone lands while this one is typing", async ({ brow
     await expect.poll(() => folderRows(phoneB), { timeout: 30000 }).toContain("Tin shelf");
     expect(await folderRows(phoneB)).not.toContain("Tins");
 
+    // Sync now asks the server and sends this phone's copy, and says when it is done.
+    await phoneA.getByRole("button", { name: "Settings" }).click();
+    await phoneA.locator("[data-settings-tab='sync']").click();
+    // The card from setup is still up on this phone. Done leaves it for the usual one.
+    await phoneA.getByRole("button", { name: "Done" }).click();
+    const asked = phoneA.waitForRequest((req) => req.method() === "GET" && /\/v1\/mailboxes\/[0-9a-f]{64}$/.test(new URL(req.url()).pathname));
+    const sent = saved(phoneA);
+    await phoneA.getByRole("button", { name: "Sync now" }).click();
+    await asked;
+    await sent;
+    await expect(phoneA.getByRole("button", { name: "Sync now" })).toBeEnabled({ timeout: 20000 });
+    await expect(phoneA.locator(".sync-chip")).not.toHaveAttribute("data-state", "error");
+    await phoneA.locator("[data-action='close-settings']").last().click();
+
+    // Phone B has read what phone A changed, and is opened again. Turning
+    // sync off used to be refused from then on: the copy it kept named older
+    // revisions than the server had.
+    await phoneB.reload({ waitUntil: "domcontentloaded" });
+    await phoneB.waitForSelector("[data-loading]", { state: "detached" });
+    await expect(phoneB.locator(".sync-chip")).toBeVisible({ timeout: 30000 });
+    await phoneB.getByRole("button", { name: "Settings" }).click();
+    await phoneB.locator("[data-settings-tab='sync']").click();
+    await phoneB.getByRole("button", { name: "Turn sync off" }).click();
+    await phoneB.getByRole("button", { name: "Turn sync off", exact: true }).click();
+    await expect(phoneB.getByRole("heading", { name: "Turn on sync" })).toBeVisible({ timeout: 30000 });
+    await expect(phoneB.locator(".sync-chip")).toBeHidden();
+
     await first.close();
     await second.close();
   } finally {

@@ -2808,11 +2808,14 @@ rental = rent + 50
             self.sync.ack_remote();
             self.sync_poll = Instant::now() - Duration::from_secs(60);
         }
-        let every = Duration::from_millis(sync::poll_gap_ms(
+        let mut every = Duration::from_millis(sync::poll_gap_ms(
             waiting,
             self.sync.is_dirty(),
             self.sync.socket_live(),
         ));
+        if self.sync.invite_open() {
+            every = every.min(Duration::from_millis(sync::INVITE_POLL_MS));
+        }
         let screen_waiting = self.sync.screen == sync::Screen::Waiting;
         let screen_closed = self.sync.screen == sync::Screen::Closed;
         if sync::should_poll_sync(self.sync.active(), screen_closed, screen_waiting)
@@ -3557,13 +3560,21 @@ rental = rent + 50
                         }
                     }
                     if grouped && pass == SidePass::Here && shown == 0 {
-                        let (hint, _) = ui
-                            .allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
-                        ui.painter().text(
-                            pos2(hint.left() + 14.0, hint.center().y),
-                            Align2::LEFT_CENTER,
-                            "Pages you move here stay on this computer.",
+                        // Wrapped to the sidebar. On one line it ran off the edge
+                        // at the usual width and read "stay o".
+                        let galley = ui.painter().layout(
+                            "Pages you move here stay on this computer.".to_string(),
                             FontId::proportional(theme::token::TYPE_CAPTION),
+                            theme.text_muted(),
+                            (ui.available_width() - 28.0).max(40.0),
+                        );
+                        let (hint, _) = ui.allocate_exact_size(
+                            vec2(ui.available_width(), galley.size().y + 12.0),
+                            Sense::hover(),
+                        );
+                        ui.painter().galley(
+                            pos2(hint.left() + 14.0, hint.top() + 6.0),
+                            galley,
                             theme.text_muted(),
                         );
                     }
