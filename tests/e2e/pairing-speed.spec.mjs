@@ -192,11 +192,6 @@ async function expectJoinLayout(page) {
   await expect(page.getByRole("button", { name: "Use recovery words" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Join", exact: true })).toBeVisible();
   await expect(page.locator(".sync-panel .sync-links")).toHaveCount(0);
-  // The words go by the device. A narrow window on a computer is still a computer.
-  const phone = await page.evaluate(() => navigator.userAgentData?.mobile ?? /iPhone|iPod|Android.*Mobile/.test(navigator.userAgent));
-  await expect(page.getByText(phone
-    ? "Pages already on this phone will be combined with your synced pages. Nothing is deleted."
-    : "Pages already on this computer will be combined with your synced pages. Nothing is deleted.")).toBeVisible();
   const layout = await page.evaluate(() => {
     const rect = (node) => {
       const box = node.getBoundingClientRect();
@@ -424,6 +419,13 @@ test("an invite notices a join within 5 seconds", async ({ browser }) => {
     await phoneB.locator("[data-join-code]").fill(code);
     await phoneB.getByRole("button", { name: "Join", exact: true }).click();
     await expect(phoneA.getByRole("heading", { name: "Is this Harbor phone?" })).toBeVisible({ timeout: 5000 });
+    await phoneA.getByRole("button", { name: "Yes, approve it" }).click();
+    await expect(phoneB.getByRole("heading", { name: "Do these match?" })).toBeVisible({ timeout: 30000 });
+    await phoneB.getByRole("button", { name: "These match" }).click();
+    await expect(phoneB.getByRole("heading", { name: "Pages already on this computer" })).toBeVisible();
+    await expect(phoneB.getByRole("button", { name: "Bring these pages into sync" })).toBeVisible();
+    await phoneB.getByRole("button", { name: "Leave them on this computer" }).click();
+    await expect(phoneB.getByRole("heading", { name: "Sync is on", exact: true })).toBeVisible({ timeout: 30000 });
   } finally {
     for (const context of contexts) await context.close().catch(() => {});
     box.child.kill();
