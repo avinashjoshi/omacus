@@ -1,12 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.0.10
 
-**Behind-the-scenes improvements**
+**Your page still opens after a damaged link**
 
-Nothing you see in the app changed.
-
-<!-- internal -->
+A damaged share link no longer leaves the web editor blank. Your saved page opens normally, so typing keeps the text already there.
 
 ## 1.0.9
 
