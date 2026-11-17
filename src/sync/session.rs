@@ -539,6 +539,10 @@ impl Session {
         shell.offline = self.offline;
         shell.account = self.account.clone();
         shell.join_code = self.join_code.clone();
+        // The invite screen stays up while a poll runs. Without the code the
+        // card blinked to an empty one on every poll.
+        shell.invite_code = self.invite_code.clone();
+        shell.invite_link = self.invite_link.clone();
         shell.pending_device = self.pending_device.clone();
         shell.pending_id = self.pending_id.clone();
         shell.pending_name = self.pending_name.clone();
@@ -1681,8 +1685,11 @@ impl Session {
         Ok(())
     }
 
+    /// The code on the invite screen was just typed on the other device, so
+    /// the approval is the next thing to show. That screen used to stay on
+    /// the code, and the request waited behind it until the card was closed.
     fn reveal_request(&mut self) {
-        if self.screen == Screen::Closed && !self.pending_id.is_empty() {
+        if matches!(self.screen, Screen::Closed | Screen::Invite) && !self.pending_id.is_empty() {
             self.screen = Screen::Approve;
         }
     }
@@ -4637,6 +4644,26 @@ mod list_note_tests {
         session.screen = Screen::Home;
         session.reveal_request();
         assert_eq!(session.screen, Screen::Home);
+        // The invite code is on screen and the other device has typed it.
+        session.screen = Screen::Invite;
+        session.reveal_request();
+        assert_eq!(session.screen, Screen::Approve);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_invite_code_stays_on_screen_while_a_poll_runs() {
+        let dir = std::env::temp_dir().join(format!("omacus-invite-shell-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
+        session.on = true;
+        session.screen = Screen::Invite;
+        session.invite_code = "K7QM-4R2P-9HNX".into();
+        session.invite_link = "https://app.omacus.com/#join=harbor".into();
+        let shell = session.display_shell(&Work::Poll);
+        assert_eq!(shell.screen, Screen::Invite);
+        assert_eq!(shell.invite_code(), "K7QM-4R2P-9HNX");
+        assert_eq!(shell.invite_modules().ok(), session.invite_modules().ok());
         let _ = std::fs::remove_dir_all(dir);
     }
 

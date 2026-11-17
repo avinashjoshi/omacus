@@ -141,6 +141,26 @@ test("a line from the other phone lands while this one is typing", async ({ brow
     expect(await pageText(phoneA)).toContain("cake 5");
     await expect(phoneB.locator(".sync-chip")).not.toHaveAttribute("data-state", "error");
 
+    // A new folder has no pages and changes no page. It was missing from the
+    // list on the phone that made it, and it never left that phone.
+    const folderRows = (page) =>
+      page.locator("[data-sheets] .side-row .side-name span").evaluateAll((nodes) => nodes.map((node) => node.textContent.trim()));
+    await phoneA.locator(".side-head [data-action='new-folder']").click();
+    await phoneA.locator("[data-rename-input]").fill("Tins");
+    await phoneA.keyboard.press("Enter");
+    await expect.poll(() => folderRows(phoneA), { timeout: 5000 }).toContain("Tins");
+    await expect.poll(() => folderRows(phoneB), { timeout: 30000 }).toContain("Tins");
+    expect(await folderRows(phoneA)).toContain("Tins");
+
+    // A rename is a later change than the folder itself. It was sent with the
+    // number the folder was made with, and the other phone kept the old name.
+    await phoneA.locator(".side-row", { hasText: "Tins" }).first().click({ button: "right" });
+    await phoneA.getByText("Rename", { exact: true }).locator("visible=true").first().click();
+    await phoneA.locator("[data-rename-input]").fill("Tin shelf");
+    await phoneA.keyboard.press("Enter");
+    await expect.poll(() => folderRows(phoneB), { timeout: 30000 }).toContain("Tin shelf");
+    expect(await folderRows(phoneB)).not.toContain("Tins");
+
     await first.close();
     await second.close();
   } finally {

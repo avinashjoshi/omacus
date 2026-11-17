@@ -19,6 +19,7 @@ import {
   removeNode,
   renameFolder,
   sanitize,
+  syncedTree,
   toggleFolder,
   visible,
 } from "../site/app/tree.js";
@@ -148,6 +149,30 @@ check(appJs.includes('e.key.toLowerCase() === "j"'), "Ctrl+J opens the switcher"
 check(appCss.includes("text-overflow: ellipsis"), "long names truncate");
 check(appCss.includes(".side-row.drop-into"), "a drop onto a folder is marked");
 check(appCss.includes("touch-action: pan-y"), "the list can still scroll on a phone");
+
+// With sync on, the sidebar lists the synced tree. A folder that was just
+// made has no pages yet, and it was missing from that list.
+const shelf = [
+  { type: "page", id: "ferry" },
+  { type: "folder", id: "pantry", name: "Pantry", collapsed: true, children: [{ type: "page", id: "oats" }] },
+  { type: "folder", id: "new", name: "New folder", collapsed: false, children: [] },
+  { type: "folder", id: "drafts", name: "Drafts", collapsed: false, children: [{ type: "page", id: "draft" }] },
+  {
+    type: "folder",
+    id: "outer",
+    name: "Outer",
+    collapsed: false,
+    children: [{ type: "folder", id: "inner", name: "Inner", collapsed: false, children: [] }],
+  },
+];
+const synced = syncedTree(shelf, new Set(["draft"]));
+const syncedIds = visible(synced).map((row) => row.id);
+check(syncedIds.includes("new"), "a new folder with no pages is missing from the synced list");
+check(syncedIds.includes("pantry"), "a collapsed folder is missing from the synced list");
+check(syncedIds.includes("inner") && syncedIds.includes("outer"), "an empty folder inside a folder is missing");
+check(!syncedIds.includes("drafts"), "a folder of pages that stay on this device is in the synced list");
+check(!syncedIds.includes("draft"), "a page that stays on this device is in the synced list");
+check(shelf[3].children.length === 1, "the stored tree was changed");
 
 if (failures.length) {
   console.error(failures.map((f) => "  - " + f).join("\n"));

@@ -276,6 +276,85 @@ test("desktop and web keep each other's lines while both type", async ({ browser
       }, { timeout: 15000 })
       .toBe(false);
 
+    // A folder made on the web shows there at once, stays, and reaches the desktop.
+    const deskFolder = async (name) => {
+      const shown = (await driver.send("sync")).detail.present.sidebar;
+      return shown.find((row) => row.type === "folder" && row.name === name) || null;
+    };
+    await page.locator(".side-head [data-action='new-folder']").click();
+    await page.locator("[data-rename-input]").fill("Tins");
+    await page.keyboard.press("Enter");
+    await expect.poll(async () => (await sideState(page)).rows, { timeout: 5000 }).toContain("Tins");
+    await expect.poll(async () => !!(await deskFolder("Tins")), { timeout: 15000 }).toBe(true);
+    expect((await sideState(page)).rows).toContain("Tins");
+
+    // A page moved into it on the web is inside it on the desktop.
+    await page.locator(".side-row", { hasText: "Cake" }).first().click({ button: "right" });
+    await page.getByText("Move to…", { exact: true }).locator("visible=true").first().click();
+    await page.locator("[data-sync-dest-list] button", { hasText: "Tins" }).click();
+    await expect
+      .poll(async () => ((await deskFolder("Tins"))?.children || []).map((row) => row.id), { timeout: 15000 })
+      .toEqual(["cake"]);
+
+    // Renamed on the web, renamed on the desktop.
+    await page.locator(".side-row", { hasText: "Tins" }).first().click({ button: "right" });
+    await page.getByText("Rename", { exact: true }).locator("visible=true").first().click();
+    await page.locator("[data-rename-input]").fill("Tin shelf");
+    await page.keyboard.press("Enter");
+    await expect.poll(async () => !!(await deskFolder("Tin shelf")), { timeout: 15000 }).toBe(true);
+    expect(await deskFolder("Tins")).toBe(null);
+
+    // A collapsed folder keeps its row, and opens again.
+    const pantry = page.locator(".side-row", { hasText: "Pantry" }).first();
+    await pantry.click();
+    await expect.poll(async () => (await sideState(page)).rows, { timeout: 5000 }).not.toContain("Bread");
+    expect((await sideState(page)).rows).toContain("Pantry");
+    await pantry.click();
+    await expect.poll(async () => (await sideState(page)).rows, { timeout: 5000 }).toContain("Bread");
+
+    // An empty folder made on the desktop shows on the web.
+    writeFileSync(
+      `${ROOT}/jars.json`,
+      JSON.stringify({
+        structural: { sidebar: [{ id: "jars", kind: "folder", name: "Jars", parent: "", index: 9, collapsed: false }] },
+      }),
+    );
+    await driver.send(`overlay ${ROOT}/jars.json`, 40000);
+    await expect.poll(async () => (await sideState(page)).rows, { timeout: 15000 }).toContain("Jars");
+    expect((await sideState(page)).rows).toContain("Tin shelf");
+
+    // A deleted page restored on the web comes back on the desktop.
+    await page.locator("[data-deleted] button", { hasText: "Kettle" }).click();
+    await page.locator("[data-action='restore-trash']").click();
+    await expect
+      .poll(async () => {
+        await driver.send("sync");
+        return (await driver.send("status")).detail.pages.some((row) => row.startsWith("kettle:"));
+      }, { timeout: 15000 })
+      .toBe(true);
+
+    // A setting changed on either side reaches the other.
+    await page.locator("[data-setting=theme]").evaluate((node) => {
+      node.value = "paper";
+      node.dispatchEvent(new Event("input", { bubbles: true }));
+      node.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await expect.poll(async () => (await driver.send("sync")).detail.present.prefs.theme, { timeout: 15000 }).toBe("paper");
+    writeFileSync(`${ROOT}/prefs.json`, JSON.stringify({ structural: { prefs: { theme: "light", lockMinutes: 30 } } }));
+    await driver.send(`overlay ${ROOT}/prefs.json`, 40000);
+    await expect.poll(async () => (await settings(page)).theme, { timeout: 15000 }).toBe("light");
+    expect((await settings(page)).lock).toBe("30");
+
+    // After a reload the web still has the same sidebar and goes back to Live.
+    const before = (await sideState(page)).rows;
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector("[data-loading]", { state: "detached", timeout: 60000 });
+    await expect(page.locator(".sync-chip")).toHaveText("Live", { timeout: 30000 });
+    expect((await sideState(page)).rows).toEqual(before);
+    // The theme control is filled in when Settings opens. The page itself wears the theme.
+    expect(await page.evaluate(() => document.documentElement.dataset.appTheme)).toBe("light");
+    expect((await driver.send("sync")).detail.present.prefs.theme).toBe("light");
+
     expect(errors).toEqual([]);
     await expect(page.locator(".sync-chip")).toHaveText("Live");
     await context.close();

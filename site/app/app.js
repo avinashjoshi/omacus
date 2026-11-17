@@ -20,7 +20,8 @@ import {
 } from "./editor.js";
 import {
   appendMissing, canNest, collectPageIds, coveringLock, createFolder, expandFolder, expandTo, folderOf, folders, fromPages,
-  insertNode, moveSibling, pageIds, pagesUnder, place, removeNode, renameFolder, sanitize, siblingEnds, toggleFolder, validDrop,
+  insertNode, moveSibling, pageIds, pagesUnder, place, removeNode, renameFolder, sanitize, siblingEnds, syncedTree, toggleFolder,
+  validDrop,
   visible,
 } from "./tree.js";
 import { placeRowMenu, swallowDrawerTap } from "./layer.js";
@@ -1026,6 +1027,9 @@ function syncOrder() {
 
 let librarySeeded = false;
 
+// The folders, the order, and the short names as sync last heard of them.
+let indexNoted = null;
+
 function saveIndex() {
   syncOrder();
   store.set("index", JSON.stringify({
@@ -1035,6 +1039,14 @@ function saveIndex() {
     handles: Object.fromEntries(state.handles),
     seeded: librarySeeded,
   }));
+  // A new folder, a move, or a rename changes no page text, so nothing told
+  // sync about it. It only left this device with the next line typed.
+  const shape = JSON.stringify([state.tree, [...state.handles]]);
+  if (shape === indexNoted) return;
+  const first = indexNoted === null;
+  indexNoted = shape;
+  // The copy sync is installing is not this device's own change.
+  if (!first && !applyingRemote) noteSyncEdit();
 }
 
 function installLibrary(lib) {
@@ -1104,20 +1116,6 @@ if (document.documentElement.dataset.syncTest === "1") {
     renderSidebar();
     return true;
   };
-}
-
-function filterSyncedTree(nodes, local) {
-  const out = [];
-  for (const node of nodes || []) {
-    if (!node) continue;
-    if (node.type === "page") {
-      if (!local.has(node.id)) out.push(node);
-    } else if (node.type === "folder") {
-      const children = filterSyncedTree(node.children, local);
-      if (children.length) out.push({ ...node, children });
-    }
-  }
-  return out;
 }
 
 function sideCaption(text, kind, count) {
@@ -1321,6 +1319,14 @@ function bytesToB64(bytes) {
     binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
   }
   return btoa(binary);
+}
+
+function sameBytes(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }
 
 function b64ToBytes(text) {
@@ -2062,7 +2068,7 @@ function renderSidebar() {
     if (sidePick.size) rows.push(sidePickNote());
     rows.push(sideCaption(syncPlaces.vaultName || "My pages", "vault", vaultIds.length));
     if (!sideCollapsed.vault) {
-      for (const entry of visible(filterSyncedTree(state.tree, local))) {
+      for (const entry of visible(syncedTree(state.tree, local))) {
         rows.push(entry.type === "folder" ? folderRow(entry) : pageRow(entry.id, shownPlain(entry.id), false, entry.depth, "synced"));
       }
     }
@@ -5283,7 +5289,17 @@ async function takeSyncSnapshot() {
       settings,
     });
     const next = docNoteState(doc, structural);
-    if (next && next.length) doc = next;
+    if (next && next.length) {
+      // Keep what was noted. Each change gets the next revision number, and
+      // starting again from the older document gave a rename the number the
+      // folder was made with. The other device then kept the old name.
+      if (docBytes && docBytes.length && !docHeld && !sameBytes(next, docBytes)) {
+        docBytes = next;
+        docSaved = bytesToB64(next);
+        Promise.resolve(store.set("library-doc", docSaved)).catch(() => {});
+      }
+      doc = next;
+    }
   } catch {
     // An older engine still syncs the pages. The sidebar waits for this build.
   }

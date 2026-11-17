@@ -3361,7 +3361,11 @@ rental = rent + 50
         let viewing = self.preview.clone();
         let mut dropped: Option<(String, Place)> = None;
         let mut expand_id: Option<String> = None;
-        let vault_rows = vault_row_indexes(&entries, |id| self.sync.in_set(id));
+        let vault_rows = vault_row_indexes(
+            &entries,
+            |id| self.sync.in_set(id),
+            |folder| self.store.pages_in_folder(folder),
+        );
         let passes = if grouped {
             vec![SidePass::Vault, SidePass::Here]
         } else {
@@ -6600,41 +6604,29 @@ enum SidePass {
     Here,
 }
 
-/// Folder rows that still hold a page in My pages, plus those pages.
+/// The rows under My pages: each synced page, and each folder that holds one.
+///
+/// `pages_in` lists every page inside a folder, shown or not. A collapsed
+/// folder has no page rows, and counting only the rows on screen dropped the
+/// folder itself, with no row left to open it again. A folder with no pages
+/// stays too, so a new folder does not disappear.
 fn vault_row_indexes(
     entries: &[crate::sheets::SideEntry],
     in_vault: impl Fn(&str) -> bool,
+    pages_in: impl Fn(&str) -> Vec<String>,
 ) -> HashSet<usize> {
-    let mut show = HashSet::new();
-    let mut stack: Vec<(usize, usize, bool)> = Vec::new();
-    for (index, entry) in entries.iter().enumerate() {
-        while stack
-            .last()
-            .is_some_and(|(_, depth, _)| *depth >= entry.depth)
-        {
-            let (idx, _, has) = stack.pop().unwrap();
-            if has {
-                show.insert(idx);
+    entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| match &entry.kind {
+            SideKind::Page { id } => in_vault(id),
+            SideKind::Folder { id, .. } => {
+                let pages = pages_in(id);
+                pages.is_empty() || pages.iter().any(|page| in_vault(page))
             }
-        }
-        match &entry.kind {
-            SideKind::Folder { .. } => stack.push((index, entry.depth, false)),
-            SideKind::Page { id } => {
-                if in_vault(id) {
-                    show.insert(index);
-                    for item in &mut stack {
-                        item.2 = true;
-                    }
-                }
-            }
-        }
-    }
-    while let Some((idx, _, has)) = stack.pop() {
-        if has {
-            show.insert(idx);
-        }
-    }
-    show
+        })
+        .map(|(index, _)| index)
+        .collect()
 }
 
 /// "Pages", "Recently deleted": lined up with the page names below.
@@ -7204,6 +7196,7 @@ mod tests {
         sidebar_accent, sidebar_label_job, switcher_takes_focus, take_chords, take_name_field_key,
         take_switcher_edits,
     };
+    use super::{SideKind, vault_row_indexes};
     use eframe::egui::{Color32, Event, FontId, ImeEvent, Key, Modifiers, Rect, pos2, vec2};
     use std::time::Duration;
 
@@ -7719,5 +7712,50 @@ mod tests {
         let mut esc = vec![press(Key::Escape, Modifiers::NONE, false)];
         assert_eq!(take_name_field_key(&mut esc), Some(NameFieldKey::Cancel));
         assert!(esc.is_empty());
+    }
+    #[test]
+    fn a_collapsed_folder_stays_under_my_pages() {
+        use crate::sheets::SideEntry;
+        let folder = |id: &str, depth, collapsed| SideEntry {
+            depth,
+            kind: SideKind::Folder {
+                id: id.into(),
+                name: id.into(),
+                collapsed,
+            },
+        };
+        let page = |id: &str, depth| SideEntry {
+            depth,
+            kind: SideKind::Page { id: id.into() },
+        };
+        let inside = |folder: &str| -> Vec<String> {
+            match folder {
+                "pantry" => vec!["oats".into(), "bread".into()],
+                "local" => vec!["draft".into()],
+                _ => Vec::new(),
+            }
+        };
+        let synced = |id: &str| id != "draft";
+
+        // Open: the folder and its pages are rows.
+        let open = [
+            page("ferry", 0),
+            folder("pantry", 0, false),
+            page("oats", 1),
+            page("bread", 1),
+        ];
+        assert_eq!(vault_row_indexes(&open, synced, inside).len(), 4);
+
+        // Collapsed: its pages are not rows, and the folder is still there.
+        let shut = [
+            page("ferry", 0),
+            folder("pantry", 0, true),
+            folder("local", 0, true),
+            folder("empty", 0, false),
+        ];
+        let rows = vault_row_indexes(&shut, synced, inside);
+        assert!(rows.contains(&1), "a collapsed folder left the sidebar");
+        assert!(!rows.contains(&2), "a folder of unsynced pages was listed");
+        assert!(rows.contains(&3), "an empty folder left the sidebar");
     }
 }

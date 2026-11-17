@@ -10,6 +10,14 @@ A line from your other device no longer moves the cursor to the top of the page 
 
 The desktop app picks up an edit from the web app in about a second when its window is left alone. It used to wait up to half a minute.
 
+**Folders sync as you make them**
+
+With sync on, a new folder shows in the sidebar right away, and a collapsed folder stays there. A folder you make, rename, or move a page into reaches your other devices without waiting for the next line you type.
+
+**The approval shows up where you are looking**
+
+When the other device types the code, the computer showing that code goes straight to the approval. The code no longer blinks while it waits.
+
 **Joining keeps the settings you already chose**
 
 A phone or computer that joins your pages takes the theme, the lock time, and the short names already there. Its own defaults no longer replace them.
