@@ -3507,8 +3507,16 @@ async function openShared() {
     if (typeof globalThis.omacusOpenSyncLink === "function") await globalThis.omacusOpenSyncLink();
     return;
   }
-  const hash = decodeURIComponent(location.hash.slice(1));
-  if (!hash) return;
+  const fragment = location.hash.slice(1);
+  if (!fragment) return;
+  let hash;
+  try {
+    hash = decodeURIComponent(fragment);
+  } catch {
+    // A damaged link must not stop startup before the saved page is shown.
+    history.replaceState(null, "", location.pathname + location.search);
+    return toast("That link couldn't be opened: it may be cut off or damaged.");
+  }
   const text = shareDecode(hash);
   history.replaceState(null, "", location.pathname + location.search);
   if (text === undefined) return toast("That link couldn't be opened: it may be cut off or damaged.");
