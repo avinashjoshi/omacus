@@ -66,6 +66,7 @@ pub enum Action {
     SettingsChanged,
     /// Save every page, folder, and setting.
     ExportEverything,
+    AskReset,
     /// Unlock a page the sync card named. The id is this computer's page id.
     Unlock(String),
 }
@@ -400,9 +401,10 @@ pub fn show(
     let available = updates.available();
     let rail_width = if size.x < 560.0 { 130.0 } else { 172.0 };
 
-    let frame = design::dialog_pad(theme, Margin::same(0));
-    let modal = egui::Modal::new(egui::Id::unique("omacus-help"))
-        .frame(frame)
+    let id = egui::Id::unique("omacus-help");
+    let modal = egui::Modal::new(id)
+        .area(settings_area(id, screen, size))
+        .frame(design::dialog_pad(theme, Margin::same(0)))
         .backdrop_color(design::backdrop(theme))
         .show(ctx, |ui| {
             ui.set_width(size.x);
@@ -514,6 +516,10 @@ pub fn show(
                                         if export {
                                             action = Some(Action::ExportEverything);
                                         }
+                                        ui.separator();
+                                        if design::quiet(ui, theme, "Reset app…").clicked() {
+                                            action = Some(Action::AskReset);
+                                        }
                                     }
                                     Tab::Sync => {
                                         if sync.screen == crate::sync::Screen::Closed
@@ -540,6 +546,16 @@ pub fn show(
         action.get_or_insert(Action::Close);
     }
     action
+}
+
+fn settings_area(id: egui::Id, screen: egui::Rect, size: egui::Vec2) -> egui::Area {
+    // The center anchor uses the previous frame's measured content size.
+    // Settings has a specified size, so scrollbars and wider rows must not
+    // feed back into the panel position on the next frame.
+    let inset = ((screen.size() - size - vec2(2.0, 2.0)) * 0.5).max(egui::Vec2::ZERO);
+    egui::Modal::default_area(id)
+        .anchor(egui::Align2::LEFT_TOP, inset)
+        .constrain(false)
 }
 
 fn rail_button(ui: &mut egui::Ui, theme: &Theme, label: &str, active: bool, dot: bool) -> bool {
@@ -850,6 +866,38 @@ fn tips(ui: &mut egui::Ui, theme: &Theme) {
 mod tests {
     use super::*;
     use omacus_engine::Rates;
+
+    #[test]
+    fn settings_keeps_its_position_when_sync_content_changes_size() {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(980.0, 600.0));
+        let size = vec2(860.0, 540.0);
+        let id = egui::Id::unique("test-settings-position");
+        let mut positions = Vec::new();
+        for extra in [0.0, 30.0, 0.0, 30.0, 0.0] {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |ui| {
+                    let rect = egui::Modal::new(id)
+                        .area(settings_area(id, screen, size))
+                        .show(ui.ctx(), |ui| {
+                            ui.set_min_size(size + vec2(extra, extra));
+                        })
+                        .response
+                        .rect;
+                    positions.push(rect.min);
+                },
+            );
+            output.textures_delta.clear();
+        }
+        assert!(
+            positions.windows(2).all(|pair| pair[0] == pair[1]),
+            "{positions:?}"
+        );
+    }
 
     #[test]
     fn help_says_page_not_sheet() {

@@ -74,6 +74,14 @@ assert(keptLocal.tree.some((node) => node.type === "page" && node.id === "ferry"
 assert(keptLocal.trash.some((item) => item.id === "old"), "a local Recently deleted page was dropped");
 assert(applied.prefs.theme === "dusk", "the theme stayed light");
 
+const treeWithFolder = [{ type: "folder", id: "trips", name: "Trips", children: [] }];
+const deletion = JSON.parse(structuralState({ tree: [], deletedFolders: ["trips"] }));
+assert(deletion.sidebar[0].gone === true, "deleting an empty folder has to be explicit");
+const remoteDelete = applyPresent({ tree: treeWithFolder }, { sidebar: [], deletedFolders: ["trips"] }, []);
+assert(remoteDelete.tree.length === 0, "a deleted folder was put back from the local tree");
+const stalePull = applyPresent({ tree: [] }, { sidebar: treeWithFolder }, [], ["trips"]);
+assert(stalePull.tree.length === 0, "an in-flight pull resurrected a folder deleted here");
+
 // A line from the other device lands above the cursor. Only that line is
 // replaced, so a cursor further down keeps its place in the text.
 function patched(now, next) {

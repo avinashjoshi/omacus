@@ -2,6 +2,7 @@
 // on either phone opens on the other.
 import { spawn } from "node:child_process";
 import { expect, test } from "@playwright/test";
+import { includeExistingPages } from "./sync-setup.mjs";
 
 const BOX = "http://127.0.0.1:8798";
 
@@ -148,6 +149,7 @@ test("the same code asks again after a phone stops waiting", async ({ browser, b
       await phoneA.locator(".sync-ask").nth(step).getByRole("button", { name: words[n - 1], exact: true }).click();
     }
     await phoneA.getByRole("button", { name: "These match" }).click();
+    await includeExistingPages(phoneA);
     await expect(phoneA.locator("[data-sync-linked]")).toBeVisible();
     await phoneA.locator("[data-action='close-settings']").last().click();
     await phoneA.getByRole("button", { name: "New page" }).click();
@@ -187,6 +189,7 @@ test("the same code asks again after a phone stops waiting", async ({ browser, b
     await phoneA.getByRole("button", { name: "Yes, approve it" }).click();
     await expect(phoneC.getByRole("heading", { name: "Do these match?" })).toBeVisible({ timeout: 30000 });
     await phoneC.getByRole("button", { name: "These match" }).click();
+    await includeExistingPages(phoneC);
     await expect(phoneC.locator("[data-sync-linked]")).toBeVisible({ timeout: 20000 });
     await expect(phoneA.getByRole("heading", { name: "Sync is on" })).toBeVisible({ timeout: 30000 });
     await phoneA.locator("[data-action='close-settings']").last().click();

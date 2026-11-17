@@ -140,6 +140,26 @@ impl Library {
         self.doc.commit();
     }
 
+    /// Strip local-only pages from the shared copy before sealing it.
+    pub fn exclude_shared_pages(&mut self, ids: &[String]) -> bool {
+        let Some(current) = self.vault_json() else {
+            return false;
+        };
+        let mut vault = parse_vault(&current);
+        vault
+            .sidebar
+            .retain(|row| row.kind == "folder" || !ids.contains(&row.id));
+        vault.handles.retain(|row| !ids.contains(&row.id));
+        vault.trash.retain(|row| !ids.contains(&row.id));
+        let next = write_vault(&vault);
+        if next == current {
+            return false;
+        }
+        let _ = self.doc.put(ROOT, VAULT_KEY, next);
+        self.doc.commit();
+        true
+    }
+
     /// What the sidebar, trash, handles, and preferences should show.
     pub fn vault_present(&self) -> Option<String> {
         self.vault_json().map(|json| present_vault(&json))
@@ -360,6 +380,15 @@ pub fn present_vault(stored: &str) -> String {
         "trash": trash,
         "prefs": Json::Object(prefs),
     });
+    let deleted_folders: Vec<_> = vault
+        .sidebar
+        .iter()
+        .filter(|row| row.kind == "folder" && row.gone)
+        .map(|row| row.id.as_str())
+        .collect();
+    if !deleted_folders.is_empty() {
+        out["deletedFolders"] = json!(deleted_folders);
+    }
     if !vault.seen.is_empty() {
         out["seen"] = seen_json(&vault.seen);
     }
@@ -412,13 +441,18 @@ fn note_places(
         }
         seen.insert(node.id.clone());
         if let Some(prev) = current.iter().find(|row| row.id == node.id) {
-            if !prev.gone && same_place(prev, node) {
+            if prev.gone == node.gone && same_place(prev, node) {
                 next.push(prev.clone());
                 continue;
             }
             // A list that has never seen the folder must not pull the page out of it.
             let knows_parent = incoming.iter().any(|row| row.id == prev.parent);
-            if !prev.gone && node.parent.is_empty() && !prev.parent.is_empty() && !knows_parent {
+            if !node.gone
+                && !prev.gone
+                && node.parent.is_empty()
+                && !prev.parent.is_empty()
+                && !knows_parent
+            {
                 next.push(prev.clone());
                 continue;
             }
@@ -427,7 +461,6 @@ fn note_places(
         *changed = true;
         let mut row = node.clone();
         row.rev = *clock;
-        row.gone = false;
         next.push(row);
     }
     for prev in current {
@@ -621,6 +654,9 @@ fn merge_trash<'a>(rows: impl Iterator<Item = &'a Trashed>) -> Vec<Trashed> {
 fn beats_place(row: &Place, have: &Place) -> bool {
     if row.rev != have.rev {
         return row.rev > have.rev;
+    }
+    if row.kind == "folder" && have.kind == "folder" && row.gone != have.gone {
+        return row.gone;
     }
     let nested = !row.parent.is_empty() && !row.gone;
     let other = !have.parent.is_empty() && !have.gone;
@@ -830,7 +866,8 @@ fn parse_structural(text: &str) -> Structural {
                     .get("collapsed")
                     .and_then(Json::as_bool)
                     .unwrap_or(false),
-                gone: false,
+                gone: row.get("kind").and_then(Json::as_str) == Some("folder")
+                    && row.get("gone").and_then(Json::as_bool) == Some(true),
                 rev: 0,
                 lock: row.get("lock").filter(|lock| lock.is_object()).cloned(),
             });
@@ -972,6 +1009,41 @@ mod tests {
             "collapsed": false,
             "gone": false,
         })
+    }
+
+    #[test]
+    fn local_only_page_metadata_is_removed_from_the_shared_copy() {
+        let mut library = Library::new();
+        library.note_vault(
+            r#"{
+            "sidebar":[{"id":"trip","kind":"page"},{"id":"groceries","kind":"page"}],
+            "handles":[{"id":"trip","handle":"trip-budget"}],
+            "trash":[{"id":"trip","text":"Trip Budget"}]
+        }"#,
+        );
+        assert!(library.exclude_shared_pages(&["trip".to_string()]));
+        let shared = library.vault_json().unwrap();
+        assert!(!shared.contains("trip"), "{shared}");
+        assert!(shared.contains("groceries"), "{shared}");
+    }
+
+    #[test]
+    fn explicit_folder_deletion_survives_a_stale_copy_and_can_be_undone() {
+        let tree = r#"{"sidebar":[{"id":"trips","kind":"folder","name":"Trips"}]}"#;
+        let old = note_structural(&empty_vault(), tree).unwrap();
+        let deleted = note_structural(
+            &old,
+            r#"{"sidebar":[{"id":"trips","kind":"folder","gone":true}]}"#,
+        )
+        .unwrap();
+        let merged = merge_vaults(&[old, deleted]);
+        let shown: Json = serde_json::from_str(&present_vault(&merged)).unwrap();
+        assert_eq!(shown["sidebar"], json!([]));
+        assert_eq!(shown["deletedFolders"], json!(["trips"]));
+        let restored = note_structural(&merged, tree).unwrap();
+        let shown: Json = serde_json::from_str(&present_vault(&restored)).unwrap();
+        assert_eq!(shown["sidebar"][0]["name"], "Trips");
+        assert!(shown.get("deletedFolders").is_none());
     }
 
     #[test]

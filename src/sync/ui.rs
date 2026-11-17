@@ -567,12 +567,12 @@ fn pages_here(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option
         theme,
         CardMark::Leave,
         "Leave them on this computer",
-        "Sync starts empty. These files stay where they are, and they are not uploaded.",
+        "These files stay on this computer and are not uploaded.",
     ) {
         session.ask(Work::LeaveFiles);
     }
     if back(ui, theme, "← Back") {
-        session.screen = Screen::Check;
+        session.back_from_pages();
     }
     err(ui, theme, &session.error.clone());
     None
@@ -977,7 +977,7 @@ fn matching(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<S
     para(ui, theme, &shown_words(session));
     ui.horizontal(|ui| {
         if design::primary(ui, theme, "These match").clicked() {
-            session.ask(Work::AcceptMatch);
+            session.choose_setup_pages(Work::AcceptMatch);
         }
         if design::quiet(ui, theme, "Cancel").clicked() {
             session.not_now();
@@ -1048,7 +1048,7 @@ fn recover(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<St
     if design::primary(ui, theme, "Open my pages").clicked() {
         let name = session.name_buf().clone();
         session.set_name(&name);
-        session.ask(Work::Recover);
+        session.choose_setup_pages(Work::Recover);
     }
     None
 }

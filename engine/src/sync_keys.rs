@@ -140,7 +140,7 @@ impl SyncKeyError {
     }
 }
 
-fn words() -> &'static [&'static str] {
+pub fn recovery_words() -> &'static [&'static str] {
     static WORDS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
         include_str!("recovery_words.txt")
             .lines()
@@ -217,7 +217,10 @@ impl RecoveryKey {
     pub fn words(&self) -> [&'static str; WORD_COUNT] {
         let mut out = [""; WORD_COUNT];
         for (slot, index) in out.iter_mut().zip(self.index) {
-            *slot = words().get(usize::from(index)).copied().unwrap_or("");
+            *slot = recovery_words()
+                .get(usize::from(index))
+                .copied()
+                .unwrap_or("");
         }
         out
     }
@@ -254,7 +257,7 @@ impl RecoveryKey {
                 return Err(SyncKeyError::NotConfirmed);
             }
             seen[at] = true;
-            let want = words()
+            let want = recovery_words()
                 .get(usize::from(self.index[at]))
                 .copied()
                 .ok_or(SyncKeyError::Corrupt)?;
@@ -278,7 +281,7 @@ impl RecoveryKey {
         if self
             .index
             .iter()
-            .any(|index| usize::from(*index) >= words().len())
+            .any(|index| usize::from(*index) >= recovery_words().len())
         {
             return Err(SyncKeyError::Corrupt);
         }
@@ -355,7 +358,7 @@ pub fn suggest(prefix: &str) -> Vec<&'static str> {
     if prefix.is_empty() {
         return Vec::new();
     }
-    words()
+    recovery_words()
         .iter()
         .copied()
         .filter(|word| word.starts_with(&prefix))
@@ -418,11 +421,11 @@ fn resolve_word(token: &str) -> Result<u16, SyncKeyError> {
     if token.is_empty() || !token.bytes().all(|byte| byte.is_ascii_lowercase()) {
         return Err(SyncKeyError::NotAKey);
     }
-    if let Some(index) = words().iter().position(|word| *word == token) {
+    if let Some(index) = recovery_words().iter().position(|word| *word == token) {
         return Ok(index as u16);
     }
     let mut found = None;
-    for (index, word) in words().iter().enumerate() {
+    for (index, word) in recovery_words().iter().enumerate() {
         if edit_distance_1(&token, word) {
             if found.is_some() {
                 return Err(SyncKeyError::NotAKey);
@@ -549,7 +552,7 @@ pub fn account_fingerprint(account: &[u8; KEY_LEN]) -> [&'static str; 4] {
         }
         have -= 11;
         let index = ((acc >> have) & 0x7ff) as usize;
-        *slot = words()[index];
+        *slot = recovery_words()[index];
     }
     out
 }
@@ -2330,7 +2333,7 @@ fn without_pages(doc: &[u8], drop_ids: &[String]) -> Vec<u8> {
     let Ok(mut lib) = omacus_doc::Library::load(doc) else {
         return doc.to_vec();
     };
-    let mut changed = false;
+    let mut changed = lib.exclude_shared_pages(drop_ids);
     for id in drop_ids {
         if lib.remove_page(id) {
             changed = true;
@@ -2675,7 +2678,7 @@ mod tests {
 
     #[test]
     fn the_word_list_is_2048_easy_words_and_one_typo_is_unique() {
-        let list = words();
+        let list = recovery_words();
         assert_eq!(list.len(), 2048);
         assert!(list.iter().all(|word| {
             (5..=8).contains(&word.len()) && word.bytes().all(|byte| byte.is_ascii_lowercase())
@@ -2729,7 +2732,7 @@ mod tests {
         let sloppy = format!("  {}   {} ", parts[0], parts[1..].join("  "));
         assert_eq!(RecoveryKey::parse(&sloppy).unwrap().words(), shown);
 
-        let replacement = words()
+        let replacement = recovery_words()
             .iter()
             .copied()
             .find(|word| *word != shown[0] && !edit_distance_1(shown[0], word))

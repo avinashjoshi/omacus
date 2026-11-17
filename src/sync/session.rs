@@ -292,6 +292,7 @@ pub struct Session {
     pub screen: Screen,
     words: Option<[String; 12]>,
     wrote: bool,
+    pages_choice_from: Option<Screen>,
     asks: [u8; 3],
     picks: [Option<String>; 3],
     choices: Vec<Vec<String>>,
@@ -432,7 +433,8 @@ impl Session {
             screen: Screen::Closed,
             words: None,
             wrote: false,
-            asks: desk::CONFIRM_AT,
+            pages_choice_from: None,
+            asks: [0; 3],
             picks: [None, None, None],
             choices: Vec::new(),
             self_name: guess_name(),
@@ -556,6 +558,7 @@ impl Session {
     /// A copy the window can paint while the real session is on a background step.
     pub fn display_shell(&self, work: &Work) -> Self {
         let mut shell = Self::blank(self.dir.clone(), &self.origin);
+        shell.pages_choice_from = self.pages_choice_from;
         shell.screen = self.screen;
         shell.on = self.on;
         shell.member = self.member;
@@ -664,9 +667,11 @@ impl Session {
         match keys::load(&self.dir) {
             Ok(Some(plain)) => {
                 if let Err(error) = self.install_device(plain) {
+                    self.screen = Screen::Intro;
                     self.error = error;
                     return;
                 }
+                self.restore_false_pause();
                 if self.approval_sent && !self.pass_locked {
                     let _ = self.retry_key_write();
                 }
@@ -909,6 +914,7 @@ impl Session {
 
     pub fn not_now(&mut self) {
         self.screen = Screen::Closed;
+        self.pages_choice_from = None;
         self.error.clear();
     }
 
@@ -1068,7 +1074,16 @@ impl Session {
         let Some(words) = self.words.clone() else {
             return;
         };
-        self.choices = self.asks.map(|n| choices_for(&words, n)).to_vec();
+        let (asks, choices) = match word_check(&words, random_index) {
+            Ok(check) => check,
+            Err(error) => {
+                self.error = error;
+                return;
+            }
+        };
+        self.error.clear();
+        self.asks = asks;
+        self.choices = choices;
         self.picks = [None, None, None];
         self.screen = Screen::Check;
         self.mark("check");
@@ -1086,6 +1101,9 @@ impl Session {
 
     pub fn confirm(&mut self) -> Result<(), String> {
         self.error.clear();
+        if self.choices.len() != 3 {
+            return Err("Pick the three words first.".into());
+        }
         let Some(words) = self.words.clone() else {
             return Err("Those words are not recovery words.".into());
         };
@@ -1116,6 +1134,7 @@ impl Session {
         self.wipe_words();
         self.leader = lock_leader(&self.dir);
         if self.pages.iter().any(|(id, _)| !self.locked.contains(id)) {
+            self.pages_choice_from = None;
             self.screen = Screen::PagesHere;
             self.mark("pages-here");
         } else {
@@ -1126,20 +1145,41 @@ impl Session {
         Ok(())
     }
 
-    pub fn bring(&mut self) -> Result<(), String> {
-        for (id, _) in self.pages.clone() {
-            let inside = !self.locked.contains(&id);
-            self.set_member_flag(&id, inside);
+    pub fn choose_setup_pages(&mut self, work: Work) {
+        if !self.pages.is_empty() {
+            self.pages_choice_from = Some(self.screen);
+            self.screen = Screen::PagesHere;
+        } else {
+            self.ask(work);
         }
-        self.publish_first()?;
-        self.screen = Screen::Ready;
-        self.mark("ready");
-        Ok(())
+    }
+
+    pub fn back_from_pages(&mut self) {
+        self.screen = self.pages_choice_from.take().unwrap_or(Screen::Choice);
+    }
+
+    pub fn bring(&mut self) -> Result<(), String> {
+        self.finish_page_choice(true)
     }
 
     pub fn leave_files(&mut self) -> Result<(), String> {
+        self.finish_page_choice(false)
+    }
+
+    fn finish_page_choice(&mut self, bring: bool) -> Result<(), String> {
         for (id, _) in self.pages.clone() {
-            self.set_member_flag(&id, false);
+            self.set_member_flag(&id, bring && !self.locked.contains(&id));
+        }
+        match self.pages_choice_from.take() {
+            Some(Screen::Match) => {
+                self.screen = Screen::Match;
+                return self.accept_match();
+            }
+            Some(Screen::Recover) => {
+                self.screen = Screen::Recover;
+                return self.recover();
+            }
+            _ => {}
         }
         self.publish_first()?;
         self.screen = Screen::Ready;
@@ -1930,13 +1970,23 @@ impl Session {
         Err(self.error.clone())
     }
 
+    /// Drop this device's credential without sending changes to the vault.
+    pub fn clear_local_key(&mut self) -> Result<(), String> {
+        keys::remove(&self.dir)?;
+        self.leader = None;
+        self.desk = None;
+        self.on = false;
+        self.member = false;
+        Ok(())
+    }
+
     pub fn turn_off_here(&mut self) {
         self.forget_local();
         self.mark("off");
     }
 
     fn forget_local(&mut self) {
-        keys::remove(&self.dir);
+        let _ = keys::remove(&self.dir);
         self.pass_lock = None;
         self.pass_locked = false;
         self.pass_buf.zeroize();
@@ -3969,28 +4019,68 @@ fn sample_words() -> [String; 12] {
     .map(str::to_string)
 }
 
-fn choices_for(words: &[String; 12], n: u8) -> Vec<String> {
-    let real = words.get(n as usize - 1).cloned().unwrap_or_default();
-    let mut decoys = Vec::new();
-    for ch in 'a'..='z' {
-        for word in omacus_engine::sync_keys::suggest(&ch.to_string()) {
-            if word != real
-                && !words.iter().any(|have| have == word)
-                && !decoys.contains(&word.to_string())
-            {
-                decoys.push(word.to_string());
-            }
-            if decoys.len() == 5 {
-                break;
-            }
-        }
-        if decoys.len() == 5 {
-            break;
+fn random_index(count: usize) -> Result<usize, String> {
+    let limit = 65536 - 65536 % count;
+    loop {
+        let value = usize::from(u16::from_le_bytes(random_bytes()?));
+        if value < limit {
+            return Ok(value % count);
         }
     }
-    decoys.push(real);
-    decoys.sort();
-    decoys
+}
+
+fn word_check(
+    words: &[String; 12],
+    mut index: impl FnMut(usize) -> Result<usize, String>,
+) -> Result<([u8; 3], Vec<Vec<String>>), String> {
+    let mut positions: Vec<u8> = (1..=12).collect();
+    let mut asks = [0; 3];
+    for position in &mut asks {
+        *position = positions.swap_remove(index(positions.len())?);
+    }
+    asks.sort_unstable();
+
+    let decoys: Vec<_> = omacus_engine::sync_keys::recovery_words()
+        .iter()
+        .copied()
+        .filter(|word| !words.iter().any(|have| have == word))
+        .collect();
+    let mut choices = Vec::new();
+    for n in asks {
+        let mut pool = decoys.clone();
+        let mut options = Vec::new();
+        for _ in 0..5 {
+            options.push(pool.swap_remove(index(pool.len())?).to_string());
+        }
+        options.insert(index(6)?, words[usize::from(n - 1)].clone());
+        choices.push(options);
+    }
+    Ok((asks, choices))
+}
+
+#[test]
+fn recovery_check_varies_positions_and_correct_choice_slots() {
+    let words = sample_words();
+    let (first, early) = word_check(&words, |_| Ok(0)).unwrap();
+    let (last, late) = word_check(&words, |count| Ok(count - 1)).unwrap();
+    assert_eq!(first, [1, 11, 12]);
+    assert_eq!(last, [10, 11, 12]);
+    for (positions, choices, slot) in [(first, early, 0), (last, late, 5)] {
+        for (n, choices) in positions.into_iter().zip(choices) {
+            assert_eq!(choices[slot], words[usize::from(n - 1)]);
+            assert_eq!(
+                choices
+                    .iter()
+                    .collect::<std::collections::HashSet<_>>()
+                    .len(),
+                6
+            );
+            assert_eq!(
+                choices.iter().filter(|word| words.contains(word)).count(),
+                1
+            );
+        }
+    }
 }
 
 struct KeptPages {
@@ -4625,6 +4715,21 @@ mod list_note_tests {
     }
 
     #[test]
+    fn pairing_with_existing_pages_waits_for_a_choice() {
+        let mut session = Session::blank(std::env::temp_dir(), "http://127.0.0.1:9");
+        session.screen = Screen::Match;
+        session.pages.push(("trip".into(), "Trip Budget".into()));
+        session.choose_setup_pages(Work::AcceptMatch);
+        assert_eq!(session.screen, Screen::PagesHere);
+        assert!(session.take_pending().is_none());
+        session.back_from_pages();
+        assert_eq!(session.screen, Screen::Match);
+        session.pages.clear();
+        session.choose_setup_pages(Work::AcceptMatch);
+        assert!(matches!(session.take_pending(), Some(Work::AcceptMatch)));
+    }
+
+    #[test]
     fn a_pause_still_opens_sync_and_a_false_pause_resumes() {
         let dir = std::env::temp_dir().join(format!("omacus-paused-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -4708,6 +4813,16 @@ mod list_note_tests {
             r#"{"account":"","revision":1,"removed":true,"member":false}"#,
         )
         .unwrap();
+        let mut deferred = Session::blank(kept.clone(), "http://127.0.0.1:9");
+        deferred.defer_load = true;
+        deferred.load_book();
+        assert!(deferred.claim_deferred_load());
+        deferred.run_work(Work::LoadKey);
+        assert!(deferred.active());
+        assert!(!deferred.paused());
+        assert_eq!(deferred.entry_label(), "Sync");
+        drop(deferred);
+
         let resumed = Session::open(kept.clone(), "http://127.0.0.1:9");
         assert!(
             !resumed.paused(),

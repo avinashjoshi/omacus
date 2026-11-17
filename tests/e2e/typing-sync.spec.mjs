@@ -3,6 +3,7 @@
 // the copy was being installed were written over. Both phones keep both.
 import { spawn } from "node:child_process";
 import { expect, test } from "@playwright/test";
+import { includeExistingPages } from "./sync-setup.mjs";
 
 const BOX = "http://127.0.0.1:8799";
 const TYPED = "ferry pier seven lanterns and a rope";
@@ -96,6 +97,7 @@ test("a line from the other phone lands while this one is typing", async ({ brow
       await phoneA.locator(".sync-ask").nth(step).getByRole("button", { name: words[n - 1], exact: true }).click();
     }
     await phoneA.getByRole("button", { name: "These match" }).click();
+    await includeExistingPages(phoneA);
     await expect(phoneA.locator("[data-sync-linked]")).toBeVisible({ timeout: 45000 });
     await phoneA.locator("[data-action='close-settings']").last().click();
     await phoneA.getByRole("button", { name: "New page" }).click();
@@ -112,6 +114,7 @@ test("a line from the other phone lands while this one is typing", async ({ brow
     await phoneB.locator("[data-recover-name]").fill("Harbor phone");
     await phoneB.locator(".sync-phrase").fill(words.join(" "));
     await phoneB.getByRole("button", { name: "Open my pages" }).click();
+    await includeExistingPages(phoneB);
     await expect(phoneB.locator("[data-sync-linked]")).toBeVisible({ timeout: 20000 });
     await phoneB.locator("[data-action='close-settings']").last().click();
     await phoneB.locator(".side-name", { hasText: "Harbor ledger" }).click();

@@ -163,7 +163,10 @@ check(/@media \(max-width: 760px\) \{[\s\S]*?\.sync-chip-word \{\s*display: none
 check(!html.includes("private-chip") && !html.includes('data-action="privacy"'), "the top bar has no Private pill");
 check(html.includes("Private by design") && html.includes("on this device"), "About says pages stay on this device");
 check(syncJs.includes("function hideChip") && syncJs.includes('storeGet("sync-paused")') && syncJs.includes('dataset.ready = "1"'), "a fresh copy hides the status cloud until sync is on or paused");
-check(syncJs.includes('return ["intro", "access", "save", "confirm"].includes(state.screen);') && syncJs.includes('text === "Sync paused" && freshSetup()') && syncJs.includes("if (freshSetup()) hideChip();"), "an unfinished setup does not say Sync paused");
+const freshSetup = syncJs.match(/function freshSetup\(\) \{([^}]+)\}/)?.[1] || "";
+check(["intro", "access", "save", "confirm", "pages-here"].every((screen) => freshSetup.includes(`"${screen}"`))
+  && syncJs.includes('text === "Sync paused" && freshSetup()') && syncJs.includes("if (freshSetup()) hideChip();"),
+"an unfinished setup does not say Sync paused");
 {
   const off = syncJs.slice(syncJs.indexOf("async function leaveList("), syncJs.indexOf("async function startInvite("));
   check(off.includes("sync.removeDevice") && off.includes("hideChip()") && !off.includes('setChip("Sync paused"'), "turning sync off removes this phone and leaves the status quiet");

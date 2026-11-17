@@ -331,11 +331,10 @@ fn a_live_secret_service_reopens_without_asking_for_a_passphrase() {
         .spawn()
         .unwrap();
     std::thread::sleep(Duration::from_millis(400));
-    let second = dir.join("second");
-    fs::create_dir_all(&second).unwrap();
     let opened = Command::new(env!("CARGO_BIN_EXE_omacus"))
         .env("OMACUS_E2E_KEYRING", "1")
-        .env("OMACUS_E2E_DIR", &second)
+        .env("OMACUS_E2E_DIR", &first)
+        .env("OMACUS_E2E_KEYRING_READ", "1")
         .env("DBUS_SESSION_BUS_ADDRESS", &address)
         .env("XDG_RUNTIME_DIR", &runtime)
         .env("XDG_DATA_HOME", &data_home)
@@ -349,9 +348,9 @@ fn a_live_secret_service_reopens_without_asking_for_a_passphrase() {
     let _ = bus.wait();
     assert_eq!(
         text(&opened.stdout),
-        "stored",
+        "reopened",
         "stderr: {}",
         text(&opened.stderr)
     );
-    assert_no_pass_file(&second);
+    assert_no_pass_file(&first);
 }

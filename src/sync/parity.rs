@@ -67,22 +67,23 @@ fn parity_matrix_runs_end_to_end() {
     a.set_wrote(true);
     a.go_check();
     assert_eq!(a.screen, Screen::Check);
-    assert_eq!(a.asks(), [3, 7, 11]);
+    assert!(a.asks().windows(2).all(|pair| pair[0] < pair[1]));
     for (i, n) in a.asks().into_iter().enumerate() {
         let real = words[n as usize - 1].as_str();
         assert!(a.choice_list(i).iter().any(|word| word == real));
     }
     a.pick(0, "nope");
-    a.pick(1, &words[6]);
-    a.pick(2, &words[10]);
     let wrong = a.confirm().unwrap_err();
     assert_eq!(
         wrong,
-        "That's not word 3. Look at your paper and try again."
+        format!(
+            "That's not word {}. Look at your paper and try again.",
+            a.asks()[0]
+        )
     );
-    a.pick(0, &words[2]);
-    a.pick(1, &words[6]);
-    a.pick(2, &words[10]);
+    for (i, n) in a.asks().into_iter().enumerate() {
+        a.pick(i, &words[usize::from(n - 1)]);
+    }
     covered.push("check");
 
     let (doc, pages) = library(&[

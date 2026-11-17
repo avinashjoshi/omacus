@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.0.12
+
+**Choose which pages join sync**
+
+When setting up sync, you can bring existing pages into sync or keep them on this device.
+
+**Deleted folders stay deleted**
+
+When you delete a folder in the web app, sync keeps it deleted on your other devices too.
+
+**A steadier Settings window and more reliable sync**
+
+Desktop Settings stays in place, the recovery word check varies its questions and choices, and Linux can reopen the saved sync key.
+
+**Start fresh on this device**
+
+Reset app in Settings clears local pages, settings, and sync on desktop and web. Synced copies stay available on your other devices.
+
 ## 1.0.11
 
 **Keep typing while your other device edits the same page**

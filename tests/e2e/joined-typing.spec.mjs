@@ -11,6 +11,7 @@ import { createInterface } from "node:readline";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync, readFileSync, chmodSync, rmSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+import { includeExistingPages } from "./sync-setup.mjs";
 
 // OMACUS_LIVE_SYNC names a real sync server. The run then uses that server,
 // the built web app at OMACUS_LIVE_APP, and the invite code in the file
@@ -223,6 +224,7 @@ test("desktop and web keep each other's lines while both type", async ({ browser
     await driver.send("approve", 40000);
     await expect(page.getByRole("heading", { name: "Do these match?" })).toBeVisible({ timeout: 20000 });
     await page.getByRole("button", { name: "These match" }).click();
+    await includeExistingPages(page);
     await expect(page.locator(".sync-chip")).toHaveText("Live", { timeout: 30000 });
     await expect.poll(async () => (await sideState(page)).rows, { timeout: 20000 }).toContain("Pantry");
 
@@ -411,6 +413,7 @@ test("desktop and web keep each other's lines while both type", async ({ browser
     await driver.send("approve", 40000);
     await expect(page.getByRole("heading", { name: "Do these match?" })).toBeVisible({ timeout: 20000 });
     await page.getByRole("button", { name: "These match" }).click();
+    await includeExistingPages(page);
     await expect(page.locator(".sync-chip")).toHaveText(/^(Live|List changed)$/, { timeout: 30000 });
     await expect.poll(() => webText(page, "oats"), { timeout: 20000 }).toContain("desk while off");
     await expect.poll(() => deskText(driver, "ferry"), { timeout: 20000 }).toContain("web while off");

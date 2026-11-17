@@ -5,6 +5,7 @@ import { createInterface } from "node:readline";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+import { includeExistingPages } from "./sync-setup.mjs";
 
 const BOX = "http://127.0.0.1:8798";
 const BIN = process.env.OMACUS_BIN || "/tmp/omacus-106/target/debug/omacus";
@@ -297,6 +298,7 @@ async function firstDevice(page, access) {
     delete globalThis.__omacusWordCheck;
   });
   await page.getByRole("button", { name: "These match" }).click({ force: true });
+  await includeExistingPages(page);
   await expect(page.locator("[data-sync-linked]")).toBeVisible({ timeout: 30000 });
 }
 
@@ -374,6 +376,7 @@ test("joined devices share one library and finish approval", async ({ browser })
     await driver.send("approve", 40000);
     await expect(page.getByRole("heading", { name: "Do these match?" })).toBeVisible({ timeout: 20000 });
     await page.getByRole("button", { name: "These match" }).click();
+    await includeExistingPages(page);
     await expect(page.locator(".sync-chip")).toHaveText("Live", { timeout: 20000 });
     await expect.poll(async () => (await sideState(page)).rows, { timeout: 20000 }).toEqual(ROWS);
     const web = await sideState(page);
@@ -465,6 +468,7 @@ test("joined devices share one library and finish approval", async ({ browser })
     await redact(phone);
     await shot(phone, `${ROOT}/web-match.png`);
     await phone.getByRole("button", { name: "These match" }).click({ force: true });
+    await includeExistingPages(phone);
     await expect(phone.locator(".sync-chip")).toHaveText("Live", { timeout: 20000 });
     await waitFor(statusFile, approvalFinished, 20000, "desktop did not finish approving");
     await second.close();
