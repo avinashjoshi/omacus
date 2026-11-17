@@ -92,7 +92,7 @@ if "findRequest()" not in notice:
 if "noticeJoin()" not in follow[follow.index("} catch"):]:
     errors.append("a save error stops this phone from seeing a join")
 plain = sync[sync.index("function plainError("):sync.index("function joinError(")]
-join_wording = sync[sync.index("function joinError("):sync.index("async function noteLocalPages(")]
+join_wording = sync[sync.index("function joinError("):sync.index("\n  }", sync.index("function joinError("))]
 if "/no pages/i" in plain:
     errors.append("a failed save says the code did not work")
 if "/no pages/i" not in join_wording:
