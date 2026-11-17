@@ -27,7 +27,7 @@ import {
 import { placeRowMenu, swallowDrawerTap } from "./layer.js";
 import {
   ready as storeReady, get as storeGet, set as storeSet, remove as storeRemove, adopt as storeAdopt,
-  drained as storeDrained, keys as storeKeys, persistGranted, selfTab, PREFIX, CHANNEL,
+  drained as storeDrained, keys as storeKeys, persistGranted, reset as storeReset, selfTab, PREFIX, CHANNEL, RESET_NOTICE,
 } from "./store.js";
 import { mountSync } from "./sync.js";
 import { captureSyncLink } from "./sync-link.mjs";
@@ -914,6 +914,7 @@ function openSettings(tab = "settings") {
 function closeSettings() {
   if (!el.settings || el.settings.hidden) return;
   el.settings.hidden = true;
+  $("[data-reset-confirmation]", el.settings).hidden = true;
   const back = settingsOpener;
   settingsOpener = null;
   if (back && document.contains(back)) back.focus();
@@ -1874,13 +1875,22 @@ function onStoreWrite(key, value) {
   if (!typing && currentText() !== before) showSheet();
 }
 addEventListener("storage", (e) => {
+  if (e.key === RESET_NOTICE && e.newValue && !e.newValue.startsWith("pending-")) {
+    location.reload();
+    return;
+  }
   if (!e.key?.startsWith(PREFIX) || e.key === PREFIX + "migrated") return;
   onStoreWrite(e.key.slice(PREFIX.length), e.newValue);
 });
 try {
   const pagesChannel = new BroadcastChannel(CHANNEL);
   pagesChannel.onmessage = (e) => {
-    if (!e.data || typeof e.data.key !== "string" || e.data.tab === selfTab) return;
+    if (!e.data || e.data.tab === selfTab) return;
+    if (e.data.reset) {
+      location.reload();
+      return;
+    }
+    if (typeof e.data.key !== "string") return;
     onStoreWrite(e.data.key, e.data.value);
   };
 } catch {
@@ -3729,6 +3739,24 @@ async function action(name) {
     closeSwitcher();
   } else if (name === "delete") {
     deleteSheet();
+  } else if (name === "ask-reset") {
+    const confirmation = document.querySelector("[data-reset-confirmation]");
+    confirmation.hidden = false;
+    confirmation.querySelector('[data-action="cancel-reset"]').focus();
+  } else if (name === "cancel-reset") {
+    document.querySelector("[data-reset-confirmation]").hidden = true;
+    document.querySelector('[data-action="ask-reset"]').focus();
+  } else if (name === "reset-app") {
+    const button = document.querySelector('[data-action="reset-app"]');
+    if (button.disabled) return;
+    button.disabled = true;
+    try {
+      await storeReset();
+      location.replace(location.pathname);
+    } catch {
+      button.disabled = false;
+      toast("Couldn't reset Omacus. Try again.");
+    }
   } else if (name === "export") {
     exportZip();
   } else if (name === "import") {
@@ -3879,6 +3907,25 @@ function commitDeletePage(id) {
   syncDeleted(id);
 }
 
+const FOLDER_DELETES = "folder-deletes";
+
+function pendingFolderDeletes() {
+  try {
+    return JSON.parse(store.get(FOLDER_DELETES) || "{}") || {};
+  } catch {
+    return {};
+  }
+}
+
+function acknowledgeFolderDeletes(sent) {
+  const pending = pendingFolderDeletes();
+  const acknowledged = Object.entries(sent).filter(([id, token]) => pending[id] === token);
+  if (!acknowledged.length) return;
+  for (const [id] of acknowledged) delete pending[id];
+  if (Object.keys(pending).length) store.set(FOLDER_DELETES, JSON.stringify(pending));
+  else store.remove(FOLDER_DELETES);
+}
+
 function commitDeleteFolder(id) {
   const taken = removeNode(state.tree, id);
   if (!taken || taken.node.type !== "folder") {
@@ -3886,6 +3933,10 @@ function commitDeleteFolder(id) {
     return;
   }
   const name = taken.node.name || "Folder";
+  const deletedFolders = [id, ...folders(taken.node.children).map((folder) => folder.id)];
+  const pendingDeletes = pendingFolderDeletes();
+  for (const folder of deletedFolders) pendingDeletes[folder] = newId();
+  store.set(FOLDER_DELETES, JSON.stringify(pendingDeletes));
   const ids = collectPageIds(taken.node);
   const pages = ids.map((pid) => ({ id: pid, text: state.texts.get(pid) ?? "" }));
   const trash = loadTrash().filter((t) => !ids.includes(t.id));
@@ -3919,6 +3970,7 @@ function commitDeleteFolder(id) {
         state.texts.set(page.id, page.text);
         saveSheet(page.id);
       }
+      acknowledgeFolderDeletes(Object.fromEntries(deletedFolders.map((folder) => [folder, pendingDeletes[folder]])));
       insertNode(state.tree, taken.parent, taken.index, taken.node);
       syncOrder();
       if (pages[0]) state.active = pages[0].id;
@@ -5307,6 +5359,7 @@ async function takeSyncSnapshot() {
       editDuringRemote = false;
     }
   }
+  const folderDeletes = pendingFolderDeletes();
   let doc = docBytes && docBytes.length ? new Uint8Array(docBytes) : new Uint8Array();
   try {
     const structural = structuralState({
@@ -5314,6 +5367,7 @@ async function takeSyncSnapshot() {
       handles: state.handles,
       trash: loadTrash(),
       settings,
+      deletedFolders: Object.keys(folderDeletes),
     });
     const next = docNoteState(doc, structural);
     if (next && next.length) {
@@ -5330,7 +5384,7 @@ async function takeSyncSnapshot() {
   } catch {
     // An older engine still syncs the pages. The sidebar waits for this build.
   }
-  return { pages: syncSnapshotPages(), doc };
+  return { pages: syncSnapshotPages(), doc, folderDeletes };
 }
 
 async function backupBeforeRemote() {
@@ -5448,7 +5502,7 @@ function patchOpenEditor() {
   return true;
 }
 
-async function applyRemoteLibrary(nextDoc, pages, basePages) {
+async function applyRemoteLibrary(nextDoc, pages, basePages, localIds) {
   await backupBeforeRemote();
   applyingRemote = true;
   let typed = false;
@@ -5460,7 +5514,7 @@ async function applyRemoteLibrary(nextDoc, pages, basePages) {
     // `nextDoc` is already the merged document. Folding it into the copy
     // already on this device would put a deleted line back.
     let doc = nextDoc && nextDoc.length ? nextDoc : (docBytes && docBytes.length ? docBytes : null);
-    const stay = new Set(syncPlaces?.localIds || []);
+    const stay = new Set(localIds.filter((id) => state.texts.has(id)));
     const activeBefore = state.active && state.active !== "shared" ? (state.texts.get(state.active) ?? "") : null;
     for (const [id, text] of pages) {
       if (!id || id === "shared") continue;
@@ -5520,7 +5574,7 @@ async function applyRemoteLibrary(nextDoc, pages, basePages) {
         tree: state.tree,
         handles: state.handles,
         trash: loadTrash(),
-      }, present, pages);
+      }, present, [...pages, ...stay], Object.keys(pendingFolderDeletes()));
       state.tree = applied.tree;
       state.handles = applied.handles instanceof Map ? applied.handles : new Map();
       saveTrash(applied.trash);
@@ -5607,6 +5661,7 @@ async function start() {
       openSettings: (tab) => openSettings(tab),
       closeSettings: () => closeSettings(),
       snapshot: takeSyncSnapshot,
+      acknowledgeFolderDeletes,
       apply: applyRemoteLibrary,
       bytesToB64,
       b64ToBytes,

@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { expect, test } from "@playwright/test";
+import { includeExistingPages } from "./sync-setup.mjs";
 
 const BOX = "http://127.0.0.1:8798";
 const DESKTOP_APP = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) omacus-desktop/1.0";
@@ -127,6 +128,7 @@ test("a closed Sync panel still shows a phone that is waiting", async ({ browser
       await phoneA.locator(".sync-ask").nth(step).getByRole("button", { name: words[n - 1], exact: true }).click();
     }
     await phoneA.getByRole("button", { name: "These match" }).click();
+    await includeExistingPages(phoneA);
     await expect(phoneA.locator("[data-sync-linked]")).toBeVisible();
     await phoneA.getByRole("button", { name: "Add a phone or computer" }).click();
     const code = (await phoneA.locator(".sync-invite-code").innerText()).trim();
@@ -206,6 +208,7 @@ test("a closed Sync panel still shows a phone that is waiting", async ({ browser
     await phoneA.getByRole("button", { name: "Yes, approve it" }).click();
     await expect(phoneC.getByRole("heading", { name: "Do these match?" })).toBeVisible({ timeout: 30000 });
     await phoneC.getByRole("button", { name: "These match" }).click();
+    await includeExistingPages(phoneC);
     await expect(phoneC.locator("[data-sync-linked]")).toBeVisible({ timeout: 20000 });
     await expect(chip).toHaveText("Live", { timeout: 30000 });
     await expect(side).toBeHidden();

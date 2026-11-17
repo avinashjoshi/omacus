@@ -4,6 +4,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { expect, test } from "@playwright/test";
+import { includeExistingPages } from "./sync-setup.mjs";
 import { POLL_IDLE_MS } from "../../site/app/sync-save.mjs";
 
 // WebKit sometimes misses one approval poll. A retry is the same check again.
@@ -120,6 +121,7 @@ test("turning sync off drops this phone from the other list within one poll", as
       await phoneA.locator(".sync-ask").nth(step).getByRole("button", { name: words[n - 1], exact: true }).click();
     }
     await phoneA.getByRole("button", { name: "These match" }).click();
+    await includeExistingPages(phoneA);
     await expect(phoneA.locator("[data-sync-linked]")).toBeVisible();
     await phoneA.getByRole("button", { name: "Add a phone or computer" }).click();
     const code = (await phoneA.locator(".sync-invite-code").innerText()).trim();
@@ -141,6 +143,7 @@ test("turning sync off drops this phone from the other list within one poll", as
     await phoneA.getByRole("button", { name: "Yes, approve it" }).click();
     await expect(phoneB.getByRole("heading", { name: "Do these match?" })).toBeVisible({ timeout: 30000 });
     await phoneB.getByRole("button", { name: "These match" }).click();
+    await includeExistingPages(phoneB);
     await expect(phoneB.locator("[data-sync-linked]")).toBeVisible({ timeout: 45000 });
     await expect(phoneA.getByText("Harbor phone")).toBeVisible({ timeout: 45000 });
 

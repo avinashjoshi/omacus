@@ -4,6 +4,7 @@
 import { mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { expect, test } from "@playwright/test";
+import { includeExistingPages } from "./sync-setup.mjs";
 
 const BOX = "http://127.0.0.1:8798";
 const DESKTOP_APP = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) omacus-desktop/1.0";
@@ -343,6 +344,7 @@ test("an invite notices a join within 5 seconds", async ({ browser }) => {
       await phoneA.locator(".sync-ask").nth(step).getByRole("button", { name: words[n - 1], exact: true }).click();
     }
     await phoneA.getByRole("button", { name: "These match" }).click();
+    await includeExistingPages(phoneA);
     // Checking the words derives a key, then saves. WebKit can take longer
     // than the default wait, and a stuck screen should name itself.
     await expect.poll(async () => {

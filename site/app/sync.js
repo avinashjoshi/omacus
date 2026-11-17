@@ -126,7 +126,7 @@ export async function mountSync(api) {
     joinCode: "",
     accessCode: "",
     wroteWords: false,
-    localPages: false,
+    setupPagesFrom: "",
     removing: null,
     removed: false,
     notice: "",
@@ -243,7 +243,7 @@ export async function mountSync(api) {
   }
 
   function freshSetup() {
-    return ["intro", "access", "save", "confirm"].includes(state.screen);
+    return ["intro", "access", "save", "confirm", "pages-here"].includes(state.screen);
   }
 
   function setChip(text, mode) {
@@ -731,18 +731,37 @@ export async function mountSync(api) {
     return plainError(text);
   }
 
-  async function noteLocalPages() {
+  async function chooseSetupPages(from, continueSetup) {
+    if (state.busy) return;
+    state.busy = true;
     try {
       const snap = await api.snapshot();
-      state.localPages = Array.isArray(snap.pages) && snap.pages.length > 0;
-    } catch {
-      state.localPages = false;
+      if (state.screen !== from) return;
+      if (snap.pages.length) {
+        state.setupPagesFrom = from;
+        state.screen = "pages-here";
+        return;
+      }
+    } catch (error) {
+      state.error = plainError(error.message);
+      return;
+    } finally {
+      state.busy = false;
+      draw();
     }
+    await continueSetup(true);
   }
 
-  function mergeLine() {
-    if (!state.localPages) return "";
-    return `Pages already on ${here()} will be combined with those. Nothing is deleted.`;
+  function finishSetupPages(keepLocal) {
+    const from = state.setupPagesFrom;
+    state.screen = from;
+    if (from === "confirm") return confirmWords(keepLocal);
+    if (from === "join-confirm") return acceptJoin(keepLocal);
+    return startRecovery(keepLocal);
+  }
+
+  function placeSetupPages(snap, keepLocal) {
+    movePages(snap.pages.map(([id]) => id), !keepLocal);
   }
 
   function randomInt(max) {
@@ -825,7 +844,7 @@ export async function mountSync(api) {
     if (unpacked.ok) adoptMeta(unpacked.meta);
     if (!unpacked.ok) throw new Error(unpacked.message || "Those pages could not be opened.");
     const doc = unpacked.doc ? api.b64ToBytes(unpacked.doc) : new Uint8Array();
-    await api.apply(doc, unpacked.pages || [], readPages);
+    await api.apply(doc, unpacked.pages || [], readPages, localIds());
   }
 
   async function pack(doc, pages) {
@@ -1156,7 +1175,7 @@ export async function mountSync(api) {
       const id = row && row[0];
       return id && !joined.remoteIds.has(id) && joined.pages.some((page) => page[0] === id) && pageInVault(id);
     });
-    state.dirty = upload || joined.welcomeRemoved.length > 0 || localChanged || opened.republish === true;
+    state.dirty = state.dirty || upload || joined.welcomeRemoved.length > 0 || localChanged || opened.republish === true;
     if (!state.dirty) await rememberBase(joined.pages);
     paintRemoval();
     // Before the save below. These are the object revisions this copy was
@@ -1198,6 +1217,7 @@ export async function mountSync(api) {
     try {
       await commitSeal(sealed);
       await rememberBase(snap.pages);
+      if (snap.folderDeletes) api.acknowledgeFolderDeletes?.(snap.folderDeletes);
       finishSave(state, started);
       state.saveError = "";
       if (!state.dirty) calm();
@@ -1344,7 +1364,7 @@ export async function mountSync(api) {
       }
       if (state.member && navigator.onLine !== false) {
         const snap = await api.snapshot().catch(() => null);
-        if (snap && pagesDiffer(state.basePages, snap.pages)) state.dirty = true;
+        if (snap && (pagesDiffer(state.basePages, snap.pages) || Object.keys(snap.folderDeletes || {}).length)) state.dirty = true;
       }
       if (state.dirty && state.member) {
         armSaving();
@@ -1601,7 +1621,8 @@ export async function mountSync(api) {
     draw();
   }
 
-  async function confirmWords() {
+  async function confirmWords(keepLocal) {
+    if (state.busy) return;
     const chosen = picks();
     if (chosen.length !== 3) {
       state.error = "Pick the three words first.";
@@ -1615,6 +1636,7 @@ export async function mountSync(api) {
       draw();
       return;
     }
+    if (keepLocal === undefined) return chooseSetupPages("confirm", confirmWords);
     state.busy = true;
     state.error = "";
     draw();
@@ -1639,6 +1661,7 @@ export async function mountSync(api) {
     }
     try {
       const snap = await api.snapshot();
+      placeSetupPages(snap, keepLocal);
       const sealed = await sealPacked(await pack(snap.doc, snap.pages));
       await commitSeal(sealed);
       await rememberBase(snap.pages);
@@ -1692,7 +1715,6 @@ export async function mountSync(api) {
     stopScan();
     state.error = "";
     state.joinCode = "";
-    await noteLocalPages();
     state.screen = "join-type";
     draw();
   }
@@ -1725,7 +1747,6 @@ export async function mountSync(api) {
     state.error = "";
     state.phraseMsg = "";
     state.phraseOk = false;
-    await noteLocalPages();
     state.screen = "recover";
     draw();
   }
@@ -2107,8 +2128,9 @@ export async function mountSync(api) {
     return false;
   }
 
-  async function acceptJoin() {
+  async function acceptJoin(keepLocal) {
     if (state.busy || state.screen !== "join-confirm" || !state.approval) return;
+    if (keepLocal === undefined) return chooseSetupPages("join-confirm", acceptJoin);
     state.busy = true;
     state.error = "";
     draw();
@@ -2132,6 +2154,7 @@ export async function mountSync(api) {
       }
       const remote = await asSet(packed);
       const snap = await api.snapshot();
+      placeSetupPages(snap, keepLocal);
       // The settings already syncing stay. This phone's own were never part of that set.
       const merged = JSON.parse(sync.joinPacked(await pack(snap.doc, snap.pages), remote.packed));
       if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
@@ -2380,7 +2403,8 @@ export async function mountSync(api) {
     draw();
   }
 
-  async function startRecovery() {
+  async function startRecovery(keepLocal) {
+    if (state.busy) return;
     stopScan();
     const named = cleanName(panel.querySelector("[data-recover-name]")?.value || "");
     if (named && named !== state.selfName) {
@@ -2396,6 +2420,7 @@ export async function mountSync(api) {
       draw();
       return;
     }
+    if (keepLocal === undefined) return chooseSetupPages("recover", startRecovery);
     state.busy = true;
     draw();
     await frame();
@@ -2429,6 +2454,7 @@ export async function mountSync(api) {
         if (applied.slots) state.slots = applied.slots;
       }
       const snap = await api.snapshot();
+      placeSetupPages(snap, keepLocal);
       if (opened.partial) {
         let packed = await pack(snap.doc, snap.pages);
         if (opened.packed) {
@@ -2559,6 +2585,7 @@ export async function mountSync(api) {
     else if (state.screen === "access") drawAccess();
     else if (state.screen === "save") drawSave();
     else if (state.screen === "confirm") drawConfirm();
+    else if (state.screen === "pages-here") drawSetupPages();
     else if (state.screen === "invite") drawInvite();
     else if (state.screen === "join-start" || state.screen === "join-type") drawJoinType();
     else if (state.screen === "join-scan") drawJoinScan();
@@ -2809,6 +2836,15 @@ export async function mountSync(api) {
     ));
   }
 
+  function drawSetupPages() {
+    panel.append(
+      backLink(() => { state.screen = state.setupPagesFrom; draw(); }),
+      el("h2", {}, [`Pages already on ${here()}`]),
+      choiceCard("↗", "Bring these pages into sync", "Your other devices will get a copy.", () => finishSetupPages(false)),
+      choiceCard("⌂", `Leave them on ${here()}`, "These pages stay here and won't be uploaded.", () => finishSetupPages(true)),
+    );
+  }
+
   function drawInvite() {
     const qr = el("div", { class: "sync-qr sync-join" });
     const picture = qrNode(state.invite?.qr, "Join code");
@@ -2874,7 +2910,6 @@ export async function mountSync(api) {
       el("p", { class: "sync-hint" }, ["12 characters · or tap the scan button to scan the QR code"]),
       recoveryRow(),
       ...deviceNameControl(),
-      el("p", { class: "sync-hint" }, [`Pages already on ${here()} will be combined with your synced pages. Nothing is deleted.`]),
       actionButton(state.busy ? "Joining…" : "Join", "primary", () => submitJoin(state.joinCode), state.busy),
     );
     field.focus();
@@ -3030,8 +3065,6 @@ export async function mountSync(api) {
       recoverName,
       el("p", { class: "setting-help" }, ["Type or paste the 12 recovery words. Numbers and capitals are fine. A page you delete is in Recently deleted. Restore puts it back."]),
     );
-    const merged = mergeLine();
-    if (merged) bits.push(el("p", { class: "setting-help" }, [merged]));
     const recoverError = fieldError(phrase);
     bits.push(el("label", { class: "sync-field", for: "sync-recovery-words" }, ["Recovery words"]), phrase);
     if (recoverError) bits.push(recoverError);

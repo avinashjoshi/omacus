@@ -35,13 +35,22 @@ pub fn save(dir: &Path, plain: &[u8]) -> Result<(), String> {
 /// The desktop binary uses this to show whether the key store accepted a write.
 /// The bytes are a marker, not a device key, and they are not printed.
 pub fn e2e_store(dir: &Path) -> i32 {
+    const SAMPLE: &[u8] = b"\0\0\0\x88omacus-e2e\xff";
+    if std::env::var_os("OMACUS_E2E_KEYRING_READ").is_some() {
+        if load(dir).ok().flatten().as_deref() == Some(SAMPLE) {
+            println!("reopened");
+            return 0;
+        }
+        println!("unreadable");
+        return 1;
+    }
     if std::env::var("OMACUS_E2E_PREPARE").ok().as_deref() == Some("1")
         && let Err(error) = prepare_keyring()
     {
         println!("{}", e2e_label(&error));
         return 0;
     }
-    match save(dir, b"omacus-e2e") {
+    match save(dir, SAMPLE) {
         Ok(()) => {
             println!("stored");
             0
@@ -76,13 +85,17 @@ pub fn load(dir: &Path) -> Result<Option<Vec<u8>>, String> {
     Ok(Some(open_sealed(&bytes)?))
 }
 
-pub fn remove(dir: &Path) {
+pub fn remove(dir: &Path) -> Result<(), String> {
     // The login keyring has one slot for Omacus, shared by every data folder
     // of this user. Only the profile whose key is in that slot may empty it.
     // A profile locked with a passphrase, or a test profile, used to empty
     // it too, and the installed app then could not open its own pages.
     let in_system_store = uses_system_store(dir);
-    let _ = fs::remove_file(path(dir));
+    match fs::remove_file(path(dir)) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.to_string()),
+    }
     #[cfg(target_os = "macos")]
     if in_system_store {
         let _ = keychain_delete();
@@ -94,6 +107,7 @@ pub fn remove(dir: &Path) {
     // Windows keeps the key in the pointer file itself. There is no slot to empty.
     #[cfg(not(unix))]
     let _ = in_system_store;
+    Ok(())
 }
 
 /// Whether this profile's pointer names the login keyring or keychain.
@@ -1165,6 +1179,29 @@ fn locked_flag(path: &str) -> Option<bool> {
     parse_locked(&String::from_utf8_lossy(&out.stdout))
 }
 
+// secret-tool exchanges text passwords. A binary device record may start with
+// NUL bytes and contain invalid UTF-8, which a keyring can truncate or reject.
+#[cfg(all(unix, not(target_os = "macos")))]
+const SECRET_PREFIX: &str = "omacus-base64:";
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn secret_text(plain: &[u8]) -> String {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    format!("{SECRET_PREFIX}{}", STANDARD.encode(plain))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn secret_bytes(mut stored: Vec<u8>) -> Result<Vec<u8>, String> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use zeroize::Zeroize;
+    let Some(encoded) = stored.strip_prefix(SECRET_PREFIX.as_bytes()) else {
+        return Ok(stored);
+    };
+    let decoded = STANDARD.decode(encoded);
+    stored.zeroize();
+    decoded.map_err(|_| "That copy could not be read.".into())
+}
+
 #[cfg_attr(test, allow(dead_code))]
 #[cfg(all(unix, not(target_os = "macos")))]
 fn secret_put(plain: &[u8]) -> Result<(), String> {
@@ -1186,7 +1223,10 @@ fn secret_put(plain: &[u8]) -> Result<(), String> {
         .spawn()
         .map_err(|error| error.to_string())?;
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(plain).map_err(|error| error.to_string())?;
+        let text = zeroize::Zeroizing::new(secret_text(plain));
+        stdin
+            .write_all(text.as_bytes())
+            .map_err(|error| error.to_string())?;
     }
     let out = finish_child(child, KEYRING_WAIT)?;
     if out.status.success() {
@@ -1211,7 +1251,7 @@ fn secret_get() -> Result<Vec<u8>, String> {
         .map_err(|error| error.to_string())?;
     let out = finish_child(child, KEYRING_WAIT)?;
     if out.status.success() {
-        Ok(out.stdout)
+        secret_bytes(out.stdout)
     } else {
         Err("That copy could not be read.".into())
     }
@@ -1242,6 +1282,17 @@ fn secret_delete() -> Result<(), String> {
 mod tests {
     use super::*;
 
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn keyring_password_round_trips_binary_device_records() {
+        let record = [0, 0, 1, 42, 255, 0, 128];
+        let password = secret_text(&record);
+        assert!(password.bytes().all(|byte| byte.is_ascii_graphic()));
+        assert_eq!(secret_bytes(password.into_bytes()).unwrap(), record);
+        assert_eq!(secret_bytes(record.to_vec()).unwrap(), record);
+        assert!(secret_bytes(b"omacus-base64:!".to_vec()).is_err());
+    }
+
     /// The login keyring has one slot for every data folder. Turning sync
     /// off in a profile that keeps its key elsewhere must leave that slot.
     #[test]
@@ -1270,7 +1321,7 @@ mod tests {
         fs::write(path(&dir), b"not a pointer").unwrap();
         assert!(!uses_system_store(&dir));
         // The pointer goes either way.
-        remove(&dir);
+        remove(&dir).unwrap();
         assert!(!path(&dir).exists());
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1292,7 +1343,7 @@ mod tests {
             "the key file holds the raw device marker"
         );
         assert_eq!(load(&dir).unwrap().unwrap(), plain);
-        remove(&dir);
+        remove(&dir).unwrap();
         assert!(load(&dir).unwrap().is_none());
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1316,7 +1367,7 @@ mod tests {
         assert!(!tmp.exists());
         assert!(is_private(&dir));
         assert_eq!(load(&dir).unwrap().unwrap(), second);
-        remove(&dir);
+        remove(&dir).unwrap();
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1434,7 +1485,7 @@ object path \"/org/freedesktop/secrets/prompt/u1\"
         write_pass(&dir, plain, &again).unwrap();
         let (second, _) = open_pass(&dir, password).unwrap();
         assert_eq!(second, plain);
-        remove(&dir);
+        remove(&dir).unwrap();
         assert!(!has_pass_file(&dir));
         let _ = fs::remove_dir_all(&dir);
     }

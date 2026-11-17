@@ -508,6 +508,8 @@ pub struct OmacusApp {
     update_open: bool,
     /// The Sync tab was opened on purpose. A later dismiss does not reopen it.
     sync_tab_armed: bool,
+    reset_asked: bool,
+    reset_done: bool,
     /// Sync in this window. Pages stay files. A sealed copy is what leaves.
     sync: sync::Session,
     /// The session is on a background step. The window keeps drawing a shell.
@@ -679,6 +681,8 @@ impl OmacusApp {
             // With OMACUS_SCREENSHOT, "update" opens the update window instead of help.
             update_open: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "update"),
             sync_tab_armed: false,
+            reset_asked: false,
+            reset_done: false,
             sync: {
                 let session = sync::Session::open(sync_dir(), &sync_origin());
                 let ctx = cc.egui_ctx.clone();
@@ -1429,6 +1433,9 @@ rental = rent + 50
 
     /// Keys are consumed here, before the editor sees them.
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        if self.reset_asked {
+            return;
+        }
         // The password dialog wants the keystrokes, including Esc to close.
         if self.lock_ask.is_some() {
             if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
@@ -2323,10 +2330,55 @@ rental = rent + 50
             Some(help::Action::ExportEverything) => {
                 self.export_everything();
             }
+            Some(help::Action::AskReset) => self.reset_asked = true,
             None if dismissed && !self.sync.frozen() && tab == help::Tab::Sync => {
                 self.dismiss_sync_window();
             }
             None => {}
+        }
+    }
+
+    fn show_reset(&mut self, ctx: &egui::Context) {
+        if !self.reset_asked {
+            return;
+        }
+        let modal = egui::Modal::new(egui::Id::unique("reset-app"))
+            .frame(design::dialog(&self.theme))
+            .backdrop_color(design::backdrop(&self.theme))
+            .show(ctx, |ui| {
+                ui.set_width(340.0);
+                ui.label(egui::RichText::new("Reset Omacus?").size(theme::token::TYPE_TITLE));
+                ui.label("This permanently clears pages, settings, and sync from this computer. Synced copies stay on your other devices. Close any other Omacus windows first.");
+                ui.add_space(theme::token::SPACE_2);
+                ui.horizontal(|ui| {
+                    let ready = self.sync_job.is_none();
+                    let confirm = ui.add_enabled_ui(ready, |ui| {
+                        design::danger(ui, &self.theme, "Reset and quit").clicked()
+                    }).inner;
+                    let cancel = design::quiet(ui, &self.theme, "Cancel").clicked();
+                    (confirm, cancel)
+                }).inner
+            });
+        let (confirm, cancel) = modal.inner;
+        if confirm {
+            let result = self.sync.clear_local_key().and_then(|()| {
+                reset_local_files(
+                    crate::sheets::data_root().as_deref(),
+                    settings::path().as_deref(),
+                )
+            });
+            match result {
+                Ok(()) => {
+                    self.reset_done = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                Err(error) => {
+                    self.toast = Some(Toast::error(format!("Couldn't reset Omacus. {error}")))
+                }
+            }
+            self.reset_asked = false;
+        } else if cancel || modal.should_close() {
+            self.reset_asked = false;
         }
     }
 
@@ -5904,6 +5956,9 @@ rental = rent + 50
 
 impl eframe::App for OmacusApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if self.reset_done {
+            return;
+        }
         let ctx = ui.ctx().clone();
         self.reap_sync();
         if self.theme_from_sync {
@@ -5982,6 +6037,10 @@ impl eframe::App for OmacusApp {
         self.stage_screenshot(&ctx);
         self.popup(&ctx);
         self.show_help(&ctx);
+        self.show_reset(&ctx);
+        if self.reset_done {
+            return;
+        }
         self.show_update(&ctx);
         self.show_removal(&ctx);
         self.show_sync(&ctx);
@@ -5995,7 +6054,9 @@ impl eframe::App for OmacusApp {
         self.show_purge(&ctx);
         self.show_switcher(&ctx);
         self.show_toast(&ctx);
-        self.pump_sync();
+        if !self.reset_asked {
+            self.pump_sync();
+        }
         if self.sync_job.is_some() {
             ctx.request_repaint_after(Duration::from_millis(50));
         }
@@ -6006,15 +6067,19 @@ impl eframe::App for OmacusApp {
     #[cfg(not(windows))]
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         sync::release_clipboard();
-        self.store.lock_now();
-        self.save();
+        if !self.reset_done {
+            self.store.lock_now();
+            self.save();
+        }
     }
 
     #[cfg(windows)]
     fn on_exit(&mut self) {
         sync::release_clipboard();
-        self.store.lock_now();
-        self.save();
+        if !self.reset_done {
+            self.store.lock_now();
+            self.save();
+        }
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
@@ -6223,6 +6288,41 @@ fn e2e_write_secret(path: &std::path::Path, text: &str) -> bool {
     {
         std::fs::write(path, text).is_ok()
     }
+}
+
+fn reset_local_files(
+    root: Option<&std::path::Path>,
+    settings: Option<&std::path::Path>,
+) -> Result<(), String> {
+    fn remove(path: &std::path::Path, directory: bool) -> Result<(), String> {
+        let result = if directory {
+            std::fs::remove_dir_all(path)
+        } else {
+            std::fs::remove_file(path)
+        };
+        match result {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!("{}: {error}", path.display())),
+        }
+    }
+    if let Some(root) = root {
+        for file in [
+            "state.json",
+            "sheet.txt",
+            "library.automerge",
+            "sync-backup.zip",
+        ] {
+            remove(&root.join(file), false)?;
+        }
+        for folder in ["pages", "sheets", "trash", "sync"] {
+            remove(&root.join(folder), true)?;
+        }
+    }
+    if let Some(path) = settings {
+        remove(path, false)?;
+    }
+    Ok(())
 }
 
 fn sync_dir() -> std::path::PathBuf {
@@ -7198,6 +7298,39 @@ fn line_at(text: &str, cursor: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reset_clears_the_library_and_settings_without_touching_exports() {
+        let root = std::env::temp_dir().join(format!("omacus-reset-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = root.join("settings.toml");
+        std::fs::create_dir_all(root.join("pages")).unwrap();
+        std::fs::create_dir_all(root.join("trash")).unwrap();
+        std::fs::create_dir_all(root.join("sync")).unwrap();
+        for file in [
+            "pages/trip.txt",
+            "trash/old.txt",
+            "sync/book.json",
+            "library.automerge",
+            "state.json",
+            "sync-backup.zip",
+            "settings.toml",
+            "Trip Budget.pdf",
+            "theme.toml",
+        ] {
+            std::fs::write(root.join(file), "test").unwrap();
+        }
+        for _ in 0..2 {
+            super::reset_local_files(Some(&root), Some(&settings)).unwrap();
+        }
+        let mut kept: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        kept.sort();
+        assert_eq!(kept, ["Trip Budget.pdf", "theme.toml"]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     use super::find_sheets;
     use super::{
         BAR_ROW, HINT_IDLE, NameFieldKey, PopState, SIDEBAR_ROW, Shortcut, ShownPop, SwitcherEdit,

@@ -16,7 +16,7 @@ export function changedSpan(now, next) {
   return { from, to: a.length - tail, insert: b.slice(from, b.length - tail) };
 }
 
-export function structuralState({ tree, handles, trash, settings }) {
+export function structuralState({ tree, handles, trash, settings, deletedFolders = [] }) {
   const sidebar = [];
   const walk = (nodes, parent) => {
     (nodes || []).forEach((node, index) => {
@@ -39,6 +39,7 @@ export function structuralState({ tree, handles, trash, settings }) {
     });
   };
   walk(tree, "");
+  for (const id of deletedFolders) sidebar.push({ id, kind: "folder", gone: true });
   const handleRows = [];
   const source = handles instanceof Map ? [...handles.entries()] : Object.entries(handles || {});
   for (const [id, handle] of source) {
@@ -57,13 +58,19 @@ export function structuralState({ tree, handles, trash, settings }) {
 
 // `pages` are `[id, text]` rows already on this device. A page the shared tree
 // does not name, and that is not in Recently deleted, stays at the root in id order.
-export function applyPresent(current, present, pages) {
+export function applyPresent(current, present, pages, pendingFolderDeletes = []) {
   const shown = typeof present === "string" ? JSON.parse(present) : present;
   if (!shown || typeof shown !== "object") return current;
   const next = current;
   const localTree = Array.isArray(current.tree) ? current.tree : [];
   const localTrash = Array.isArray(current.trash) ? current.trash : [];
-  if (Array.isArray(shown.sidebar)) next.tree = shown.sidebar.slice();
+  const deleted = new Set([...(shown.deletedFolders || []), ...pendingFolderDeletes]);
+  function withoutDeleted(nodes) {
+    return nodes.filter((node) => !deleted.has(node?.id)).map((node) =>
+      node?.type === "folder" ? { ...node, children: withoutDeleted(node.children || []) } : node);
+  }
+  if (Array.isArray(shown.sidebar)) next.tree = withoutDeleted(shown.sidebar);
+  else next.tree = withoutDeleted(localTree);
   const folderIds = new Set();
   const collectFolders = (nodes) => {
     for (const node of nodes || []) {
@@ -74,8 +81,8 @@ export function applyPresent(current, present, pages) {
   };
   collectFolders(next.tree);
   for (const node of localTree) {
-    if (node && node.type === "folder" && node.id && !folderIds.has(node.id)) {
-      next.tree.push(node);
+    if (node && node.type === "folder" && node.id && !folderIds.has(node.id) && !deleted.has(node.id)) {
+      next.tree.push(...withoutDeleted([node]));
       folderIds.add(node.id);
     }
   }

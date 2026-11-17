@@ -16,6 +16,7 @@ const DB_NAME = syncTest() ? "omacus-sync-test" : "omacus";
 const STORE = "kv";
 export const PREFIX = syncTest() ? "omacus-sync-test:" : "omacus:";
 export const CHANNEL = syncTest() ? "omacus-sync-test" : "omacus";
+export const RESET_NOTICE = `${CHANNEL}-reset`;
 
 const memory = new Map();
 let db = null;
@@ -25,6 +26,16 @@ let mirror = true;
 let persistOk = false;
 const writes = new Set();
 let channel = null;
+let resetting = false;
+let resetNotice = readResetNotice();
+
+function readResetNotice() {
+  try { return localStorage.getItem(RESET_NOTICE); } catch { return null; }
+}
+
+function canWrite() {
+  return !resetting && readResetNotice() === resetNotice;
+}
 // Other tabs listen on their own channel. A write must not look like someone else's.
 export const selfTab = Math.random().toString(36).slice(2);
 
@@ -171,6 +182,7 @@ function track(job) {
 }
 
 export function set(key, value) {
+  if (!canWrite()) return Promise.resolve(false);
   memory.set(key, value);
   const job = track(writeThrough(key, value));
   return job;
@@ -185,6 +197,7 @@ async function writeThrough(key, value) {
       idbOk = false;
     }
   }
+  if (!canWrite()) return false;
   let localOk = false;
   if (mirror || !idbOk) {
     try {
@@ -205,8 +218,9 @@ async function writeThrough(key, value) {
 }
 
 export function remove(key) {
+  if (!canWrite()) return Promise.resolve(false);
   memory.delete(key);
-  const dropped = useIdb && db ? idbDelete(db, key) : Promise.resolve(false);
+  const dropped = useIdb && db ? track(idbDelete(db, key)) : Promise.resolve(false);
   try {
     localStorage.removeItem(PREFIX + key);
   } catch {
@@ -218,6 +232,41 @@ export function remove(key) {
     // See writeThrough.
   }
   return dropped;
+}
+
+export async function reset() {
+  if (!canWrite()) throw new Error("A reset is already in progress.");
+  resetting = true;
+  const notice = `${selfTab}-${Date.now()}`;
+  try {
+    localStorage.setItem(RESET_NOTICE, `pending-${notice}`);
+  } catch {
+    // IndexedDB and the tab channel can still be available.
+  }
+  try {
+    await Promise.allSettled([...writes]);
+    if (db) {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, "readwrite");
+        tx.objectStore(STORE).clear();
+        tx.oncomplete = resolve;
+        tx.onabort = () => reject(tx.error);
+      });
+    }
+    for (const [key] of readLocal()) localStorage.removeItem(PREFIX + key);
+    memory.clear();
+  } catch (error) {
+    resetting = false;
+    throw error;
+  } finally {
+    try {
+      localStorage.setItem(RESET_NOTICE, notice);
+      resetNotice = notice;
+    } catch {
+      // The channel is the fallback for tabs with no localStorage.
+    }
+    pageChannel()?.postMessage({ reset: true, tab: selfTab });
+  }
 }
 
 export function drained() {
