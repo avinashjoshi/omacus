@@ -30,6 +30,10 @@ The web app picks up an edit from your other device in under a second. It used t
 
 Turn sync off no longer says the copy is out of date when your other device changed something before you reopened the web app.
 
+**A second data folder leaves the first one signed in**
+
+Turning sync off in a copy of Omacus that keeps its key behind a passphrase no longer removes the key the installed app keeps in your login keyring.
+
 **Joining keeps the settings you already chose**
 
 A phone or computer that joins your pages takes the theme, the lock time, and the short names already there. Its own defaults no longer replace them.
