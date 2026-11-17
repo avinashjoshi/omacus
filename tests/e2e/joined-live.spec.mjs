@@ -14,7 +14,12 @@ const ROWS = ["Pantry", "Oats", "Ferry", "Bread", "Cake"];
 
 test.skip(!process.env.OMACUS_JOINED, "joined proof needs the desktop binary and a display");
 test.skip(({ browserName }) => browserName !== "chromium", "joined proof runs in chromium");
-test.use({ actionTimeout: 20000 });
+// The page and the sync box are both on this machine. Chromium asks before a
+// page opens a socket to a local address, and a test has nobody to say yes.
+test.use({
+  actionTimeout: 20000,
+  launchOptions: { args: ["--disable-features=LocalNetworkAccessChecks,LocalNetworkAccessChecksWebSockets"] },
+});
 
 function startBox() {
   const child = spawn(process.execPath, ["--import", "./relay/worker/register-cf.mjs", "tests/e2e/relay-box.mjs"], {

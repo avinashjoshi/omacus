@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.11
+
+**Keep typing while your other device edits the same page**
+
+A line from your other device no longer moves the cursor to the top of the page in the web app, and the letters you type while it arrives stay. Both devices keep both lines, on the desktop and on the web.
+
+**A change shows up on an idle computer right away**
+
+The desktop app picks up an edit from the web app in about a second when its window is left alone. It used to wait up to half a minute.
+
+**Joining keeps the settings you already chose**
+
+A phone or computer that joins your pages takes the theme, the lock time, and the short names already there. Its own defaults no longer replace them.
+
 ## 1.0.10
 
 **Your page still opens after a damaged link**

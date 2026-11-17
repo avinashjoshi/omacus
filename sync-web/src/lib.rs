@@ -497,6 +497,17 @@ pub fn merge_packed(local_b64: &str, remote_b64: &str) -> String {
     })
 }
 
+/// The pages on this device, joining a set that already syncs.
+#[wasm_bindgen(js_name = joinPacked)]
+pub fn join_packed(local_b64: &str, set_b64: &str) -> String {
+    call(|| {
+        let local = omacus_engine::sync_keys::PageSet::from_bytes(&b64_decode(local_b64)?)?;
+        let set = omacus_engine::sync_keys::PageSet::from_bytes(&b64_decode(set_b64)?)?;
+        let packed = local.join(set).to_bytes()?;
+        Ok(json!({ "ok": true, "packed": b64_encode(&packed) }))
+    })
+}
+
 fn sync_keys_pack(
     doc: &[u8],
     pages: &[(String, String)],

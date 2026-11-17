@@ -3,7 +3,7 @@
 // WebCrypto key. The page's strict policy is what keeps other scripts out.
 import { SYNC_URL } from "./sync-config.js";
 import { APP_VERSION } from "./version.js";
-import { approvalCard, beginSave, chipLabel, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, keepUnlessTombstone, leaveMessage, noteLocalEdit, noteTombstone, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, setMark, showTurnOnSync } from "./sync-save.mjs";
+import { approvalCard, beginSave, chipLabel, dedupeWelcome, FETCH_TIMEOUT_MS, finishSave, followWaits, keepUnlessTombstone, leaveMessage, noteLocalEdit, noteTombstone, pageHeading, pagesDiffer, pollWait, PUSH_DEBOUNCE_MS, removalSentence, setMark, showTurnOnSync } from "./sync-save.mjs";
 import { ifTabLeader, tabLockName, withTabLock } from "./sync-leader.mjs";
 import { guessDeviceName as nameFromAgent } from "./device-name.js";
 import { deviceListNote, pageOrigin, parseJoinPayload, takeSyncLink } from "./sync-link.mjs";
@@ -820,12 +820,12 @@ export async function mountSync(api) {
     return data;
   }
 
-  async function installMerged(merged) {
+  async function installMerged(merged, readPages) {
     const unpacked = JSON.parse(sync.unpackPages(merged.packed));
     if (unpacked.ok) adoptMeta(unpacked.meta);
     if (!unpacked.ok) throw new Error(unpacked.message || "Those pages could not be opened.");
     const doc = unpacked.doc ? api.b64ToBytes(unpacked.doc) : new Uint8Array();
-    await api.apply(doc, unpacked.pages || []);
+    await api.apply(doc, unpacked.pages || [], readPages);
   }
 
   async function pack(doc, pages) {
@@ -1149,7 +1149,8 @@ export async function mountSync(api) {
     }
     const localChanged = pagesDiffer(state.basePages, snap.pages) || opened.combine === true;
     const joined = await combineRemote(snap, remote);
-    await installMerged({ packed: joined.packed });
+    // `snap` is older than this line. A page typed since then is folded in.
+    await installMerged({ packed: joined.packed }, snap.pages);
     const upload = (snap.pages || []).some((row) => {
       const id = row && row[0];
       return id && !joined.remoteIds.has(id) && joined.pages.some((page) => page[0] === id) && pageInVault(id);
@@ -1277,7 +1278,7 @@ export async function mountSync(api) {
       finally { ticking = false; }
       return;
     }
-    if (["off", "access", "save", "confirm", "recover", "join", "join-start", "join-type", "join-scan", "remove-ask", "off-ask", "removed"].includes(state.screen)) return;
+    if (followWaits(state.screen)) return;
     ticking = true;
     try {
       await ifTabLeader(navigator.locks, lockName(), () => follow());
@@ -2093,7 +2094,8 @@ export async function mountSync(api) {
       }
       const remote = await asSet(packed);
       const snap = await api.snapshot();
-      const merged = JSON.parse(sync.mergePacked(await pack(snap.doc, snap.pages), remote.packed));
+      // The settings already syncing stay. This phone's own were never part of that set.
+      const merged = JSON.parse(sync.joinPacked(await pack(snap.doc, snap.pages), remote.packed));
       if (!merged.ok) throw new Error(merged.message || "Those pages could not be opened.");
       await installMerged(merged);
       state.revision = mailbox.revision;

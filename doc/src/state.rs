@@ -83,6 +83,32 @@ impl Library {
         true
     }
 
+    /// This library is joining pages that already sync. Its revisions were
+    /// counted on this device alone, so they say nothing about which copy is
+    /// later. After this, a folder, handle, deleted page, or setting that both
+    /// copies have is the one already syncing. One that is only here stays.
+    pub fn yield_shared(&mut self) {
+        let Some(current) = self.vault_json() else {
+            return;
+        };
+        let mut vault = parse_vault(&current);
+        vault.clock = 0;
+        for row in &mut vault.sidebar {
+            row.rev = 0;
+        }
+        for row in &mut vault.handles {
+            row.rev = 0;
+        }
+        for row in &mut vault.trash {
+            row.rev = 0;
+        }
+        for pref in vault.prefs.values_mut() {
+            pref.rev = 0;
+        }
+        let _ = self.doc.put(ROOT, VAULT_KEY, write_vault(&vault));
+        self.doc.commit();
+    }
+
     /// What the sidebar, trash, handles, and preferences should show.
     pub fn vault_present(&self) -> Option<String> {
         self.vault_json().map(|json| present_vault(&json))
@@ -994,6 +1020,93 @@ mod tests {
         let trash = shown.get("trash").and_then(Json::as_array).unwrap();
         assert_eq!(trash.len(), 1);
         assert_eq!(trash[0].get("id").and_then(Json::as_str), Some("kept"));
+    }
+
+    fn theme_of(doc: &[u8]) -> String {
+        let lib = Library::load(doc).unwrap();
+        let shown: Json = serde_json::from_str(&lib.vault_present().unwrap()).unwrap();
+        shown["prefs"]["theme"].as_str().unwrap_or("").to_string()
+    }
+
+    fn handle_of(doc: &[u8], page: &str) -> String {
+        let lib = Library::load(doc).unwrap();
+        let shown: Json = serde_json::from_str(&lib.vault_present().unwrap()).unwrap();
+        shown["handles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == page)
+            .and_then(|row| row["handle"].as_str())
+            .unwrap_or("")
+            .to_string()
+    }
+
+    #[test]
+    fn a_device_that_joins_keeps_the_settings_already_syncing() {
+        // The set: one page, a chosen theme, a short handle.
+        let mut set = Library::new();
+        set.reconcile("ferry", "Ferry\npier 2\n", None);
+        set.note_vault(
+            &json!({
+                "sidebar": [{"id": "ferry", "kind": "page", "parent": "", "index": 0}],
+                "handles": [{"id": "ferry", "handle": "pier"}],
+                "prefs": {"theme": "dusk", "lockMinutes": 15},
+            })
+            .to_string(),
+        );
+        // The joining device: its own page, default settings, and more edits
+        // behind it, so every one of its revisions is the higher number.
+        let mut joiner = Library::new();
+        joiner.reconcile("oats", "Oats\nbowl 2\n", None);
+        for theme in ["paper", "light", "dark", "auto"] {
+            joiner.note_vault(
+                &json!({
+                    "sidebar": [
+                        {"id": "tins", "kind": "folder", "name": "Tins", "parent": "", "index": 0},
+                        {"id": "oats", "kind": "page", "parent": "tins", "index": 0},
+                    ],
+                    "handles": [{"id": "oats", "handle": "oats"}],
+                    "prefs": {"theme": theme, "lockMinutes": 5},
+                })
+                .to_string(),
+            );
+        }
+        let set_pages = vec![("ferry".to_string(), "Ferry\npier 2\n".to_string())];
+        let own_pages = vec![("oats".to_string(), "Oats\nbowl 2\n".to_string())];
+        let (set_doc, own_doc) = (set.save(), joiner.save());
+
+        let (plain, _) = crate::merge_libraries(&own_doc, &own_pages, &set_doc, &set_pages);
+        assert_eq!(
+            theme_of(&plain),
+            "auto",
+            "the plain merge keeps the higher number"
+        );
+
+        let (doc, pages) = crate::join_libraries(&own_doc, &own_pages, &set_doc, &set_pages);
+        assert_eq!(theme_of(&doc), "dusk");
+        assert_eq!(handle_of(&doc, "ferry"), "pier");
+        // What only the joining device had is still there.
+        assert_eq!(handle_of(&doc, "oats"), "oats");
+        assert_eq!(pages.len(), 2);
+        let shown: Json =
+            serde_json::from_str(&Library::load(&doc).unwrap().vault_present().unwrap()).unwrap();
+        let folder = shown["sidebar"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == "tins")
+            .expect("the joining device's folder was dropped");
+        assert_eq!(folder["children"][0]["id"], "oats");
+
+        // The first device takes that copy back and still has its own theme.
+        let (back, _) = crate::merge_libraries(&set_doc, &set_pages, &doc, &pages);
+        assert_eq!(theme_of(&back), "dusk");
+
+        // Once both hold one document, a later change here wins as usual.
+        let mut joined = Library::load(&doc).unwrap();
+        joined.note_vault(&json!({"prefs": {"theme": "paper"}}).to_string());
+        let (next, _) = crate::join_libraries(&joined.save(), &pages, &doc, &pages);
+        assert_eq!(theme_of(&next), "paper");
     }
 
     #[test]

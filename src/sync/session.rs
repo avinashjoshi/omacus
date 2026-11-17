@@ -1597,7 +1597,7 @@ impl Session {
             }
         };
         self.slots = slots;
-        self.install_remote(&packed, true)?;
+        self.install_joined(&packed)?;
         self.member = true;
         self.on = true;
         self.removed = false;
@@ -2005,7 +2005,7 @@ impl Session {
             packed
         };
         if !peeked.partial {
-            self.install_remote(&packed, true)?;
+            self.install_joined(&packed)?;
             self.member = self.desk.as_ref().is_some_and(Desk::member);
             self.on = true;
             self.removed = false;
@@ -2044,6 +2044,40 @@ impl Session {
         if self.on && self.meta_in_vault(id) {
             self.dirty = true;
             self.mark("merge");
+        }
+    }
+
+    /// The window's copy of a page, which was `base` when the window and sync
+    /// last held the same text, is now `text`. When the other device's lines
+    /// reached sync in between, both are kept, and the text the window should
+    /// show comes back. Sending `text` alone took those lines out again.
+    pub fn note_edit_since(&mut self, id: &str, base: &str, text: &str) -> Option<String> {
+        let theirs = self.page_text(id).map(str::to_string);
+        let merged = match theirs {
+            Some(theirs)
+                if theirs != base && theirs != text && !self.locked.iter().any(|at| at == id) =>
+            {
+                omacus_doc::Library::load(&self.doc)
+                    .ok()
+                    .and_then(|mut lib| {
+                        lib.reconcile(id, base, None);
+                        lib.reconcile(id, text, Some(&theirs));
+                        let merged = lib.snapshot(id)?;
+                        self.doc = lib.save();
+                        Some(merged)
+                    })
+            }
+            _ => None,
+        };
+        match merged {
+            Some(merged) => {
+                self.note_edit(id, &merged);
+                (merged != text).then_some(merged)
+            }
+            None => {
+                self.note_edit(id, text);
+                None
+            }
         }
     }
 
@@ -2254,6 +2288,12 @@ impl Session {
 
     pub fn socket_live(&self) -> bool {
         self.live.connected()
+    }
+
+    /// The window sleeps between frames. This is how a notice from the other
+    /// device wakes it, so the change shows without waiting for the next poll.
+    pub fn wake_with(&self, call: impl Fn() + Send + 'static) {
+        self.live.on_notice(call);
     }
 
     /// A notice arrived that this device has not pulled yet.
@@ -2951,12 +2991,26 @@ impl Session {
     }
 
     fn install_remote(&mut self, packed: &[u8], combine: bool) -> Result<(), String> {
+        self.install_set(packed, combine, false)
+    }
+
+    /// The first copy of a set this computer is joining. The settings already
+    /// syncing stay. This computer's own were never part of that set.
+    fn install_joined(&mut self, packed: &[u8]) -> Result<(), String> {
+        self.install_set(packed, true, true)
+    }
+
+    fn install_set(&mut self, packed: &[u8], combine: bool, joining: bool) -> Result<(), String> {
         let remote = PageSet::from_bytes(packed).map_err(|e| e.message().to_string())?;
         let local_pages = self.pages.clone();
         // Always a merge. A page that is only here stays in the result and is
         // published. The remote list does not replace this library.
         let local = self.page_set()?;
-        let mut merged = local.merge(remote.clone());
+        let mut merged = if joining {
+            local.join(remote.clone())
+        } else {
+            local.merge(remote.clone())
+        };
         if combine {
             self.dirty = true;
         }
@@ -4717,6 +4771,39 @@ mod tomb_tests {
         );
         assert!(session.pages.iter().any(|(id, _)| id == "harbor"));
         assert_eq!(session.removal_count(), 0, "two deletes asked first");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn typing_while_the_other_device_edits_keeps_both() {
+        let dir = std::env::temp_dir().join(format!("omacus-typed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
+        let agreed = "Bread\nloaf 2\n";
+        session.note_edit("bread", agreed);
+
+        // The other device's line reaches sync while this window is mid-word.
+        let theirs = "Bread\nloaf 2\ncrust 1\n";
+        session.note_edit("bread", theirs);
+        let typed = "Bread\nloaf 2\n\ncrumb";
+
+        let shown = session
+            .note_edit_since("bread", agreed, typed)
+            .expect("the window was not given the other device's line");
+        assert!(shown.contains("crust 1"), "{shown}");
+        assert!(shown.contains("crumb"), "{shown}");
+        assert_eq!(session.page_text("bread"), Some(shown.as_str()));
+        let on_disk = std::fs::read_to_string(dir.join("pages").join("bread.txt")).unwrap();
+        assert_eq!(on_disk, shown);
+
+        // Nothing arrived in between: the typed page is the page.
+        let next = format!("{shown}s");
+        assert_eq!(session.note_edit_since("bread", &shown, &next), None);
+        assert_eq!(session.page_text("bread"), Some(next.as_str()));
+
+        // A line removed here stays removed when nothing arrived.
+        assert_eq!(session.note_edit_since("bread", &next, "Bread\n"), None);
+        assert_eq!(session.page_text("bread"), Some("Bread\n"));
         let _ = std::fs::remove_dir_all(dir);
     }
 

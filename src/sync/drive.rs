@@ -67,6 +67,10 @@ pub fn e2e_drive() -> i32 {
                 await_text(&mut session, id, Path::new(path), ms)
             }
             "status" => Ok(status(&session)),
+            "text" => {
+                let id = parts.next().unwrap_or("");
+                Ok(serde_json::json!({ "text": session.page_text(id) }).to_string())
+            }
             "quit" => {
                 emit(r#"{"ok":true,"cmd":"quit"}"#);
                 return 0;
@@ -293,7 +297,8 @@ fn wait_until(
         if left == 0 {
             break;
         }
-        thread::sleep(Duration::from_millis(gap.min(left)));
+        // The window wakes on a live notice. This loop has no waker, so it looks often.
+        thread::sleep(Duration::from_millis(gap.min(left).min(250)));
     }
     if ready(session) {
         Ok(())

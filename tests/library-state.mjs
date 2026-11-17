@@ -1,5 +1,5 @@
 // The web sidebar follows the same shared tree the desktop writes.
-import { applyPresent, structuralState } from "../site/app/library-state.mjs";
+import { applyPresent, structuralState, changedSpan } from "../site/app/library-state.mjs";
 
 function assert(cond, message) {
   if (!cond) throw new Error(message);
@@ -73,5 +73,25 @@ assert(keptLocal.tree.some((node) => node.type === "folder" && node.id === "bag"
 assert(keptLocal.tree.some((node) => node.type === "page" && node.id === "ferry"), "the other page was dropped");
 assert(keptLocal.trash.some((item) => item.id === "old"), "a local Recently deleted page was dropped");
 assert(applied.prefs.theme === "dusk", "the theme stayed light");
+
+// A line from the other device lands above the cursor. Only that line is
+// replaced, so a cursor further down keeps its place in the text.
+function patched(now, next) {
+  const span = changedSpan(now, next);
+  return now.slice(0, span.from) + span.insert + now.slice(span.to);
+}
+const typing = "Bread\nloaf 2\ncrumb";
+const arrived = "Bread\nloaf 2\ncrust 1\ncrumb";
+const above = changedSpan(typing, arrived);
+assert(patched(typing, arrived) === arrived, "the patched page is not the new page");
+assert(above.to < typing.length, "the end of the line being typed was replaced");
+assert(above.from >= "Bread\nloaf 2\n".length, "lines above the change were replaced");
+assert(above.insert.length === arrived.length - typing.length, `inserted ${JSON.stringify(above.insert)}`);
+const same = changedSpan(typing, typing);
+assert(same.from === same.to && same.insert === "", "an unchanged page was rewritten");
+const removed = changedSpan("Bread\nloaf 2\nloaf 2\n", "Bread\nloaf 2\n");
+assert(patched("Bread\nloaf 2\nloaf 2\n", "Bread\nloaf 2\n") === "Bread\nloaf 2\n", "a repeated line was not removed");
+assert(removed.insert === "", "a removed line inserted text");
+assert(patched("", "Oats\n") === "Oats\n" && patched("Oats\n", "") === "", "an empty page was not patched");
 
 console.log("library state ok");

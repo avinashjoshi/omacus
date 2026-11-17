@@ -1083,6 +1083,33 @@ pub fn merge_libraries(
     finish_library(merged, local_pages, remote_pages)
 }
 
+/// Merge this device's pages into a set that already syncs, the first time.
+///
+/// Two libraries that started apart count their own revisions, so "later"
+/// means nothing between them. Where both have the same setting, handle, or
+/// folder, the set's copy is kept. Once this device holds the set's document
+/// the two are one library, and this is the same as [`merge_libraries`].
+pub fn join_libraries(
+    local_doc: &[u8],
+    local_pages: &[(String, String)],
+    set_doc: &[u8],
+    set_pages: &[(String, String)],
+) -> (Vec<u8>, Vec<(String, String)>) {
+    let yielded = match (Library::load(local_doc), Library::load(set_doc)) {
+        (Ok(mut local), Ok(set)) if local.doc_id() != set.doc_id() => {
+            local.yield_shared();
+            Some(local.save())
+        }
+        _ => None,
+    };
+    merge_libraries(
+        yielded.as_deref().unwrap_or(local_doc),
+        local_pages,
+        set_doc,
+        set_pages,
+    )
+}
+
 fn prepare_library(doc: &[u8], pages: &[(String, String)]) -> Library {
     let mut lib = Library::load(doc).unwrap_or_else(|_| Library::new());
     for (id, text) in pages {

@@ -45,6 +45,19 @@ export function pollWait(flags) {
   return FALLBACK_POLL_MS;
 }
 
+// Screens where the background pull and save stay out of the way. Setup and
+// turning off own the pages while they run. So does joining, up to the moment
+// the first copy is installed: a pull beside that install read this device's
+// own settings over the ones that already sync.
+const FOLLOW_WAITS = [
+  "off", "access", "save", "confirm", "recover", "join", "join-start", "join-type", "join-scan", "join-confirm",
+  "remove-ask", "off-ask", "removed",
+];
+
+export function followWaits(screen) {
+  return FOLLOW_WAITS.includes(screen);
+}
+
 // The edit waits, then the mailbox tells the other device in the same write.
 export function liveDeliveryMs() {
   return PUSH_DEBOUNCE_MS;

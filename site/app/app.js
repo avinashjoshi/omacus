@@ -11,7 +11,7 @@ import init, {
   docNoteState, docState,
   appVersion,
 } from "./pkg/omacus_web.js";
-import { applyPresent, structuralState, WEB_THEMES } from "./library-state.mjs";
+import { applyPresent, changedSpan, structuralState, WEB_THEMES } from "./library-state.mjs";
 import { APP_VERSION } from "./version.js";
 import {
   EditorState, StateField, StateEffect, RangeSetBuilder, Prec, EditorView, Decoration, WidgetType, keymap, hoverTooltip,
@@ -1095,6 +1095,7 @@ if (document.documentElement.dataset.syncTest === "1") {
     saveIndex();
     renderSidebar();
   };
+  globalThis.omacusPageText = (id) => state.texts.get(id) ?? null;
   globalThis.omacusReplacePage = (id, text) => {
     if (!id || !state.texts.has(id)) return false;
     state.texts.set(id, text);
@@ -1289,8 +1290,13 @@ function commitSyncMove() {
   }, 10000);
   renderSidebar();
 }
+// A save that lands while a synced copy is being installed is told to sync
+// once the install is done, so the edit does not wait for the next poll.
+let editDuringRemote = false;
+
 function noteSyncEdit() {
-  if (!applyingRemote) syncTouched();
+  if (applyingRemote) editDuringRemote = true;
+  else syncTouched();
 }
 
 function saveSheet(id) {
@@ -1927,6 +1933,16 @@ function onInput() {
       saveSheet(state.active);
     }, 300);
   }
+  evaluate();
+  renderSidebar();
+  syncEmpty();
+}
+
+// The other device's lines arrived in the open page. Nothing was typed here, so
+// there is nothing to save or send. The answers and the sidebar still follow.
+function onRemoteInput() {
+  const text = view.state.doc.toString();
+  if (keyFor(state.active)) plains.set(state.active, text);
   evaluate();
   renderSidebar();
   syncEmpty();
@@ -3131,13 +3147,14 @@ const editorExtensions = [
     if (update.docChanged) {
       try {
         noteCrossUndo(update);
-        if (!committingTyped && !switchingPage) {
+        if (!committingTyped && !switchingPage && !remoteEdit) {
           noteDefinitionEdit(update.view, update.startState.doc.toString(), update.state.doc.toString());
         }
       } catch {
         // The rename offer can fail. The typed line still has to be kept.
       }
-      onInput();
+      if (remoteEdit) onRemoteInput();
+      else onInput();
     }
     if (update.docChanged || update.selectionSet) syncRenameButton();
     if (!armingExplicit && !completionOpen(update.state)) explicitCompletion = false;
@@ -5253,6 +5270,8 @@ async function takeSyncSnapshot() {
       await saveSheet(state.active);
     } finally {
       applyingRemote = false;
+      // This save is the copy being sent. It is not a new edit.
+      editDuringRemote = false;
     }
   }
   let doc = docBytes && docBytes.length ? new Uint8Array(docBytes) : new Uint8Array();
@@ -5335,10 +5354,66 @@ function forgetRemotePage(id) {
   if (state.active) showSheet();
 }
 
-async function applyRemoteLibrary(nextDoc, pages) {
+// Text typed after sync read a page is in neither copy sync merged. Fold it
+// into the merged page. `before` is the text sync read, `mine` is the page now,
+// and `theirs` is the merged copy. Returns the document and the page text.
+function foldTyped(doc, id, before, mine, theirs) {
+  if (theirs === before) return [doc, mine];
+  if (!doc || !doc.length || isLock(before) || isLock(mine) || isLock(theirs)) return [doc, mine];
+  try {
+    let next = docApply(doc, id, before);
+    next = docMergeDisk(next, id, mine, theirs);
+    const text = docSnapshot(next, id);
+    if (!text && mine) return [doc, mine];
+    return [next, text];
+  } catch {
+    return [doc, mine];
+  }
+}
+
+// The open page changed underneath the editor. Only the part that differs is
+// replaced, so the cursor, the selection, and undo stay where they were.
+let remoteEdit = false;
+
+function refreshOpenEditor() {
+  if (!patchOpenEditor()) showSheet();
+}
+
+// False when the open page cannot be patched in place and has to be shown again.
+function patchOpenEditor() {
+  const id = state.active;
+  if (!view || !id || id === "shared" || shownId !== id || pageConcealed(id)) return false;
+  const next = shownPlain(id);
+  const now = view.state.doc.toString();
+  if (now === next) return true;
+  const span = changedSpan(now, next);
+  const spec = { changes: { from: span.from, to: span.to, insert: span.insert } };
+  try {
+    const quiet = view.state.update({}).constructor.addToHistory;
+    if (quiet) spec.annotations = quiet.of(false);
+  } catch {
+    // The change still lands. Undo then steps over it like a typed one.
+  }
+  remoteEdit = true;
+  try {
+    view.dispatch(spec);
+  } catch {
+    return false;
+  } finally {
+    remoteEdit = false;
+  }
+  return true;
+}
+
+async function applyRemoteLibrary(nextDoc, pages, basePages) {
   await backupBeforeRemote();
   applyingRemote = true;
+  let typed = false;
   try {
+    const before = new Map();
+    for (const row of basePages || []) {
+      if (Array.isArray(row) && row[0]) before.set(row[0], String(row[1] ?? ""));
+    }
     // `nextDoc` is already the merged document. Folding it into the copy
     // already on this device would put a deleted line back.
     let doc = nextDoc && nextDoc.length ? nextDoc : (docBytes && docBytes.length ? docBytes : null);
@@ -5347,7 +5422,12 @@ async function applyRemoteLibrary(nextDoc, pages) {
     for (const [id, text] of pages) {
       if (!id || id === "shared") continue;
       if (stay.has(id) && state.texts.has(id)) continue;
-      const body = typeof text === "string" ? text : "";
+      let body = typeof text === "string" ? text : "";
+      const mine = state.texts.get(id);
+      if (mine != null && before.has(id) && mine !== before.get(id) && mine !== body) {
+        typed = true;
+        [doc, body] = foldTyped(doc, id, before.get(id), mine, body);
+      }
       if (doc && doc.length && !isLock(body)) {
         let shown = "";
         try {
@@ -5373,6 +5453,10 @@ async function applyRemoteLibrary(nextDoc, pages) {
         if (plains.has(id) && !isLock(body)) plains.set(id, body);
       }
     }
+    // Nothing has waited since the pages were read above. The editor still
+    // shows the open page as it was, and the next key pressed would save that
+    // older text over the merged page. Show the merged page first.
+    patchOpenEditor();
     if (doc && doc.length) {
       docBytes = doc;
       const encoded = bytesToB64(doc);
@@ -5412,11 +5496,15 @@ async function applyRemoteLibrary(nextDoc, pages) {
     saveIndex();
     renderSidebar();
     const activeAfter = state.active && state.active !== "shared" ? (state.texts.get(state.active) ?? "") : null;
-    if (activeBefore !== activeAfter && state.active && state.active !== "shared") showSheet();
+    if (activeBefore !== activeAfter && state.active && state.active !== "shared") refreshOpenEditor();
     showDocConflicts();
   } finally {
     applyingRemote = false;
     globalThis.__omacusBlank = false;
+    if (typed || editDuringRemote) {
+      editDuringRemote = false;
+      syncTouched();
+    }
   }
 }
 

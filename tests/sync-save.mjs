@@ -2,11 +2,20 @@
 // Two phones that each edit offline both keep their lines: the one that was
 // offline merges when its pages differ from the last synced copy.
 import { readFileSync } from "node:fs";
-import { approvalCard, beginSave, chipLabel, dedupeWelcome, declinedCovers, finishSave, keepUnlessTombstone, leaveMessage, liveDeliveryMs, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, removalSentence, setMark, showTurnOnSync } from "../site/app/sync-save.mjs";
+import { approvalCard, beginSave, chipLabel, dedupeWelcome, declinedCovers, finishSave, followWaits, keepUnlessTombstone, leaveMessage, liveDeliveryMs, noteLocalEdit, noteTombstone, pagesDiffer, pagesLeftBehind, pagesOnlyHere, pollWait, removalSentence, setMark, showTurnOnSync } from "../site/app/sync-save.mjs";
 
 function assert(cond, message) {
   if (!cond) throw new Error(message);
 }
+
+// A joining device has the set's settings in the copy it is installing. A
+// background pull beside that install wrote this device's own over them.
+assert(followWaits("join-confirm") === true, "a pull ran beside the first copy of a join");
+assert(followWaits("join") === true, "a pull ran while a join was waiting");
+assert(followWaits("recover") === true, "a pull ran beside recovery");
+assert(followWaits("linked") === false, "a linked device stopped following");
+assert(followWaits("approve") === false, "an approval stopped following");
+assert(followWaits(undefined) === false, "a closed card stopped following");
 
 const inflight = { dirty: true, editGen: 2 };
 const started = beginSave(inflight);

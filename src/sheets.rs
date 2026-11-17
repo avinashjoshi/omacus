@@ -93,6 +93,30 @@ impl Sheet {
     }
 }
 
+/// Where a cursor at char `cursor` belongs once `old` has become `new`. Text
+/// before the change keeps its place. Text after it moves with the change.
+pub fn carry_cursor(old: &str, new: &str, cursor: usize) -> usize {
+    let old: Vec<char> = old.chars().collect();
+    let new: Vec<char> = new.chars().collect();
+    let most = old.len().min(new.len());
+    let mut from = 0;
+    while from < most && old[from] == new[from] {
+        from += 1;
+    }
+    let mut tail = 0;
+    while tail < most - from && old[old.len() - 1 - tail] == new[new.len() - 1 - tail] {
+        tail += 1;
+    }
+    let to = old.len() - tail;
+    if cursor <= from {
+        cursor
+    } else if cursor >= to {
+        new.len() - (old.len() - cursor.min(old.len()))
+    } else {
+        new.len() - tail
+    }
+}
+
 /// What the library shows for a locked page that is not open.
 pub const LOCKED_TITLE: &str = "Locked page";
 
@@ -918,6 +942,23 @@ impl Store {
 
     pub fn has_unsaved(&self) -> bool {
         self.state_dirty || self.sheets.iter().any(|s| s.dirty)
+    }
+
+    /// Sync folded the other device's lines into a page that is being edited
+    /// here. The page shows that text. The cursor to show comes back when the
+    /// page is the one in the editor.
+    pub fn show_synced(&mut self, id: &str, text: &str) -> Option<usize> {
+        let idx = self.sheets.iter().position(|sheet| sheet.id == id)?;
+        let sheet = &mut self.sheets[idx];
+        if sheet.sealed.is_some() || sheet.text == text {
+            return None;
+        }
+        let cursor = carry_cursor(&sheet.text, text, sheet.cursor);
+        sheet.text = text.to_string();
+        sheet.cursor = cursor;
+        sheet.mark_dirty();
+        self.state_dirty = true;
+        (idx == self.active).then_some(cursor)
     }
 
     /// Titles of sheets that another window changed while this one was editing them.
@@ -3131,6 +3172,37 @@ mod tests {
         let root = std::env::temp_dir().join(format!("omacus-test-{name}-{}", new_id()));
         let _ = std::fs::remove_dir_all(&root);
         root
+    }
+
+    #[test]
+    fn a_line_from_the_other_device_does_not_move_the_cursor_off_its_word() {
+        let old = "Bread\nloaf 2\ncrumb";
+        let new = "Bread\nloaf 2\ncrust 1\ncrumb";
+        let end = old.chars().count();
+        // Typing at the end stays at the end.
+        assert_eq!(carry_cursor(old, new, end), new.chars().count());
+        // A cursor above the new line does not move.
+        assert_eq!(carry_cursor(old, new, 3), 3);
+        // The same page keeps the same cursor.
+        assert_eq!(carry_cursor(old, old, 7), 7);
+        // A line taken out above pulls the cursor back with its word.
+        assert_eq!(carry_cursor(new, old, new.chars().count()), end);
+        // Letters that are more than one byte count once.
+        assert_eq!(carry_cursor("é\nab", "é\nx\nab", 4), 6);
+        assert_eq!(carry_cursor("", "Oats", 0), 0);
+
+        let root = temp_root("carry");
+        let mut store = Store::load_in(Some(root.clone()), old);
+        let id = store.sheets[store.active].id.clone();
+        store.set_cursor(end);
+        assert_eq!(store.show_synced(&id, new), Some(new.chars().count()));
+        assert_eq!(store.sheets[store.active].text, new);
+        assert_eq!(
+            store.show_synced(&id, new),
+            None,
+            "the same page was shown again"
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

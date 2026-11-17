@@ -3,6 +3,19 @@
 
 export const WEB_THEMES = ["auto", "light", "dark", "paper", "dusk"];
 
+// The one stretch of `now` that has to change to make it `next`. Text before
+// `from` and after `to` is the same in both, so a cursor there does not move.
+export function changedSpan(now, next) {
+  const a = String(now ?? "");
+  const b = String(next ?? "");
+  const most = Math.min(a.length, b.length);
+  let from = 0;
+  while (from < most && a.charCodeAt(from) === b.charCodeAt(from)) from += 1;
+  let tail = 0;
+  while (tail < most - from && a.charCodeAt(a.length - 1 - tail) === b.charCodeAt(b.length - 1 - tail)) tail += 1;
+  return { from, to: a.length - tail, insert: b.slice(from, b.length - tail) };
+}
+
 export function structuralState({ tree, handles, trash, settings }) {
   const sidebar = [];
   const walk = (nodes, parent) => {

@@ -513,6 +513,9 @@ pub struct OmacusApp {
     /// The session is on a background step. The window keeps drawing a shell.
     sync_job: Option<std::sync::mpsc::Receiver<sync::Session>>,
     sync_poll: Instant,
+    /// Each open page as the window and sync last both had it. A page that
+    /// differs from this was typed in here, or changed by the other device.
+    sync_base: HashMap<String, String>,
     /// Last sidebar and settings written into the library.
     shared_noted: String,
     /// A pull changed the theme. The next frame paints it.
@@ -676,9 +679,15 @@ impl OmacusApp {
             // With OMACUS_SCREENSHOT, "update" opens the update window instead of help.
             update_open: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "update"),
             sync_tab_armed: false,
-            sync: sync::Session::open(sync_dir(), &sync_origin()),
+            sync: {
+                let session = sync::Session::open(sync_dir(), &sync_origin());
+                let ctx = cc.egui_ctx.clone();
+                session.wake_with(move || ctx.request_repaint());
+                session
+            },
             sync_job: None,
             sync_poll: Instant::now(),
+            sync_base: HashMap::new(),
             shared_noted: String::new(),
             theme_from_sync: false,
             sync_undo: None,
@@ -2741,22 +2750,48 @@ rental = rent + 50
             return;
         }
         if self.sync.active() && self.sync.screen == sync::Screen::Closed {
-            let edits: Vec<(String, String)> = self
+            let edits: Vec<(String, String, bool)> = self
                 .store
                 .sheets
                 .iter()
                 .filter(|sheet| sheet.revealed())
-                .map(|sheet| (sheet.id.clone(), sheet.text.clone()))
+                .map(|sheet| (sheet.id.clone(), sheet.text.clone(), sheet.locked()))
                 .collect();
-            for (id, text) in edits {
-                let changed = self
-                    .sync
-                    .page_text(&id)
-                    .map(|have| have != text)
-                    .unwrap_or(true);
-                if changed {
-                    self.sync.note_edit(&id, &text);
-                    self.sync_poll = Instant::now();
+            for (id, text, locked) in edits {
+                let have = self.sync.page_text(&id).map(str::to_string);
+                if have.as_deref() == Some(text.as_str()) {
+                    if self.sync_base.get(&id) != Some(&text) {
+                        self.sync_base.insert(id, text);
+                    }
+                    continue;
+                }
+                let base = self.sync_base.get(&id).cloned();
+                // A page typed in while the other device's lines arrived has
+                // neither copy whole. Both are kept, and the page shows them.
+                let shown = match (base, have) {
+                    (Some(base), Some(have)) if !locked && base == text => Some(have),
+                    (Some(base), Some(_)) if !locked => {
+                        let merged = self.sync.note_edit_since(&id, &base, &text);
+                        self.sync_poll = Instant::now();
+                        merged
+                    }
+                    _ => {
+                        self.sync.note_edit(&id, &text);
+                        self.sync_poll = Instant::now();
+                        None
+                    }
+                };
+                match shown {
+                    Some(shown) => {
+                        if let Some(cursor) = self.store.show_synced(&id, &shown) {
+                            self.pending_cursor = Some(cursor);
+                            self.evaluate();
+                        }
+                        self.sync_base.insert(id, shown);
+                    }
+                    None => {
+                        self.sync_base.insert(id, text);
+                    }
                 }
             }
         }
