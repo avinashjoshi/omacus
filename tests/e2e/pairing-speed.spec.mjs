@@ -7,7 +7,7 @@ import { expect, test } from "@playwright/test";
 
 const BOX = "http://127.0.0.1:8798";
 const DESKTOP_APP = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) omacus-desktop/1.0";
-const SHOTS = "/opt/cursor/artifacts/screenshots";
+const SHOTS = process.env.OMACUS_ART || "/opt/cursor/artifacts/screenshots";
 
 function startBox() {
   const child = spawn(process.execPath, ["--import", "./relay/worker/register-cf.mjs", "tests/e2e/relay-box.mjs"], {
@@ -125,6 +125,8 @@ async function expectHomeGaps(page) {
     const devices = [...document.querySelectorAll(".sync-device")];
     const add = document.querySelector("[data-sync-set] > .sync-actions .btn");
     const off = document.querySelector("[data-sync-set] .sync-link.sync-off");
+    // Sync now sits between the button and Turn sync off.
+    const now = document.querySelector("[data-sync-set] > .sync-actions .sync-link:not(.sync-off)");
     const quiet = document.querySelector(".sync-quiet");
     const title = document.querySelector(".sync-device-name b");
     const text = quiet.firstChild;
@@ -140,7 +142,14 @@ async function expectHomeGaps(page) {
     return {
       nameToList: box(devices[0]).top - box(name).bottom,
       listToAdd: box(add).top - box(devices.at(-1)).bottom,
-      addToOff: box(off).left - box(add).right,
+      addToOff: box(now).left - box(add).right,
+      nowToOff: box(off).left - box(now).right,
+      nowLabel: now.textContent.trim(),
+      // On a phone the two links do not fit beside the button, and sit under it.
+      under: box(now).top >= box(add).bottom - 1,
+      addToLinks: box(now).top - box(add).bottom,
+      linksInset: box(now).left - box(add).left,
+      nowToOffOverlap: Math.min(box(off).bottom, box(now).bottom) - Math.max(box(off).top, box(now).top),
       addToOffOverlap: Math.min(box(off).bottom, box(add).bottom) - Math.max(box(off).top, box(add).top),
       beforeDot: dot.left - box(title).right,
       afterDot: rest.left - dot.right,
@@ -152,9 +161,19 @@ async function expectHomeGaps(page) {
   expect(gaps.nameToList).toBeLessThan(18);
   expect(gaps.listToAdd).toBeGreaterThan(14);
   expect(gaps.listToAdd).toBeLessThan(18);
-  expect(gaps.addToOff).toBeGreaterThan(4);
-  expect(gaps.addToOff).toBeLessThan(20);
-  expect(gaps.addToOffOverlap).toBeGreaterThan(8);
+  expect(gaps.nowLabel).toBe("Sync now");
+  if (gaps.under) {
+    expect(gaps.addToLinks).toBeGreaterThan(4);
+    expect(gaps.addToLinks).toBeLessThan(28);
+    expect(Math.abs(gaps.linksInset)).toBeLessThan(4);
+  } else {
+    expect(gaps.addToOff).toBeGreaterThan(4);
+    expect(gaps.addToOff).toBeLessThan(20);
+    expect(gaps.addToOffOverlap).toBeGreaterThan(8);
+  }
+  expect(gaps.nowToOff).toBeGreaterThan(4);
+  expect(gaps.nowToOff).toBeLessThan(24);
+  expect(gaps.nowToOffOverlap).toBeGreaterThan(8);
   expect(gaps.beforeDot).toBeGreaterThan(2);
   expect(gaps.afterDot).toBeGreaterThan(2);
   expect(gaps.quiet).toBe(phone ? " · this phone" : " · this computer");

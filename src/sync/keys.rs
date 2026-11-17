@@ -83,13 +83,17 @@ pub fn remove(dir: &Path) {
     // it too, and the installed app then could not open its own pages.
     let in_system_store = uses_system_store(dir);
     let _ = fs::remove_file(path(dir));
-    if !in_system_store {
-        return;
-    }
     #[cfg(target_os = "macos")]
-    let _ = keychain_delete();
+    if in_system_store {
+        let _ = keychain_delete();
+    }
     #[cfg(all(unix, not(target_os = "macos")))]
-    let _ = secret_delete();
+    if in_system_store {
+        let _ = secret_delete();
+    }
+    // Windows keeps the key in the pointer file itself. There is no slot to empty.
+    #[cfg(not(unix))]
+    let _ = in_system_store;
 }
 
 /// Whether this profile's pointer names the login keyring or keychain.
