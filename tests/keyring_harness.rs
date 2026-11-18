@@ -63,11 +63,18 @@ if [ "${OMACUS_E2E_SECRET_SLEEP:-}" = "1" ]; then
   exit 0
 fi
 if [ "$1" = "store" ]; then
-  cat >/dev/null
   if [ "${OMACUS_E2E_COLLECTION:-}" = "healthy" ]; then
+    # Like the real secret-tool: it reads at most 8192 bytes and keeps them.
+    head -c 8192 > "$OMACUS_E2E_SLOT"
+    cat >/dev/null
     exit 0
   fi
+  cat >/dev/null
   exit 1
+fi
+if [ "$1" = "lookup" ] && [ -f "$OMACUS_E2E_SLOT" ]; then
+  cat "$OMACUS_E2E_SLOT"
+  exit 0
 fi
 exit 1
 "#,
@@ -76,6 +83,15 @@ exit 1
 }
 
 fn run_binary(dir: &Path, mode: &str, sleep: bool) -> (std::process::Output, Duration) {
+    run_with(dir, mode, sleep, &[])
+}
+
+fn run_with(
+    dir: &Path,
+    mode: &str,
+    sleep: bool,
+    extra: &[(&str, &str)],
+) -> (std::process::Output, Duration) {
     let (dbus, secret) = tools(dir);
     let data = dir.join("data");
     fs::create_dir_all(&data).unwrap();
@@ -88,6 +104,8 @@ fn run_binary(dir: &Path, mode: &str, sleep: bool) -> (std::process::Output, Dur
         .env("OMACUS_DBUS_SEND", &dbus)
         .env("OMACUS_SECRET_TOOL", &secret)
         .env("OMACUS_E2E_PID", &pid)
+        .env("OMACUS_E2E_SLOT", dir.join("slot"))
+        .envs(extra.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -140,6 +158,22 @@ fn the_desktop_binary_stores_when_the_collection_is_unlocked() {
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
     assert_eq!(text(&output.stdout), "stored");
     assert!(elapsed < Duration::from_secs(12));
+}
+
+/// secret-tool keeps only the first 8192 bytes it is given. A sync key with
+/// many pages behind it is longer than that, and must still open.
+#[test]
+fn the_desktop_binary_reopens_a_key_longer_than_secret_tool_keeps() {
+    let dir = root("large");
+    let large = [("OMACUS_E2E_LARGE", "1")];
+    let (output, _) = run_with(&dir, "healthy", false, &large);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(text(&output.stdout), "stored");
+    let read = [("OMACUS_E2E_LARGE", "1"), ("OMACUS_E2E_KEYRING_READ", "1")];
+    let (output, _) = run_with(&dir, "healthy", false, &read);
+    assert_eq!(text(&output.stdout), "reopened", "{}", text(&output.stderr));
+    let slot = fs::metadata(dir.join("slot")).unwrap().len();
+    assert!(slot < 200, "the keyring holds {slot} bytes, not just a key");
 }
 
 #[test]
@@ -259,7 +293,7 @@ fn a_live_secret_service_setup_stores_without_a_passphrase() {
         text(&output.stderr)
     );
     let stored = fs::read(data.join("sync").join("device.bin")).unwrap();
-    assert!(stored.windows(7).any(|window| window == b"secret\n"));
+    assert!(stored.windows(8).any(|window| window == b"wrapped\n"));
     assert_no_pass_file(&data);
 }
 

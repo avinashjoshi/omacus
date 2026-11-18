@@ -94,6 +94,8 @@ pub enum Screen {
     PassSet,
     PassEnter,
     Keyring,
+    /// Sync was on here, and the saved key did not open this time.
+    KeyUnread,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -363,6 +365,9 @@ pub struct Session {
     frozen: bool,
     progress: String,
     defer_load: bool,
+    /// A saved key that did not open. Sync stays on in the book, and Sync
+    /// offers to try again instead of setting up.
+    key_unread: bool,
     retry_save: bool,
     approval_sent: bool,
     key_note: String,
@@ -497,6 +502,7 @@ impl Session {
             frozen: false,
             progress: String::new(),
             defer_load: false,
+            key_unread: false,
             retry_save: false,
             approval_sent: false,
             key_note: String::new(),
@@ -667,9 +673,16 @@ impl Session {
         match keys::load(&self.dir) {
             Ok(Some(plain)) => {
                 if let Err(error) = self.install_device(plain) {
-                    self.screen = Screen::Intro;
+                    self.key_unread = true;
+                    self.screen = Screen::KeyUnread;
                     self.error = error;
                     return;
+                }
+                self.key_unread = false;
+                // An older build kept the whole record in the keyring, where
+                // a long one was cut short. Write it the current way.
+                if keys::stored_in_keyring_whole(&self.dir) {
+                    let _ = self.save_secret();
                 }
                 self.restore_false_pause();
                 if self.approval_sent && !self.pass_locked {
@@ -685,8 +698,9 @@ impl Session {
                     self.screen = Screen::Keyring;
                     self.error = "The key store took too long. Try again.".into();
                 } else {
+                    self.key_unread = true;
                     self.error = error;
-                    self.screen = Screen::Intro;
+                    self.screen = Screen::KeyUnread;
                 }
             }
         }
@@ -881,6 +895,11 @@ impl Session {
             "pass" | "pass-enter" => self.screen = Screen::PassEnter,
             "pass-set" => self.screen = Screen::PassSet,
             "keyring" => self.screen = Screen::Keyring,
+            "key-unread" => {
+                self.key_unread = true;
+                self.error = "That copy could not be read.".into();
+                self.screen = Screen::KeyUnread;
+            }
             _ => self.screen = Screen::Intro,
         }
     }
@@ -915,7 +934,10 @@ impl Session {
     pub fn not_now(&mut self) {
         self.screen = Screen::Closed;
         self.pages_choice_from = None;
-        self.error.clear();
+        // The reason a saved key did not open stays for the next visit.
+        if !self.key_unread {
+            self.error.clear();
+        }
     }
 
     pub fn begin_setup(&mut self) {
@@ -1210,11 +1232,11 @@ impl Session {
     }
 
     pub fn entry_visible(&self) -> bool {
-        self.offer_setup() || self.on || self.removed
+        self.offer_setup() || self.on || self.removed || self.key_unread
     }
 
     pub fn entry_label(&self) -> &'static str {
-        if self.on || self.removed {
+        if self.on || self.removed || self.key_unread {
             "Sync"
         } else {
             "Turn on sync"
@@ -1223,6 +1245,10 @@ impl Session {
 
     /// Open the sync screen from the sidebar, the cloud, or the status pill.
     pub fn open_entry(&mut self) {
+        if self.key_unread && self.desk.is_none() {
+            self.screen = Screen::KeyUnread;
+            return;
+        }
         if self.removed {
             self.screen = Screen::Removed;
             return;
@@ -4840,6 +4866,63 @@ mod list_note_tests {
         let book = std::fs::read_to_string(kept.join("sync").join("book.json")).unwrap();
         assert!(!book.contains("\"removed\": true"));
         let _ = std::fs::remove_dir_all(kept);
+    }
+
+    /// Sync was on, and the saved key would not open after an update. Sync
+    /// must not offer setup, which would replace that key, and Try again
+    /// opens it once it reads.
+    #[test]
+    fn a_saved_key_that_does_not_open_offers_try_again_not_setup() {
+        let dir = std::env::temp_dir().join(format!("omacus-unread-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sync")).unwrap();
+        std::fs::write(
+            dir.join("sync").join("book.json"),
+            r#"{"account":"","revision":40,"removed":false,"member":true}"#,
+        )
+        .unwrap();
+        // A pointer this build cannot open.
+        std::fs::write(keys::path(&dir), b"OMACUS-LOCAL/1\nkeychain\n").unwrap();
+        let mut session = Session::blank(dir.clone(), "http://127.0.0.1:9");
+        session.defer_load = true;
+        session.load_book();
+        assert!(session.claim_deferred_load());
+        session.run_work(Work::LoadKey);
+        assert!(!session.active());
+        assert_eq!(session.screen, Screen::KeyUnread);
+        assert!(!session.error.is_empty());
+        session.not_now();
+        assert_eq!(session.entry_label(), "Sync");
+        session.open_entry();
+        assert_eq!(session.screen, Screen::KeyUnread, "Sync offered setup");
+        assert!(!session.error.is_empty(), "the reason was hidden");
+        let book = std::fs::read_to_string(dir.join("sync").join("book.json")).unwrap();
+        let book: Value = serde_json::from_str(&book).unwrap();
+        assert_eq!(book["member"], true);
+
+        // The key store answers again. Try again turns sync back on.
+        let mut desk = Desk::start_new().unwrap();
+        let words = desk.words().unwrap();
+        let picks: Vec<(u8, &str)> = omacus_sync_web::desk::CONFIRM_AT
+            .into_iter()
+            .map(|n| (n, words[n as usize - 1]))
+            .collect();
+        desk.confirm_saved(&picks).unwrap();
+        let device = desk.export_local().unwrap();
+        let mut blob = u32::try_from(device.len()).unwrap().to_be_bytes().to_vec();
+        blob.extend_from_slice(&device);
+        // The page list after the device key was cut short. It is a cache.
+        blob.extend_from_slice(br#"[{"key":"AAAA","objec"#);
+        keys::save(&dir, &blob).unwrap();
+        session.ask(Work::LoadKey);
+        let work = session.take_pending().unwrap();
+        session.run_work(work);
+        assert!(session.active());
+        assert_eq!(session.entry_label(), "Sync");
+        session.open_entry();
+        assert_ne!(session.screen, Screen::KeyUnread);
+        assert_ne!(session.screen, Screen::Intro);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

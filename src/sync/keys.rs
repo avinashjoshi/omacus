@@ -9,7 +9,10 @@
 //! created mode 0600 and renamed into place, so a crash leaves the previous
 //! key. The passphrase is not written. A pointer file in the data folder
 //! records which store holds the key. On Windows that file is the DPAPI
-//! ciphertext. A plain key file is removed if one is found.
+//! ciphertext. On Linux the keyring holds a 32-byte wrap key and the pointer
+//! file holds the record sealed with it, because `secret-tool store` keeps
+//! only the first 8192 bytes it is given. A plain key file is removed if one
+//! is found.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -36,8 +39,15 @@ pub fn save(dir: &Path, plain: &[u8]) -> Result<(), String> {
 /// The bytes are a marker, not a device key, and they are not printed.
 pub fn e2e_store(dir: &Path) -> i32 {
     const SAMPLE: &[u8] = b"\0\0\0\x88omacus-e2e\xff";
+    // A record the size of a sync key with many pages behind it.
+    let large: Vec<u8> = (0..20_000u32).map(|i| (i % 251) as u8).collect();
+    let sample = if std::env::var_os("OMACUS_E2E_LARGE").is_some() {
+        large.as_slice()
+    } else {
+        SAMPLE
+    };
     if std::env::var_os("OMACUS_E2E_KEYRING_READ").is_some() {
-        if load(dir).ok().flatten().as_deref() == Some(SAMPLE) {
+        if load(dir).ok().flatten().as_deref() == Some(sample) {
             println!("reopened");
             return 0;
         }
@@ -50,7 +60,7 @@ pub fn e2e_store(dir: &Path) -> i32 {
         println!("{}", e2e_label(&error));
         return 0;
     }
-    match save(dir, SAMPLE) {
+    match save(dir, sample) {
         Ok(()) => {
             println!("stored");
             0
@@ -120,7 +130,7 @@ fn uses_system_store(dir: &Path) -> bool {
     };
     matches!(
         rest.split(|b| *b == b'\n').next(),
-        Some(b"secret" | b"keychain")
+        Some(b"secret" | b"wrapped" | b"keychain")
     )
 }
 
@@ -151,6 +161,7 @@ pub fn kind(dir: &Path) -> Option<&'static str> {
         b"dpapi" => Some("dpapi"),
         b"keychain" => Some("keychain"),
         b"secret" => Some("secret"),
+        b"wrapped" => Some("wrapped"),
         b"pass" => Some("pass"),
         b"test" => Some("test"),
         _ => None,
@@ -203,9 +214,22 @@ fn os_seal(plain: &[u8]) -> Result<Vec<u8>, String> {
     if !collection_unlocked() {
         return Err(SETUP_REASON.into());
     }
-    secret_put(plain)?;
+    // Reuse the wrap key the keyring already holds, so a save only replaces
+    // device.bin, and that file is renamed into place.
+    let key = match secret_lookup().ok().and_then(wrap_key) {
+        Some(key) => key,
+        None => {
+            let key = zeroize::Zeroizing::new(
+                omacus_engine::lock::new_device_wrap().map_err(pass_error)?,
+            );
+            secret_put(&wrap_text(&key))?;
+            key
+        }
+    };
+    let sealed = omacus_engine::lock::seal_with_device_wrap(&key, plain).map_err(pass_error)?;
     let mut out = MARK.to_vec();
-    out.extend_from_slice(b"secret\n");
+    out.extend_from_slice(b"wrapped\n");
+    out.extend_from_slice(&sealed);
     Ok(out)
 }
 
@@ -268,10 +292,24 @@ fn open_sealed(bytes: &[u8]) -> Result<Vec<u8>, String> {
         b"secret" => {
             #[cfg(all(unix, not(target_os = "macos")))]
             {
-                secret_get()
+                secret_bytes(secret_lookup()?)
             }
             #[cfg(not(all(unix, not(target_os = "macos"))))]
             {
+                Err("That copy could not be read.".into())
+            }
+        }
+        b"wrapped" => {
+            #[cfg(all(unix, not(target_os = "macos")))]
+            {
+                let key = wrap_key(secret_lookup()?)
+                    .ok_or_else(|| "That copy could not be read.".to_string())?;
+                omacus_engine::lock::open_with_device_wrap(&key, payload)
+                    .map_err(|_| "That copy could not be read.".to_string())
+            }
+            #[cfg(not(all(unix, not(target_os = "macos"))))]
+            {
+                let _ = payload;
                 Err("That copy could not be read.".into())
             }
         }
@@ -331,6 +369,15 @@ pub fn defer_secret_load(dir: &Path) -> bool {
                 })
         })
     }
+}
+
+/// The keyring holds the whole record, as older Linux builds wrote it.
+pub fn stored_in_keyring_whole(dir: &Path) -> bool {
+    fs::read(path(dir)).ok().is_some_and(|bytes| {
+        bytes
+            .strip_prefix(MARK)
+            .is_some_and(|rest| rest.starts_with(b"secret\n"))
+    })
 }
 
 pub fn wants_key_setup(error: &str) -> bool {
@@ -1184,7 +1231,7 @@ fn locked_flag(path: &str) -> Option<bool> {
 #[cfg(all(unix, not(target_os = "macos")))]
 const SECRET_PREFIX: &str = "omacus-base64:";
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(test, unix, not(target_os = "macos")))]
 fn secret_text(plain: &[u8]) -> String {
     use base64::{Engine, engine::general_purpose::STANDARD};
     format!("{SECRET_PREFIX}{}", STANDARD.encode(plain))
@@ -1197,14 +1244,55 @@ fn secret_bytes(mut stored: Vec<u8>) -> Result<Vec<u8>, String> {
     let Some(encoded) = stored.strip_prefix(SECRET_PREFIX.as_bytes()) else {
         return Ok(stored);
     };
-    let decoded = STANDARD.decode(encoded);
+    let mut decoded = STANDARD.decode(encoded);
+    // `secret-tool store` reads at most 8192 bytes of the password and drops
+    // the rest without an error. Older builds kept the whole sync record in
+    // the keyring, so a long one was cut there. The device key comes first in
+    // that record. Keep the whole groups of four, and the caller drops the
+    // unreadable tail.
+    if decoded.is_err() && stored.len() >= SECRET_TOOL_LIMIT {
+        let whole = encoded.len() - encoded.len() % 4;
+        decoded = STANDARD.decode(&encoded[..whole]);
+    }
     stored.zeroize();
     decoded.map_err(|_| "That copy could not be read.".into())
 }
 
+/// The most `secret-tool store` reads from standard input.
+#[cfg(all(unix, not(target_os = "macos")))]
+const SECRET_TOOL_LIMIT: usize = 8192;
+
+/// The keyring holds only this wrap key. The sealed record is in `device.bin`.
+#[cfg(all(unix, not(target_os = "macos")))]
+const WRAP_PREFIX: &str = "omacus-wrap:";
+
 #[cfg_attr(test, allow(dead_code))]
 #[cfg(all(unix, not(target_os = "macos")))]
-fn secret_put(plain: &[u8]) -> Result<(), String> {
+fn wrap_text(key: &[u8; 32]) -> zeroize::Zeroizing<String> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    zeroize::Zeroizing::new(format!("{WRAP_PREFIX}{}", STANDARD.encode(key)))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn wrap_key(mut stored: Vec<u8>) -> Option<zeroize::Zeroizing<[u8; 32]>> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use zeroize::Zeroize;
+    let key = stored
+        .strip_prefix(WRAP_PREFIX.as_bytes())
+        .and_then(|encoded| STANDARD.decode(encoded.trim_ascii()).ok())
+        .and_then(|mut bytes| {
+            let key = <[u8; 32]>::try_from(bytes.as_slice()).ok();
+            bytes.zeroize();
+            key
+        })
+        .map(zeroize::Zeroizing::new);
+    stored.zeroize();
+    key
+}
+
+#[cfg_attr(test, allow(dead_code))]
+#[cfg(all(unix, not(target_os = "macos")))]
+fn secret_put(text: &str) -> Result<(), String> {
     use std::io::Write;
     use std::process::{Command, Stdio};
     let mut child = Command::new(secret_bin())
@@ -1223,7 +1311,9 @@ fn secret_put(plain: &[u8]) -> Result<(), String> {
         .spawn()
         .map_err(|error| error.to_string())?;
     if let Some(mut stdin) = child.stdin.take() {
-        let text = zeroize::Zeroizing::new(secret_text(plain));
+        if text.len() > SECRET_TOOL_LIMIT {
+            return Err("The keyring did not keep the key.".into());
+        }
         stdin
             .write_all(text.as_bytes())
             .map_err(|error| error.to_string())?;
@@ -1237,7 +1327,7 @@ fn secret_put(plain: &[u8]) -> Result<(), String> {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn secret_get() -> Result<Vec<u8>, String> {
+fn secret_lookup() -> Result<Vec<u8>, String> {
     if !collection_unlocked() {
         return Err(SETUP_REASON.into());
     }
@@ -1251,7 +1341,7 @@ fn secret_get() -> Result<Vec<u8>, String> {
         .map_err(|error| error.to_string())?;
     let out = finish_child(child, KEYRING_WAIT)?;
     if out.status.success() {
-        secret_bytes(out.stdout)
+        Ok(out.stdout)
     } else {
         Err("That copy could not be read.".into())
     }
@@ -1293,6 +1383,25 @@ mod tests {
         assert!(secret_bytes(b"omacus-base64:!".to_vec()).is_err());
     }
 
+    /// Older builds kept the whole sync record in the keyring, and
+    /// secret-tool kept only its first 8192 bytes. The device key at the
+    /// start of that record still opens.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn a_record_cut_at_the_secret_tool_limit_keeps_its_device_key() {
+        let device = [7u8; 300];
+        let mut record = (device.len() as u32).to_be_bytes().to_vec();
+        record.extend_from_slice(&device);
+        record.extend(std::iter::repeat_n(b'x', 20_000));
+        let mut stored = secret_text(&record).into_bytes();
+        stored.truncate(SECRET_TOOL_LIMIT);
+        let opened = secret_bytes(stored).unwrap();
+        assert_eq!(opened[..4 + device.len()], record[..4 + device.len()]);
+        assert!(opened.len() < record.len());
+        // A short record that is not valid is still refused.
+        assert!(secret_bytes(b"omacus-base64:!!!".to_vec()).is_err());
+    }
+
     /// The login keyring has one slot for every data folder. Turning sync
     /// off in a profile that keeps its key elsewhere must leave that slot.
     #[test]
@@ -1306,6 +1415,7 @@ mod tests {
         );
         for (line, owns) in [
             ("secret", true),
+            ("wrapped", true),
             ("keychain", true),
             ("pass", false),
             ("test", false),
