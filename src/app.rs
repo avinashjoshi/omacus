@@ -1602,8 +1602,7 @@ rental = rent + 50
         }
         if self.help.is_some() {
             if dismiss {
-                self.help = None;
-                self.focus_editor = true;
+                self.dismiss_sync_window();
             }
             return;
         }
@@ -2465,7 +2464,9 @@ rental = rent + 50
     /// Closing the Settings window hides the sync card. Sync that is already on
     /// keeps running. A frozen step stays up until it finishes.
     fn dismiss_sync_window(&mut self) {
-        if self.sync.frozen() {
+        if self.sync.frozen()
+            && (self.sync.screen != sync::Screen::Closed || self.sync.move_pending().is_some())
+        {
             self.help = Some(help::Tab::Sync);
             self.sync_tab_armed = true;
             return;

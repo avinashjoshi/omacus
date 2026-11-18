@@ -28,4 +28,13 @@ assert(css.includes(".sync-list-notice"), "the list change notice uses the warni
 assert(help.includes("Tab::Sync") && help.includes("fn rail()"), "the desktop rail has a Sync tab");
 assert(!app.includes("omacus-list-changed"), "list changed is still a blocking window");
 
+const settingsDismiss = app.slice(
+  app.indexOf("        if self.help.is_some() {\n            if dismiss"),
+  app.indexOf("        if self.page_preview && dismiss"),
+);
+assert(settingsDismiss.includes("self.dismiss_sync_window();"), "Escape closes the Sync card even after switching Settings tabs");
+const syncDismiss = app.slice(app.indexOf("    fn dismiss_sync_window"), app.indexOf("    fn open_sync_tab"));
+assert(syncDismiss.includes("self.sync.not_now();"), "closing Settings clears the screen that would reopen it");
+assert(syncDismiss.includes("self.sync.cancel_move();"), "closing Settings clears a Sync move that would reopen it");
+
 console.log("sync settings tab ok");

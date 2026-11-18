@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.14
+
+**Close desktop Settings with Escape**
+
+Escape closes Settings and returns you to your page, even after you visit the Sync tab.
+
+<!-- minor -->
+
 ## 1.0.13
 
 **See what went wrong when setting up sync**
