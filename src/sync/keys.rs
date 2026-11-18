@@ -468,20 +468,30 @@ pub fn keychain_access() -> &'static str {
 }
 
 #[cfg(target_os = "macos")]
-fn keychain_options(protected: bool) -> security_framework::passwords::PasswordOptions {
-    use security_framework::access_control::{ProtectionMode, SecAccessControl};
+fn keychain_query(protected: bool) -> security_framework::passwords::PasswordOptions {
     use security_framework::passwords::PasswordOptions;
     let mut options = PasswordOptions::new_generic_password(SERVICE, ACCOUNT);
-    options.set_label("Omacus sync");
-    options.set_access_synchronized(Some(false));
-    if let Ok(access) = SecAccessControl::create_with_protection(
-        Some(ProtectionMode::AccessibleAfterFirstUnlockThisDeviceOnly),
-        0,
-    ) {
-        options.set_access_control(access);
-    }
     if protected {
         options.use_protected_keychain();
+        options.set_access_synchronized(Some(false));
+    }
+    options
+}
+
+#[cfg(target_os = "macos")]
+fn keychain_write_options(protected: bool) -> security_framework::passwords::PasswordOptions {
+    use security_framework::access_control::{ProtectionMode, SecAccessControl};
+    let mut options = keychain_query(protected);
+    options.set_label("Omacus sync");
+    // Only the data protection keychain uses SecAccessControl. Apply it
+    // when saving the item, without using it to match an existing item.
+    if protected
+        && let Ok(access) = SecAccessControl::create_with_protection(
+            Some(ProtectionMode::AccessibleAfterFirstUnlockThisDeviceOnly),
+            0,
+        )
+    {
+        options.set_access_control(access);
     }
     let _ = keychain_access();
     options
@@ -492,26 +502,26 @@ fn keychain_options(protected: bool) -> security_framework::passwords::PasswordO
 fn keychain_put(plain: &[u8]) -> Result<(), String> {
     use security_framework::passwords::set_generic_password_options;
     let _ = keychain_delete();
-    if set_generic_password_options(plain, keychain_options(true)).is_ok() {
+    if set_generic_password_options(plain, keychain_write_options(true)).is_ok() {
         return Ok(());
     }
     let _ = keychain_delete();
-    set_generic_password_options(plain, keychain_options(false)).map_err(|e| e.to_string())
+    set_generic_password_options(plain, keychain_write_options(false)).map_err(|e| e.to_string())
 }
 
 #[cfg(target_os = "macos")]
 fn keychain_get() -> Result<Vec<u8>, String> {
     use security_framework::passwords::generic_password;
-    generic_password(keychain_options(true))
-        .or_else(|_| generic_password(keychain_options(false)))
+    generic_password(keychain_query(true))
+        .or_else(|_| generic_password(keychain_query(false)))
         .map_err(|e| e.to_string())
 }
 
 #[cfg(target_os = "macos")]
 fn keychain_delete() -> Result<(), String> {
     use security_framework::passwords::delete_generic_password_options;
-    let _ = delete_generic_password_options(keychain_options(true));
-    delete_generic_password_options(keychain_options(false)).map_err(|e| e.to_string())
+    let _ = delete_generic_password_options(keychain_query(true));
+    delete_generic_password_options(keychain_query(false)).map_err(|e| e.to_string())
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -1604,6 +1614,24 @@ object path \"/org/freedesktop/secrets/prompt/u1\"
     #[test]
     fn the_mac_key_stays_on_this_device() {
         assert_eq!(keychain_access(), "AfterFirstUnlockThisDeviceOnly");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[allow(deprecated)] // Inspect the query without accessing the user's Keychain.
+    fn mac_keychain_reopen_matches_existing_items_by_identity() {
+        use security_framework::passwords::PasswordOptions;
+
+        let login = PasswordOptions::new_generic_password(SERVICE, ACCOUNT);
+        assert_eq!(keychain_query(false).query, login.query);
+        let mut login_write = login;
+        login_write.set_label("Omacus sync");
+        assert_eq!(keychain_write_options(false).query, login_write.query);
+
+        let mut protected = PasswordOptions::new_generic_password(SERVICE, ACCOUNT);
+        protected.use_protected_keychain();
+        protected.set_access_synchronized(Some(false));
+        assert_eq!(keychain_query(true).query, protected.query);
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]

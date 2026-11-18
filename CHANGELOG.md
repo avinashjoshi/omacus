@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+**Keep sync connected when reopening Omacus on Mac**
+Omacus looks up your saved sync key in the macOS Keychain when you reopen the app, so your synced vault can show up again.
+
 ## 1.0.19
 
 **Find words in the current page**
