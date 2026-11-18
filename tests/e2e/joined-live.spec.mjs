@@ -215,7 +215,7 @@ async function sideState(page) {
   return page.evaluate(() => ({
     rows: [...document.querySelectorAll("[data-sheets] .side-row .side-name span")].map((node) => node.textContent.trim()),
     ids: [...document.querySelectorAll("[data-sheets] .side-row")].map((node) => node.dataset.id),
-    trash: [...document.querySelectorAll("[data-deleted] button")].map((node) => node.textContent.trim()),
+    trash: [...document.querySelectorAll("[data-deleted] .deleted-rows button:not(.deleted-empty)")].map((node) => node.textContent.trim()),
     chip: document.querySelector(".sync-chip")?.innerText?.replace(/\s+/g, " ").trim() || "",
     theme: document.querySelector("[data-setting=theme]")?.value || "",
     hide: !!document.querySelector("[data-setting=hide-answers]")?.checked,

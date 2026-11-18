@@ -35,6 +35,10 @@ html:has(body.app-page) {
   flex-direction: column;
   overflow: hidden;
   margin: 0;
+  /* With the keyboard up, an iPhone slides the page by --vv-top and covers
+     --kb of it. The padding keeps the sidebar and the page inside what can
+     be seen, so the last line sits above the keys. Both are 0 otherwise. */
+  padding: var(--vv-top, 0px) 0 var(--kb, 0px);
   background: var(--app-bg);
   color: var(--app-fg);
 }
@@ -139,7 +143,7 @@ html.standalone body.app-page {
   align-items: center;
   gap: 12px;
   height: calc(var(--bar) + var(--safe-top));
-  padding: var(--safe-top) max(14px, var(--safe-right)) 0 max(14px, var(--safe-left));
+  padding: var(--safe-top) max(14px, var(--safe-right), var(--island, 0px)) 0 max(14px, var(--safe-left));
   border-bottom: 1px solid var(--app-line-strong);
   background-color: var(--app-bg);
   background-image: none;
@@ -663,7 +667,8 @@ body.dragging-side .sheet-list {
 
 .sheet {
   position: relative;
-  z-index: 1;
+  /* No z-index here. A question, the page switcher and the drawer scrim are
+     inside this box and have to stack against the drawer and the bar. */
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -729,7 +734,7 @@ body.dragging-side .sheet-list {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 10px 18px;
+  padding: 10px max(18px, var(--island, 0px)) 10px 18px;
   border-bottom: 1px solid var(--line);
   background: linear-gradient(90deg, var(--app-accent-soft), transparent);
   color: var(--text-2);
@@ -840,7 +845,9 @@ body.dragging-side .sheet-list {
 }
 
 .cm-editor .cm-scroller {
-  padding: 22px max(28px, var(--safe-right)) calc(40vh + var(--safe-bottom)) max(28px, var(--safe-left));
+  /* Room to scroll the last line up the page. With the keyboard up that
+     room is the keyboard, so the padding gives it back. */
+  padding: 22px max(28px, var(--safe-right)) calc(max(var(--space-5), 40vh - var(--kb, 0px)) + var(--safe-bottom)) max(28px, var(--safe-left));
   font: inherit;
   line-height: inherit;
 }
@@ -949,21 +956,36 @@ body.answers-inline .res {
 .deleted {
   display: flex;
   flex-direction: column;
+  flex: none;
+  /* One row until it is opened. Open, it scrolls in its own box and the
+     pages above keep most of the sidebar. */
+  max-height: 40%;
+  min-height: 0;
+  padding: var(--space-1) var(--space-2);
+  border-top: 1px solid var(--app-line);
+}
+
+.deleted-head {
+  flex: none;
+}
+
+.deleted-rows {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
   gap: 2px;
-  margin-top: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 
-.deleted-label {
-  margin: 0 8px 4px;
-  color: var(--app-comment);
-  font: 500 var(--type-caption) / 1.2 var(--sans);
-}
-
-.deleted button {
+.deleted-rows button {
   display: block;
+  flex: none;
   width: 100%;
   min-width: 0;
-  height: 32px;
+  height: var(--hit);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -971,12 +993,25 @@ body.answers-inline .res {
   color: var(--app-dim);
   background: none;
   border: 0;
-  padding: 0 8px;
-  border-radius: 6px;
+  /* The name lines up with a page name in the list above. */
+  padding: 0 var(--space-2) 0 calc(var(--side-gutter) + var(--chevron-w) + var(--space-1) + var(--space-1));
+  border-radius: var(--radius-sm);
+  font: 14px var(--mono);
   cursor: pointer;
 }
 
-.deleted button[aria-current="true"] {
+/* Quiet, above the rows. It asks before anything is removed. */
+.deleted-rows .deleted-empty {
+  color: var(--app-comment);
+  font: 500 var(--type-caption) / 1.2 var(--sans);
+}
+
+.deleted-rows button:hover {
+  background: var(--app-hover);
+  color: var(--app-fg);
+}
+
+.deleted-rows button[aria-current="true"] {
   background: var(--app-sel);
   color: var(--app-fg);
 }
@@ -997,15 +1032,33 @@ body.answers-inline .res {
   /* Above the phone drawer, under the bar, so Move and Cancel stay tappable. */
   z-index: 45;
   left: 50%;
-  top: 18vh;
+  /* High on the screen, so the keyboard does not cover it, and under the bar. */
+  top: max(18vh, calc(var(--bar) + var(--safe-top) + var(--space-3)));
   transform: translateX(-50%);
   width: min(380px, calc(100vw - var(--space-6)));
+  max-height: calc(100vh - var(--bar) - var(--safe-top) - var(--safe-bottom) - var(--space-5));
+  overflow: auto;
   padding: var(--space-5) var(--space-5) var(--space-4);
   border-radius: var(--radius-md);
   background: var(--app-side);
   border: 1px solid var(--app-line);
   box-shadow: var(--shadow-lg);
   color: var(--app-fg);
+}
+
+/* Behind a question: it dims the page and the pages drawer, and it takes
+   the taps, so nothing behind can be pressed or typed in. Under the bar. */
+.confirm-scrim {
+  display: none;
+  position: fixed;
+  z-index: 44;
+  inset: calc(var(--bar) + var(--safe-top)) 0 0;
+  background: color-mix(in srgb, var(--black) 53%, transparent);
+  touch-action: none;
+}
+
+.sheet:has(> .confirm:not([hidden])) > .confirm-scrim {
+  display: block;
 }
 
 .confirm p {
@@ -1165,7 +1218,8 @@ body.answers-inline .res {
   position: absolute;
   z-index: 1;
   left: 50%;
-  top: 14vh;
+  /* Never under the bar on a short screen. */
+  top: max(14vh, calc(var(--bar) + var(--safe-top) + var(--space-3)));
   transform: translateX(-50%);
   width: min(420px, calc(100vw - 32px));
   padding: 12px;
@@ -1256,6 +1310,12 @@ body.answers-inline .res {
   position: fixed;
   z-index: 40;
   inset: 0;
+  /* The card is centered in the room under the bar and above the home
+     indicator, and it never grows past that room. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--bar) + var(--safe-top) + var(--space-4)) var(--space-4) calc(var(--safe-bottom) + var(--space-4));
 }
 
 .settings-scrim {
@@ -1267,17 +1327,16 @@ body.answers-inline .res {
 }
 
 .settings-card {
-  position: absolute;
+  position: relative;
   z-index: 1;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
   width: min(436px, 100%);
   /* The top bar sits above this window. A card as tall as the page would
      put Close underneath that bar. */
-  max-height: calc(100vh - 2 * (var(--bar) + var(--safe-top)) - var(--space-6));
+  max-height: 100%;
   overflow: auto;
-  padding: 18px 20px 16px;
+  overscroll-behavior: contain;
+  /* The title carries the top padding, so nothing scrolls past above it. */
+  padding: 0 20px 16px;
   border: 1px solid var(--app-line);
   border-radius: var(--radius-md);
   background: var(--app-bg);
@@ -1300,6 +1359,7 @@ body.answers-inline .res {
   top: 0;
   z-index: 2;
   margin-bottom: 0;
+  padding: 18px 0 var(--space-2);
   background: var(--app-bg);
 }
 
@@ -1311,7 +1371,7 @@ body.answers-inline .res {
 .settings-tabs {
   display: flex;
   gap: 0;
-  margin: 12px 0 10px;
+  margin: var(--space-1) 0 10px;
   padding: 2px;
   border: 1px solid var(--app-line);
   border-radius: var(--radius-sm);
@@ -1517,7 +1577,8 @@ body.answers-inline .res {
 /* Ctrl+P: rendered notes. Answers sit in brackets after their line. */
 .page-preview {
   position: absolute;
-  inset: 0;
+  /* Under the bar, so Edit, Print and Export PDF can be reached. */
+  inset: calc(var(--bar) + var(--safe-top)) 0 0;
   z-index: 5;
   display: flex;
   flex-direction: column;
@@ -1530,7 +1591,7 @@ body.answers-inline .res {
   flex: none;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 10px max(16px, var(--island, 0px)) 10px 16px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -2119,7 +2180,7 @@ body.answers-inline .md .pill {
 
 .boot-fail {
   position: absolute;
-  inset: 0;
+  inset: calc(var(--bar) + var(--safe-top)) 0 0;
   z-index: 5;
   overflow: auto;
   padding: 28px 22px 48px;
@@ -2158,8 +2219,12 @@ body.answers-inline .md .pill {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: max(var(--space-5), var(--safe-bottom));
+  /* --kb is the height of the on-screen keyboard, so the toast and its Undo
+     sit above it and not behind it. */
+  bottom: calc(max(var(--space-5), var(--safe-bottom)) + var(--kb, 0px));
   z-index: 60;
+  /* Only its button takes a tap. What is under the words can still be pressed. */
+  pointer-events: none;
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -2176,6 +2241,11 @@ body.answers-inline .md .pill {
 
 .toast small {
   color: var(--muted);
+}
+
+.toast button,
+.toast a {
+  pointer-events: auto;
 }
 
 .toast button {
@@ -2274,6 +2344,10 @@ body.answers-inline .md .pill {
     top: 0;
     right: auto;
     bottom: 0;
+    /* The drawer is fixed, so it follows the keyboard itself. Its background
+       still runs edge to edge. The padding moves what is in it. */
+    padding-top: var(--vv-top, 0px);
+    padding-bottom: calc(var(--safe-bottom) + var(--kb, 0px));
     left: 0;
     z-index: 40;
     width: min(300px, 84vw);
@@ -2291,11 +2365,12 @@ body.answers-inline .md .pill {
   }
 
   .cm-editor .cm-scroller {
-    padding: 16px max(16px, var(--safe-right)) calc(40vh + var(--safe-bottom)) max(16px, var(--safe-left));
+    padding: 16px max(16px, var(--safe-right)) calc(max(var(--space-5), 40vh - var(--kb, 0px)) + var(--safe-bottom)) max(16px, var(--safe-left));
   }
 
   /* Settings sits under the bar, full width, so the title and Close are visible. */
   .settings-card {
+    position: absolute;
     top: calc(var(--bar) + var(--safe-top));
     right: 0;
     bottom: 0;
@@ -2321,6 +2396,8 @@ body.answers-inline .md .pill {
     padding: 0;
     appearance: none;
     background: color-mix(in srgb, var(--black) 64%, transparent);
+    /* 1 unless a swipe is moving the drawer. */
+    opacity: var(--drawer-shown, 1);
     color: transparent;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
@@ -2353,6 +2430,14 @@ body.answers-inline .md .pill {
 
   .menu-list .phone-only {
     display: block;
+  }
+
+  .page-preview-body {
+    padding: var(--space-5) var(--space-4) calc(var(--space-6) + var(--safe-bottom));
+  }
+
+  .preview-body {
+    padding: var(--space-4) var(--space-4) calc(var(--space-6) + var(--safe-bottom));
   }
 
   .shared-banner {
@@ -3365,4 +3450,345 @@ body.answers-inline .md .pill {
   flex-wrap: wrap;
   gap: var(--space-2);
   margin-top: var(--space-4);
+}
+
+/* ---------- Touch ---------- */
+
+/* A finger, on a phone or on an unfolded one that gets the wide layout.
+   Rows and menu items are 44px, buttons are 40px, and a field is 16px so
+   iOS does not zoom the page when it takes focus. */
+@media (pointer: coarse) {
+  .app-page {
+    --hit: 44px;
+  }
+
+  .app-page button,
+  .app-page a,
+  .app-page select,
+  .app-page .switch {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .bar,
+  .side,
+  .menu-list,
+  .settings-tabs,
+  .toast {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  .app-page .btn {
+    min-height: 40px;
+  }
+
+  .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .sheets-toggle span {
+    left: 12px;
+  }
+
+  .sheets-toggle span:nth-child(1) { top: 14px; }
+  .sheets-toggle span:nth-child(2) { top: 19px; }
+  .sheets-toggle span:nth-child(3) { top: 24px; }
+
+  /* A small button keeps its size and takes a 44px press. */
+  .icon-btn.small,
+  .settings-card > .settings-head .icon-btn {
+    position: relative;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-sm);
+  }
+
+  .icon-btn.small::after {
+    content: "";
+    position: absolute;
+    inset: -6px;
+  }
+
+  .side {
+    --chevron-w: 32px;
+  }
+
+  .sheet-list .side-name {
+    height: 100%;
+    font-size: 15px;
+  }
+
+  .sheet-list .chevron,
+  .side-section .chevron {
+    height: var(--hit);
+  }
+
+  .sheet-list .row-more {
+    width: 40px;
+    height: var(--hit);
+  }
+
+  .sheet-list .chevron svg,
+  .sheet-list .row-more svg,
+  .side-section .chevron svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .deleted-rows button,
+  .side-foot-row {
+    font-size: 15px;
+  }
+
+  .deleted-rows .deleted-empty {
+    font-size: 13px;
+  }
+
+  .side-foot-row {
+    min-height: var(--hit);
+  }
+
+  .side-section {
+    font-size: 13px;
+  }
+
+  .side-resize {
+    right: -10px;
+    width: 20px;
+  }
+
+  .menu-list {
+    min-width: 240px;
+  }
+
+  .menu-list button,
+  .menu-list a {
+    min-height: var(--hit);
+    padding: 10px 14px;
+    font-size: 16px;
+  }
+
+  .confirm .move-list button,
+  .switcher-hits button {
+    min-height: var(--hit);
+    font-size: 15px;
+  }
+
+  .confirm input[data-rename-input],
+  .confirm input[type="password"],
+  .lock-gate input,
+  .switcher-card input,
+  .handle-field,
+  .settings-card select,
+  .sync-phrase,
+  .sync-name:not(.sync-join-input) {
+    min-height: var(--hit);
+    font-size: 16px;
+  }
+
+  .settings-tabs button {
+    min-height: 36px;
+    font-size: 14px;
+  }
+
+  .sync-link,
+  .sync-back {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--hit);
+    font-size: 14px;
+  }
+
+  .sync-panel .sync-actions .btn.primary {
+    min-height: var(--hit);
+  }
+
+  .toast button {
+    min-height: var(--hit);
+    padding: 0 var(--space-2);
+  }
+
+  /* Hover does not follow a finger. A press shows on the thing pressed. */
+  .sheet-list .side-row:active,
+  .deleted-rows button:active,
+  .side-section:active,
+  .side-foot-row:active,
+  .side-btn:active,
+  .icon-btn:active,
+  .menu-list button:active,
+  .menu-list a:active,
+  .switcher-hits button:active {
+    background: var(--app-hover);
+    color: var(--app-fg);
+  }
+
+  .app-page .btn:active {
+    opacity: 0.8;
+  }
+}
+
+/* A finger leaves hover behind on the last thing it touched. Without a
+   pointer that can hover, a row goes back to rest when the finger lifts. */
+@media (hover: none) {
+  .sheet-list .side-row:not([aria-current="true"]):not([data-picked="1"]):hover:not(:active),
+  .deleted-rows button:not([aria-current="true"]):hover:not(:active),
+  .side-section:hover:not(:active),
+  .side-btn:hover:not(:active) {
+    background: none;
+    color: var(--app-dim);
+  }
+
+  .deleted-rows .deleted-empty:hover:not(:active) {
+    color: var(--app-comment);
+  }
+
+  .side-foot-row:hover:not(:active),
+  .menu-list button:hover:not(:active),
+  .menu-list a:hover:not(:active),
+  .icon-btn:hover:not(:active) {
+    background: none;
+  }
+
+  .bar .icon-btn:hover:not(:active) {
+    background-color: var(--app-bg);
+  }
+
+  .menu-list .danger:hover:not(:active) {
+    color: var(--danger);
+  }
+}
+
+/* The pages keep at least three rows, whatever else is open in the sidebar. */
+@media (pointer: coarse) {
+  .sheet-list {
+    min-height: calc(3 * var(--hit));
+  }
+
+  .deleted {
+    flex: 0 1 auto;
+    max-height: 38%;
+  }
+}
+
+/* Under a finger the sidebar's footer is one row of three: Sync, Settings,
+   and About, each an icon over its word. The version is a quiet line under
+   it. The pages get the rows that used to be there. */
+@media (pointer: coarse) {
+  .side-tools {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-2) 0;
+  }
+
+  .side-tools > .side-foot-row {
+    flex: 1 1 0;
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--space-1);
+    min-width: 0;
+    min-height: 52px;
+    padding: 6px var(--space-1);
+    color: var(--app-dim);
+    font-size: var(--type-caption);
+    text-align: center;
+  }
+
+  .side-tools > .side-foot-row span {
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .side-tools > .side-foot-row svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  /* A phone waiting to join is not one of three. It gets its own line. */
+  .side-tools > [data-device-waiting] {
+    flex: 1 0 100%;
+    order: -1;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: var(--space-2);
+    min-height: var(--hit);
+    padding: 4px 10px;
+    color: var(--app-fg);
+    font-size: 15px;
+    text-align: left;
+  }
+
+  .side-foot {
+    padding: var(--space-1) var(--space-4) var(--space-2);
+  }
+
+  .side-version {
+    display: block;
+    overflow: hidden;
+    color: var(--app-comment);
+    font: 400 var(--type-caption) / 1.4 var(--sans);
+    text-align: center;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+}
+
+/* Recently deleted never shrinks under its own row. Its line and its words
+   would cross the footer. */
+.deleted {
+  min-height: calc(var(--hit) + 2 * var(--space-1) + 1px);
+}
+
+/* With the keyboard up the sidebar is about half as tall. The pages may go
+   down to one row, the version waits, and the home indicator's room is
+   under the keys, so it is given back. */
+.app-page.kb-up .sheet-list {
+  min-height: var(--hit);
+}
+
+.app-page.kb-up .side-foot {
+  display: none;
+}
+
+/* In the wide layout the sidebar is inside the shell, which already ends at
+   the keys. The phone drawer is fixed, so it still clears them itself. */
+@media (min-width: 761px) {
+  .app-page.kb-up .side {
+    padding-bottom: var(--space-1);
+  }
+}
+
+@media (max-width: 760px) {
+  .app-page.kb-up .side {
+    padding-bottom: calc(var(--space-1) + var(--kb, 0px));
+  }
+}
+
+/* The camera corner of an unfolded phone. noteIsland sets data-island.
+   Measured on the phone: held wide, the pill ends 68px from the right edge.
+   Held upright, it lies on its side and ends 91px from it. */
+html[data-island="wide"] .app-page {
+  --island: 80px;
+}
+
+/* Upright, the pill hangs lower than a 56px bar, half on the bar and half
+   on the page. The bar grows by 20px at the top, so the pill sits inside it
+   and the buttons share its center line. */
+html[data-island="tall"] .app-page {
+  --island: 100px;
+  /* --sat is the top inset a device reports as 0. This is one. */
+  --sat: max(20px, var(--probed-top, 0px));
+}
+
+/* An unfolded phone gets the wide layout. The list is wide enough for a
+   finger and for a page name. A width someone dragged still wins. */
+@media (pointer: coarse) and (min-width: 761px) {
+  .workspace:not(.collapsed) {
+    --side-w: 280px;
+  }
 }

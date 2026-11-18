@@ -150,4 +150,5 @@ server.on("upgrade", (req, socket, head) => {
   proxyLive(req, socket, head, 0);
 });
 
-server.listen(port, "127.0.0.1");
+// OMACUS_PREVIEW_HOST=0.0.0.0 lets a phone on the same network open it.
+server.listen(port, process.env.OMACUS_PREVIEW_HOST || "127.0.0.1");

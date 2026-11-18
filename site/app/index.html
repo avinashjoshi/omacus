@@ -8,7 +8,7 @@
   <link rel="canonical" href="https://app.omacus.com/">
   <meta name="theme-color" content="#1a1b26" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-  <meta name="omacus-version" content="1.0.16">
+  <meta name="omacus-version" content="1.0.17">
   <meta name="omacus-build" content="">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Omacus">
@@ -34,7 +34,7 @@
     <button class="icon-btn sheets-toggle" type="button" aria-label="Pages" aria-controls="side" aria-expanded="false">
       <span></span><span></span><span></span>
     </button>
-    <a class="brand" href="https://omacus.com/"><img src="/img/icon.svg" alt="" width="24" height="24">omacus</a>
+    <span class="brand"><img src="/img/icon.svg" alt="" width="24" height="24">omacus</span>
     <span class="bar-title" data-title></span>
     <button class="sync-setup" type="button" data-turn-on-sync data-action="turn-on-sync">Turn on sync</button>
     <div class="bar-actions">
@@ -101,7 +101,7 @@
           </button>
         </div>
         <div class="side-foot">
-          <a class="side-version" data-app-version href="https://omacus.com/updates/">omacus v1.0.16</a>
+          <a class="side-version" data-app-version href="https://omacus.com/updates/">omacus v1.0.17</a>
         </div>
       </div>
       <div class="side-resize" data-resize role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
@@ -153,6 +153,7 @@
         <p class="empty-hint" hidden data-empty>Pages are in the sidebar. Open it from the pages button, then pick one or start a new page.</p>
         <div class="cm-host" data-text></div>
       </div>
+      <div class="confirm-scrim" aria-hidden="true"></div>
       <div class="confirm" hidden data-handle role="dialog" aria-modal="true" aria-labelledby="handle-title">
         <p id="handle-title" data-handle-title>Handle</p>
         <p class="handle-note">Other pages read this page as @handle.name. Renaming the page leaves the handle as it is.</p>
@@ -273,6 +274,16 @@
               <option value="dusk">Dusk</option>
             </select>
           </div>
+        </section>
+        <section class="settings-group">
+          <h3>Pages</h3>
+          <label class="setting-row">
+            <div>
+              <div class="setting-label">Start typing when a page opens</div>
+              <p class="setting-help">Off, a page opens to read, and a tap on it starts editing. On a phone, on also brings up the keyboard.</p>
+            </div>
+            <input class="switch" type="checkbox" data-setting="type-on-open" aria-label="Start typing when a page opens">
+          </label>
         </section>
         <section class="settings-group">
           <h3>Answers</h3>

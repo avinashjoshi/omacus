@@ -1,6 +1,7 @@
 // Where the sidebar's row menu sits, and which taps only close the phone drawer.
 
-const DRAWER_KEEP = ".side, .sheets-toggle, .bar, [data-row-menu], .settings";
+// A question opened from the drawer sits above it. Its buttons take the tap.
+const DRAWER_KEEP = ".side, .sheets-toggle, .bar, [data-row-menu], .settings, .confirm, .confirm-scrim, .removal-ask";
 
 export function placeRowMenu(x, y, size, frame, anchor) {
   const margin = 8;
