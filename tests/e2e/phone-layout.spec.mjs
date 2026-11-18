@@ -321,10 +321,17 @@ test("the bar keeps its buttons out of an unfolded phone's camera corner", async
   await expect(root).toHaveAttribute("data-island", "wide");
   await expect.poll(rightInset).toBeGreaterThanOrEqual(80);
 
-  // The Duo's installed portrait viewport reports zero top and right insets.
+  // In landscape iOS can reserve a native strip outside the app viewport.
+  await page.setViewportSize({ width: 867, height: 669 });
+  await expect(root).not.toHaveAttribute("data-island", /.+/);
+  await expect.poll(rightInset).toBeLessThan(40);
+
+  // In portrait, even when iOS reports a top inset, the Duo's status
+  // indicators sit beside the app controls in a shared header.
   await page.setViewportSize({ width: 669, height: 951 });
+  await page.evaluate(() => document.body.style.setProperty("--sat", "82px"));
   await expect(root).toHaveAttribute("data-island", "tall");
-  await expect.poll(rightInset).toBeGreaterThanOrEqual(100);
+  await expect.poll(rightInset).toBeGreaterThanOrEqual(200);
   const bar = await page.evaluate(() => {
     const button = document.querySelector("[data-menu-button]").getBoundingClientRect();
     return {
@@ -333,6 +340,7 @@ test("the bar keeps its buttons out of an unfolded phone's camera corner", async
     };
   });
   expect(bar.bottom).toBeGreaterThanOrEqual(72);
+  expect(bar.bottom).toBeLessThanOrEqual(77);
   expect(Math.abs(bar.center - 48)).toBeLessThanOrEqual(2);
 });
 

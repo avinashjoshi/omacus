@@ -16,7 +16,7 @@ export function changedSpan(now, next) {
   return { from, to: a.length - tail, insert: b.slice(from, b.length - tail) };
 }
 
-export function structuralState({ tree, handles, trash, settings, deletedFolders = [] }) {
+export function structuralState({ tree, handles, trash, settings, deletedFolders = [], purgedTrash = [] }) {
   const sidebar = [];
   const walk = (nodes, parent) => {
     (nodes || []).forEach((node, index) => {
@@ -53,7 +53,7 @@ export function structuralState({ tree, handles, trash, settings, deletedFolders
   if (WEB_THEMES.includes(theme)) prefs.theme = theme;
   if (settings && typeof settings.hideAnswers === "boolean") prefs.hideAnswers = settings.hideAnswers;
   if (settings && Number.isFinite(settings.lockMinutes)) prefs.lockMinutes = settings.lockMinutes;
-  return JSON.stringify({ sidebar, handles: handleRows, trash: trashRows, prefs });
+  return JSON.stringify({ sidebar, handles: handleRows, trash: trashRows, purgedTrash, prefs });
 }
 
 // `pages` are `[id, text]` rows already on this device. A page the shared tree
@@ -101,10 +101,11 @@ export function applyPresent(current, present, pages, pendingFolderDeletes = [],
   const trashed = new Set(
     [...(shown.trash || []), ...localTrash].map((item) => item && item.id).filter(Boolean),
   );
+  const sharedPurges = new Set(shown.purgedTrash || []);
   const extras = [];
   for (const row of pages || []) {
     const id = Array.isArray(row) ? row[0] : row;
-    if (!id || known.has(id) || trashed.has(id)) continue;
+    if (!id || known.has(id) || trashed.has(id) || sharedPurges.has(id)) continue;
     extras.push(String(id));
   }
   extras.sort();
@@ -119,11 +120,11 @@ export function applyPresent(current, present, pages, pendingFolderDeletes = [],
   }
   const trash = new Map();
   for (const item of localTrash) {
-    if (item && item.id) trash.set(item.id, { id: item.id, text: item.text || "", handle: item.handle || "" });
+    if (item && item.id && !sharedPurges.has(item.id)) trash.set(item.id, { id: item.id, text: item.text || "", handle: item.handle || "" });
   }
   const forever = new Set(purged);
   for (const item of shown.trash || []) {
-    if (item && item.id && !forever.has(item.id)) trash.set(item.id, { id: item.id, text: item.text || "", handle: item.handle || "" });
+    if (item && item.id && !forever.has(item.id) && !sharedPurges.has(item.id)) trash.set(item.id, { id: item.id, text: item.text || "", handle: item.handle || "" });
   }
   for (const id of known) trash.delete(id);
   next.trash = [...trash.values()];

@@ -2286,18 +2286,29 @@ function saveTrash(items) {
 const PURGED_KEY = "trash-purged";
 const PURGED_CAP = 500;
 
-function loadPurged() {
+const SHARED_PURGES_KEY = "sync-trash-purged";
+
+function loadPurged(key = PURGED_KEY) {
   try {
-    const raw = JSON.parse(store.get(PURGED_KEY) || "[]");
+    const raw = JSON.parse(store.get(key) || "[]");
     return Array.isArray(raw) ? raw.filter((id) => typeof id === "string" && id) : [];
   } catch {
     return [];
   }
 }
 
+function rememberSharedPurges(ids) {
+  const existing = loadPurged(SHARED_PURGES_KEY);
+  const next = [...new Set([...existing, ...ids])];
+  if (next.length === existing.length) return false;
+  store.set(SHARED_PURGES_KEY, JSON.stringify(next));
+  return true;
+}
+
 function notePurged(ids) {
   const next = [...new Set([...ids, ...loadPurged()])].slice(0, PURGED_CAP);
   store.set(PURGED_KEY, JSON.stringify(next));
+  if (rememberSharedPurges(ids.filter((id) => syncSectionOf(id) === "vault"))) noteSyncEdit();
 }
 
 // A page that is back in the sidebar was restored somewhere. It can be
@@ -2308,9 +2319,9 @@ function forgetPurged(live) {
   if (next.length !== have.length) store.set(PURGED_KEY, JSON.stringify(next));
 }
 
-// With sync on, deleting forever is about this phone or computer only.
+// Synced trash removals also reach the other devices.
 function foreverNote() {
-  return syncPlaces ? ` Your other phones and computers keep their copy.` : "";
+  return syncPlaces ? " This also removes synced pages from Recently deleted on your other devices." : "";
 }
 
 // Recently deleted is one row until it is opened, so it never crowds the pages
@@ -4006,8 +4017,10 @@ function commitDeletePage(id) {
   toast(`Deleted “${label}”.`, {
     label: "Undo",
     run() {
+      const items = loadTrash();
+      if (!items.some((item) => item.id === id)) return;
       dropPlaceholder();
-      saveTrash(loadTrash().filter((t) => t.id !== id));
+      saveTrash(items.filter((t) => t.id !== id));
       state.texts.set(id, text);
       insertNode(state.tree, parent, at, { type: "page", id });
       syncOrder();
@@ -5415,17 +5428,19 @@ function noteKeyboard() {
   el.page.classList.toggle("kb-up", up);
 }
 
-// An unfolded iPhone on the Home Screen has its camera in the top right
-// corner, over the page, and reports no safe area for it. The bar and the
-// rows under it keep their buttons clear of that corner. Held wide, the
-// camera is a tall pill. Held upright, it lies on its side and is wider.
-// No other iPhone is 600 points across its short side.
+// The unfolded Home Screen can extend under the camera or end at the native
+// status strip. On the Duo the full landscape viewport is about 951 by 669.
+// When iOS reserves the right strip, the app's landscape viewport is narrower.
 function noteIsland() {
+  const { innerWidth: width, innerHeight: height } = window;
   const unfolded = /iPhone/.test(navigator.userAgent) && standalone() &&
-    Math.min(window.innerWidth, window.innerHeight) >= 600;
+    Math.min(width, height) >= 600;
   const root = document.documentElement;
-  if (!unfolded) root.removeAttribute("data-island");
-  else root.setAttribute("data-island", window.innerWidth > window.innerHeight ? "wide" : "tall");
+  if (!unfolded || (width > height && width / height < 1.35)) {
+    root.removeAttribute("data-island");
+  } else {
+    root.setAttribute("data-island", width > height ? "wide" : "tall");
+  }
 }
 
 if (window.visualViewport) {
@@ -5606,6 +5621,7 @@ async function takeSyncSnapshot() {
       trash: loadTrash(),
       settings,
       deletedFolders: Object.keys(folderDeletes),
+      purgedTrash: loadPurged(SHARED_PURGES_KEY),
     });
     const next = docNoteState(doc, structural);
     if (next && next.length) {
@@ -5808,15 +5824,18 @@ async function applyRemoteLibrary(nextDoc, pages, basePages, localIds) {
       present = "";
     }
     if (present) {
+      const shared = JSON.parse(present);
+      rememberSharedPurges(shared.purgedTrash || []);
       const applied = applyPresent({
         tree: state.tree,
         handles: state.handles,
         trash: loadTrash(),
-      }, present, [...pages, ...stay], Object.keys(pendingFolderDeletes()), loadPurged());
+      }, shared, [...pages, ...stay], Object.keys(pendingFolderDeletes()), [...loadPurged(), ...loadPurged(SHARED_PURGES_KEY)]);
       state.tree = applied.tree;
       forgetPurged(pageIds(state.tree));
       state.handles = applied.handles instanceof Map ? applied.handles : new Map();
       saveTrash(applied.trash);
+      if (preview && !applied.trash.some((item) => item.id === preview.id)) clearPreview();
       for (const item of applied.trash) {
         if (!item.id) continue;
         state.texts.delete(item.id);

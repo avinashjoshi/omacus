@@ -85,6 +85,15 @@ assert(!emptied.trash.some((item) => item.id === "old"), "a page deleted forever
 assert(emptied.trash.some((item) => item.id === "kept"), "another deleted page was dropped with it");
 assert(!emptied.tree.some((node) => node.id === "old"), "a page deleted forever came back as a page");
 
+const purged = JSON.parse(structuralState({ purgedTrash: ["oats"] }));
+assert(purged.purgedTrash.includes("oats"), "the snapshot omitted the permanent deletion");
+const remotePurge = applyPresent({
+  tree: [],
+  trash: [{ id: "oats", text: "Oats 4" }, { id: "bread", text: "Bread 2" }],
+}, { sidebar: [], purgedTrash: ["oats"] }, [["oats", "Oats 4"]]);
+assert(remotePurge.trash.map((item) => item.id).join(",") === "bread", "a shared purge must remove the local trash entry");
+assert(remotePurge.tree.length === 0, "a stale copy of a purged page came back in the sidebar");
+
 const treeWithFolder = [{ type: "folder", id: "trips", name: "Trips", children: [] }];
 const deletion = JSON.parse(structuralState({ tree: [], deletedFolders: ["trips"] }));
 assert(deletion.sidebar[0].gone === true, "deleting an empty folder has to be explicit");

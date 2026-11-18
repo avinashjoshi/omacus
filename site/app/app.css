@@ -3769,20 +3769,20 @@ body.answers-inline .md .pill {
   }
 }
 
-/* The camera corner of an unfolded phone. noteIsland sets data-island.
-   Measured on the phone: held wide, the pill ends 68px from the right edge.
-   Held upright, it lies on its side and ends 91px from it. */
+/* Landscape needs a camera allowance only when the web view extends under
+   the status strip. It never indents the editor or the bar itself. */
 html[data-island="wide"] .app-page {
   --island: 80px;
 }
 
-/* Upright, the pill hangs lower than a 56px bar, half on the bar and half
-   on the page. The bar grows by 20px at the top, so the pill sits inside it
-   and the buttons share its center line. */
+/* In portrait the system indicators occupy the right end of the header.
+   Share that row and start the page below the indicators. */
 html[data-island="tall"] .app-page {
-  --island: 100px;
-  /* --sat is the top inset a device reports as 0. This is one. */
-  --sat: max(20px, var(--probed-top, 0px));
+  --safe-top: 20px;
+}
+
+html[data-island="tall"] .bar {
+  padding-right: max(200px, var(--safe-right));
 }
 
 /* An unfolded phone gets the wide layout. The list is wide enough for a

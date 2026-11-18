@@ -2982,7 +2982,8 @@ rental = rent + 50
                         self.theme_from_sync = true;
                     }
                     self.store.remember_library();
-                    self.shared_noted = self.store.structural_state(&self.settings.shared_prefs());
+                    self.refresh_trash(true);
+                    self.shared_noted.clear();
                     self.evaluate();
                 } else if self.store.sync().active_changed {
                     self.evaluate();
@@ -6004,13 +6005,13 @@ rental = rent + 50
                     .unwrap_or_else(|| "this page".into());
                 (
                     format!("Delete “{title}” forever?"),
-                    "This removes it from Recently deleted. It can't be restored.",
+                    "This removes the page from Recently deleted, including on devices it syncs with.",
                     "Delete forever",
                 )
             }
             TrashPurge::All(_) => (
                 "Empty Recently deleted?".to_string(),
-                "These pages will be deleted from this computer. They can't be restored here.",
+                "This removes the pages from Recently deleted, including on devices they sync with.",
                 "Empty Recently deleted",
             ),
         };

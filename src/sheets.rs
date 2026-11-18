@@ -267,6 +267,7 @@ struct State {
     /// Page id to handle. Kept for pages in Recently deleted, so a reference
     /// still names them. Absent in older `state.json`; those pages get one.
     handles: HashMap<String, String>,
+    purged_trash: std::collections::BTreeSet<String>,
     /// The first-run examples have been offered. Stays set if they're deleted,
     /// so a later launch does not put them back. Absent in older `state.json`.
     seeded: bool,
@@ -317,6 +318,7 @@ pub struct Store {
     pub sidebar: bool,
     pub sidebar_width: f32,
     handles: HashMap<String, String>,
+    purged_trash: std::collections::BTreeSet<String>,
     /// See `State::seeded`. An older library is marked on its next launch, and
     /// nothing is added to it.
     seeded: bool,
@@ -479,6 +481,7 @@ impl Store {
             sheets,
             tree,
             handles: state.handles,
+            purged_trash: state.purged_trash,
             seeded: state.seeded,
             state_dirty: false,
             deleted: None,
@@ -1212,6 +1215,7 @@ impl Store {
             "sidebar": sidebar,
             "handles": handles,
             "trash": trash,
+            "purgedTrash": self.purged_trash,
             "prefs": prefs,
         })
         .to_string()
@@ -1270,6 +1274,15 @@ impl Store {
                 }
             }
         }
+        let purged = value
+            .get("purgedTrash")
+            .and_then(|rows| rows.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|id| id.as_str().map(str::to_owned));
+        let known_purges = self.purged_trash.len();
+        self.purged_trash.extend(purged);
+        self.state_dirty |= self.purged_trash.len() != known_purges;
         let trash_rows = value
             .get("trash")
             .and_then(|row| row.as_array())
@@ -1282,6 +1295,9 @@ impl Store {
                 let Some(id) = row.get("id").and_then(|item| item.as_str()) else {
                     continue;
                 };
+                if self.purged_trash.contains(id) {
+                    continue;
+                }
                 let text = row.get("text").and_then(|item| item.as_str()).unwrap_or("");
                 let dest = trash.join(format!("{id}.txt"));
                 if !dest.exists() && !text.is_empty() {
@@ -1305,7 +1321,12 @@ impl Store {
                     };
                     // A page that is back in the sidebar has been restored.
                     // A Recently deleted page the other device has not mentioned stays.
-                    if shown.iter().any(|row| row == id) {
+                    if shown.iter().any(|row| row == id) || self.purged_trash.contains(id) {
+                        if self.purged_trash.contains(id)
+                            && self.deleted.as_ref().is_some_and(|d| d.contains_page(id))
+                        {
+                            self.deleted = None;
+                        }
                         let _ = std::fs::remove_file(entry.path());
                     }
                 }
@@ -1400,6 +1421,7 @@ impl Store {
             self.deleted = None;
         }
         self.handles.remove(id);
+        self.purged_trash.insert(id.to_string());
         self.state_dirty = true;
         true
     }
@@ -1793,6 +1815,7 @@ impl Store {
             sidebar_width: Some(self.sidebar_width),
             tree: Some(self.tree.clone()),
             handles: self.handles.clone(),
+            purged_trash: self.purged_trash.clone(),
             seeded: self.seeded,
         };
         if let Ok(json) = serde_json::to_vec_pretty(&state)
@@ -3285,6 +3308,25 @@ mod tests {
         assert!(store.purge(&id));
         assert!(store.trashed().is_empty());
         assert!(store.restore(&id).is_none());
+        assert!(store.undo_delete().is_none());
+        store.save().unwrap();
+        let again = Store::load_in(Some(root.clone()), "# Welcome");
+        let state: serde_json::Value =
+            serde_json::from_str(&again.structural_state(&serde_json::Value::Null)).unwrap();
+        assert_eq!(state["purgedTrash"], serde_json::json!([id]));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_shared_permanent_deletion_clears_local_trash_and_undo() {
+        let root = temp_root("shared-purge");
+        let mut store = Store::load_in(Some(root.clone()), "# Oats");
+        store.delete(0);
+        store.save().unwrap();
+        let id = store.trashed()[0].id.clone();
+        let present = serde_json::json!({"purgedTrash": [id]}).to_string();
+        store.apply_shared(&present);
+        assert!(store.trashed().is_empty());
         assert!(store.undo_delete().is_none());
         let _ = std::fs::remove_dir_all(root);
     }

@@ -349,6 +349,29 @@ test("desktop and web keep each other's lines while both type", async ({ browser
       }, { timeout: 15000 })
       .toBe(true);
 
+    // Emptying Recently deleted sends a permanent removal, even when an older
+    // copy of the trash is folded in again by the other device.
+    await page.locator(".side-row", { hasText: "Kettle" }).first().click({ button: "right" });
+    await page.getByText("Delete page", { exact: true }).click();
+    await page.locator("[data-confirm-yes]").click();
+    await expect.poll(async () =>
+      (await driver.send("sync")).detail.present.trash.some((row) => row.id === "kettle"),
+    ).toBe(true);
+    const deleted = page.locator("[data-deleted]");
+    const empty = deleted.locator(".deleted-empty");
+    if (!(await empty.isVisible())) await deleted.locator(".deleted-head").click();
+    await empty.click();
+    await page.locator("[data-confirm-yes]").click();
+    await expect.poll(async () =>
+      (await driver.send("sync")).detail.present.purgedTrash || [],
+    ).toContain("kettle");
+    writeFileSync(`${ROOT}/stale-trash.json`, JSON.stringify({
+      structural: { trash: [{ id: "kettle", text: "# Kettle\nsteam 5" }] },
+    }));
+    await driver.send(`overlay ${ROOT}/stale-trash.json`, 40000);
+    expect((await driver.send("sync")).detail.present.trash.some((row) => row.id === "kettle")).toBe(false);
+    await expect(deleted).toBeHidden();
+
     // A setting changed on either side reaches the other.
     await page.locator("[data-setting=theme]").evaluate((node) => {
       node.value = "paper";
