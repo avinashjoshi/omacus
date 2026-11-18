@@ -53,6 +53,16 @@ if any(part not in deploy_app for part in ("needs.build-app.result == 'success'"
 site = (ROOT / ".github" / "workflows" / "site.yml").read_text()
 if "reuse_web_build: true" not in job("deploy-site", "deploy-app") or "name: web-app" not in site:
     errors.append("the release site must reuse the browser engine from the wasm job")
+# A re-run uploads a second Pages artifact. One name per attempt keeps
+# deploy-pages from finding two, and one retry covers an artifact the API
+# does not list yet.
+attempt_name = "github-pages-${{ github.run_attempt }}"
+if site.count(attempt_name) != 3:
+    errors.append("the Pages artifact must be named per attempt, for the upload and both deploys")
+if "continue-on-error: true" not in site or "id: deployment-retry" not in site:
+    errors.append("the Pages deploy must retry once after a failure")
+if "steps.deployment-retry.outputs.page_url" not in site:
+    errors.append("the Pages environment URL must come from the retry when it ran")
 tag_at = publish.find('git push origin "refs/tags/v${version}"')
 release_at = publish.find("softprops/action-gh-release@")
 sign_at = publish.find("scripts/sign-update.mjs")
