@@ -9,6 +9,18 @@ name: Sync
 on:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ""
+      artifact_run:
+        description: Successful pre-merge build run, if reused.
+        type: string
+        default: ""
+      reuse_web_build:
+        description: Use the release CI web artifact from this run.
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -17,6 +29,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   deploy:
@@ -27,10 +40,32 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+          ref: ${{ inputs.ref || github.sha }}
+      - if: "!inputs.reuse_web_build"
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - if: "!inputs.reuse_web_build"
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - if: "!inputs.reuse_web_build"
+        run: .github/scripts/install-wasm-bindgen.sh
+      - if: inputs.reuse_web_build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: web-app
+          github-token: ${{ inputs.artifact_run && github.token || '' }}
+          run-id: ${{ inputs.artifact_run || github.run_id }}
+          path: ${{ runner.temp }}/web-app
+      - name: Assemble worker assets
+        working-directory: relay/worker
+        env:
+          REUSE_WEB_BUILD: ${{ inputs.reuse_web_build }}
+        run: |
+          if [[ "$REUSE_WEB_BUILD" == true ]]; then
+            ./build.sh "$RUNNER_TEMP/web-app/pkg"
+          else
+            ./build.sh
+          fi
       - name: Publish omacus-sync
         working-directory: relay/worker
         env:
@@ -39,10 +74,6 @@ jobs:
         run: |
           set -euo pipefail
           set +x
-          if ! command -v wasm-bindgen >/dev/null 2>&1; then
-            cargo install wasm-bindgen-cli --version 0.2.129 --locked
-          fi
-          ./build.sh
           npm install --no-save wrangler@4
           npx wrangler deploy
           ok=0

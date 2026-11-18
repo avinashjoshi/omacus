@@ -4,22 +4,29 @@
 # It does not serve the app at /. The built copy talks to the production sync host.
 # The source file stays empty.
 set -e
+pkg_dir="${1:-}"
+if [ -n "$pkg_dir" ]; then
+  pkg_dir="$(cd "$pkg_dir" && pwd)"
+fi
 cd "$(dirname "$0")"
-root="../.."
 rm -rf public
 mkdir -p public/pkg public/css
 
-cd "$root"
-cargo build -p omacus-web --release --target wasm32-unknown-unknown
-cargo build -p omacus-sync-web --release --target wasm32-unknown-unknown
-wasm-bindgen --target web --no-typescript --out-dir relay/worker/public/pkg-web \
-  target/wasm32-unknown-unknown/release/omacus_web.wasm
-wasm-bindgen --target web --no-typescript --out-dir relay/worker/public/pkg-sync \
-  target/wasm32-unknown-unknown/release/omacus_sync_web.wasm
+if [ -n "$pkg_dir" ]; then
+  for engine in omacus_web omacus_sync_web; do
+    cp "$pkg_dir/$engine.js" "$pkg_dir/${engine}_bg.wasm" public/pkg/
+  done
+else
+  (
+    cd ../..
+    cargo build --locked --release --target wasm32-unknown-unknown -p omacus-web -p omacus-sync-web
+    for engine in omacus_web omacus_sync_web; do
+      wasm-bindgen --target web --no-typescript --out-dir relay/worker/public/pkg \
+        "target/wasm32-unknown-unknown/release/$engine.wasm"
+    done
+  )
+fi
 
-cd relay/worker
-cp public/pkg-web/* public/pkg-sync/* public/pkg/
-rm -rf public/pkg-web public/pkg-sync
 cp ../../site/app/*.js ../../site/app/*.mjs ../../site/app/*.css ../../site/app/*.html ../../site/app/*.webmanifest public/
 mkdir -p public/admin
 cp admin/index.html admin/admin.css admin/admin.js admin/when.js public/admin/

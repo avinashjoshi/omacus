@@ -1,0 +1,147 @@
+name: Build release packages
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+      prepare_web_release:
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ inputs.ref }}
+      prepare_web_release: ${{ inputs.prepare_web_release }}
+
+  # Build while CI runs. Only publish may expose the resulting packages.
+  linux:
+    runs-on: ubuntu-22.04 # older glibc, so the binary runs on more distros
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libwayland-dev libx11-dev
+      - run: cargo build --release --locked
+      - name: Package .tar.gz
+        run: |
+          mkdir -p dist/omacus
+          cp target/release/omacus assets/omacus.desktop assets/icon-256.png assets/icon.svg install.sh README.md dist/omacus/
+          tar -C dist -czf omacus-linux-x86_64.tar.gz omacus
+      - name: Package .deb and .rpm
+        run: |
+          cargo install cargo-deb --version 3.8.0 --locked
+          cargo install cargo-generate-rpm --version 0.21.0 --locked
+          cargo deb --no-build --no-strip --output omacus-linux-x86_64.deb
+          cargo generate-rpm --output omacus-linux-x86_64.rpm
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-linux
+          compression-level: 0
+          if-no-files-found: error
+          path: |
+            omacus-linux-x86_64.*
+            install.sh
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: cargo build --release --locked
+      # Builds the setup .exe and checks it (and the .exe) the way people use them.
+      - name: Installer, checked
+        shell: pwsh
+        run: tests/windows-installer.ps1 target/release/omacus.exe
+      - name: Package .zip and the installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item target/release/omacus.exe, README.md dist/
+          Compress-Archive -Path dist/* -DestinationPath omacus-windows-x86_64.zip
+          Copy-Item target/installer/omacus-windows-x86_64-setup.exe .
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-windows
+          compression-level: 0
+          if-no-files-found: error
+          path: |
+            omacus-windows-x86_64.zip
+            omacus-windows-x86_64-setup.exe
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - chip: arm64
+            target: aarch64-apple-darwin
+          - chip: x86_64
+            target: x86_64-apple-darwin
+    runs-on: macos-latest
+    timeout-minutes: 40
+    env:
+      CHIP: ${{ matrix.chip }}
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build Omacus
+        run: cargo build --release --locked --target "$TARGET"
+      - name: Bundle Omacus.app and disk image
+        timeout-minutes: 30
+        run: |
+          python3 -m pip install --break-system-packages dmgbuild==1.6.5
+          tiffutil -cathidpicheck installer/dmg-background.png installer/dmg-background@2x.png -out installer/dmg-background.tiff
+          python3 .github/scripts/bundle-macos.py "target/$TARGET/release/omacus" "$RUNNER_TEMP/bundle"
+          app="$RUNNER_TEMP/bundle/Omacus.app"
+          codesign --force --deep --sign - "$app"
+          .github/scripts/dmg-retry.sh 180 dmgbuild -s installer/dmg-settings.py -D app="$app" Omacus "omacus-macos-$CHIP.dmg"
+      - name: Check the disk image holds a working app for its chip
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          mnt="$RUNNER_TEMP/mnt-$CHIP"
+          .github/scripts/dmg-retry.sh 60 hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mnt" "omacus-macos-$CHIP.dmg"
+          bin="$mnt/Omacus.app/Contents/MacOS/omacus"
+          [[ "$(lipo -archs "$bin")" == "$CHIP" ]]
+          if [[ "$CHIP" == x86_64 ]] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+            softwareupdate --install-rosetta --agree-to-license >/dev/null
+          fi
+          out="$(arch "-$CHIP" "$bin" --version)"
+          echo "$CHIP: $out"
+          [[ "$out" == "omacus $version" ]]
+          plist="$mnt/Omacus.app/Contents/Info.plist"
+          [[ "$(plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw "$plist")" == omacus ]]
+          [[ "$(plutil -extract CFBundleShortVersionString raw "$plist")" == "$version" ]]
+          test -s "$mnt/Omacus.app/Contents/Resources/Omacus.icns"
+          codesign --verify --deep --strict "$mnt/Omacus.app"
+          .github/scripts/dmg-retry.sh 60 hdiutil detach -quiet "$mnt"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-macos-${{ matrix.chip }}
+          path: omacus-macos-${{ matrix.chip }}.dmg
+          compression-level: 0
+          if-no-files-found: error

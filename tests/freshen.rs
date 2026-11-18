@@ -26,14 +26,7 @@ fn a_push_still_publishes_when_prepare_is_skipped() {
     let text = std::fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap();
     // prepare and wait are skipped on push. Later jobs need always(), or GitHub
     // skips them even after check says the version is new.
-    for job in [
-        "ci:",
-        "linux:",
-        "windows:",
-        "macos:",
-        "publish:",
-        "install-test:",
-    ] {
+    for job in ["build:", "publish:", "install-test:"] {
         let at = text.find(&format!("\n  {job}")).expect(job);
         let window = &text[at..text.len().min(at + 500)];
         assert!(
