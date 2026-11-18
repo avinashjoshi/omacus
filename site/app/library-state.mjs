@@ -58,7 +58,10 @@ export function structuralState({ tree, handles, trash, settings, deletedFolders
 
 // `pages` are `[id, text]` rows already on this device. A page the shared tree
 // does not name, and that is not in Recently deleted, stays at the root in id order.
-export function applyPresent(current, present, pages, pendingFolderDeletes = []) {
+// `purged` are pages this device deleted forever. The shared list has no way
+// to say so, and a missing row there is not a delete, so this device leaves
+// them out itself. Other phones and computers keep their own copy.
+export function applyPresent(current, present, pages, pendingFolderDeletes = [], purged = []) {
   const shown = typeof present === "string" ? JSON.parse(present) : present;
   if (!shown || typeof shown !== "object") return current;
   const next = current;
@@ -118,8 +121,9 @@ export function applyPresent(current, present, pages, pendingFolderDeletes = [])
   for (const item of localTrash) {
     if (item && item.id) trash.set(item.id, { id: item.id, text: item.text || "", handle: item.handle || "" });
   }
+  const forever = new Set(purged);
   for (const item of shown.trash || []) {
-    if (item && item.id) trash.set(item.id, { id: item.id, text: item.text || "", handle: item.handle || "" });
+    if (item && item.id && !forever.has(item.id)) trash.set(item.id, { id: item.id, text: item.text || "", handle: item.handle || "" });
   }
   for (const id of known) trash.delete(id);
   next.trash = [...trash.values()];

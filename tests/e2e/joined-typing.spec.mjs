@@ -147,7 +147,7 @@ async function sideState(page) {
   return page.evaluate(() => ({
     rows: [...document.querySelectorAll("[data-sheets] .side-row .side-name span")].map((node) => node.textContent.trim()),
     ids: [...document.querySelectorAll("[data-sheets] .side-row")].map((node) => node.dataset.id),
-    trash: [...document.querySelectorAll("[data-deleted] button")].map((node) => node.textContent.trim()),
+    trash: [...document.querySelectorAll("[data-deleted] .deleted-rows button:not(.deleted-empty)")].map((node) => node.textContent.trim()),
     chip: document.querySelector(".sync-chip")?.innerText?.replace(/\s+/g, " ").trim() || "",
   }));
 }
@@ -339,7 +339,8 @@ test("desktop and web keep each other's lines while both type", async ({ browser
     expect((await sideState(page)).rows).toContain("Tin shelf");
 
     // A deleted page restored on the web comes back on the desktop.
-    await page.locator("[data-deleted] button", { hasText: "Kettle" }).click();
+    await page.locator("[data-deleted] .deleted-head").click();
+    await page.locator("[data-deleted] .deleted-rows button", { hasText: "Kettle" }).click();
     await page.locator("[data-action='restore-trash']").click();
     await expect
       .poll(async () => {

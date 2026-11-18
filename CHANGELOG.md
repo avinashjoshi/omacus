@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.17
+
+**A better fit for phones and foldables**
+
+Open pages to read, then tap to start typing, or change the default in Settings. Swipe to open or close your pages, expand Recently deleted when you need it, and keep the editor and page list above the keyboard while you type.
+
 ## 1.0.16
 
 **Sync stays on after an update on Linux**

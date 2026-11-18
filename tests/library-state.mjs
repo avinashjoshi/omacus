@@ -74,6 +74,17 @@ assert(keptLocal.tree.some((node) => node.type === "page" && node.id === "ferry"
 assert(keptLocal.trash.some((item) => item.id === "old"), "a local Recently deleted page was dropped");
 assert(applied.prefs.theme === "dusk", "the theme stayed light");
 
+// Deleted forever here. The shared list still has the page, and it stays out.
+const emptied = applyPresent({ tree: [], handles: new Map(), trash: [] }, {
+  sidebar: [{ type: "page", id: "ferry" }],
+  handles: [],
+  trash: [{ id: "old", text: "Old\nloaf\n", handle: "" }, { id: "kept", text: "Kept\n", handle: "" }],
+  prefs: {},
+}, [["ferry", "pier"], ["old", "Old\nloaf\n"]], [], ["old"]);
+assert(!emptied.trash.some((item) => item.id === "old"), "a page deleted forever came back from the shared list");
+assert(emptied.trash.some((item) => item.id === "kept"), "another deleted page was dropped with it");
+assert(!emptied.tree.some((node) => node.id === "old"), "a page deleted forever came back as a page");
+
 const treeWithFolder = [{ type: "folder", id: "trips", name: "Trips", children: [] }];
 const deletion = JSON.parse(structuralState({ tree: [], deletedFolders: ["trips"] }));
 assert(deletion.sidebar[0].gone === true, "deleting an empty folder has to be explicit");

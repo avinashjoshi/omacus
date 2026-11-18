@@ -735,10 +735,24 @@ function loadSettings() {
     let lockMinutes = Number(saved?.lockMinutes);
     if (!Number.isFinite(lockMinutes)) lockMinutes = 5;
     lockMinutes = Math.max(0, Math.min(240, Math.round(lockMinutes)));
-    return { theme, hideAnswers: !!saved?.hideAnswers, lockMinutes };
+    // Unset follows the device: a touch screen opens a page to read.
+    const typeOnOpen = typeof saved?.typeOnOpen === "boolean" ? saved.typeOnOpen : null;
+    return { theme, hideAnswers: !!saved?.hideAnswers, lockMinutes, typeOnOpen };
   } catch {
-    return { theme: "auto", hideAnswers: false, lockMinutes: 5 };
+    return { theme: "auto", hideAnswers: false, lockMinutes: 5, typeOnOpen: null };
   }
+}
+
+// Whether opening a page puts the caret in it. On a touch screen that also
+// brings up the keyboard, so there a page opens to read, and a tap on it
+// starts editing. This is about this device, so it is not a synced setting.
+function typeOnOpen() {
+  return settings.typeOnOpen ?? !matchMedia("(pointer: coarse)").matches;
+}
+
+function focusOpenedPage() {
+  if (typeOnOpen()) view.focus();
+  else view.contentDOM.blur();
 }
 
 let settings = loadSettings();
@@ -899,6 +913,8 @@ function openSettings(tab = "settings") {
   const hide = $("[data-setting=hide-answers]", el.settings);
   if (select) select.value = settings.theme;
   if (hide) hide.checked = settings.hideAnswers;
+  const typing = $("[data-setting=type-on-open]", el.settings);
+  if (typing) typing.checked = typeOnOpen();
   const lockAfter = $("[data-setting=lock-minutes]", el.settings);
   if (lockAfter) lockAfter.value = String(settings.lockMinutes ?? 5);
   updateThemeNote();
@@ -969,6 +985,10 @@ $("[data-setting=hide-answers]")?.addEventListener("change", (e) => {
   settings.hideAnswers = e.target.checked;
   saveSettings();
   applySettings();
+});
+$("[data-setting=type-on-open]")?.addEventListener("change", (e) => {
+  settings.typeOnOpen = e.target.checked;
+  saveSettings();
 });
 $("[data-setting=lock-minutes]")?.addEventListener("change", (e) => {
   const minutes = Number(e.target.value);
@@ -2065,7 +2085,7 @@ function select(id) {
     if (id !== "shared") saveIndex();
   }
   showSheet();
-  if (!pageConcealed(id)) view.focus();
+  if (!pageConcealed(id)) focusOpenedPage();
   setDrawer(false);
 }
 
@@ -2261,16 +2281,75 @@ function saveTrash(items) {
   store.set(TRASH_KEY, JSON.stringify(items.slice(0, TRASH_CAP)));
 }
 
+// Pages deleted forever on this device. Sync still lists them, so they are
+// remembered here and left out when the shared list is read.
+const PURGED_KEY = "trash-purged";
+const PURGED_CAP = 500;
+
+function loadPurged() {
+  try {
+    const raw = JSON.parse(store.get(PURGED_KEY) || "[]");
+    return Array.isArray(raw) ? raw.filter((id) => typeof id === "string" && id) : [];
+  } catch {
+    return [];
+  }
+}
+
+function notePurged(ids) {
+  const next = [...new Set([...ids, ...loadPurged()])].slice(0, PURGED_CAP);
+  store.set(PURGED_KEY, JSON.stringify(next));
+}
+
+// A page that is back in the sidebar was restored somewhere. It can be
+// deleted, and deleted forever, again.
+function forgetPurged(live) {
+  const have = loadPurged();
+  const next = have.filter((id) => !live.includes(id));
+  if (next.length !== have.length) store.set(PURGED_KEY, JSON.stringify(next));
+}
+
+// With sync on, deleting forever is about this phone or computer only.
+function foreverNote() {
+  return syncPlaces ? ` Your other phones and computers keep their copy.` : "";
+}
+
+// Recently deleted is one row until it is opened, so it never crowds the pages
+// out of the sidebar. The rows scroll inside their own box.
+const TRASH_OPEN = "trash-open";
+
 function renderDeleted() {
   if (!el.deleted) return;
   const items = loadTrash();
   el.deleted.hidden = items.length === 0;
   el.deleted.replaceChildren();
   if (!items.length) return;
-  const label = document.createElement("p");
-  label.className = "deleted-label";
-  label.textContent = "Recently deleted";
-  el.deleted.append(label);
+  const open = store.get(TRASH_OPEN) === "1" || items.some((item) => preview?.id === item.id);
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = "side-section deleted-head";
+  head.setAttribute("aria-expanded", String(open));
+  head.setAttribute("aria-controls", "deleted-rows");
+  const mark = document.createElement("span");
+  mark.className = "chevron";
+  mark.append(chevronIcon());
+  const label = document.createElement("span");
+  label.textContent = `Recently deleted · ${items.length}`;
+  head.append(mark, label);
+  head.addEventListener("click", () => {
+    store.set(TRASH_OPEN, open ? "0" : "1");
+    if (open && preview) clearPreview();
+    renderDeleted();
+  });
+  const rows = document.createElement("div");
+  rows.className = "deleted-rows";
+  rows.id = "deleted-rows";
+  rows.hidden = !open;
+  const empty = document.createElement("button");
+  empty.type = "button";
+  empty.className = "deleted-empty";
+  empty.textContent = "Empty Recently deleted…";
+  empty.addEventListener("click", askEmptyTrash);
+  rows.append(empty);
   for (const item of items) {
     const b = document.createElement("button");
     b.type = "button";
@@ -2279,8 +2358,9 @@ function renderDeleted() {
     b.title = name;
     if (preview?.id === item.id) b.setAttribute("aria-current", "true");
     b.addEventListener("click", () => showPreview(item));
-    el.deleted.append(b);
+    rows.append(b);
   }
+  el.deleted.append(head, rows);
 }
 
 let preview = null;
@@ -2302,6 +2382,7 @@ function showPreview(item) {
   hideGate();
   if (el.title) el.title.textContent = name;
   document.title = `${locked ? LOCKED_PAGE : title(item.text)} · Omacus`;
+  setDrawer(false);
   renderSidebar();
 }
 
@@ -3778,10 +3859,9 @@ async function action(name) {
   } else if (name === "purge-trash") {
     if (!preview || !el.confirm) return;
   const purgeName = isLock(preview.text) ? LOCKED_PAGE : heading(preview.text);
-  el.confirmText.textContent = `Delete “${purgeName}” forever? This can't be undone.`;
+  el.confirmText.textContent = `Delete “${purgeName}” forever? This can't be undone.${foreverNote()}`;
   el.confirm.hidden = false;
-  const yes = $("[data-confirm-yes]");
-  if (yes) yes.textContent = "Delete forever";
+  confirmButton("Delete forever", true);
   el.confirm.dataset.mode = "purge";
     el.confirm.dataset.id = preview.id;
   } else if (name === "collapse-side") {
@@ -3817,8 +3897,7 @@ function deletePage(id) {
   if (!pageIds(state.tree).includes(id) || !el.confirm) return;
   el.confirmText.textContent = `Delete “${pageLabel(id)}”? You can restore it from Recently deleted.`;
   el.confirm.hidden = false;
-  const yes = $("[data-confirm-yes]");
-  if (yes) yes.textContent = "Delete";
+  confirmButton("Delete", false);
   el.confirm.dataset.mode = "sheet";
   el.confirm.dataset.id = id;
 }
@@ -3828,20 +3907,55 @@ function deleteFolder(id) {
   if (!el.confirm) return;
   el.confirmText.textContent = `Delete “${name}”? Pages inside move to Recently deleted, where they can be restored.`;
   el.confirm.hidden = false;
-  const yes = $("[data-confirm-yes]");
-  if (yes) yes.textContent = "Delete";
+  confirmButton("Delete", false);
   el.confirm.dataset.mode = "folder";
   el.confirm.dataset.id = id;
+}
+
+// The button that says yes. It is the danger button only when the delete
+// cannot be undone.
+function confirmButton(label, forever) {
+  const yes = $("[data-confirm-yes]");
+  if (!yes) return;
+  yes.textContent = label;
+  yes.classList.toggle("danger", forever);
+  yes.classList.toggle("primary", !forever);
+}
+
+function askEmptyTrash() {
+  const count = loadTrash().length;
+  if (!count || !el.confirm) return;
+  el.confirmText.textContent = (count === 1
+    ? "Delete the 1 page in Recently deleted forever? This can't be undone."
+    : `Delete all ${count} pages in Recently deleted forever? This can't be undone.`) + foreverNote();
+  el.confirm.hidden = false;
+  confirmButton("Delete forever", true);
+  el.confirm.dataset.mode = "empty";
+  el.confirm.dataset.id = "all";
 }
 
 function commitDelete() {
   const id = el.confirm?.dataset.id;
   if (!id) return;
+  if (el.confirm.dataset.mode === "empty") {
+    el.confirm.hidden = true;
+    const gone = loadTrash().map((item) => item.id);
+    for (const id of gone) state.handles.delete(id);
+    notePurged(gone);
+    saveTrash([]);
+    saveIndex();
+    store.set(TRASH_OPEN, "0");
+    if (preview) clearPreview();
+    renderDeleted();
+    toast("Recently deleted is empty.");
+    return;
+  }
   if (el.confirm.dataset.mode === "purge") {
     el.confirm.hidden = true;
     const items = loadTrash();
     const item = items.find((t) => t.id === id);
     saveTrash(items.filter((t) => t.id !== id));
+    notePurged([id]);
     state.handles.delete(id);
     saveIndex();
     if (preview?.id === id) clearPreview();
@@ -4653,17 +4767,94 @@ function finishDrawerTap(event) {
   window.setTimeout(() => el.page.classList.remove("drawer-swallow"), 450);
 }
 
+// On a phone, a swipe in from the left edge opens the pages, and a swipe to
+// the left closes them. The drawer follows the finger. A page row is left
+// alone: a sideways drag on it moves that page.
+const SWIPE_EDGE = 32;
+const SWIPE_HOLD = 250;
+let swipe = null;
+
+function swipeStart(event) {
+  swipe = null;
+  if (event.touches.length !== 1 || drag || !matchMedia("(max-width: 760px)").matches) return;
+  const node = event.target instanceof Element ? event.target : event.target?.parentElement;
+  const open = el.page.classList.contains("drawer");
+  const touch = event.touches[0];
+  if (open) {
+    if (node?.closest(".side-row, .bar, [data-row-menu], .confirm, .settings")) return;
+  } else {
+    const side = document.getElementById("side");
+    const inset = side ? parseFloat(getComputedStyle(side).paddingLeft) || 0 : 0;
+    if (touch.clientX > SWIPE_EDGE + inset) return;
+    if (nestedDialogOpen() || (el.settings && !el.settings.hidden) || node?.closest(".bar")) return;
+  }
+  swipe = { open, x: touch.clientX, y: touch.clientY, at: event.timeStamp, active: false, dx: 0, width: 0 };
+}
+
+function swipeMove(event) {
+  if (!swipe || !event.touches[0]) return;
+  const side = document.getElementById("side");
+  const touch = event.touches[0];
+  const dx = touch.clientX - swipe.x;
+  const dy = touch.clientY - swipe.y;
+  if (!swipe.active) {
+    // A finger that rests first is placing the caret or picking words.
+    if (event.timeStamp - swipe.at > SWIPE_HOLD) {
+      swipe = null;
+      return;
+    }
+    if (Math.hypot(dx, dy) < 10) return;
+    if (!side || Math.abs(dy) > Math.abs(dx) || (swipe.open ? dx > 0 : dx < 0)) {
+      swipe = null;
+      return;
+    }
+    swipe.active = true;
+    swipe.width = side.getBoundingClientRect().width;
+    side.style.transition = "none";
+    if (!swipe.open) setDrawer(true);
+  }
+  if (event.cancelable) event.preventDefault();
+  swipe.dx = dx;
+  const shift = swipe.open ? Math.max(-swipe.width, Math.min(0, dx)) : Math.min(0, dx - swipe.width);
+  side.style.transform = `translate3d(${shift}px, 0, 0)`;
+  // The dimming follows the drawer.
+  el.page.style.setProperty("--drawer-shown", String(Math.max(0, Math.min(1, 1 + shift / swipe.width))));
+}
+
+function swipeEnd(event) {
+  if (!swipe) return;
+  const done = swipe;
+  swipe = null;
+  if (!done.active) return;
+  const side = document.getElementById("side");
+  if (side) {
+    side.style.transition = "";
+    side.style.transform = "";
+  }
+  el.page.style.removeProperty("--drawer-shown");
+  const speed = Math.abs(done.dx) / Math.max(1, event.timeStamp - done.at);
+  const far = event.type !== "touchcancel" && (Math.abs(done.dx) > done.width / 3 || speed > 0.5);
+  setDrawer(done.open ? !far : far);
+  // The lift that ends a swipe is not a tap on the page.
+  drawerSwallowUntil = performance.now() + 400;
+}
+
 document.addEventListener("touchstart", takeDrawerTap, { capture: true, passive: false });
 document.addEventListener("pointerdown", takeDrawerTap, { capture: true, passive: false });
 document.addEventListener("mousedown", takeDrawerTap, { capture: true, passive: false });
 document.addEventListener("touchend", finishDrawerTap, { capture: true, passive: false });
 document.addEventListener("pointerup", finishDrawerTap, { capture: true, passive: false });
 document.addEventListener("pointercancel", finishDrawerTap, { capture: true, passive: false });
+// After the tap handlers, so a swipe that ends has the last word on the drawer.
+document.addEventListener("touchstart", swipeStart, { capture: true, passive: true });
+document.addEventListener("touchmove", swipeMove, { capture: true, passive: false });
+document.addEventListener("touchend", swipeEnd, { capture: true });
+document.addEventListener("touchcancel", swipeEnd, { capture: true });
 
 document.addEventListener("click", (event) => {
   if (!drawerTap && performance.now() >= drawerSwallowUntil) return;
   const node = event.target instanceof Element ? event.target : event.target?.parentElement;
-  if (node?.closest(".side, .sheets-toggle, .bar, [data-row-menu], .settings")) return;
+  if (node?.closest(".side, .sheets-toggle, .bar, [data-row-menu], .settings, .confirm, .confirm-scrim, .removal-ask")) return;
   event.preventDefault();
   event.stopPropagation();
   if (el.page.classList.contains("drawer")) setDrawer(false);
@@ -5197,6 +5388,53 @@ function standalone() {
   return matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 }
 
+// The keyboard covers the bottom of the page on an iPhone without resizing
+// it. What it covers is the gap under the visual viewport. The toast rises
+// by that much, so Undo is not behind the keys.
+// It also slides the page up to show the caret. --vv-top is how far, so the
+// bar and the page move back down to where the screen is looking. Together
+// the two keep the whole app inside what is visible: the bar at the top, and
+// the last line of the page just above the keys.
+let keyboardUp = false;
+
+function noteKeyboard() {
+  const vv = window.visualViewport;
+  // A pinch-zoom also shrinks the visual viewport. That is not a keyboard.
+  const plain = vv && Math.abs(vv.scale - 1) < 0.01;
+  const top = plain ? Math.max(0, Math.round(vv.offsetTop)) : 0;
+  const covered = plain ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+  document.documentElement.style.setProperty("--vv-top", `${top}px`);
+  document.body.style.setProperty("--kb", `${covered}px`);
+  const up = covered > 80;
+  if (up && !keyboardUp && view?.hasFocus) {
+    // The page just got shorter. Keep the caret in what is left of it.
+    requestAnimationFrame(() => view.dispatch({ selection: view.state.selection, scrollIntoView: true }));
+  }
+  keyboardUp = up;
+  // The sidebar has about half its height left. It drops what it can spare.
+  el.page.classList.toggle("kb-up", up);
+}
+
+// An unfolded iPhone on the Home Screen has its camera in the top right
+// corner, over the page, and reports no safe area for it. The bar and the
+// rows under it keep their buttons clear of that corner. Held wide, the
+// camera is a tall pill. Held upright, it lies on its side and is wider.
+// No other iPhone is 600 points across its short side.
+function noteIsland() {
+  const unfolded = /iPhone/.test(navigator.userAgent) && standalone() &&
+    Math.min(window.innerWidth, window.innerHeight) >= 600;
+  const root = document.documentElement;
+  if (!unfolded) root.removeAttribute("data-island");
+  else root.setAttribute("data-island", window.innerWidth > window.innerHeight ? "wide" : "tall");
+}
+
+if (window.visualViewport) {
+  visualViewport.addEventListener("resize", noteKeyboard);
+  visualViewport.addEventListener("scroll", noteKeyboard);
+}
+addEventListener("resize", noteIsland);
+noteIsland();
+
 let applyingUpdate = false;
 let waitingUpdate = null;
 let settleSync = async () => {};
@@ -5574,8 +5812,9 @@ async function applyRemoteLibrary(nextDoc, pages, basePages, localIds) {
         tree: state.tree,
         handles: state.handles,
         trash: loadTrash(),
-      }, present, [...pages, ...stay], Object.keys(pendingFolderDeletes()));
+      }, present, [...pages, ...stay], Object.keys(pendingFolderDeletes()), loadPurged());
       state.tree = applied.tree;
+      forgetPurged(pageIds(state.tree));
       state.handles = applied.handles instanceof Map ? applied.handles : new Map();
       saveTrash(applied.trash);
       for (const item of applied.trash) {
@@ -5687,7 +5926,7 @@ async function start() {
       setSyncPlaces,
     });
   }
-  if (matchMedia("(min-width: 761px)").matches) view.focus();
+  if (matchMedia("(min-width: 761px)").matches && typeOnOpen()) view.focus();
 }
 
 start().catch((e) => {

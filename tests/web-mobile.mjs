@@ -224,6 +224,7 @@ check(buildWeb.includes("omacus-sync-web") && buildWeb.includes("omacus_sync_web
   check(swallowDrawerTap(hit(".sheets-toggle"), { drawer: true, narrow: true }) === false, "the pages button is kept");
   check(swallowDrawerTap(hit("[data-row-menu]"), { drawer: true, narrow: true }) === false, "the row menu is kept");
   check(swallowDrawerTap(hit(".settings"), { drawer: true, narrow: true }) === false, "a tap in Settings is kept");
+  check(swallowDrawerTap(hit(".confirm"), { drawer: true, narrow: true }) === false, "a tap on a question above the drawer is kept");
   check(swallowDrawerTap(hit(""), { drawer: false, narrow: true }) === false, "a closed drawer does not swallow taps");
   check(swallowDrawerTap(hit(""), { drawer: true, narrow: false }) === false, "a wide window does not swallow taps");
 }
