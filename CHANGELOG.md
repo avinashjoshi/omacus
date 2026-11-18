@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.14
 
 **Close desktop Settings with Escape**
 
