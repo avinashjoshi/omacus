@@ -3,7 +3,7 @@ import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 
 const genPath = "/tmp/omacus-e2e-sw-gen";
 const downPath = "/tmp/omacus-e2e-down";
-const shots = "/opt/cursor/artifacts/screenshots";
+const shots = process.env.OMACUS_ART || "/opt/cursor/artifacts/screenshots";
 
 function generation(n) {
   writeFileSync(genPath, String(n));

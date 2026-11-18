@@ -2,7 +2,7 @@
 members = ["engine", "web", "doc", "relay", "sync-web"]
 
 [workspace.package]
-version = "1.0.18"
+version = "1.0.19"
 
 [package]
 name = "omacus"
@@ -25,7 +25,7 @@ tempfile = "3.27"
 zip = { version = "9.0", default-features = false, features = ["deflate"] }
 # The renderer is chosen per target below. glow (OpenGL) is not listed here:
 # a Windows dependency line adds to this one, and would still compile glow in.
-eframe = { version = "0.37.0", default-features = false, features = ["wayland", "x11", "clipboard", "links"] }
+eframe = { version = "0.37.0", default-features = false, features = ["default_fonts", "wayland", "x11", "clipboard", "links"] }
 miniz_oxide = "0.9"
 image = { version = "0.25", default-features = false, features = ["png"] }
 serde = { version = "1.0.229", features = ["derive"] }

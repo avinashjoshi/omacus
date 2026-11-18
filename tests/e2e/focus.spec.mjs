@@ -59,7 +59,8 @@ test.describe("editor focus stays a page", () => {
         expectSeamless(await editorFrame(page));
 
         if (viewport.label === "mobile") await page.locator(".sheets-toggle").click();
-        await page.locator('.side-head [data-action="new"]').click();
+        await page.locator('[data-side-create-toggle]').click();
+        await page.locator('[data-side-create] [data-create-destination]').first().click();
         await expect(page.locator("[data-empty]")).toBeVisible();
         await expect(page.locator("[data-empty]")).toContainText("Pages are in the sidebar");
         await page.waitForFunction(() => document.querySelector(".cm-editor")?.classList.contains("cm-focused"));

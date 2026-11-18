@@ -36,7 +36,7 @@ const BAR_ROW: f32 = 28.0;
 /// Sidebar buttons are this square, centered over the rows' ⋯.
 const ICON_BOX: f32 = 24.0;
 /// Every sheet row is this tall, so a long name cannot wrap into the next one.
-const SIDEBAR_ROW: f32 = 32.0;
+const SIDEBAR_ROW: f32 = 28.0;
 const SCROLLBAR_ROOM: f32 = 12.0;
 const SAVE_DELAY: Duration = Duration::from_millis(400);
 const COPIED_FOR: Duration = Duration::from_millis(900);
@@ -157,6 +157,7 @@ fn ref_prompt_from(edit: engine::rename::DefinitionEdit) -> RefPrompt {
 }
 
 enum SheetAction {
+    Find(usize),
     Select(usize),
     New,
     Delete(usize),
@@ -352,6 +353,7 @@ struct Hit {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Shortcut {
     ToggleSwitcher,
+    FindPage,
     PrevSheet,
     NextSheet,
     Quit,
@@ -445,6 +447,10 @@ pub struct OmacusApp {
     synced_at: Instant,
     focused: bool,
     switcher: Option<Switcher>,
+    side_scope: SidePass,
+    page_find: crate::page_find::PageFind,
+    side_query: String,
+    side_trash_open: bool,
     /// A page or folder waiting for a delete confirmation. Escape cancels.
     pending_delete: Option<PendingDelete>,
     /// Page id whose Move-to-folder list is open.
@@ -703,6 +709,10 @@ impl OmacusApp {
                     query: "k".into(),
                     selected: 0,
                 }),
+            side_scope: SidePass::All,
+            page_find: crate::page_find::PageFind::default(),
+            side_query: String::new(),
+            side_trash_open: false,
             pending_delete: None,
             move_page: None,
             rename_folder: None,
@@ -994,8 +1004,13 @@ rental = rent + 50
         match action {
             SheetAction::Select(i) => self.store.select(i),
             SheetAction::New => {
-                if !self.try_new_page(None) {
+                let grouped = self.sync.grouped();
+                if !self.try_new_page(if grouped { Some(None) } else { None }) {
                     return;
+                }
+                if grouped {
+                    let id = self.store.sheets[self.store.active].id.clone();
+                    self.sync.set_in_set(&id, self.side_scope != SidePass::Here);
                 }
             }
             SheetAction::Delete(i) => {
@@ -1115,6 +1130,15 @@ rental = rent + 50
                     self.popup = None;
                     self.focus_editor = false;
                 }
+                return;
+            }
+            SheetAction::Find(i) => {
+                self.apply(SheetAction::Select(i));
+                self.page_find.open = true;
+                self.page_find.focus = true;
+                self.page_find.reveal = true;
+                self.page_preview = false;
+                self.focus_editor = false;
                 return;
             }
             SheetAction::Rename => {
@@ -1458,6 +1482,13 @@ rental = rent + 50
         let mut toggle_preview = false;
         for chord in chords {
             match chord {
+                Shortcut::FindPage => {
+                    self.page_find.open = true;
+                    self.page_find.focus = true;
+                    self.page_find.reveal = true;
+                    self.page_preview = false;
+                    self.focus_editor = false;
+                }
                 Shortcut::ToggleSwitcher => toggle_switcher = true,
                 Shortcut::PrevSheet => prev_sheet = true,
                 Shortcut::NextSheet => next_sheet = true,
@@ -1523,6 +1554,16 @@ rental = rent + 50
         }
         if next_sheet {
             self.apply(self.cycle_action(1));
+        }
+        if dismiss && self.page_find.open && self.help.is_none() && self.switcher.is_none() {
+            self.page_find.open = false;
+            self.focus_editor = true;
+            return;
+        }
+        if dismiss && ctx.memory(|m| m.has_focus(egui::Id::unique("side-page-search"))) {
+            self.side_query.clear();
+            self.focus_editor = true;
+            return;
         }
         let closed_switcher = dismiss && self.switcher.is_some();
         if closed_switcher {
@@ -3319,103 +3360,33 @@ rental = rent + 50
         }
     }
 
-    /// One quiet row: the logo, name and version (opens About, or the update when
-    /// one is out, marked with a dot), and "?" for help.
+    /// One labeled Settings row. Help, sync, About, and updates live in that window.
     fn sidebar_footer(&mut self, ui: &mut egui::Ui, theme: &Theme) {
-        let available = self.updates.available();
-        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
-        let help_rect = icon_slot(row, 0);
-        let gear_rect = icon_slot(row, 1);
-        let about_rect = Rect::from_min_max(row.min, pos2(gear_rect.left() - 4.0, row.bottom()));
-        let about = ui.interact(about_rect, ui.scope_id().with("about"), Sense::click());
-        let gear = icon_button(
-            ui,
-            gear_rect,
-            ui.scope_id().with("settings"),
-            theme,
-            Icon::Gear,
-        );
-        let help = icon_button(ui, help_rect, ui.scope_id().with("help"), theme, Icon::Help);
-
-        let version_text = format!("v{}", update::current());
-        let version_color = if available.is_some() {
-            theme.accent
-        } else {
-            theme.comment
-        };
-        let version_width = ui.ctx().fonts_mut(|f| {
-            f.layout_no_wrap(
-                version_text.clone(),
-                FontId::proportional(12.0),
-                version_color,
-            )
-            .size()
-            .x
-        });
-        let painter = ui.painter();
-        if about.hovered() {
-            painter.rect_filled(
-                about_rect,
-                CornerRadius::same(theme::token::RADIUS_SM),
-                theme.hover,
-            );
+        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+        let response = ui.interact(row, ui.scope_id().with("settings-footer"), Sense::click());
+        if response.hovered() {
+            ui.painter()
+                .rect_filled(row, design::radius_row(), theme.hover);
         }
-        let logo =
-            Rect::from_center_size(pos2(row.left() + 14.0, row.center().y), vec2(18.0, 18.0));
-        painter.image(
-            self.logo.small.id(),
-            logo,
-            Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
-            Color32::WHITE,
-        );
-        let name = painter.text(
-            pos2(logo.right() + 8.0, row.center().y),
-            Align2::LEFT_CENTER,
-            "omacus",
-            FontId::proportional(13.0),
+        paint_icon(
+            ui.painter(),
+            Icon::Gear,
+            pos2(row.left() + 18.0, row.center().y),
             theme.dim,
         );
-        let version_x = name.right() + 6.0;
-        if version_x + version_width < gear_rect.left() - 6.0 {
-            let version = ui.painter().text(
-                pos2(version_x, row.center().y),
-                Align2::LEFT_CENTER,
-                version_text,
-                FontId::proportional(12.0),
-                version_color,
-            );
-            if available.is_some() {
-                ui.painter().circle_filled(
-                    version.right_center() + vec2(7.0, 0.0),
-                    3.0,
-                    theme.accent,
-                );
-            }
+        ui.painter().text(
+            pos2(row.left() + 36.0, row.center().y),
+            Align2::LEFT_CENTER,
+            "Settings",
+            FontId::proportional(theme::token::TYPE_BODY),
+            theme.dim,
+        );
+        if self.updates.available().is_some() {
+            ui.painter()
+                .circle_filled(pos2(row.right() - 12.0, row.center().y), 3.0, theme.accent);
         }
-        if about.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-        }
-        let about_tip = match &available {
-            Some(v) => format!("Version {v} is available"),
-            None => "About Omacus".to_string(),
-        };
-        if about.on_hover_text(about_tip).clicked() {
-            if available.is_some() {
-                self.update_open = true;
-                self.help = None;
-            } else {
-                self.help = Some(help::Tab::About);
-                self.popup = None;
-            }
-        }
-        if help
-            .on_hover_text(format!("Help & shortcuts ({})", help::keys("F1")))
-            .clicked()
-        {
-            self.toggle_help();
-        }
-        if gear
-            .on_hover_text(format!("Settings ({})", help::keys("Ctrl+,")))
+        if response
+            .on_hover_text("Settings, sync, help and About")
             .clicked()
         {
             self.open_settings();
@@ -3430,58 +3401,199 @@ rental = rent + 50
         let mut purge = None;
         self.refresh_trash(false);
 
+        ui.spacing_mut().item_spacing.y = 0.0;
         let grouped = self.sync.grouped();
-        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), BAR_ROW), Sense::hover());
         if !grouped {
-            ui.painter().text(
-                pos2(row.left() + 14.0, row.center().y),
-                Align2::LEFT_CENTER,
-                "Pages",
-                FontId::proportional(theme::token::TYPE_CAPTION),
-                theme.text_muted(),
-            );
+            self.side_scope = SidePass::All;
         }
+        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), BAR_ROW), Sense::hover());
         let id = ui.scope_id();
         let collapse = icon_button(
             ui,
             icon_slot(row, 0),
-            id.with("collapse"),
+            id.with("collapse-side"),
             &theme,
             Icon::Sidebar,
         );
-        let plus = icon_button(
-            ui,
-            icon_slot(row, 1),
-            id.with("new-sheet"),
-            &theme,
-            Icon::Plus,
-        );
-        let folder_btn = icon_button(
-            ui,
-            icon_slot(row, 2),
-            id.with("new-folder"),
-            &theme,
-            Icon::Folder,
-        );
-        if folder_btn.on_hover_text("New folder").clicked() {
-            action = Some(SheetAction::NewFolderAt(None));
-        }
-        if plus
-            .on_hover_text(format!("New page ({})", help::keys("Ctrl+N")))
-            .clicked()
-        {
-            action = Some(SheetAction::New);
-        }
         if collapse
-            .on_hover_text(format!("Collapse sidebar ({})", help::keys("Ctrl+B")))
+            .on_hover_text("Collapse sidebar (Ctrl+B)")
             .clicked()
         {
             self.store.toggle_sidebar();
             self.touched();
         }
-        ui.add_space(6.0);
+        let picker_rect =
+            Rect::from_min_max(row.min, pos2(icon_slot(row, 0).left() - 4.0, row.bottom()));
+        let picker = ui.interact(picker_rect, id.with("vault-switch"), Sense::click());
+        let label = match (grouped, self.side_scope) {
+            (false, _) | (_, SidePass::Here) => "On this device",
+            (_, SidePass::Vault) => self.sync.vault_name(),
+            (_, SidePass::All) => "All pages",
+        };
+        let galley = ui.ctx().fonts_mut(|f| {
+            f.layout_job(sidebar_label_job(
+                label,
+                FontId::proportional(theme::token::TYPE_BODY),
+                theme.foreground,
+                (picker_rect.width() - 32.0).max(20.0),
+            ))
+        });
+        if picker.hovered() {
+            ui.painter()
+                .rect_filled(picker_rect, design::radius_row(), theme.hover);
+        }
+        ui.painter().galley(
+            pos2(row.left() + 8.0, row.center().y - galley.size().y / 2.0),
+            galley,
+            theme.foreground,
+        );
+        paint_chevron(
+            ui.painter(),
+            pos2(picker_rect.right() - 10.0, row.center().y),
+            false,
+            theme.dim,
+        );
+        egui::Popup::menu(&picker).show(|ui| {
+            ui.spacing_mut().interact_size.y = theme::token::HIT;
+            ui.set_min_width(220.0);
+            if grouped {
+                for (scope, label) in [
+                    (SidePass::All, "All pages".to_string()),
+                    (SidePass::Vault, self.sync.vault_name().to_string()),
+                    (SidePass::Here, "On this device".to_string()),
+                ] {
+                    let detail = match scope {
+                        SidePass::All => "Across your vaults",
+                        SidePass::Vault => "Synced across devices",
+                        SidePass::Here => "Local only",
+                    };
+                    if vault_choice(ui, &theme, &label, detail, self.side_scope == scope).clicked()
+                    {
+                        self.side_scope = scope;
+                        self.side_query.clear();
+                        self.side_trash_open = false;
+                    }
+                }
+                ui.separator();
+            } else {
+                vault_choice(ui, &theme, "On this device", "Local only", true);
+                ui.separator();
+            }
+            if self.sync.entry_visible()
+                && ui
+                    .button(if self.sync.paused() {
+                        "Sync paused…"
+                    } else if grouped {
+                        "Vault sync settings"
+                    } else {
+                        "Turn on sync…"
+                    })
+                    .clicked()
+            {
+                self.open_sync_tab();
+            }
+        });
+        ui.add_space(theme::token::SPACE_2);
+        let (tools_row, _) = ui.allocate_exact_size(
+            vec2(ui.available_width(), theme::token::HIT),
+            Sense::hover(),
+        );
+        let plus = icon_button(
+            ui,
+            icon_slot(tools_row, 0),
+            id.with("new-sheet"),
+            &theme,
+            Icon::Plus,
+        );
+        let search_rect = Rect::from_min_max(
+            tools_row.min,
+            pos2(icon_slot(tools_row, 0).left() - 8.0, tools_row.bottom()),
+        );
+        egui::Popup::menu(&plus).show(|ui| {
+            if grouped && self.side_scope == SidePass::All {
+                ui.label("Create a page in");
+                for (scope, label) in [
+                    (SidePass::Vault, self.sync.vault_name().to_string()),
+                    (SidePass::Here, "On this device".to_string()),
+                ] {
+                    if ui.button(label).clicked() {
+                        self.side_scope = scope;
+                        action = Some(SheetAction::New);
+                    }
+                }
+            } else if ui.button("New page").clicked() {
+                action = Some(SheetAction::New);
+            }
+            if (!grouped || self.side_scope != SidePass::Here) && ui.button("New folder").clicked()
+            {
+                if grouped {
+                    self.side_scope = SidePass::Vault;
+                }
+                action = Some(SheetAction::NewFolderAt(None));
+            }
+        });
+        plus.on_hover_text("Create a page or folder");
+        {
+            let rect = search_rect;
+            ui.painter()
+                .rect_filled(rect, design::radius_row(), theme.background);
+            let input = Rect::from_min_max(pos2(rect.left() + 28.0, rect.top()), rect.max);
+            let response = ui.put(
+                input,
+                egui::TextEdit::singleline(&mut self.side_query)
+                    .id(egui::Id::unique("side-page-search"))
+                    .hint_text("Find a page…")
+                    .font(FontId::proportional(theme::token::TYPE_BODY))
+                    .frame(Frame::NONE)
+                    .margin(Margin {
+                        left: 4,
+                        right: 8,
+                        top: 0,
+                        bottom: 0,
+                    })
+                    .align(Align2::LEFT_CENTER)
+                    .min_size(input.size())
+                    .desired_width(input.width()),
+            );
+            paint_icon(
+                ui.painter(),
+                Icon::Search,
+                pos2(rect.left() + 16.0, rect.center().y),
+                theme.text_secondary(),
+            );
+            ui.painter().rect_stroke(
+                rect,
+                design::radius_row(),
+                egui::Stroke::new(
+                    if response.has_focus() { 1.5 } else { 1.0 },
+                    if response.has_focus() {
+                        theme.accent
+                    } else {
+                        theme.border()
+                    },
+                ),
+                egui::StrokeKind::Inside,
+            );
+            if response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.side_query.clear();
+            }
+        }
+        ui.add_space(theme::token::SPACE_2);
 
-        let entries = self.store.side_entries();
+        let entries = if self.side_query.trim().is_empty() {
+            self.store.side_entries()
+        } else {
+            self.store
+                .sheets
+                .iter()
+                .map(|sheet| crate::sheets::SideEntry {
+                    kind: SideKind::Page {
+                        id: sheet.id.clone(),
+                    },
+                    depth: 0,
+                })
+                .collect()
+        };
         let headings: HashMap<String, String> = self
             .store
             .sheets
@@ -3503,8 +3615,10 @@ rental = rent + 50
             |id| self.sync.in_set(id),
             |folder| self.store.pages_in_folder(folder),
         );
-        let passes = if grouped {
+        let passes = if grouped && self.side_scope == SidePass::All {
             vec![SidePass::Vault, SidePass::Here]
+        } else if grouped {
+            vec![self.side_scope]
         } else {
             vec![SidePass::All]
         };
@@ -3513,13 +3627,13 @@ rental = rent + 50
             .max_height((ui.available_height() - 38.0 - theme::token::HIT - 8.0).max(0.0))
             .show(ui, |ui| {
                 for pass in passes {
-                    if grouped {
+                    if grouped && self.side_scope == SidePass::All {
                         if pass == SidePass::Here {
                             ui.add_space(10.0);
                         }
                         let label = match pass {
                             SidePass::Vault => self.sync.vault_name().to_string(),
-                            SidePass::Here => "On this computer".to_string(),
+                            SidePass::Here => "On this device".to_string(),
                             SidePass::All => String::new(),
                         };
                         section_label(ui, &theme, &label);
@@ -3538,7 +3652,17 @@ rental = rent + 50
                                 matches!(entry.kind, SideKind::Page { .. }) && !page_in
                             }
                         };
-                        if !keep {
+                        let matches_query = self.side_query.trim().is_empty()
+                            || match &entry.kind {
+                                SideKind::Page { id } => headings.get(id).is_some_and(|name| {
+                                    name.to_lowercase()
+                                        .contains(&self.side_query.trim().to_lowercase())
+                                }),
+                                SideKind::Folder { name, .. } => name
+                                    .to_lowercase()
+                                    .contains(&self.side_query.trim().to_lowercase()),
+                            };
+                        if !keep || !matches_query {
                             continue;
                         }
                         shown += 1;
@@ -3735,16 +3859,30 @@ rental = rent + 50
                         self.sync.open_approve();
                     }
                 }
-                if !self.trash.is_empty() {
+                if self.side_trash_open && !self.trash.is_empty() {
                     ui.add_space(14.0);
                     section_label(ui, &theme, "Recently deleted");
                     if design::quiet(ui, &theme, "Empty Recently deleted…").clicked() {
-                        let ids = self.trash.iter().map(|item| item.id.clone()).collect();
+                        let ids = self
+                            .trash
+                            .iter()
+                            .filter(|item| {
+                                self.side_scope
+                                    .includes(grouped, self.sync.in_set(&item.id))
+                            })
+                            .map(|item| item.id.clone())
+                            .collect();
                         purge = Some(TrashPurge::All(ids));
                     }
                     ui.add_space(4.0);
                     let trash = self.trash.clone();
                     for item in trash {
+                        if !self
+                            .side_scope
+                            .includes(grouped, self.sync.in_set(&item.id))
+                        {
+                            continue;
+                        }
                         let heading = if item.locked {
                             crate::sheets::LOCKED_TITLE.to_string()
                         } else {
@@ -3869,32 +4007,46 @@ rental = rent + 50
             }
         }
 
-        ui.add_space(6.0);
-        if self.sync.entry_visible() {
-            let label = self.sync.entry_label();
-            let open_sync = ui.add_sized(
-                [ui.available_width(), theme::token::HIT],
-                egui::Button::new(
-                    egui::RichText::new(label)
-                        .size(theme::token::TYPE_BODY)
-                        .color(theme.text()),
-                )
-                .fill(theme.background)
-                .stroke(egui::Stroke::new(1.0, theme.border()))
-                .corner_radius(design::radius_row())
-                .min_size(vec2(ui.available_width(), theme::token::HIT)),
-            );
-            let tip = if label == "Turn on sync" {
-                "How sync works"
-            } else if self.sync.paused() {
-                "Sync is paused. Open it to join again."
-            } else {
-                "Sync settings"
-            };
-            if open_sync.on_hover_text(tip).clicked() {
-                self.open_sync_tab();
-            }
-            ui.add_space(6.0);
+        ui.add_space(4.0);
+        let count = self
+            .trash
+            .iter()
+            .filter(|item| {
+                self.side_scope
+                    .includes(grouped, self.sync.in_set(&item.id))
+            })
+            .count();
+        let (trash_row, _) =
+            ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+        let trash_button = ui.interact(
+            trash_row,
+            ui.scope_id().with("recently-deleted"),
+            Sense::click(),
+        );
+        if trash_button.hovered() {
+            ui.painter()
+                .rect_filled(trash_row, design::radius_row(), theme.hover);
+        }
+        paint_chevron(
+            ui.painter(),
+            pos2(trash_row.left() + 18.0, trash_row.center().y),
+            !self.side_trash_open,
+            theme.dim,
+        );
+        let label = if count > 0 {
+            format!("Recently deleted · {count}")
+        } else {
+            "Recently deleted".to_string()
+        };
+        ui.painter().text(
+            pos2(trash_row.left() + 36.0, trash_row.center().y),
+            Align2::LEFT_CENTER,
+            label,
+            FontId::proportional(theme::token::TYPE_BODY),
+            theme.dim,
+        );
+        if trash_button.clicked() {
+            self.side_trash_open = !self.side_trash_open;
         }
         self.sidebar_footer(ui, &theme);
 
@@ -4004,6 +4156,70 @@ rental = rent + 50
         painter.galley(rect.min + vec2(8.0, 4.0), galley, theme.foreground);
     }
 
+    fn show_page_find(&mut self, ui: &mut egui::Ui) {
+        if !self.page_find.open {
+            return;
+        }
+        if self.page_find.page != self.store.current().id {
+            self.page_find.page = self.store.current().id.clone();
+            self.page_find.index = 0;
+            self.page_find.reveal = true;
+        }
+        ui.horizontal(|ui| {
+            let response = ui.add(
+                TextEdit::singleline(&mut self.page_find.query)
+                    .id(egui::Id::unique("find-in-page"))
+                    .hint_text("Find in page…")
+                    .font(FontId::proportional(theme::token::TYPE_BODY))
+                    .desired_width((ui.available_width() - 160.0).clamp(80.0, 240.0)),
+            );
+            if std::mem::take(&mut self.page_find.focus) {
+                response.request_focus();
+            }
+            if response.changed() {
+                self.page_find.index = 0;
+                self.page_find.reveal = true;
+            }
+            let count =
+                crate::page_find::matches(&self.store.current().text, &self.page_find.query).len();
+            self.page_find.index = self.page_find.index.min(count.saturating_sub(1));
+            ui.label(if self.page_find.query.is_empty() {
+                String::new()
+            } else if count == 0 {
+                "No matches".into()
+            } else {
+                format!("{} / {}", self.page_find.index + 1, count)
+            });
+            let enter = (response.has_focus() || response.lost_focus())
+                && ui.input(|i| i.key_pressed(Key::Enter));
+            if enter {
+                response.request_focus();
+            }
+            let backwards = ui.input(|i| i.modifiers.shift);
+            let previous = ui
+                .add_enabled(count > 0, egui::Button::new("↑"))
+                .on_hover_text("Previous match (Shift+Enter)")
+                .clicked();
+            let next = ui
+                .add_enabled(count > 0, egui::Button::new("↓"))
+                .on_hover_text("Next match (Enter)")
+                .clicked();
+            if count > 0 && (enter || previous || next) {
+                self.page_find.index = crate::page_find::step(
+                    self.page_find.index,
+                    count,
+                    previous || (enter && backwards),
+                );
+                self.page_find.reveal = true;
+            }
+            if ui.button("×").on_hover_text("Close find (Esc)").clicked() {
+                self.page_find.open = false;
+                self.focus_editor = true;
+            }
+        });
+        ui.add_space(theme::token::SPACE_2);
+    }
+
     fn sheet(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme.clone();
         let font = FontId::monospace(FONT_SIZE);
@@ -4110,6 +4326,46 @@ rental = rent + 50
             self.focus_editor = false;
         } else if std::mem::take(&mut self.focus_editor) {
             response.request_focus();
+        }
+
+        if self.page_find.open {
+            let matches =
+                crate::page_find::matches(&self.store.current().text, &self.page_find.query);
+            for (index, range) in matches.iter().enumerate() {
+                for at in range.clone() {
+                    let start = output.galley.pos_from_cursor(CCursor::new(at));
+                    let end = output.galley.pos_from_cursor(CCursor::new(at + 1));
+                    let width = if (start.top() - end.top()).abs() < 1.0 {
+                        end.left() - start.left()
+                    } else {
+                        font.size * 0.6
+                    };
+                    let rect = Rect::from_min_size(
+                        output.galley_pos + start.min.to_vec2(),
+                        vec2(width.max(1.0), start.height()),
+                    );
+                    ui.painter().rect_filled(
+                        rect,
+                        0.0,
+                        theme
+                            .accent
+                            .linear_multiply(if index == self.page_find.index {
+                                0.30
+                            } else {
+                                0.12
+                            }),
+                    );
+                }
+            }
+            if std::mem::take(&mut self.page_find.reveal)
+                && let Some(range) = matches.get(self.page_find.index)
+            {
+                let rect = output
+                    .galley
+                    .pos_from_cursor(CCursor::new(range.start))
+                    .translate(output.galley_pos.to_vec2());
+                ui.scroll_to_rect(rect, Some(egui::Align::Center));
+            }
         }
 
         let changed = response.changed();
@@ -6123,6 +6379,7 @@ impl eframe::App for OmacusApp {
                     self.sync_title(ui);
                 }
                 self.sheet_bar(ui);
+                self.show_page_find(ui);
                 egui::ScrollArea::vertical()
                     .id_salt(("scroll", &self.store.sheets[self.store.active].id))
                     .auto_shrink([false, false])
@@ -6201,6 +6458,9 @@ fn sheet_menu(
         }
         ui.add(button).clicked()
     };
+    if item(ui, "Find in page", Some("Ctrl+F")) {
+        *action = Some(SheetAction::Find(i));
+    }
     if item(ui, "Rename", Some("F2")) {
         *action = Some(SheetAction::Rename);
     }
@@ -6354,10 +6614,9 @@ fn paint_dots(painter: &egui::Painter, center: Pos2, color: Color32) {
 enum Icon {
     Plus,
     Sidebar,
-    Help,
     Gear,
-    Folder,
     Cloud,
+    Search,
 }
 
 fn e2e_write_secret(path: &std::path::Path, text: &str) -> bool {
@@ -6513,47 +6772,22 @@ fn paint_icon(painter: &egui::Painter, icon: Icon, c: Pos2, color: Color32) {
             let x = r.left() + 5.5;
             painter.line_segment([pos2(x, r.top()), pos2(x, r.bottom())], stroke);
         }
-        Icon::Help => {
-            painter.circle_stroke(c, 7.5, stroke);
-            painter.text(
-                c + vec2(0.0, 0.5),
-                Align2::CENTER_CENTER,
-                "?",
-                FontId::proportional(11.0),
-                color,
-            );
+        Icon::Search => {
+            painter.circle_stroke(c + vec2(-2.0, -2.0), 4.5, stroke);
+            painter.line_segment([c + vec2(1.5, 1.5), c + vec2(6.5, 6.5)], stroke);
         }
         Icon::Gear => {
-            painter.circle_stroke(c, 2.7, stroke);
-            for i in 0..8 {
-                let a = i as f32 * std::f32::consts::FRAC_PI_4;
-                let d = vec2(a.cos(), a.sin());
-                painter.line_segment([c + d * 4.3, c + d * 7.0], stroke);
-            }
+            painter.circle_stroke(c, 2.5, stroke);
+            let points: Vec<Pos2> = (0..32)
+                .map(|i| {
+                    let angle = i as f32 * std::f32::consts::TAU / 32.0;
+                    let radius = if i % 4 == 0 || i % 4 == 3 { 7.5 } else { 5.7 };
+                    c + vec2(angle.cos(), angle.sin()) * radius
+                })
+                .collect();
+            painter.add(egui::Shape::closed_line(points, stroke));
         }
-        // A tabbed folder, same stroke weight as the other icons.
-        Icon::Folder => {
-            let r = Rect::from_center_size(c + vec2(0.0, 1.0), vec2(15.0, 10.0));
-            painter.line_segment(
-                [pos2(r.left(), r.top()), pos2(r.left() + 5.0, r.top())],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    pos2(r.left() + 5.0, r.top()),
-                    pos2(r.left() + 7.0, r.top() - 3.0),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    pos2(r.left() + 7.0, r.top() - 3.0),
-                    pos2(r.right(), r.top() - 3.0),
-                ],
-                stroke,
-            );
-            painter.rect_stroke(r, CornerRadius::same(2), stroke, egui::StrokeKind::Middle);
-        }
+
         Icon::Cloud => {
             painter.circle_stroke(c + vec2(-2.6, 0.6), 3.1, stroke);
             painter.circle_stroke(c + vec2(2.4, -0.6), 3.8, stroke);
@@ -6812,6 +7046,17 @@ enum SidePass {
     Here,
 }
 
+impl SidePass {
+    fn includes(self, grouped: bool, in_vault: bool) -> bool {
+        !grouped
+            || match self {
+                Self::All => true,
+                Self::Vault => in_vault,
+                Self::Here => !in_vault,
+            }
+    }
+}
+
 /// The rows under My pages: each synced page, and each folder that holds one.
 ///
 /// `pages_in` lists every page inside a folder, shown or not. A collapsed
@@ -6835,6 +7080,67 @@ fn vault_row_indexes(
         })
         .map(|(index, _)| index)
         .collect()
+}
+
+/// A vault row uses the same two-line hierarchy as the web picker.
+fn vault_choice(
+    ui: &mut egui::Ui,
+    theme: &Theme,
+    title: &str,
+    detail: &str,
+    selected: bool,
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
+    let painter = ui.painter();
+    if selected || response.hovered() {
+        painter.rect_filled(
+            rect,
+            design::radius_row(),
+            if selected {
+                theme.selection
+            } else {
+                theme.hover
+            },
+        );
+    }
+    for (text, y, size, color) in [
+        (title, 14.0, theme::token::TYPE_BODY, theme.foreground),
+        (
+            detail,
+            33.0,
+            theme::token::TYPE_CAPTION,
+            theme.text_secondary(),
+        ),
+    ] {
+        let galley = ui.ctx().fonts_mut(|f| {
+            f.layout_job(sidebar_label_job(
+                text,
+                FontId::proportional(size),
+                color,
+                (rect.width() - 44.0).max(20.0),
+            ))
+        });
+        painter.galley(
+            pos2(rect.left() + 8.0, rect.top() + y - galley.size().y / 2.0),
+            galley,
+            color,
+        );
+    }
+    if selected {
+        let c = pos2(rect.right() - 16.0, rect.center().y);
+        let stroke = egui::Stroke::new(1.5, theme.foreground);
+        painter.line_segment([c + vec2(-5.0, 0.0), c + vec2(-1.0, 4.0)], stroke);
+        painter.line_segment([c + vec2(-1.0, 4.0), c + vec2(6.0, -4.0)], stroke);
+    }
+    if response.has_focus() {
+        painter.rect_stroke(
+            rect,
+            design::radius_row(),
+            egui::Stroke::new(1.5, theme.accent),
+            egui::StrokeKind::Inside,
+        );
+    }
+    response
 }
 
 /// "Pages", "Recently deleted": lined up with the page names below.
@@ -6885,13 +7191,13 @@ fn apply_visuals(ctx: &egui::Context, theme: &Theme) {
 }
 
 /// JetBrains Mono ships inside the binary so Omacus looks the same everywhere.
-// egui's own fonts (1.4 MB) are left out; these cover everything Omacus shows. They are
-// stored deflated (see build.rs) and inflated once at startup.
+// Stored deflated (see build.rs) and inflated once at startup.
 macro_rules! font {
     ($name:literal) => {
         include_bytes!(concat!(env!("OUT_DIR"), "/", $name, ".deflate"))
     };
 }
+static UI_FONT: &[u8] = font!("Inter-Regular.ttf");
 static BUNDLED_FONT: &[u8] = font!("JetBrainsMono-Regular.ttf");
 static BOLD_FONT: &[u8] = font!("JetBrainsMono-Bold.ttf");
 /// ₹, ₩, ₺ and the other currency signs JetBrains Mono lacks, cut from Noto Sans.
@@ -6926,7 +7232,7 @@ fn system_font() -> Option<Vec<u8>> {
 }
 
 fn install_fonts(ctx: &egui::Context) {
-    let mut fonts = FontDefinitions::empty();
+    let mut fonts = FontDefinitions::default();
     let mut chain = Vec::new();
     // The user's font first, then the bundled ones for anything it lacks.
     let mut add = |name: &str, data: FontData| {
@@ -6940,9 +7246,20 @@ fn install_fonts(ctx: &egui::Context) {
     add("bold", inflate(BOLD_FONT));
     add("currency", inflate(CURRENCY_FONT));
     add("emoji", inflate(EMOJI_FONT));
-    for family in [FontFamily::Monospace, FontFamily::Proportional] {
-        fonts.families.insert(family, chain.clone());
-    }
+    fonts.families.insert(FontFamily::Monospace, chain.clone());
+    fonts
+        .font_data
+        .insert("inter".into(), Arc::new(inflate(UI_FONT)));
+    fonts
+        .families
+        .entry(FontFamily::Proportional)
+        .or_default()
+        .insert(0, "inter".into());
+    fonts
+        .families
+        .entry(FontFamily::Proportional)
+        .or_default()
+        .extend(chain.iter().cloned());
     let mut bold_chain = vec!["bold".to_string()];
     bold_chain.extend(chain.iter().cloned());
     fonts
@@ -7041,6 +7358,7 @@ pub fn run() -> eframe::Result {
 fn shortcut_for(command: bool, alt: bool, shift: bool, key: Key, repeat: bool) -> Option<Shortcut> {
     match key {
         Key::Escape if !command && !alt && !shift && !repeat => Some(Shortcut::Dismiss),
+        Key::F if command && !alt && !shift && !repeat => Some(Shortcut::FindPage),
         Key::J if command && !alt && !shift && !repeat => Some(Shortcut::ToggleSwitcher),
         Key::ArrowUp if command && alt && !shift => Some(Shortcut::PrevSheet),
         Key::ArrowDown if command && alt && !shift => Some(Shortcut::NextSheet),
@@ -7057,7 +7375,7 @@ fn shortcut_for(command: bool, alt: bool, shift: bool, key: Key, repeat: bool) -
 /// so the editor never sees the key or the letter it would insert.
 fn owns_key(command: bool, alt: bool, shift: bool, key: Key) -> bool {
     match key {
-        Key::J if command && !alt && !shift => true,
+        Key::F | Key::J if command && !alt && !shift => true,
         Key::Escape if !command && !alt && !shift => true,
         Key::ArrowUp | Key::ArrowDown if command && alt && !shift => true,
         Key::Q | Key::W if command && !alt && !shift => true,
@@ -7300,15 +7618,14 @@ fn sidebar_row(ui: &mut egui::Ui, theme: &Theme, look: RowLook<'_>) -> egui::Res
     } else {
         theme.dim
     };
-    let mut text_x = rect.left() + 14.0 + look.indent;
+    let text_x = rect.left() + 28.0 + look.indent;
     if let Some(collapsed) = look.chevron {
         paint_chevron(
             painter,
-            pos2(text_x + 1.0, rect.center().y),
+            pos2(text_x - 16.0, rect.center().y),
             collapsed,
             color,
         );
-        text_x += 16.0;
     }
     let lock_room = if look.lock.is_some() { 18.0 } else { 0.0 };
     let text_width = (rect.right() - text_x - 30.0 - lock_room).max(24.0);
@@ -7400,6 +7717,18 @@ fn line_at(text: &str, cursor: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn find_page_shortcut_owns_repeats_without_reopening() {
+        assert_eq!(
+            shortcut_for(true, false, false, Key::F, false),
+            Some(Shortcut::FindPage)
+        );
+        assert_eq!(shortcut_for(true, false, false, Key::F, true), None);
+        assert!(owns_key(true, false, false, Key::F));
+        assert!(!owns_key(false, false, false, Key::F));
+        assert_eq!(shortcut_for(true, true, false, Key::F, false), None);
+    }
+
     #[test]
     fn reset_clears_the_library_and_settings_without_touching_exports() {
         let root = std::env::temp_dir().join(format!("omacus-reset-{}", std::process::id()));

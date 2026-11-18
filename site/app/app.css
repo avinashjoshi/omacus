@@ -108,7 +108,7 @@ html.standalone body.app-page {
   color: var(--app-bg);
 }
 
-.app-page :focus-visible:not(.cm-content):not(.cm-scroller):not(.cm-editor) {
+.app-page :focus-visible:not(.cm-content):not(.cm-scroller):not(.cm-editor):not(.side-search) {
   outline: 2px solid var(--app-accent);
   outline-offset: 2px;
 }
@@ -3745,10 +3745,11 @@ body.answers-inline .md .pill {
 }
 
 /* With the keyboard up the sidebar is about half as tall. The pages may go
-   down to one row, the version waits, and the home indicator's room is
+   shrink to the remaining room, the version waits, and the home indicator's room is
    under the keys, so it is given back. */
 .app-page.kb-up .sheet-list {
-  min-height: var(--hit);
+  min-height: 0;
+  padding-block: 0;
 }
 
 .app-page.kb-up .side-foot {
@@ -3792,3 +3793,209 @@ html[data-island="tall"] .bar {
     --side-w: 280px;
   }
 }
+
+/* Vault navigation: one compact header, with secondary actions in its menus. */
+.side-head {
+  position: relative;
+  flex: none;
+  gap: var(--space-1);
+  padding: var(--space-2);
+}
+.vault-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+  min-height: var(--hit);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--app-fg);
+  font: 500 var(--type-body) var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+.vault-switch span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-switch svg, .vault-menu svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.vault-switch:hover { background: var(--app-hover); }
+.vault-menu {
+  position: absolute;
+  top: calc(100% - var(--space-1));
+  left: var(--space-2);
+  right: var(--space-2);
+  z-index: 5;
+  max-height: min(480px, 65vh);
+  overflow-y: auto;
+  padding: var(--space-1);
+  border: 1px solid var(--app-line);
+  border-radius: var(--radius-sm);
+  background: var(--app-side);
+  box-shadow: var(--shadow-md);
+}
+.vault-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: var(--hit);
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--app-fg);
+  font: var(--type-body) var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+.vault-menu button:hover { background: var(--app-hover); }
+.vault-menu button[aria-pressed="true"] { background: var(--app-sel); }
+.vault-menu small { display: block; margin-top: var(--space-1); color: var(--app-dim); font-size: var(--type-caption); }
+.vault-menu hr { margin: var(--space-1); border: 0; border-top: 1px solid var(--app-line); }
+.vault-menu [hidden] { display: none; }
+.side-search-tools {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  margin: 0 var(--space-2) var(--space-3);
+}
+.side-search-tools > .side-btn { flex: none; }
+.side-search-tools .vault-menu { left: 0; right: 0; top: calc(100% + var(--space-1)); }
+.side-search-field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.side-search-field > svg {
+  position: absolute;
+  left: var(--space-2);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: var(--app-dim);
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+.side-search {
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--hit);
+  min-width: 0;
+  margin: 0;
+  padding: 0 var(--space-2) 0 var(--space-6);
+  border: 1px solid var(--app-line);
+  border-radius: var(--radius-sm);
+  background: var(--app-bg);
+  color: var(--app-fg);
+  font: var(--type-body) var(--sans);
+}
+.side-search::placeholder { color: var(--app-dim); opacity: 1; }
+.app-page input.side-search:focus-visible {
+  outline: none;
+  border-color: var(--app-accent);
+  box-shadow: inset 0 0 0 .5px var(--app-accent);
+}
+.sheet-list .side-row { flex-shrink: 0; }
+.sheet-list .side-name { font-family: var(--sans); font-size: var(--type-body); }
+.side-foot { display: none; }
+.side-tools { padding: var(--space-1) var(--space-2) var(--space-2); }
+.side-btn svg, .side-foot-row svg { stroke-width: 1.5; stroke-linejoin: round; }
+@media (pointer: fine) {
+  .sheet-list .side-row, .sheet-list .side-name { height: 28px; }
+  .sheet-list .side-name { font-size: 13px; }
+}
+@media (pointer: coarse) {
+  .side-tools { flex-direction: column; flex-wrap: nowrap; }
+  .side-tools > .side-foot-row {
+    flex: none;
+    flex-direction: row;
+    justify-content: flex-start;
+    min-height: var(--hit);
+    gap: var(--space-2);
+    padding: var(--space-1) 10px;
+    font-size: var(--type-body);
+    text-align: left;
+  }
+  .side-search { font-size: 16px; }
+}
+@media (max-width: 760px) {
+  .side { width: 100%; max-width: none; }
+}
+.sheet-list .side-sync-label { padding-top: var(--space-1); }
+.sheet-list .side-sync-label:not(:first-child) { margin-top: var(--space-2); }
+.sheet-list .side-section { font-weight: 500; }
+@media (pointer: fine) {
+  .sheet-list .side-section { min-height: 24px; }
+}
+.side-vault-badge {
+  flex: 0 1 auto;
+  max-width: 35%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--app-comment);
+  font: var(--type-caption) var(--sans);
+  margin-left: var(--space-1);
+}
+
+/* Find in the current page, independent of the sidebar filter. */
+.page-find {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--app-line);
+  background: var(--app-bg);
+  font: var(--type-body) var(--sans);
+}
+.page-find[hidden] { display: none; }
+.page-find input {
+  min-width: 0;
+  width: 240px;
+  flex: 1;
+  max-width: 320px;
+  height: var(--hit);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--app-line);
+  border-radius: var(--radius-sm);
+  color: var(--app-fg);
+  background: var(--app-side);
+  font: inherit;
+}
+.page-find span { white-space: nowrap; color: var(--app-dim); }
+.page-find button {
+  flex: none;
+  width: var(--hit);
+  height: var(--hit);
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--app-fg);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.page-find button:hover { background: var(--app-hover); }
+.page-find button:disabled { opacity: .4; cursor: default; }
+.cm-host .page-match { background: var(--app-hover); text-decoration: underline; text-decoration-color: var(--app-accent); }
+.cm-host .page-match-current { background: var(--app-sel); outline: 1px solid var(--app-accent); }
+@media (pointer: coarse) { .page-find input { font-size: 16px; } }
+
+.editor:has(> .page-find:not([hidden])) > .cm-host { top: calc(var(--hit) + var(--space-2) * 2 + 1px); }
+
+.app-page.kb-up .side-head { padding-block: var(--space-1); }
+.app-page.kb-up .side-search-tools { margin-bottom: var(--space-1); }

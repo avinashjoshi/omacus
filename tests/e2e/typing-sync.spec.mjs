@@ -100,7 +100,8 @@ test("a line from the other phone lands while this one is typing", async ({ brow
     await includeExistingPages(phoneA);
     await expect(phoneA.locator("[data-sync-linked]")).toBeVisible({ timeout: 45000 });
     await phoneA.locator("[data-action='close-settings']").last().click();
-    await phoneA.getByRole("button", { name: "New page" }).click();
+    await phoneA.locator("[data-side-create-toggle]").click();
+    await phoneA.locator('[data-create-destination="vault"]').click();
     const made = saved(phoneA);
     await phoneA.locator(".cm-content").click();
     await phoneA.keyboard.insertText("Harbor ledger\nbread 2\n");
@@ -148,7 +149,8 @@ test("a line from the other phone lands while this one is typing", async ({ brow
     // list on the phone that made it, and it never left that phone.
     const folderRows = (page) =>
       page.locator("[data-sheets] .side-row .side-name span").evaluateAll((nodes) => nodes.map((node) => node.textContent.trim()));
-    await phoneA.locator(".side-head [data-action='new-folder']").click();
+    await phoneA.locator("[data-side-create-toggle]").click();
+    await phoneA.locator(".side-search-tools [data-action='new-folder']").click();
     await phoneA.locator("[data-rename-input]").fill("Tins");
     await phoneA.keyboard.press("Enter");
     await expect.poll(() => folderRows(phoneA), { timeout: 5000 }).toContain("Tins");

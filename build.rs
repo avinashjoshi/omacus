@@ -3,7 +3,8 @@
 
 use std::path::Path;
 
-const FONTS: [&str; 4] = [
+const FONTS: [&str; 5] = [
+    "Inter-Regular.ttf",
     "JetBrainsMono-Regular.ttf",
     "JetBrainsMono-Bold.ttf",
     "NotoSans-Currency.ttf",

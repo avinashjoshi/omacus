@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.19
+
+**Find words in the current page**
+Press Ctrl+F (Command+F on Mac) to highlight matching text and move through it with Enter or Shift+Enter. Ctrl+J still jumps between pages, and the sidebar search filters page names.
+
+**Steadier desktop navigation**
+Local pages stay in place while sync runs. The desktop uses the same Inter typeface and clearer vault choices as the web app.
+
+**A quieter page list, organized by vault**
+
+Switch between your synced pages, pages on this device, or All pages from a compact sidebar. Search follows the selected vault, and Recently deleted keeps each vault’s pages together.
+
 ## 1.0.18
 
 **Keep Recently deleted empty after syncing**

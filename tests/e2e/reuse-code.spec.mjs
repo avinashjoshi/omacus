@@ -152,7 +152,8 @@ test("the same code asks again after a phone stops waiting", async ({ browser, b
     await includeExistingPages(phoneA);
     await expect(phoneA.locator("[data-sync-linked]")).toBeVisible();
     await phoneA.locator("[data-action='close-settings']").last().click();
-    await phoneA.getByRole("button", { name: "New page" }).click();
+    await phoneA.locator("[data-side-create-toggle]").click();
+    await phoneA.locator('[data-create-destination="vault"]').click();
     const saved = phoneA.waitForResponse((res) => res.request().method() === "PUT" && res.url().includes("/v1/mailboxes/") && res.status() === 200);
     await replacePage(phoneA, "Harbor ledger\nferry = 40\n");
     await saved;
