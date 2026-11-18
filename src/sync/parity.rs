@@ -16,7 +16,14 @@ use super::session::{
 fn parity_matrix_runs_end_to_end() {
     let mut covered = Vec::new();
     let (origin, invite_code) = start_relay();
-    let mut a = Session::open(scratch("a"), &origin);
+    let dir = scratch("a");
+    fs::create_dir_all(dir.join("sync")).unwrap();
+    fs::write(
+        dir.join("sync").join("book.json"),
+        r#"{"account":"old","revision":2,"member":true}"#,
+    )
+    .unwrap();
+    let mut a = Session::open(dir, &origin);
 
     a.open_intro();
     let intro = super::session::intro_lines().join(" ");
@@ -102,8 +109,20 @@ fn parity_matrix_runs_end_to_end() {
     covered.push("pages-here");
     a.leave_locked();
     covered.push("locked");
+    // A code can stop working between the initial check and the first upload.
+    a.set_access("not-a-code");
+    a.run_work(super::session::Work::Bring);
+    let create_error = "That invite code didn't work. Check it and try again.";
+    assert_eq!(a.error, create_error);
+    a.poll().unwrap();
+    assert_eq!(a.error, create_error);
+    assert_eq!(a.chip(Instant::now()), Chip::Hidden);
+    assert_eq!(a.screen, Screen::PagesHere);
+
+    a.set_access(&invite_code);
     a.bring().unwrap();
     assert_eq!(a.screen, Screen::Ready);
+    assert!(a.error.is_empty());
     covered.push("ready");
     assert_rule(&a, &words);
     assert!(a.leader_ok());

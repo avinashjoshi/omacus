@@ -321,12 +321,13 @@ pub fn save(settings: &Settings) -> Result<(), String> {
 }
 
 /// The Settings tab. `true` means a choice moved this frame.
-/// `export_everything` is set when that button is pressed.
+/// The backup flags are set when their buttons are pressed.
 pub fn controls(
     ui: &mut egui::Ui,
     settings: &mut Settings,
     theme: &Theme,
     export_everything: &mut bool,
+    restore_backup: &mut bool,
 ) -> bool {
     let before = settings.clone();
     ui.spacing_mut().item_spacing.y = theme::token::SPACE_3;
@@ -436,6 +437,9 @@ pub fn controls(
             .clicked()
         {
             *export_everything = true;
+        }
+        if design::quiet(ui, theme, "Restore backup…").clicked() {
+            *restore_backup = true;
         }
         ui.add_space(theme::token::SPACE_2);
         switch_row(

@@ -60,6 +60,182 @@ pub fn export_library(
     Ok(page_count)
 }
 
+/// A validated desktop export. Keep the bytes reviewed by the user so the
+/// archive can be moved or changed while the confirmation is open.
+pub struct Backup {
+    files: Vec<(String, Vec<u8>)>,
+    pub pages: usize,
+}
+
+impl Backup {
+    pub fn read(path: &Path) -> Result<Self, String> {
+        let file = File::open(path).map_err(|e| e.to_string())?;
+        let length = file.metadata().map_err(|e| e.to_string())?.len();
+        let mut zip = zip::ZipArchive::new(file).map_err(|_| "This isn't an Omacus backup.")?;
+        let mut files = Vec::new();
+        let mut names = std::collections::HashSet::new();
+        let mut total = 0u64;
+        let mut pages = 0;
+        for i in 0..zip.len() {
+            let entry = zip.by_index(i).map_err(|e| e.to_string())?;
+            let name = entry
+                .name()
+                .map_err(|_| "A backup filename couldn't be read.")?
+                .into_owned();
+            let valid = match name.as_str() {
+                "manifest.json" | "library.json" | "state.json" | "settings.toml" => true,
+                _ => name.split_once('/').is_some_and(|(folder, file)| {
+                    matches!(folder, "pages" | "trash")
+                        && file.strip_suffix(".txt").is_some_and(|id| {
+                            safe_name(id)
+                                && !id.contains([':', '*', '?', '"', '<', '>', '|'])
+                                && !id.chars().any(char::is_control)
+                        })
+                }),
+            };
+            let size = entry.size();
+            total = total.saturating_add(size);
+            if !valid
+                || !names.insert(name.to_lowercase())
+                || entry.compression() != zip::CompressionMethod::Stored
+                || total > length
+            {
+                return Err("This ZIP isn't an Omacus desktop backup.".into());
+            }
+            let mut bytes = Vec::new();
+            entry
+                .take(size.saturating_add(1))
+                .read_to_end(&mut bytes)
+                .map_err(|e| e.to_string())?;
+            if bytes.len() as u64 != size {
+                return Err("A backup file is incomplete.".into());
+            }
+            std::str::from_utf8(&bytes).map_err(|_| "A backup file couldn't be read.")?;
+            pages += usize::from(name.starts_with("pages/"));
+            files.push((name, bytes));
+        }
+        let find = |name| {
+            files
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, bytes)| bytes.as_slice())
+        };
+        let manifest: serde_json::Value =
+            serde_json::from_slice(find("manifest.json").ok_or("This isn't an Omacus backup.")?)
+                .map_err(|_| "The backup manifest couldn't be read.")?;
+        if manifest["kind"] != KIND || manifest["format"] != FORMAT || manifest["pages"] != pages {
+            return Err("This backup format isn't supported or the backup is incomplete.".into());
+        }
+        let library = find("library.json").ok_or("The backup is missing the library.")?;
+        if find("state.json").is_some_and(|state| state != library)
+            || !crate::sheets::valid_backup_state(library)
+        {
+            return Err("The backup library couldn't be read.".into());
+        }
+        if let Some(settings) = find("settings.toml") {
+            let settings = std::str::from_utf8(settings).map_err(|e| e.to_string())?;
+            toml::from_str::<toml::Table>(settings)
+                .map_err(|_| "The backup settings couldn't be read.")?;
+        }
+        Ok(Self { files, pages })
+    }
+
+    /// Stage on the same filesystems as the destinations. Move the prior
+    /// entries aside, and put them back if any replacement fails.
+    pub fn restore(&self, root: &Path, settings: Option<&Path>) -> Result<(), String> {
+        use std::fs;
+        fs::create_dir_all(root).map_err(|e| e.to_string())?;
+        let library = tempfile::tempdir_in(root).map_err(|e| e.to_string())?;
+        let staged = library.path().join("new");
+        fs::create_dir_all(staged.join("pages")).map_err(|e| e.to_string())?;
+        fs::create_dir_all(staged.join("trash")).map_err(|e| e.to_string())?;
+        let config = settings
+            .map(|path| {
+                let parent = path.parent().ok_or("No settings folder.")?;
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                tempfile::tempdir_in(parent).map_err(|e| e.to_string())
+            })
+            .transpose()?;
+        for (name, bytes) in &self.files {
+            let dest = match name.as_str() {
+                "manifest.json" | "state.json" => continue,
+                "library.json" => staged.join("state.json"),
+                "settings.toml" => config
+                    .as_ref()
+                    .ok_or("No settings folder.")?
+                    .path()
+                    .join("new"),
+                _ => staged.join(name),
+            };
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(dest)
+                .and_then(|mut file| file.write_all(bytes))
+                .map_err(|e| e.to_string())?;
+        }
+
+        let mut moves = Vec::new();
+        for name in [
+            "pages",
+            "trash",
+            "state.json",
+            "sheets",
+            "sheet.txt",
+            "library.automerge",
+            "sync",
+        ] {
+            moves.push((
+                root.join(name),
+                staged.join(name),
+                library.path().join(name),
+            ));
+        }
+        if let (Some(path), Some(config)) = (settings, &config) {
+            moves.push((
+                path.to_path_buf(),
+                config.path().join("new"),
+                config.path().join("old"),
+            ));
+        }
+        let mut undo = Vec::new();
+        for (dest, new, old) in moves {
+            let result = (|| {
+                match fs::rename(&dest, &old) {
+                    Ok(()) => undo.push((old, dest.clone())),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e),
+                }
+                if new.exists() {
+                    fs::rename(&new, &dest)?;
+                    undo.push((dest, new));
+                }
+                Ok(())
+            })();
+            if let Err(error) = result {
+                let mut rollback_failed = false;
+                for (from, to) in undo.into_iter().rev() {
+                    rollback_failed |= fs::rename(from, to).is_err();
+                }
+                if rollback_failed {
+                    let mut dirs = vec![library.keep()];
+                    dirs.extend(config.map(tempfile::TempDir::keep));
+                    let paths = dirs
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect::<Vec<_>>();
+                    return Err(format!(
+                        "{error}. Previous files are in {}.",
+                        paths.join(" and ")
+                    ));
+                }
+                return Err(error.to_string());
+            }
+        }
+        Ok(())
+    }
+}
+
 fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, String> {
     if !path.is_file() {
         return Ok(None);
@@ -270,5 +446,72 @@ mod tests {
             .unwrap();
         assert!(plain.contains("milk $3"), "{plain}");
         let _ = std::fs::remove_dir_all(root);
+    }
+    #[test]
+    fn restore_replaces_the_desktop_library_and_keeps_locks() {
+        let source = tempfile::tempdir().unwrap();
+        let mut store = Store::open_at(source.path().to_path_buf());
+        let folder = store.create_folder(None).unwrap();
+        store.rename_folder(&folder, "Trips");
+        store.new_sheet_in(Some(&folder), "# Ferry\n2 tickets");
+        let locked = store.sheets[store.active].id.clone();
+        store.lock_page(&locked, "correct horse").unwrap();
+        store.new_sheet("# Pantry\nbeans 4");
+        store.delete(store.active);
+        store.save().unwrap();
+        let config = source.path().join("settings.toml");
+        std::fs::write(&config, "theme = \"paper\"\n").unwrap();
+        let zip = source.path().join("backup.zip");
+        export_library(source.path(), Some(&config), &zip).unwrap();
+
+        let dest = tempfile::tempdir().unwrap();
+        let mut old = Store::open_at(dest.path().to_path_buf());
+        old.new_sheet("# Old page");
+        old.save().unwrap();
+        std::fs::create_dir(dest.path().join("sync")).unwrap();
+        std::fs::write(dest.path().join("sync/device.bin"), b"previous key").unwrap();
+        let settings = dest.path().join("config/settings.toml");
+        let backup = Backup::read(&zip).unwrap();
+        assert_eq!(backup.pages, 1);
+        backup.restore(dest.path(), Some(&settings)).unwrap();
+
+        let restored = Store::open_at(dest.path().to_path_buf());
+        assert_eq!(restored.sheets.len(), 1);
+        assert!(restored.sheets[0].locked());
+        assert_eq!(
+            restored.folder_of(&locked).as_deref(),
+            Some(folder.as_str())
+        );
+        assert_eq!(restored.trashed()[0].title, "Pantry");
+        assert_eq!(
+            std::fs::read(&settings).unwrap(),
+            std::fs::read(config).unwrap()
+        );
+        assert!(!dest.path().join("sync").exists());
+    }
+
+    #[test]
+    fn restore_rejects_paths_and_incomplete_backups() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("backup.zip");
+        let manifest = (
+            "manifest.json".into(),
+            br#"{"kind":"omacus-backup","format":1,"pages":1}"#.to_vec(),
+        );
+        let library = ("library.json".into(), b"{}".to_vec());
+        for name in [
+            "pages/../outside.txt",
+            "pages/trip.txt:other",
+            "trash/pantry.txt",
+        ] {
+            let bytes = zip_stored(&[
+                manifest.clone(),
+                library.clone(),
+                (name.into(), b"page".to_vec()),
+            ])
+            .unwrap();
+            std::fs::write(&path, bytes).unwrap();
+            assert!(Backup::read(&path).is_err(), "accepted {name}");
+        }
     }
 }
