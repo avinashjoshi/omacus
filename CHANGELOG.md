@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.18
+
+**Keep Recently deleted empty after syncing**
+
+When you permanently delete a synced page, it stays out of Recently deleted on your other devices, even if they were offline.
+
+**A tighter layout on the unfolded Duo**
+
+In portrait the app and status controls share one row. In landscape the toolbar uses the space iOS gives it without adding a second gap beside the status strip.
+
 ## 1.0.17
 
 **A better fit for phones and foldables**

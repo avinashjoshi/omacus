@@ -4,7 +4,7 @@
 //! edit of each item. The same revision prefers a page that sits in a folder
 //! over a copy of that page left at the root, then a stable order.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use automerge::transaction::Transactable;
 use automerge::{ROOT, ReadDoc, ScalarValue, Value};
@@ -59,6 +59,7 @@ struct Vault {
     handles: Vec<Handle>,
     trash: Vec<Trashed>,
     prefs: HashMap<String, Pref>,
+    purged_trash: BTreeSet<String>,
     /// When each device last opened these pages, in seconds since 1970. A
     /// device writes its own. A merge keeps the later time.
     seen: HashMap<String, u64>,
@@ -151,6 +152,7 @@ impl Library {
             .retain(|row| row.kind == "folder" || !ids.contains(&row.id));
         vault.handles.retain(|row| !ids.contains(&row.id));
         vault.trash.retain(|row| !ids.contains(&row.id));
+        vault.purged_trash.retain(|id| !ids.contains(id));
         let next = write_vault(&vault);
         if next == current {
             return false;
@@ -235,7 +237,16 @@ pub fn merge_vaults(blobs: &[String]) -> String {
     let mut clock = vaults.iter().map(|vault| vault.clock).max().unwrap_or(0);
     let sidebar = merge_places(vaults.iter().flat_map(|vault| vault.sidebar.iter()));
     let handles = merge_handles(vaults.iter().flat_map(|vault| vault.handles.iter()));
-    let trash = merge_trash(vaults.iter().flat_map(|vault| vault.trash.iter()));
+    let purged_trash: BTreeSet<_> = vaults
+        .iter()
+        .flat_map(|vault| vault.purged_trash.iter().cloned())
+        .collect();
+    let trash = merge_trash(
+        vaults
+            .iter()
+            .flat_map(|vault| vault.trash.iter())
+            .filter(|row| !purged_trash.contains(&row.id)),
+    );
     let mut prefs: HashMap<String, Pref> = HashMap::new();
     for vault in &vaults {
         for (key, pref) in &vault.prefs {
@@ -265,6 +276,7 @@ pub fn merge_vaults(blobs: &[String]) -> String {
         handles,
         trash,
         prefs,
+        purged_trash,
         seen,
     })
 }
@@ -273,9 +285,12 @@ pub fn merge_vaults(blobs: &[String]) -> String {
 /// `None` means nothing moved.
 pub fn note_structural(current: &str, structural: &str) -> Option<String> {
     let vault = parse_vault(current);
-    let incoming = parse_structural(structural);
+    let mut incoming = parse_structural(structural);
     let mut clock = vault.clock;
-    let mut changed = false;
+    let mut purged_trash = vault.purged_trash.clone();
+    purged_trash.append(&mut incoming.purged_trash);
+    let mut changed = purged_trash != vault.purged_trash;
+    incoming.trash.retain(|row| !purged_trash.contains(&row.id));
     let trash_ids: HashSet<String> = incoming.trash.iter().map(|row| row.id.clone()).collect();
     let sidebar_ids: HashSet<String> = incoming.sidebar.iter().map(|row| row.id.clone()).collect();
     // A device that has not seen a folder, a page, or a Recently deleted page
@@ -290,13 +305,14 @@ pub fn note_structural(current: &str, structural: &str) -> Option<String> {
         &mut changed,
     );
     let handles = note_handles(&vault.handles, &incoming.handles, &mut clock, &mut changed);
-    let trash = note_trash(
+    let mut trash = note_trash(
         &vault.trash,
         &incoming.trash,
         &sidebar_ids,
         &mut clock,
         &mut changed,
     );
+    trash.retain(|row| !purged_trash.contains(&row.id));
     let mut prefs = vault.prefs.clone();
     for (key, value) in &incoming.prefs {
         match prefs.get(key) {
@@ -323,6 +339,7 @@ pub fn note_structural(current: &str, structural: &str) -> Option<String> {
         handles,
         trash,
         prefs,
+        purged_trash,
         seen: vault.seen.clone(),
     }))
 }
@@ -386,6 +403,9 @@ pub fn present_vault(stored: &str) -> String {
         .filter(|row| row.kind == "folder" && row.gone)
         .map(|row| row.id.as_str())
         .collect();
+    if !vault.purged_trash.is_empty() {
+        out["purgedTrash"] = json!(vault.purged_trash);
+    }
     if !deleted_folders.is_empty() {
         out["deletedFolders"] = json!(deleted_folders);
     }
@@ -696,6 +716,7 @@ fn parse_vault(text: &str) -> Vault {
         clock: value.get("clock").and_then(Json::as_u64).unwrap_or(0),
         ..Vault::default()
     };
+    vault.purged_trash = read_purged_trash(&value);
     if let Some(rows) = value.get("sidebar").and_then(Json::as_array) {
         for row in rows {
             let Some(id) = row.get("id").and_then(Json::as_str) else {
@@ -822,6 +843,7 @@ struct Structural {
     handles: Vec<Handle>,
     trash: Vec<Trashed>,
     prefs: HashMap<String, Json>,
+    purged_trash: BTreeSet<String>,
 }
 
 fn parse_structural(text: &str) -> Structural {
@@ -831,6 +853,7 @@ fn parse_structural(text: &str) -> Structural {
             handles: Vec::new(),
             trash: Vec::new(),
             prefs: HashMap::new(),
+            purged_trash: BTreeSet::new(),
         };
     };
     let mut structural = Structural {
@@ -838,6 +861,7 @@ fn parse_structural(text: &str) -> Structural {
         handles: Vec::new(),
         trash: Vec::new(),
         prefs: HashMap::new(),
+        purged_trash: read_purged_trash(&value),
     };
     if let Some(rows) = value.get("sidebar").and_then(Json::as_array) {
         for row in rows {
@@ -925,6 +949,18 @@ fn parse_structural(text: &str) -> Structural {
     structural
 }
 
+fn read_purged_trash(value: &Json) -> BTreeSet<String> {
+    value
+        .get("purgedTrash")
+        .and_then(Json::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Json::as_str)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
 fn write_vault(vault: &Vault) -> String {
     let sidebar: Vec<_> = vault
         .sidebar
@@ -986,6 +1022,9 @@ fn write_vault(vault: &Vault) -> String {
         "trash": trash,
         "prefs": Json::Object(prefs),
     });
+    if !vault.purged_trash.is_empty() {
+        out["purgedTrash"] = json!(vault.purged_trash);
+    }
     // Left out while empty, so a library nobody has opened since this was
     // added is written as it always was.
     if !vault.seen.is_empty() {
@@ -997,6 +1036,32 @@ fn write_vault(vault: &Vault) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn permanent_trash_removal_survives_a_stale_device_merge() {
+        let old = note_structural(
+            &empty_vault(),
+            r#"{"trash":[{"id":"oats","text":"Oats 4"},{"id":"bread","text":"Bread 2"}]}"#,
+        )
+        .unwrap();
+        let removal = note_structural(&old, r#"{"purgedTrash":["oats"]}"#).unwrap();
+        for copies in [
+            [removal.clone(), old.clone()],
+            [old.clone(), removal.clone()],
+        ] {
+            let merged = merge_vaults(&copies);
+            let shown: Json = serde_json::from_str(&present_vault(&merged)).unwrap();
+            assert_eq!(shown["purgedTrash"], json!(["oats"]));
+            assert_eq!(
+                shown["trash"],
+                json!([{"id":"bread","text":"Bread 2","handle":""}])
+            );
+            assert!(!merged.contains("Oats 4"));
+            assert!(
+                note_structural(&merged, r#"{"trash":[{"id":"oats","text":"Oats 8"}]}"#).is_none()
+            );
+        }
+    }
 
     fn place(id: &str, kind: &str, name: &str, parent: &str, index: u64, rev: u64) -> Json {
         json!({
