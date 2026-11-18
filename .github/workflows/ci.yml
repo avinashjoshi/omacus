@@ -4,13 +4,17 @@ on:
   push:
     branches: [main]
   pull_request:
-  # The release workflow runs this first, so nothing ships without passing tests.
+  # The release workflow runs this alongside packaging and waits for it before publishing.
   workflow_call:
     inputs:
       ref:
         description: Commit to test. Defaults to the workflow's SHA.
         type: string
         default: ""
+      prepare_web_release:
+        description: Keep the production web bundle for this release run.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -37,11 +41,14 @@ jobs:
         run: python3 site/tools/test_story.py
       - name: Release notes
         if: runner.os == 'Linux'
-        run: python3 tests/check_release_notes.py && python3 tests/check_versions.py && python3 tests/check_release_workflow.py && python3 tests/check_dmg_retry.py && python3 tests/check_update_signature.py && python3 tests/check_site_pages.py && python3 tests/check_sync_health.py && python3 tests/check_security_review.py && python3 tests/check_ci_browser.py
+        run: python3 tests/check_release_notes.py && python3 tests/check_versions.py && python3 tests/check_release_workflow.py && python3 tests/check_update_signature.py && python3 tests/check_site_pages.py && python3 tests/check_sync_health.py && python3 tests/check_security_review.py && python3 tests/check_ci_browser.py
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: macOS packaging checks
+        if: runner.os == 'Linux'
+        run: python3 tests/check_dmg_retry.py
       - name: Linux build dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libwayland-dev libx11-dev
@@ -72,7 +79,7 @@ jobs:
           cargo build --locked
           tests/windows-installer.ps1 target/debug/omacus.exe
       - name: Keep the Windows installer to try
-        if: runner.os == 'Windows' && github.workflow == 'CI' # not when the release runs CI: it publishes every artifact
+        if: runner.os == 'Windows' && github.workflow == 'CI' # keep this installer on regular CI runs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: windows-setup-debug
@@ -86,22 +93,24 @@ jobs:
           if-no-files-found: ignore
       # The .dmg window (layout and background) builds, from a debug app bundle.
       - name: macOS .dmg
-        if: runner.os == 'macOS' && github.workflow == 'CI' # the release builds its own
+        if: runner.os == 'macOS' && github.event_name == 'pull_request' # releases check their own disk images
         timeout-minutes: 40
         run: |
-          cargo install cargo-bundle --version 0.12.0 --locked
           python3 -m pip install --break-system-packages dmgbuild==1.6.5
           tiffutil -cathidpicheck installer/dmg-background.png installer/dmg-background@2x.png -out installer/dmg-background.tiff
-          cargo bundle
-          .github/scripts/dmg-retry.sh 180 dmgbuild -s installer/dmg-settings.py -D app=target/debug/bundle/osx/Omacus.app Omacus omacus-macos-debug.dmg
+          cargo build --locked
+          python3 .github/scripts/bundle-macos.py target/debug/omacus "$RUNNER_TEMP/bundle"
+          .github/scripts/dmg-retry.sh 180 dmgbuild -s installer/dmg-settings.py -D app="$RUNNER_TEMP/bundle/Omacus.app" Omacus omacus-macos-debug.dmg
           .github/scripts/dmg-retry.sh 60 hdiutil attach -quiet -nobrowse -readonly -mountpoint mnt omacus-macos-debug.dmg
           ls -la mnt
           test -x mnt/Omacus.app/Contents/MacOS/omacus
+          test -s mnt/Omacus.app/Contents/Resources/Omacus.icns
+          plutil -lint mnt/Omacus.app/Contents/Info.plist
           test -L mnt/Applications
           test -f mnt/.DS_Store
           .github/scripts/dmg-retry.sh 60 hdiutil detach -quiet mnt
       - name: Keep the .dmg to try
-        if: runner.os == 'macOS' && github.workflow == 'CI' # not when the release runs CI: it publishes every artifact
+        if: runner.os == 'macOS' && github.event_name == 'pull_request' # keep this installer on regular CI runs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: macos-dmg-debug
@@ -147,12 +156,12 @@ jobs:
           node --import ./relay/worker/register-cf.mjs relay/worker/leave.test.mjs
           node --import ./relay/worker/register-cf.mjs relay/worker/routing.test.mjs
           node --import ./relay/worker/register-cf.mjs relay/worker/admin.test.mjs
+      - run: .github/scripts/install-wasm-bindgen.sh
       # Chromium and WebKit are already in the Playwright image that matches
       # @playwright/test. Installing them here with --with-deps apt-gets
       # gstreamer from the Ubuntu mirror, which has held this step for an hour.
       - name: Web app offline
         run: |
-          cargo install wasm-bindgen-cli --version 0.2.129 --locked
           .github/scripts/build-web.sh --into site
           docker run --rm --init --ipc=host \
             -e CI=true \
@@ -164,3 +173,12 @@ jobs:
             mcr.microsoft.com/playwright:v1.65.0-noble@sha256:9beb546099e11f52d62e505537914870e01a67e0e6b00ae41da4775324e73dbe \
             bash -c 'npm ci && npx playwright test'
           sudo chown -R "$(id -u):$(id -g)" node_modules
+      - name: Prepare the web release
+        if: inputs.prepare_web_release
+        run: .github/scripts/build-web.sh --dist dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: inputs.prepare_web_release
+        with:
+          name: web-app
+          path: dist
+          if-no-files-found: error

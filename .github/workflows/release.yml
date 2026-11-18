@@ -72,6 +72,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
           persist-credentials: true
       - id: bump
         run: .github/scripts/prepare-release.sh "${{ inputs.bump }}"
@@ -125,11 +126,12 @@ jobs:
           PR: ${{ needs.prepare.outputs.pr }}
         run: |
           set -euo pipefail
-          for _ in $(seq 1 120); do
-            state="$(gh pr view "$PR" --json state --jq .state)"
+          for _ in $(seq 1 720); do
+            pr="$(gh pr view "$PR" --json state,mergeCommit)"
+            state="$(jq -r .state <<< "$pr")"
             echo "pull request state: $state"
             if [[ "$state" == "MERGED" ]]; then
-              sha="$(gh pr view "$PR" --json mergeCommit --jq .mergeCommit.oid)"
+              sha="$(jq -er .mergeCommit.oid <<< "$pr")"
               echo "sha=$sha" >> "$GITHUB_OUTPUT"
               echo "merged as $sha"
               exit 0
@@ -138,7 +140,7 @@ jobs:
               echo "The release pull request was closed without merging."
               exit 1
             fi
-            sleep 60
+            sleep 10
           done
           echo "Timed out waiting for the release pull request to merge. If it merges later, run this workflow with action build to publish the untagged version."
           exit 1
@@ -153,11 +155,15 @@ jobs:
         (needs.wait.result == 'skipped' && github.event_name == 'workflow_dispatch' && inputs.action == 'build')
       )
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     outputs:
       version: ${{ steps.version.outputs.version }}
       release: ${{ steps.version.outputs.release }}
       web_catchup: ${{ steps.version.outputs.web_catchup }}
       sha: ${{ steps.version.outputs.sha }}
+      artifact_run: ${{ steps.candidate.outputs.artifact_run }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -183,84 +189,33 @@ jobs:
           fi
           echo "release=$release" >> "$GITHUB_OUTPUT"
           echo "web_catchup=$web_catchup" >> "$GITHUB_OUTPUT"
+      - id: candidate
+        if: steps.version.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/find-release-candidate.py
 
-  # always(): on a push, prepare and wait are skipped. Without always(), GitHub
-  # skips every later job too, even after check decides this version is new.
-  ci:
+  build:
     needs: check
     if: >-
       always() &&
       needs.check.result == 'success' &&
+      !needs.check.outputs.artifact_run &&
       (needs.check.outputs.release == 'true' || github.event_name == 'workflow_dispatch')
-    uses: ./.github/workflows/ci.yml
+    uses: ./.github/workflows/release-build.yml
     with:
       ref: ${{ needs.check.outputs.sha }}
+      prepare_web_release: ${{ needs.check.outputs.release == 'true' }}
 
-  linux:
-    needs: [ci, check]
-    if: always() && needs.ci.result == 'success' && needs.check.result == 'success'
-    runs-on: ubuntu-22.04 # older glibc, so the binary runs on more distros
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-          ref: ${{ needs.check.outputs.sha }}
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-      - run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libwayland-dev libx11-dev
-      - run: cargo build --release --locked
-      - name: Package .tar.gz
-        run: |
-          mkdir -p dist/omacus
-          cp target/release/omacus assets/omacus.desktop assets/icon-256.png assets/icon.svg install.sh README.md dist/omacus/
-          tar -C dist -czf omacus-linux-x86_64.tar.gz omacus
-      - name: Package .deb and .rpm
-        run: |
-          cargo install cargo-deb --version 3.8.0 --locked
-          cargo install cargo-generate-rpm --version 0.21.0 --locked
-          cargo deb --no-build --no-strip --output omacus-linux-x86_64.deb
-          cargo generate-rpm --output omacus-linux-x86_64.rpm
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: linux
-          path: |
-            omacus-linux-x86_64.*
-            install.sh
-
-  windows:
-    needs: [ci, check]
-    if: always() && needs.ci.result == 'success' && needs.check.result == 'success'
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-          ref: ${{ needs.check.outputs.sha }}
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-      - run: cargo build --release --locked
-      # Builds the setup .exe and checks it (and the .exe) the way people use them.
-      - name: Installer, checked
-        shell: pwsh
-        run: tests/windows-installer.ps1 target/release/omacus.exe
-      - name: Package .zip and the installer
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory dist | Out-Null
-          Copy-Item target/release/omacus.exe, README.md dist/
-          Compress-Archive -Path dist/* -DestinationPath omacus-windows-x86_64.zip
-          Copy-Item target/installer/omacus-windows-x86_64-setup.exe .
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: windows
-          path: |
-            omacus-windows-x86_64.zip
-            omacus-windows-x86_64-setup.exe
-
-  macos:
-    needs: [ci, check]
-    if: always() && needs.ci.result == 'success' && needs.check.result == 'success'
-    runs-on: macos-latest
+  # An already-tagged release can retry the app without rebuilding the desktop.
+  build-app:
+    needs: check
+    if: >-
+      always() &&
+      needs.check.result == 'success' &&
+      needs.check.outputs.web_catchup == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -268,74 +223,29 @@ jobs:
           ref: ${{ needs.check.outputs.sha }}
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-      - name: Build for Apple Silicon and Intel
-        run: |
-          cargo build --release --locked --target aarch64-apple-darwin
-          cargo build --release --locked --target x86_64-apple-darwin
-      - name: Bundle Omacus.app and a .dmg for each chip
-        # One .dmg per chip rather than a universal one: each download is half the size.
-        # Compiling cargo-bundle has taken about 17 minutes. The disk images
-        # themselves finished in under a minute. Without a limit, a stuck
-        # hdiutil holds the runner until its six-hour cap.
-        timeout-minutes: 40
-        run: |
-          cargo install cargo-bundle --version 0.12.0 --locked
-          python3 -m pip install --break-system-packages dmgbuild==1.6.5
-          tiffutil -cathidpicheck installer/dmg-background.png installer/dmg-background@2x.png -out installer/dmg-background.tiff
-          cargo bundle --release
-          for arch in arm64:aarch64 x86_64:x86_64; do
-            name="${arch%%:*}" target="${arch#*:}-apple-darwin"
-            rm -rf "dmg-$name" && mkdir "dmg-$name"
-            cp -R target/release/bundle/osx/Omacus.app "dmg-$name/"
-            cp "target/$target/release/omacus" "dmg-$name/Omacus.app/Contents/MacOS/omacus"
-            codesign --force --deep --sign - "dmg-$name/Omacus.app"   # ad-hoc; not notarized
-            # A window with the app, Applications and an arrow between (installer/dmg-settings.py).
-            # dmgbuild calls hdiutil. A stuck image is stopped and tried once more.
-            .github/scripts/dmg-retry.sh 180 dmgbuild -s installer/dmg-settings.py -D app="dmg-$name/Omacus.app" Omacus "omacus-macos-$name.dmg"
-          done
-      - name: Check each .dmg holds a working app for its chip
-        # Before anything is published: right architecture, and it runs (Intel via Rosetta).
-        timeout-minutes: 10
-        run: |
-          set -euo pipefail
-          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
-          for name in arm64 x86_64; do
-            mnt="$RUNNER_TEMP/mnt-$name"
-            .github/scripts/dmg-retry.sh 60 hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mnt" "omacus-macos-$name.dmg"
-            bin="$mnt/Omacus.app/Contents/MacOS/omacus"
-            [[ "$(lipo -archs "$bin")" == "$name" ]] || { echo "omacus-macos-$name.dmg holds $(lipo -archs "$bin")"; exit 1; }
-            if [[ "$name" == x86_64 ]] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
-              softwareupdate --install-rosetta --agree-to-license >/dev/null
-            fi
-            out="$(arch "-$name" "$bin" --version)"
-            echo "$name: $out"
-            [[ "$out" == "omacus $version" ]]
-            # omacus:// share links open the app.
-            scheme="$(plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw "$mnt/Omacus.app/Contents/Info.plist")"
-            [[ "$scheme" == omacus ]] || { echo "Info.plist has no omacus:// scheme"; exit 1; }
-            .github/scripts/dmg-retry.sh 60 hdiutil detach -quiet "$mnt"
-          done
+      - run: .github/scripts/install-wasm-bindgen.sh
+      - run: .github/scripts/build-web.sh --dist dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: macos
-          path: omacus-macos-*.dmg
+          name: web-app
+          path: dist
+          if-no-files-found: error
 
   publish:
-    needs: [check, linux, windows, macos]
+    needs: [check, build]
     # The signing key is a secret on the `release` environment, not a plain
     # repo secret. That environment has no required reviewer. Deploys from it
     # are limited to main and v* tags.
     environment: release
     permissions:
       contents: write
+      actions: read
     if: >-
       always() &&
       needs.check.outputs.release == 'true' &&
-      needs.linux.result == 'success' &&
-      needs.windows.result == 'success' &&
-      needs.macos.result == 'success'
+      (needs.build.result == 'success' || (needs.build.result == 'skipped' && needs.check.outputs.artifact_run))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -348,6 +258,9 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: dist
+          pattern: release-*
+          github-token: ${{ needs.check.outputs.artifact_run && github.token || '' }}
+          run-id: ${{ needs.check.outputs.artifact_run || github.run_id }}
           merge-multiple: true
       - name: Checksums and notes
         id: notes
@@ -451,9 +364,12 @@ jobs:
     with:
       ref: ${{ needs.wait.outputs.sha || needs.check.outputs.sha }}
       expect_version: ${{ needs.check.outputs.version }}
+      reuse_web_build: true
+      artifact_run: ${{ needs.check.outputs.artifact_run }}
     permissions:
       contents: read
       pages: write
+      actions: read
       id-token: write
 
   # The web app ships in this same run, as the same version and tag as the
@@ -462,31 +378,38 @@ jobs:
   # If the tag exists and the live app is still older, publish the web app
   # without tagging again. app.yml is only a way to retry this job.
   deploy-app:
-    needs: [publish, check]
+    needs: [publish, check, build-app]
     if: >-
       always() &&
       needs.check.result == 'success' &&
       (
         (needs.publish.result == 'success' && needs.check.outputs.release == 'true') ||
-        needs.check.outputs.web_catchup == 'true'
+        needs.build-app.result == 'success'
       )
     runs-on: ubuntu-latest
     environment: app
     permissions:
       contents: write
+      actions: read
     env:
       GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      EXPECT_VERSION: ${{ needs.check.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
           ref: ${{ needs.check.outputs.sha }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: web-app
+          path: dist
+          github-token: ${{ needs.check.outputs.artifact_run && github.token || '' }}
+          run-id: ${{ needs.check.outputs.artifact_run || github.run_id }}
       - uses: ./.github/actions/deploy-app
         with:
           expect_version: ${{ needs.check.outputs.version }}
+          prebuilt: "true"
 
   # The sync worker is the same commit as the desktop app. A bare deploy from
   # relay/worker publishes omacus-sync. There is no second environment.
@@ -500,4 +423,11 @@ jobs:
         needs.check.outputs.web_catchup == 'true'
       )
     uses: ./.github/workflows/sync.yml
+    with:
+      ref: ${{ needs.check.outputs.sha }}
+      reuse_web_build: ${{ needs.publish.result == 'success' }}
+      artifact_run: ${{ needs.check.outputs.artifact_run }}
+    permissions:
+      contents: read
+      actions: read
     secrets: inherit

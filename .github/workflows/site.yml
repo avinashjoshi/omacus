@@ -26,9 +26,18 @@ on:
       expect_version:
         type: string
         default: ""
+      artifact_run:
+        description: Successful pre-merge build run, if reused.
+        type: string
+        default: ""
+      reuse_web_build:
+        description: Use the release CI web artifact from this run.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -49,10 +58,14 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 0  # for the site's last-modified date, and the story page's history
           fetch-tags: true
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - if: "!inputs.reuse_web_build"
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - if: "!inputs.reuse_web_build"
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - if: "!inputs.reuse_web_build"
+        run: .github/scripts/install-wasm-bindgen.sh
       - name: Assemble
         run: |
           mkdir _site
@@ -63,11 +76,23 @@ jobs:
           # /app stays on this origin only long enough to copy saved pages, then
           # it opens app.omacus.com. The app itself is deployed by the release workflow.
           cp site/bridge/index.html _site/app/index.html
+      - if: inputs.reuse_web_build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: web-app
+          github-token: ${{ inputs.artifact_run && github.token || '' }}
+          run-id: ${{ inputs.artifact_run || github.run_id }}
+          path: ${{ runner.temp }}/web-app
+      - name: Reuse the browser engine for the app bridge
+        if: inputs.reuse_web_build
+        run: |
+          mkdir -p _site/app/pkg
+          cp "$RUNNER_TEMP/web-app/pkg/omacus_web.js" "$RUNNER_TEMP/web-app/pkg/omacus_web_bg.wasm" _site/app/pkg/
       - name: Build the engine for the browser (the /app bridge still ships the modules)
+        if: "!inputs.reuse_web_build"
         # The desktop app's own engine, compiled to WebAssembly. The CLI version must
         # match the wasm-bindgen crate pinned in web/Cargo.toml.
         run: |
-          cargo install wasm-bindgen-cli --version 0.2.129 --locked
           cargo build -p omacus-web --release --locked --target wasm32-unknown-unknown
           wasm-bindgen --target web --no-typescript --out-dir _site/app/pkg \
             target/wasm32-unknown-unknown/release/omacus_web.wasm

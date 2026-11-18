@@ -89,6 +89,15 @@ def main() -> None:
     if 'json.load(open("dist/version.json"))' not in deploy:
         fail("the web deploy does not read version.json as JSON")
 
+    bindgen = (ROOT / ".github/scripts/install-wasm-bindgen.sh").read_text()
+    cli_version = re.search(r"^version=(\d+\.\d+\.\d+)$", bindgen, re.MULTILINE)
+    if not cli_version:
+        fail("the CI wasm-bindgen installer must pin the CLI version")
+    for crate in ("web", "sync-web"):
+        cargo = (ROOT / crate / "Cargo.toml").read_text()
+        if f'wasm-bindgen = "={cli_version.group(1)}"' not in cargo.splitlines():
+            fail(f"{crate} must pin the same wasm-bindgen version as the CI CLI")
+
     for path in (ROOT / "web/src/lib.rs", ROOT / "sync-web/src/lib.rs"):
         source = path.read_text()
         if 'env!("CARGO_PKG_VERSION")' not in source or "fn app_version" not in source:

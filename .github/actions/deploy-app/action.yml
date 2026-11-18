@@ -5,23 +5,33 @@ inputs:
     description: Desktop release version the built shell must match. Empty skips that check.
     required: false
     default: ""
+  prebuilt:
+    description: Use the dist artifact already built in this release run.
+    default: "false"
 runs:
   using: composite
   steps:
     - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      if: inputs.prebuilt != 'true'
       with:
         targets: wasm32-unknown-unknown
     - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      if: inputs.prebuilt != 'true'
+    - name: Install wasm-bindgen
+      if: inputs.prebuilt != 'true'
+      shell: bash
+      run: .github/scripts/install-wasm-bindgen.sh
     - name: Assemble
+      if: inputs.prebuilt != 'true'
+      shell: bash
+      run: .github/scripts/build-web.sh --dist dist
+    - name: Verify web release version
       shell: bash
       env:
         EXPECT_VERSION: ${{ inputs.expect_version }}
       run: |
         set -euo pipefail
-        set +x
-        cargo install wasm-bindgen-cli --version 0.2.129 --locked
-        hash="$(.github/scripts/build-web.sh --dist dist)"
-        echo "web build hash $hash"
+        (cd dist && sha256sum --quiet -c SHA256SUMS.txt)
         version="$(sed -n 's/.*name="omacus-version" content="\([^"]*\)".*/\1/p' dist/index.html | head -1)"
         js="$(sed -n 's/.*APP_VERSION = "\([^"]*\)".*/\1/p' dist/version.js | head -1)"
         sw="$(sed -n 's/.*APP_VERSION = "\([^"]*\)".*/\1/p' dist/sw.js | head -1)"

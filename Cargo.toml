@@ -87,10 +87,10 @@ omacus-relay = { path = "relay" }
 
 [profile.release]
 strip = true
-# Whole-program optimisation: about 1.5 MB smaller than "thin", and just as fast.
-# (opt-level "s" would save 2.5 MB more but makes typing ~40% slower; not worth it.)
-lto = "fat"
-codegen-units = 1
+# Thin LTO and parallel code generation shorten release builds.
+# Fat LTO produced a smaller download in the clean Linux comparison.
+lto = "thin"
+codegen-units = 16
 
 # `cargo deb` -> .deb for Ubuntu/Debian
 [package.metadata.deb]
@@ -106,7 +106,7 @@ assets = [
     ["assets/icon-256.png", "usr/share/icons/hicolor/256x256/apps/omacus.png", "644"],
 ]
 
-# `cargo bundle` -> Omacus.app for macOS
+# Metadata for the macOS Omacus.app bundle
 [package.metadata.bundle]
 name = "Omacus"
 identifier = "dev.omacus.Omacus"
@@ -126,9 +126,6 @@ assets = [
     { source = "assets/icon-256.png", dest = "/usr/share/icons/hicolor/256x256/apps/omacus.png", mode = "644" },
 ]
 
-# `./install.sh` from a source checkout: about as fast, a few MB bigger, and built in
-# a fraction of the time (the release profile's whole-program pass is for downloads).
+# Keep the profile used by source installs.
 [profile.local]
 inherits = "release"
-lto = "thin"
-codegen-units = 16

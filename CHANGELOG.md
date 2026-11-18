@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+**Behind-the-scenes improvements to how updates ship**
+
+New versions spend less time getting ready for download.
+
+<!-- internal -->
+
 ## 1.0.14
 
 **Close desktop Settings with Escape**
