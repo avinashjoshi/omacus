@@ -192,7 +192,8 @@ test("Empty Recently deleted asks first, then clears the list", async ({ page })
 
   await page.locator("[data-deleted] .deleted-empty").tap();
   await yes.tap();
-  await expect(page.locator("[data-deleted]")).toBeHidden();
+  await expect(page.locator("[data-deleted] .deleted-head")).toHaveText("Recently deleted");
+  await expect(page.locator("[data-deleted] .deleted-rows")).toBeHidden();
 
   // The next ordinary delete is not a danger button.
   await deleteFirstPage(page);
@@ -282,7 +283,7 @@ test("with the keyboard up the app stays inside what can be seen", async ({ page
   expect(Math.abs(box.drawer.bottom - (box.height - 300))).toBeLessThanOrEqual(1);
 });
 
-test("the sidebar footer is one row of three under a finger", async ({ page }) => {
+test("the sidebar footer keeps one labeled Settings row under a finger", async ({ page }) => {
   await openApp(page);
   await openDrawer(page);
   const rows = await page.evaluate(() =>
@@ -292,7 +293,7 @@ test("the sidebar footer is one row of three under a finger", async ({ page }) =
         const box = node.getBoundingClientRect();
         return { word: node.textContent.trim(), top: Math.round(box.top), width: box.width, height: box.height };
       }));
-  expect(rows.map((row) => row.word)).toEqual(["Turn on sync", "Settings", "About"]);
+  expect(rows.map((row) => row.word)).toEqual(["Settings"]);
   expect(new Set(rows.map((row) => row.top)).size).toBe(1);
   for (const row of rows) {
     expect(row.height).toBeGreaterThanOrEqual(44);

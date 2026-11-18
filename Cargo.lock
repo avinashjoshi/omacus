@@ -1294,6 +1294,7 @@ dependencies = [
  "bytemuck",
  "ecolor",
  "emath",
+ "epaint_default_fonts",
  "font-types",
  "harfrust",
  "log",
@@ -1308,6 +1309,12 @@ dependencies = [
  "unicode-segmentation",
  "vello_cpu",
 ]
+
+[[package]]
+name = "epaint_default_fonts"
+version = "0.37.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfc1cc505827f4c23eedc297975a0fd038268d41293f389dd8ff3b574aefab19"
 
 [[package]]
 name = "equivalent"
@@ -2802,7 +2809,7 @@ dependencies = [
 
 [[package]]
 name = "omacus"
-version = "1.0.18"
+version = "1.0.19"
 dependencies = [
  "arboard",
  "base64",
@@ -2843,7 +2850,7 @@ dependencies = [
 
 [[package]]
 name = "omacus-doc"
-version = "1.0.18"
+version = "1.0.19"
 dependencies = [
  "automerge",
  "serde_json",
@@ -2852,7 +2859,7 @@ dependencies = [
 
 [[package]]
 name = "omacus-engine"
-version = "1.0.18"
+version = "1.0.19"
 dependencies = [
  "argon2",
  "base64",
@@ -2873,7 +2880,7 @@ dependencies = [
 
 [[package]]
 name = "omacus-relay"
-version = "1.0.18"
+version = "1.0.19"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -2888,7 +2895,7 @@ dependencies = [
 
 [[package]]
 name = "omacus-sync-web"
-version = "1.0.18"
+version = "1.0.19"
 dependencies = [
  "base64",
  "hmac",
@@ -2901,7 +2908,7 @@ dependencies = [
 
 [[package]]
 name = "omacus-web"
-version = "1.0.18"
+version = "1.0.19"
 dependencies = [
  "omacus-doc",
  "omacus-engine",

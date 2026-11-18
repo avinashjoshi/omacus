@@ -8,7 +8,7 @@
   <link rel="canonical" href="https://app.omacus.com/">
   <meta name="theme-color" content="#1a1b26" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-  <meta name="omacus-version" content="1.0.18">
+  <meta name="omacus-version" content="1.0.19">
   <meta name="omacus-build" content="">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Omacus">
@@ -45,6 +45,7 @@
         </button>
         <div class="menu-list" role="menu" hidden data-menu>
           <div data-menu-panel="page">
+            <button role="menuitem" data-action="find-in-page">Find in page</button>
             <button role="menuitem" data-action="rename">Rename</button>
             <button role="menuitem" data-action="share">Share link</button>
             <button role="menuitem" data-menu-open="copy"><span>Copy / Export</span><span class="menu-more" aria-hidden="true">›</span></button>
@@ -75,33 +76,45 @@
         <button class="side-btn" type="button" data-action="new" aria-label="New page" title="New page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button>
         <button class="side-btn" type="button" data-turn-on-sync data-action="turn-on-sync" aria-label="Turn on sync" title="Turn on sync"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 18.5H9a5.5 5.5 0 1 1 5.3-7h1.4a3.6 3.6 0 1 1 0 7Z"/></svg></button>
         <button class="side-btn" type="button" data-device-waiting data-action="device-waiting" hidden aria-label="Device waiting" title="Device waiting"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 18.5H9a5.5 5.5 0 1 1 5.3-7h1.4a3.6 3.6 0 1 1 0 7Z"/></svg></button>
-        <button class="side-btn rail-settings" type="button" data-action="settings" aria-label="Settings" title="Settings (Ctrl+,)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3.2v2.3M12 18.5v2.3M3.2 12h2.3M18.5 12h2.3M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/></svg></button>
+        <button class="side-btn rail-settings" type="button" data-action="settings" aria-label="Settings" title="Settings (Ctrl+,)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 2.2-1.8 1L4.4 6 2.9 8.6l1.5 1.7v2.1l-1.5 1.7 1.5 2.6 2.2-.2 1.8 1L9 20h3l.6-2.5 1.8-1 2.2.2 1.5-2.6-1.5-1.7v-2.1l1.5-1.7L16.6 6l-2.2.2-1.8-1L12 3Z" transform="translate(1.5 .5)"/><circle cx="12" cy="12" r="3"/></svg></button>
         <img src="/img/icon.svg" alt="" width="20" height="20">
       </div>
       <div class="side-body">
-        <div class="side-head"><span>Pages</span><span class="side-head-actions"><button class="side-btn" type="button" aria-label="New folder" title="New folder" data-action="new-folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 8.5h6l2-2.2h9v11.2h-17z"/></svg></button><button class="side-btn" type="button" aria-label="New page" title="New page" data-action="new"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button><button class="side-btn" type="button" aria-label="Collapse sidebar" title="Collapse sidebar" data-action="collapse-side"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/></svg></button></span></div>
+        <div class="side-head">
+          <button class="vault-switch" type="button" data-vault-switch aria-expanded="false" aria-controls="vault-menu"><span data-vault-label>On this device</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg></button>
+          <span class="side-head-actions">
+            <button class="side-btn" type="button" data-action="collapse-side" aria-label="Collapse sidebar" title="Collapse sidebar (Ctrl+B)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/></svg></button>
+          </span>
+          <div class="vault-menu" id="vault-menu" data-vault-menu hidden>
+            <div data-vault-choices></div>
+            <hr>
+            <button type="button" data-turn-on-sync data-action="turn-on-sync"><span>Turn on sync</span></button>
+          </div>
+        </div>
+        <div class="side-search-tools">
+        <div class="side-search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg>
+        <input class="side-search" id="side-search" data-side-search type="search" placeholder="Find a page…" aria-label="Find a page in this vault">
+        </div>
+            <button class="side-btn" type="button" data-side-create-toggle aria-label="Create a page or folder" aria-expanded="false" aria-controls="side-create"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          <div class="vault-menu" id="side-create" data-side-create hidden>
+            <button type="button" data-action="new">New page</button>
+            <button type="button" data-action="new-folder">New folder</button>
+          </div>
+        </div>
         <nav class="sheet-list" data-sheets aria-label="Pages"></nav>
         <div class="deleted" hidden data-deleted></div>
         <div class="side-tools">
-          <button class="side-foot-row" type="button" data-turn-on-sync data-action="turn-on-sync">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 18.5H9a5.5 5.5 0 1 1 5.3-7h1.4a3.6 3.6 0 1 1 0 7Z"/></svg>
-            <span>Turn on sync</span>
-          </button>
           <button class="side-foot-row" type="button" data-device-waiting data-action="device-waiting" hidden>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 18.5H9a5.5 5.5 0 1 1 5.3-7h1.4a3.6 3.6 0 1 1 0 7Z"/></svg>
             <span>Device waiting</span>
           </button>
-          <button class="side-foot-row" type="button" data-action="settings">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3.2v2.3M12 18.5v2.3M3.2 12h2.3M18.5 12h2.3M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/></svg>
+          <button class="side-foot-row" type="button" data-action="settings" title="Settings (Ctrl+,)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 2.2-1.8 1L4.4 6 2.9 8.6l1.5 1.7v2.1l-1.5 1.7 1.5 2.6 2.2-.2 1.8 1L9 20h3l.6-2.5 1.8-1 2.2.2 1.5-2.6-1.5-1.7v-2.1l1.5-1.7L16.6 6l-2.2.2-1.8-1L12 3Z" transform="translate(1.5 .5)"/><circle cx="12" cy="12" r="3"/></svg>
             <span>Settings</span>
-          </button>
-          <button class="side-foot-row" type="button" data-action="about">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.6v.2"/></svg>
-            <span>About</span>
           </button>
         </div>
         <div class="side-foot">
-          <a class="side-version" data-app-version href="https://omacus.com/updates/">omacus v1.0.18</a>
+          <a class="side-version" data-app-version href="https://omacus.com/updates/">omacus v1.0.19</a>
         </div>
       </div>
       <div class="side-resize" data-resize role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
@@ -150,6 +163,13 @@
         <div class="page-preview-body" data-page-preview-body></div>
       </div>
       <div class="editor" data-editor>
+        <div class="page-find" data-page-find hidden role="search" aria-label="Find in page">
+          <input type="search" data-page-find-input aria-label="Find in page" placeholder="Find in page…" autocomplete="off" spellcheck="false">
+          <span data-page-find-count role="status" aria-live="polite"></span>
+          <button type="button" data-find-step="previous" aria-label="Previous match" title="Previous match (Shift+Enter)">↑</button>
+          <button type="button" data-find-step="next" aria-label="Next match" title="Next match (Enter)">↓</button>
+          <button type="button" data-find-close aria-label="Close find" title="Close find (Esc)">×</button>
+        </div>
         <p class="empty-hint" hidden data-empty>Pages are in the sidebar. Open it from the pages button, then pick one or start a new page.</p>
         <div class="cm-host" data-text></div>
       </div>

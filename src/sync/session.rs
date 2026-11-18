@@ -583,6 +583,10 @@ impl Session {
         shell.pending_id = self.pending_id.clone();
         shell.pending_name = self.pending_name.clone();
         shell.vault_name = self.vault_name.clone();
+        // Navigation must keep the same vault assignment while the worker owns
+        // the live session, including pages held locally by a lock.
+        shell.membership = self.membership.clone();
+        shell.locked = self.locked.clone();
         shell.self_name = self.self_name.clone();
         shell.notice = self.notice.clone();
         shell.key_note = self.key_note.clone();
@@ -2160,7 +2164,8 @@ impl Session {
         } else {
             self.pages.push((id.to_string(), text.to_string()));
             if self.on {
-                self.set_member_flag(id, !self.locked.contains(&id.to_string()));
+                let inside = self.meta_in_vault(id) && !self.locked.contains(&id.to_string());
+                self.set_member_flag(id, inside);
             }
         }
         if let Ok(mut lib) = omacus_doc::Library::load(&self.doc)
@@ -2217,7 +2222,7 @@ impl Session {
             lib.remove_page(id);
             self.doc = lib.save();
         }
-        self.membership.retain(|member| member.id != id);
+        // Deleted pages keep their vault so restoring a local page stays local.
         self.note_tombstone(id);
         let _ = fs::remove_file(self.dir.join("pages").join(format!("{id}.txt")));
         if self.on {
@@ -2246,8 +2251,9 @@ impl Session {
 
     pub fn restore_page(&mut self, id: &str, text: &str) {
         self.tombstones.retain(|tomb| tomb.id != id);
+        let inside = self.meta_in_vault(id);
         self.note_edit(id, text);
-        self.set_member_flag(id, true);
+        self.set_member_flag(id, inside);
         self.dirty = true;
         self.mark("trash");
     }
@@ -4983,6 +4989,26 @@ mod list_note_tests {
     }
 
     #[test]
+    fn background_sync_preserves_navigation_membership() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut session = Session::blank(dir.path().to_path_buf(), "http://127.0.0.1:9");
+        session.on = true;
+        session.vault_name = "Personal".into();
+        session.set_in_set("trip", true);
+        session.set_in_set("scratch", false);
+        session.set_in_set("locked", true);
+        session.locked.push("locked".into());
+        for work in [Work::Poll, Work::SyncNow] {
+            let shell = session.display_shell(&work);
+            assert_eq!(shell.grouped(), session.grouped());
+            assert_eq!(shell.vault_name(), session.vault_name());
+            for id in ["trip", "scratch", "locked"] {
+                assert_eq!(shell.in_set(id), session.in_set(id), "{id}");
+            }
+        }
+    }
+
+    #[test]
     fn the_invite_code_stays_on_screen_while_a_poll_runs() {
         let dir = std::env::temp_dir().join(format!("omacus-invite-shell-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -5442,6 +5468,30 @@ mod park_tests {
         assert_eq!(session.page_text("kept"), Some("Kept\n1\n"));
         assert!(!dir.join("trash").join("pantry.txt").exists());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_new_local_page_keeps_its_destination_when_first_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut session = Session::blank(dir.path().to_path_buf(), "http://127.0.0.1:9");
+        session.on = true;
+        session.set_in_set("scratch", false);
+        session.note_edit("scratch", "Scratch\n80 * 3\n");
+        assert!(!session.in_set("scratch"));
+    }
+
+    #[test]
+    fn local_trash_keeps_its_vault_when_restored() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut session = Session::blank(dir.path().to_path_buf(), "http://127.0.0.1:9");
+        session.on = true;
+        session.note_edit("scratch", "Scratch\n80 * 3\n");
+        session.set_in_set("scratch", false);
+        session.delete_page("scratch");
+        assert!(!session.in_set("scratch"));
+        session.restore_page("scratch", "Scratch\n80 * 3\n");
+        assert!(!session.in_set("scratch"));
+        assert_eq!(session.page_text("scratch"), Some("Scratch\n80 * 3\n"));
     }
 
     #[test]

@@ -296,7 +296,8 @@ test("desktop and web keep each other's lines while both type", async ({ browser
       const shown = (await driver.send("sync")).detail.present.sidebar;
       return shown.find((row) => row.type === "folder" && row.name === name) || null;
     };
-    await page.locator(".side-head [data-action='new-folder']").click();
+    await page.locator("[data-side-create-toggle]").click();
+    await page.locator(".side-search-tools [data-action='new-folder']").click();
     await page.locator("[data-rename-input]").fill("Tins");
     await page.keyboard.press("Enter");
     await expect.poll(async () => (await sideState(page)).rows, { timeout: 5000 }).toContain("Tins");

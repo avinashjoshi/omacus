@@ -6,7 +6,7 @@
 // Taking over deletes older omacus-app caches only. Pages stay in the browser's
 // own store. This file never opens that store.
 
-const APP_VERSION = "1.0.18";
+const APP_VERSION = "1.0.19";
 const CACHE = `omacus-app-${APP_VERSION}`;
 
 const APP_FILES = [

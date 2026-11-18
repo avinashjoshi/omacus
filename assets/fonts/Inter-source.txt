@@ -1,0 +1,1 @@
+Inter-Regular.ttf is a static weight-400 instance of the existing site/fonts/inter-latin.woff2 asset, decoded with fontTools. Other axes use their default values. Inter is used for desktop UI text; the existing font chain supplies fallback glyphs. See Inter-OFL.txt for its license.

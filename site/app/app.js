@@ -1091,6 +1091,122 @@ let sidePick = new Set();
 let sideAnchor = "";
 let pendingMove = null;
 
+// A view over the existing synced/local membership; switching never moves a page.
+let sideScope = ["all", "vault", "local"].includes(store.get("side-scope")) ? store.get("side-scope") : "all";
+const sideSearch = document.querySelector("[data-side-search]");
+const vaultSwitch = document.querySelector("[data-vault-switch]");
+const vaultMenu = document.querySelector("[data-vault-menu]");
+const createMenu = document.querySelector("[data-side-create]");
+const createToggle = document.querySelector("[data-side-create-toggle]");
+
+function closeSideMenus(focus = false) {
+  const trigger = !vaultMenu.hidden ? vaultSwitch : !createMenu.hidden ? createToggle : null;
+  vaultMenu.hidden = createMenu.hidden = true;
+  vaultSwitch.setAttribute("aria-expanded", "false");
+  createToggle.setAttribute("aria-expanded", "false");
+  if (focus) trigger?.focus();
+}
+function chooseSideScope(scope) {
+  sideScope = scope;
+  store.set("side-scope", scope);
+  sidePick.clear();
+  sideAnchor = "";
+  sideSearch.value = "";
+  closeSideMenus(true);
+  renderSidebar();
+}
+function renderCreateChoices() {
+  createMenu.replaceChildren();
+  const destinations = syncPlaces && sideScope === "all"
+    ? [["vault", "New page in " + (syncPlaces.vaultName || "My pages")], ["local", "New page on this device"]]
+    : [[sideScope, "New page"]];
+  for (const [scope, label] of destinations) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.dataset.createDestination = scope;
+    button.addEventListener("click", () => {
+      if (syncPlaces) chooseSideScope(scope);
+      action("new");
+    });
+    createMenu.append(button);
+  }
+  if (!syncPlaces || sideScope !== "local") {
+    const folder = document.createElement("button");
+    folder.type = "button";
+    folder.dataset.action = "new-folder";
+    folder.textContent = syncPlaces && sideScope === "all" ? "New folder in " + (syncPlaces.vaultName || "My pages") : "New folder";
+    createMenu.append(folder);
+  }
+}
+function renderVaultChoices() {
+  const name = syncPlaces?.vaultName || "My pages";
+  const choices = syncPlaces
+    ? [["all", "All pages", "Across your vaults"], ["vault", name, "Synced across devices"], ["local", "On this device", "Local only"]]
+    : [["local", "On this device", "Local only"]];
+  const active = syncPlaces ? sideScope : "local";
+  document.querySelector("[data-vault-label]").textContent = choices.find(([id]) => id === active)[1];
+  sideSearch.placeholder = active === "all" ? "Find across vaults…" : "Find a page…";
+  const rows = choices.map(([id, label, detail]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.vaultScope = id;
+    button.setAttribute("aria-pressed", String(active === id));
+    const text = document.createElement("span");
+    text.textContent = label;
+    const sub = document.createElement("small");
+    sub.textContent = detail;
+    text.append(sub);
+    button.append(text);
+    if (active === id) {
+      const check = svgEl("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" });
+      check.append(svgEl("path", { d: "m5 12 4 4L19 6" }));
+      button.append(check);
+    }
+    button.addEventListener("click", () => chooseSideScope(id));
+    return button;
+  });
+  document.querySelector("[data-vault-choices]").replaceChildren(...rows);
+}
+vaultSwitch.addEventListener("click", () => {
+  const open = vaultMenu.hidden;
+  closeSideMenus();
+  vaultMenu.hidden = !open;
+  vaultSwitch.setAttribute("aria-expanded", String(open));
+  if (open) vaultMenu.querySelector("button")?.focus();
+});
+createToggle.addEventListener("click", () => {
+  const open = createMenu.hidden;
+  closeSideMenus();
+  createMenu.hidden = !open;
+  createToggle.setAttribute("aria-expanded", String(open));
+  if (open) { renderCreateChoices(); createMenu.querySelector("button")?.focus(); }
+});
+sideSearch.addEventListener("input", renderSidebar);
+sideSearch.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  event.preventDefault();
+  event.stopPropagation();
+  sideSearch.value = "";
+  vaultSwitch.focus();
+  renderSidebar();
+});
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".side-head, .side-search-tools")) closeSideMenus();
+});
+for (const menu of [vaultMenu, createMenu]) menu.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeSideMenus(true); }
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  const buttons = [...menu.querySelectorAll("button")].filter(b => b.getClientRects().length);
+  const index = buttons.indexOf(document.activeElement);
+  const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+  event.preventDefault();
+  buttons[next]?.focus();
+});
+function scopedTrash() {
+  return loadTrash().filter(item => !syncPlaces || sideScope === "all" || syncSectionOf(item.id) === sideScope);
+}
+
 function setSyncPlaces(places) {
   syncPlaces = places || null;
   if (!syncPlaces) sidePick.clear();
@@ -1124,7 +1240,7 @@ if (document.documentElement.dataset.syncTest === "1") {
     for (const key of storeKeys()) {
       if (key.startsWith("page:") || key.startsWith("sheet:") || key === "library-doc") store.remove(key);
     }
-    saveTrash([]);
+    saveTrash(loadTrash().filter(item => !gone.includes(item.id)));
     saveIndex();
     renderSidebar();
   };
@@ -1610,7 +1726,7 @@ function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
-function addSheet(text, { select = true, parent } = {}) {
+function addSheet(text, { select = true, parent, destination } = {}) {
   let folder = parent;
   if (parent === undefined) {
     folder = state.active && state.active !== "shared" ? folderOf(state.tree, state.active) : null;
@@ -1633,6 +1749,7 @@ function addSheet(text, { select = true, parent } = {}) {
     stored = sealed;
     plains.set(id, text);
   }
+  if (syncPlaces && destination) syncPlaces.move([id], destination === "vault");
   state.texts.set(id, stored);
   if (!insertNode(state.tree, folder, 0, { type: "page", id })) state.tree.unshift({ type: "page", id });
   syncOrder();
@@ -2067,6 +2184,7 @@ function showSheet() {
   let es = editorStates.get(state.active);
   if (!es || es.doc.toString() !== text) es = EditorState.create({ doc: text, extensions: editorExtensions });
   view.setState(es);
+  view.dispatch({ effects: pageFindEffect.of({ query: pageFindBar.hidden ? "" : pageFindInput.value, index: 0 }) });
   switchingPage = false;
   syncRenameButton();
   el.shared.hidden = EMBED || state.active !== "shared";
@@ -2106,10 +2224,16 @@ addEventListener("pagehide", () => {
 
 
 function renderSidebar() {
+  renderVaultChoices();
   const rows = [];
+  const query = sideSearch.value.trim().toLocaleLowerCase();
+  // Search a copy with folders expanded, leaving the saved folder state alone.
+  const expanded = nodes => nodes.map(node => node.type === "folder"
+    ? { ...node, collapsed: false, children: expanded(node.children || []) } : node);
+  const tree = query ? expanded(state.tree) : state.tree;
   if (state.shared) rows.push(pageRow("shared", state.shared.text, true, 0));
   if (!syncPlaces) {
-    for (const entry of visible(state.tree)) {
+    for (const entry of visible(tree)) {
       rows.push(entry.type === "folder" ? folderRow(entry) : pageRow(entry.id, shownPlain(entry.id), false, entry.depth));
     }
   } else {
@@ -2123,20 +2247,35 @@ function renderSidebar() {
       (local.has(id) ? hereIds : vaultIds).push(id);
     }
     if (sidePick.size) rows.push(sidePickNote());
-    rows.push(sideCaption(syncPlaces.vaultName || "My pages", "vault", vaultIds.length));
-    if (!sideCollapsed.vault) {
-      for (const entry of visible(syncedTree(state.tree, local))) {
+    if (sideScope === "all") rows.push(sideCaption(syncPlaces.vaultName || "My pages", "vault", vaultIds.length));
+    if (sideScope !== "local" && (query || sideScope !== "all" || !sideCollapsed.vault)) {
+      for (const entry of visible(syncedTree(tree, local))) {
         rows.push(entry.type === "folder" ? folderRow(entry) : pageRow(entry.id, shownPlain(entry.id), false, entry.depth, "synced"));
       }
     }
-    rows.push(sideCaption(syncPlaces.here || "On this computer", "local", hereIds.length));
-    if (!sideCollapsed.local) {
+    if (sideScope === "all") rows.push(sideCaption("On this device", "local", hereIds.length));
+    if (sideScope !== "vault" && (query || sideScope !== "all" || !sideCollapsed.local)) {
       for (const id of hereIds) rows.push(pageRow(id, shownPlain(id), false, 0, "local"));
     }
   }
   const fill = document.createElement("div");
   fill.className = "side-fill";
-  el.sheets.replaceChildren(...rows, fill);
+  const matching = query ? rows.filter(row => row.classList.contains("side-row") && row.querySelector(".side-name")?.textContent.toLocaleLowerCase().includes(query)) : rows;
+  if (query && syncPlaces && sideScope === "all") {
+    for (const row of matching) {
+      const label = document.createElement("small");
+      label.className = "side-vault-badge";
+      label.textContent = syncSectionOf(row.dataset.id) === "local" ? "On this device" : (syncPlaces.vaultName || "My pages");
+      row.append(label);
+    }
+  }
+  if (!matching.length) {
+    const hint = document.createElement("p");
+    hint.className = "side-sync-hint";
+    hint.textContent = query ? "No matching pages." : "No pages in this vault.";
+    matching.push(hint);
+  }
+  el.sheets.replaceChildren(...matching, fill);
   paintDrop();
   if (!preview) {
     const name = state.active === "shared" ? title(state.shared?.text ?? "") : pageConcealed(state.active) ? LOCKED_PAGE : title(shownPlain(state.active));
@@ -2330,10 +2469,9 @@ const TRASH_OPEN = "trash-open";
 
 function renderDeleted() {
   if (!el.deleted) return;
-  const items = loadTrash();
-  el.deleted.hidden = items.length === 0;
+  const items = scopedTrash();
+  el.deleted.hidden = false;
   el.deleted.replaceChildren();
-  if (!items.length) return;
   const open = store.get(TRASH_OPEN) === "1" || items.some((item) => preview?.id === item.id);
   const head = document.createElement("button");
   head.type = "button";
@@ -2344,7 +2482,7 @@ function renderDeleted() {
   mark.className = "chevron";
   mark.append(chevronIcon());
   const label = document.createElement("span");
-  label.textContent = `Recently deleted · ${items.length}`;
+  label.textContent = items.length ? `Recently deleted · ${items.length}` : "Recently deleted";
   head.append(mark, label);
   head.addEventListener("click", () => {
     store.set(TRASH_OPEN, open ? "0" : "1");
@@ -2360,7 +2498,13 @@ function renderDeleted() {
   empty.className = "deleted-empty";
   empty.textContent = "Empty Recently deleted…";
   empty.addEventListener("click", askEmptyTrash);
-  rows.append(empty);
+  if (items.length) rows.append(empty);
+  else {
+    const hint = document.createElement("p");
+    hint.className = "side-sync-hint";
+    hint.textContent = "No deleted pages in this vault.";
+    rows.append(hint);
+  }
   for (const item of items) {
     const b = document.createElement("button");
     b.type = "button";
@@ -3246,7 +3390,78 @@ const editorKeys = [
 let committingTyped = false;
 let switchingPage = false;
 
+const pageFindEffect = StateEffect.define();
+function pageMatches(doc, query) {
+  if (!query) return [];
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return Array.from(doc.matchAll(new RegExp(escaped, "giu")), m => ({ from: m.index, to: m.index + m[0].length }));
+}
+function pageFindState(doc, query, index = 0) {
+  const matches = pageMatches(doc.toString(), query);
+  index = Math.min(index, Math.max(0, matches.length - 1));
+  const deco = Decoration.set(matches.map((m, i) => Decoration.mark({ class: i === index ? "page-match page-match-current" : "page-match" }).range(m.from, m.to)));
+  return { query, index, matches, deco };
+}
+const pageFindField = StateField.define({
+  create(state) { return pageFindState(state.doc, ""); },
+  update(value, tr) {
+    const effect = tr.effects.find(e => e.is(pageFindEffect));
+    if (effect) return pageFindState(tr.state.doc, effect.value.query, effect.value.index);
+    return tr.docChanged ? pageFindState(tr.state.doc, value.query, value.index) : value;
+  },
+  provide: field => EditorView.decorations.from(field, value => value.deco),
+});
+const pageFindBar = document.querySelector('[data-page-find]');
+const pageFindInput = document.querySelector('[data-page-find-input]');
+function paintPageFind(state) {
+  const result = state.field(pageFindField);
+  const count = result.matches.length;
+  document.querySelector('[data-page-find-count]').textContent = !result.query ? "" : count ? `${result.index + 1} / ${count}` : "No matches";
+  for (const button of pageFindBar.querySelectorAll('[data-find-step]')) button.disabled = !count;
+}
+function revealPageMatch() {
+  const result = view.state.field(pageFindField);
+  const match = result.matches[result.index];
+  if (match) view.dispatch({ effects: EditorView.scrollIntoView(match.from, { y: "center" }) });
+}
+function openPageFind() {
+  if (el.gate && !el.gate.hidden) return;
+  if (preview) return;
+  closePagePreview();
+  closeSideMenus();
+  setDrawer(false);
+  pageFindBar.hidden = false;
+  view.dispatch({ effects: pageFindEffect.of({ query: pageFindInput.value, index: 0 }) });
+  pageFindInput.focus();
+  pageFindInput.select();
+  revealPageMatch();
+}
+function closePageFind() {
+  pageFindBar.hidden = true;
+  view.dispatch({ effects: pageFindEffect.of({ query: "", index: 0 }) });
+  view.focus();
+}
+function stepPageFind(backwards) {
+  const result = view.state.field(pageFindField);
+  if (!result.matches.length) return;
+  const index = (result.index + (backwards ? -1 : 1) + result.matches.length) % result.matches.length;
+  view.dispatch({ effects: pageFindEffect.of({ query: result.query, index }) });
+  revealPageMatch();
+}
+pageFindInput.addEventListener('input', () => {
+  view.dispatch({ effects: pageFindEffect.of({ query: pageFindInput.value, index: 0 }) });
+  revealPageMatch();
+});
+pageFindInput.addEventListener('keydown', event => {
+  if (event.key === 'Enter') {
+    event.preventDefault(); event.stopPropagation(); stepPageFind(event.shiftKey);
+  }
+});
+pageFindBar.querySelector('[data-find-close]').addEventListener('click', closePageFind);
+for (const button of pageFindBar.querySelectorAll('[data-find-step]')) button.addEventListener('click', () => stepPageFind(button.dataset.findStep === 'previous'));
+
 const editorExtensions = [
+  pageFindField,
   undoHistory(),
   Prec.highest(keymap.of(editorKeys)),
   keymap.of([...defaultKeymap, ...historyKeymap]),
@@ -3276,6 +3491,7 @@ const editorExtensions = [
     },
   }),
   EditorView.updateListener.of((update) => {
+    paintPageFind(update.state);
     // A doc change has to recalculate even when the completion check throws.
     // completionStatus wants the state; passing the view throws, which used to
     // skip this and leave the new line blank and the lines below it dimmed.
@@ -3764,10 +3980,13 @@ async function loadRates() {
 // Menu actions.
 
 async function action(name) {
+  closeSideMenus();
   closeMenu();
   closeRowMenu();
   const text = editingText();
-  if (name === "rename") {
+  if (name === "find-in-page") {
+    openPageFind();
+  } else if (name === "rename") {
     if (refuseConcealed()) return;
     renameAtCaret();
   } else if (name === "handle") {
@@ -3792,7 +4011,14 @@ async function action(name) {
     printPagePreview();
   } else if (name === "new") {
     flushSave();
-    if (addSheet("")) {
+    if (syncPlaces && sideScope === "all") {
+      renderCreateChoices();
+      createMenu.hidden = false;
+      createToggle.setAttribute("aria-expanded", "true");
+      createMenu.querySelector("button")?.focus();
+      return;
+    }
+    if (addSheet("", syncPlaces ? { parent: null, destination: sideScope } : {})) {
       showSheet();
       view.focus();
       // The phone drawer was covering the blank page, and the empty hint stays
@@ -3817,6 +4043,10 @@ async function action(name) {
   } else if (name === "gate-unlock") {
     submitGate();
   } else if (name === "new-folder") {
+    if (syncPlaces && sideScope !== "vault") {
+      chooseSideScope("vault");
+      toast("Folders are created in " + (syncPlaces.vaultName || "My pages") + ".");
+    }
     addFolder(null);
   } else if (name === "move-folder") {
     if (state.active && state.active !== "shared" && pageIds(state.tree).includes(state.active)) openMoveTo([state.active]);
@@ -3934,7 +4164,7 @@ function confirmButton(label, forever) {
 }
 
 function askEmptyTrash() {
-  const count = loadTrash().length;
+  const count = scopedTrash().length;
   if (!count || !el.confirm) return;
   el.confirmText.textContent = (count === 1
     ? "Delete the 1 page in Recently deleted forever? This can't be undone."
@@ -3943,6 +4173,7 @@ function askEmptyTrash() {
   confirmButton("Delete forever", true);
   el.confirm.dataset.mode = "empty";
   el.confirm.dataset.id = "all";
+  el.confirm.dataset.trashIds = JSON.stringify(scopedTrash().map(item => item.id));
 }
 
 function commitDelete() {
@@ -3950,10 +4181,10 @@ function commitDelete() {
   if (!id) return;
   if (el.confirm.dataset.mode === "empty") {
     el.confirm.hidden = true;
-    const gone = loadTrash().map((item) => item.id);
+    const gone = JSON.parse(el.confirm.dataset.trashIds || "[]");
     for (const id of gone) state.handles.delete(id);
     notePurged(gone);
-    saveTrash([]);
+    saveTrash(loadTrash().filter(item => !gone.includes(item.id)));
     saveIndex();
     store.set(TRASH_OPEN, "0");
     if (preview) clearPreview();
@@ -4949,6 +5180,9 @@ function inNameField(target) {
 addEventListener(
   "keydown",
   (e) => {
+    if (e.key === "Escape" && !pageFindBar.hidden && (pageFindBar.contains(e.target) || view.hasFocus)) {
+      e.preventDefault(); e.stopPropagation(); closePageFind(); return;
+    }
     // A folder name, a variable rename, or a handle is a normal text field.
     if (inNameField(e.target)) return;
     if (el.menu && !el.menu.hidden) {
@@ -4975,6 +5209,12 @@ addEventListener(
         focusMenuItem(0);
         return;
       }
+    }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      e.stopPropagation();
+      openPageFind();
+      return;
     }
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "b") {
       e.preventDefault();

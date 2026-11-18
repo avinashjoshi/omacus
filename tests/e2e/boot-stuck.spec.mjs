@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 const site = join(fileURLToPath(new URL("../../site/", import.meta.url)));
 const headers = readFileSync(join(site, "app/_headers"), "utf8");
 const csp = headers.match(/Content-Security-Policy:\s*(.+)/)[1].trim();
-const shots = "/opt/cursor/artifacts/screenshots";
+const shots = process.env.OMACUS_ART || "/opt/cursor/artifacts/screenshots";
 const PAGE_ID = "ferry";
 const PAGE_TEXT = "# Trip Budget\nferry = 40\nmilk $3\n";
 const PORT = 4183;

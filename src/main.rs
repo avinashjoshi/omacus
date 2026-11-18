@@ -12,6 +12,7 @@ mod library;
 mod links;
 mod lock;
 mod mcp;
+mod page_find;
 mod pdf;
 mod preview;
 mod rates;

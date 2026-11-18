@@ -272,7 +272,7 @@ check(/\.cm-tooltip\.cm-tooltip-hover \{[^}]*max-width:\s*none/.test(css), "the 
 check(html.includes("rail-settings"), "the collapsed rail has a settings gear");
 check(html.includes('class="side-tools"'), "the open sidebar has a settings gear");
 check(html.includes('data-settings-tab="about"'), "settings and about share one window");
-check(html.includes('data-action="about"'), "About opens from the sidebar");
+check(html.includes('data-settings-tab="about"'), "About opens from Settings");
 check(html.includes("Copy / Export"), "copy and export share one page-menu item");
 check(!html.includes("Export all pages (.zip)"), "export all is not in the page menu");
 check(!html.includes("Export all pages"), "the old export label is gone");
@@ -300,7 +300,7 @@ check(/\.row-menu \{[^}]*inset: auto/.test(css), "the top layer does not stretch
 check(css.includes(".row-menu:popover-open"), "an open row menu stays a menu in the top layer");
 check(/\.app-page\.drawer \.cm-content \{[^}]*user-select: none/.test(css), "an open drawer does not select page text");
 check(css.includes(".app-page.drawer-swallow .cm-editor"), "a closing tap cannot fall through to the editor");
-check(/name === "new"[\s\S]{0,240}setDrawer\(false\)/.test(js), "a new page closes the phone drawer");
+check(js.slice(js.indexOf('name === "new"'), js.indexOf('name === "lock"')).includes("setDrawer(false)"), "a new page closes the phone drawer");
 check(html.includes('<meta name="theme-color" content="#1a1b26" media="(prefers-color-scheme: dark)">'), "dark theme-color matches the page");
 check(html.includes('<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">'), "light theme-color matches the page");
 check(html.includes('apple-mobile-web-app-status-bar-style" content="black-translucent"'), "the Home Screen page draws under the status bar");
@@ -602,7 +602,7 @@ const mobile = await evalJson(`(() => {
   document.body.style.setProperty("--safe-bottom", "34px");
   document.body.classList.add("drawer");
   const side = document.querySelector(".side");
-  const foot = document.querySelector(".side-foot");
+  const foot = document.querySelector(".side-tools");
   const scrim = document.querySelector("[data-scrim]");
   const editor = document.querySelector("[data-editor]");
   const sheet = document.querySelector(".sheet");
@@ -1455,22 +1455,20 @@ if (pkg) {
   const contentFont = await evalJson(`parseFloat(getComputedStyle(document.querySelector(".cm-content")).fontSize)`);
   check(contentFont >= 16, `contenteditable font is ${contentFont}px, want >= 16`);
 
-  // The editor is not focused. Opening the drawer and tapping the sheet closes
+  // The editor is not focused. Opening the page browser and tapping Pages closes
   // it, and must not focus the editor or place a cursor.
   await evalJson(`document.querySelector(".cm-content").blur()`);
   await evalJson(`document.querySelector(".sheets-toggle").click()`);
   await waitFor(`document.body.classList.contains("drawer") && document.querySelector(".side").getBoundingClientRect().left >= -1`);
   const point = await evalJson(`(() => {
-    const scrim = document.querySelector("[data-scrim]");
-    const r = scrim.getBoundingClientRect();
-    const side = document.querySelector(".side").getBoundingClientRect();
-    const x = Math.min(r.right - 8, Math.max(side.right + 8, r.left + 8));
+    const button = document.querySelector(".sheets-toggle");
+    const r = button.getBoundingClientRect();
+    const x = r.left + r.width / 2;
     const y = r.top + r.height / 2;
     const hit = document.elementFromPoint(x, y);
-    return { x, y, sideRight: side.right, hit: hit?.className || hit?.tagName || "" };
+    return { x, y, toggle: hit === button || button.contains(hit) };
   })()`);
-  check(point.x > point.sideRight, `tap x ${point.x} is not outside the drawer`);
-  check(String(point.hit).includes("drawer-scrim"), `tap hit ${point.hit}, not the scrim`);
+  check(point.toggle, "the Pages button closes the full-width browser");
   await tap(point.x, point.y);
   await waitFor(`!document.body.classList.contains("drawer")`);
   const after = await evalJson(`({
@@ -1485,7 +1483,7 @@ if (pkg) {
   check(after.expanded === "false", "sheets button still says expanded");
   check(after.scrim === "none", `scrim stayed up (${after.scrim}) and would block typing`);
 
-  // A finger on the page closes the drawer only when it lifts, and does not
+  // A finger on Pages closes the page browser only when it lifts, and does not
   // move the caret or focus the editor. Wait until the welcome page is in
   // place, so a late load is not mistaken for the tap editing the page.
   await waitFor(`(document.querySelector(".cm-content")?.textContent || "").includes("Welcome to Omacus")`, 15000);

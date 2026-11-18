@@ -77,6 +77,7 @@ const KEYS: &[(&str, &[(&str, &str)])] = &[
         "Pages",
         &[
             ("Ctrl+N", "New page"),
+            ("Ctrl+F", "Find in the current page"),
             ("Ctrl+J", "Go to a page by name"),
             ("Ctrl+Alt+↑  /  Ctrl+Alt+↓", "Previous / next page"),
             ("Ctrl+Tab  /  Ctrl+Shift+Tab", "Next / previous page"),

@@ -31,7 +31,7 @@ test("a page and a folder on one level share a name column", async ({ page }) =>
     const step = parseFloat(getComputedStyle(document.querySelector(".side")).getPropertyValue("--row-step"));
     return {
       step,
-      sections: document.querySelectorAll(".side-section").length,
+      sections: document.querySelectorAll(".sheet-list .side-section").length,
       folderChevron: left('[data-id="ex-folder"] .chevron'),
       folderText: left('[data-id="ex-folder"] .side-name span'),
       pageText: left('[data-id="ex-welcome"] .side-name span'),
@@ -70,7 +70,6 @@ test("captions, pages, and folder children step in together", async ({ page }) =
       pageText: left('[data-id="ex-welcome"] .side-name span'),
       childText: left('[data-id="ex1"] .side-name span'),
       hereText: left('[data-id="ex5"] .side-name span'),
-      headText: left(".side-head span"),
       mores,
       sectionRight: right('.side-sync-label[data-sync-section="vault"] .side-section'),
     };
@@ -79,7 +78,6 @@ test("captions, pages, and folder children step in together", async ({ page }) =
   near(box.folderText, box.pageText);
   near(box.hereText, box.pageText);
   near(box.sectionText, box.localText);
-  near(box.headText, box.sectionText);
   near(box.pageText - box.sectionText, box.step);
   near(box.childText - box.pageText, box.step);
   near(box.folderChevron - box.sectionChevron, box.step);
