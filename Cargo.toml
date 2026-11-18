@@ -2,7 +2,7 @@
 members = ["engine", "web", "doc", "relay", "sync-web"]
 
 [workspace.package]
-version = "1.0.14"
+version = "1.0.15"
 
 [package]
 name = "omacus"

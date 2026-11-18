@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.15
 
 **Behind-the-scenes improvements to how updates ship**
 
