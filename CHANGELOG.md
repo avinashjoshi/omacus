@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.16
 
 **Sync stays on after an update on Linux**
 
