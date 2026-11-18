@@ -240,6 +240,32 @@ pub fn open_with_passphrase(
     Ok((plain, SecretSeal { salt, kek }))
 }
 
+const WRAP_AAD: &[u8] = b"omacus-device-wrap/1";
+
+/// A random key for sealing the device record in a file. The key itself goes
+/// to the system key store, which keeps it small there.
+pub fn new_device_wrap() -> Result<[u8; KEY_LEN], LockError> {
+    random_array()
+}
+
+/// Encrypt `plain` with a device wrap key: nonce then ciphertext.
+pub fn seal_with_device_wrap(key: &[u8; KEY_LEN], plain: &[u8]) -> Result<Vec<u8>, LockError> {
+    let nonce = random_array::<NONCE_LEN>()?;
+    let data = xcrypt(true, key, &nonce, WRAP_AAD, plain)?;
+    let mut out = Vec::with_capacity(NONCE_LEN + data.len());
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&data);
+    Ok(out)
+}
+
+pub fn open_with_device_wrap(key: &[u8; KEY_LEN], stored: &[u8]) -> Result<Vec<u8>, LockError> {
+    if stored.len() < NONCE_LEN + 16 {
+        return Err(LockError::Corrupt);
+    }
+    let (nonce, data) = stored.split_at(NONCE_LEN);
+    xcrypt(false, key, nonce, WRAP_AAD, data).map_err(|_| LockError::Corrupt)
+}
+
 pub fn is_lock(text: &str) -> bool {
     text.starts_with(HEADER) && text.as_bytes().get(HEADER.len()) == Some(&b'\n')
 }
@@ -565,5 +591,16 @@ mod tests {
         let (key, wrap) = create("pw").unwrap();
         let stored = seal(&key, "Weekend Plans", &wrap, b"page-a").unwrap();
         assert!(open_key(&key, &stored, b"page-b").is_err());
+    }
+
+    #[test]
+    fn a_device_wrap_round_trips_a_large_record_and_refuses_another_key() {
+        let key = new_device_wrap().unwrap();
+        let plain: Vec<u8> = (0..40_000u32).map(|i| (i % 251) as u8).collect();
+        let stored = seal_with_device_wrap(&key, &plain).unwrap();
+        assert_eq!(open_with_device_wrap(&key, &stored).unwrap(), plain);
+        let other = new_device_wrap().unwrap();
+        assert!(open_with_device_wrap(&other, &stored).is_err());
+        assert!(open_with_device_wrap(&key, &stored[..10]).is_err());
     }
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.16
+
+**Sync stays on after an update on Linux**
+
+With many synced pages, Linux could lose part of the sync key in the keyring, and Sync then asked to set up again. Omacus now opens that key, keeps sync on, and saves it so the keyring has room. If a key ever does not open, Sync says so and offers Try again instead of setup.
+
 ## 1.0.15
 
 **Behind-the-scenes improvements to how updates ship**

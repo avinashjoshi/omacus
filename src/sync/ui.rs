@@ -79,6 +79,7 @@ fn screen_heading(session: &Session) -> String {
         Screen::PassSet => "Choose a passphrase".into(),
         Screen::PassEnter => "Enter the passphrase".into(),
         Screen::Keyring => "Set up your keyring".into(),
+        Screen::KeyUnread => "Sync couldn't open its key".into(),
         Screen::Closed => String::new(),
     }
 }
@@ -170,6 +171,7 @@ fn body(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<Strin
         Screen::PassSet => passphrase(ui, theme, session, true),
         Screen::PassEnter => passphrase(ui, theme, session, false),
         Screen::Keyring => keyring(ui, theme, session),
+        Screen::KeyUnread => key_unread(ui, theme, session),
         Screen::Closed => None,
     }
 }
@@ -1153,6 +1155,25 @@ fn keyring(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<St
         }
         if design::quiet(ui, theme, "Use a passphrase instead").clicked() {
             session.choose_passphrase();
+        }
+    });
+    None
+}
+
+fn key_unread(ui: &mut egui::Ui, theme: &Theme, session: &mut Session) -> Option<String> {
+    title(ui, theme, "Sync couldn't open its key");
+    para(
+        ui,
+        theme,
+        "Sync is still set up on this computer, and your pages are here. Omacus could not read the sync key from the key store this time.",
+    );
+    err(ui, theme, &session.error.clone());
+    ui.horizontal(|ui| {
+        if design::primary(ui, theme, "Try again").clicked() {
+            session.ask(Work::LoadKey);
+        }
+        if design::quiet(ui, theme, "Not now").clicked() {
+            session.not_now();
         }
     });
     None
