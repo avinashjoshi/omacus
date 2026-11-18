@@ -66,6 +66,7 @@ pub enum Action {
     SettingsChanged,
     /// Save every page, folder, and setting.
     ExportEverything,
+    RestoreBackup,
     AskReset,
     /// Unlock a page the sync card named. The id is this computer's page id.
     Unlock(String),
@@ -505,16 +506,21 @@ pub fn show(
                                     Tab::Tips => tips(ui, theme),
                                     Tab::Settings => {
                                         let mut export = false;
+                                        let mut restore = false;
                                         if crate::settings::controls(
                                             ui,
                                             settings,
                                             theme,
                                             &mut export,
+                                            &mut restore,
                                         ) {
                                             action = Some(Action::SettingsChanged);
                                         }
                                         if export {
                                             action = Some(Action::ExportEverything);
+                                        }
+                                        if restore {
+                                            action = Some(Action::RestoreBackup);
                                         }
                                         ui.separator();
                                         if design::quiet(ui, theme, "Reset app…").clicked() {

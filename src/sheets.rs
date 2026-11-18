@@ -272,6 +272,10 @@ struct State {
     seeded: bool,
 }
 
+pub(crate) fn valid_backup_state(bytes: &[u8]) -> bool {
+    serde_json::from_slice::<State>(bytes).is_ok()
+}
+
 /// Expanded sidebar width, and the range a drag is allowed to land in.
 pub const SIDEBAR_WIDTH: f32 = 210.0;
 pub const SIDEBAR_MIN: f32 = 168.0;

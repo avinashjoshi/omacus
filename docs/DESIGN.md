@@ -262,6 +262,8 @@ A row is 32px, radius 8. The open page uses `selection` and the accent bar. Hove
 
 The ⋯ on a row opens that row's menu in the top layer, above the sidebar and the page, beside the button. The whole menu stays on the screen.
 
+On desktop, Recently deleted has a quiet “Empty Recently deleted…” button above its page rows. It opens a confirmation with a danger button and Cancel. Confirming permanently deletes the listed trash from this computer.
+
 A fresh library opens on Welcome to Omacus. That page is the first row, above the Examples folder.
 
 Do: keep the ⋯ column lined up with the buttons in the top bar.
@@ -270,6 +272,8 @@ Don't: wrap a name onto a second line, or paint the row border in the selection 
 ### Tabs
 
 Settings, Sync, and About are tabs in one window, beside Keyboard, Syntax, and Tips. On the desktop the rail order is Settings, Sync, Keyboard, Syntax, Tips & tricks, About. The rail row is 32px, radius 8, selection fill when active. A dot on About means an update is available. The hairline between the rail and the page is `border()`, not `selection`.
+
+In desktop Settings, “Restore backup…” sits next to “Export everything.” After the file picker, the shared dialog frame shows the backup’s page count and explains what it will replace. “Restore and quit” is a danger button, with Cancel beside it. Sync is off on this computer when Omacus reopens.
 
 ### Popups and tooltips
 

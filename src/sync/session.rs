@@ -993,6 +993,9 @@ impl Session {
             Ok(desk) => {
                 self.words = desk.words().map(|words| words.map(str::to_string));
                 self.desk = Some(desk);
+                self.account.clear();
+                self.revision = 0;
+                self.slots.clear();
                 self.screen = Screen::Start;
                 self.mark("start");
             }
@@ -1132,7 +1135,6 @@ impl Session {
             .and_then(Desk::account_hex)
             .unwrap_or_default();
         self.wipe_words();
-        self.leader = lock_leader(&self.dir);
         if self.pages.iter().any(|(id, _)| !self.locked.contains(id)) {
             self.pages_choice_from = None;
             self.screen = Screen::PagesHere;
@@ -2768,9 +2770,8 @@ impl Session {
     }
 
     fn publish_first(&mut self) -> Result<(), String> {
+        self.error.clear();
         self.ensure_pass()?;
-        self.on = true;
-        self.member = true;
         self.sync_membership_lines();
         let packed = self.packed_bytes()?;
         let slots = self.slots.clone();
@@ -2783,10 +2784,9 @@ impl Session {
             let desk = self.desk.as_ref().ok_or("Sync is off.")?;
             desk.library_record().map_err(|e| e.message().to_string())?
         };
-        self.slots = planned.slots;
         let objects = objects_json(&planned.objects);
         let drop = drop_json(&planned.drop_ids);
-        if self.revision == 0 {
+        let reply = if self.revision == 0 {
             let body = json!({
                 "account": self.account,
                 "record": wire::b64(&record),
@@ -2794,15 +2794,21 @@ impl Session {
                 "objects": objects,
             });
             let reply = self.client.open("POST", "/v1/mailboxes", Some(body))?;
-            self.note_written_objects(&reply.json);
             self.revision = reply
                 .json
                 .get("revision")
                 .and_then(Value::as_u64)
                 .unwrap_or(1);
+            reply.json
         } else {
-            let reply = self.publish_record(&record, &objects, &drop)?;
-            self.note_written_objects(&reply);
+            self.publish_record(&record, &objects, &drop)?
+        };
+        self.slots = planned.slots;
+        self.note_written_objects(&reply);
+        self.on = true;
+        self.member = true;
+        if self.leader.is_none() {
+            self.leader = lock_leader(&self.dir);
         }
         self.access.zeroize();
         self.access.clear();

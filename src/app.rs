@@ -455,8 +455,8 @@ pub struct OmacusApp {
     drag_expand: Option<(String, Instant)>,
     /// Trash id shown read-only. Clicking a deleted sheet opens this; it does not restore.
     preview: Option<String>,
-    /// Trash id waiting for a "delete forever" confirmation.
-    purge_id: Option<String>,
+    /// Pages waiting for a permanent deletion confirmation.
+    trash_purge: Option<TrashPurge>,
     /// `trash/` listing, refreshed at most every `TRASH_REFRESH`.
     trash: Vec<Trashed>,
     trash_at: Option<Instant>,
@@ -509,7 +509,8 @@ pub struct OmacusApp {
     /// The Sync tab was opened on purpose. A later dismiss does not reopen it.
     sync_tab_armed: bool,
     reset_asked: bool,
-    reset_done: bool,
+    backup_to_restore: Option<crate::backup::Backup>,
+    quit_without_saving: bool,
     /// Sync in this window. Pages stay files. A sealed copy is what leaves.
     sync: sync::Session,
     /// The session is on a background step. The window keeps drawing a shell.
@@ -682,7 +683,8 @@ impl OmacusApp {
             update_open: std::env::var("OMACUS_SCREENSHOT_HELP").is_ok_and(|t| t == "update"),
             sync_tab_armed: false,
             reset_asked: false,
-            reset_done: false,
+            backup_to_restore: None,
+            quit_without_saving: false,
             sync: {
                 let session = sync::Session::open(sync_dir(), &sync_origin());
                 let ctx = cc.egui_ctx.clone();
@@ -706,7 +708,7 @@ impl OmacusApp {
             rename_folder: None,
             drag_expand: None,
             preview: None,
-            purge_id: None,
+            trash_purge: None,
             trash: Vec::new(),
             trash_at: None,
             edited_at: Instant::now()
@@ -1433,7 +1435,7 @@ rental = rent + 50
 
     /// Keys are consumed here, before the editor sees them.
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
-        if self.reset_asked {
+        if self.reset_asked || self.backup_to_restore.is_some() {
             return;
         }
         // The password dialog wants the keystrokes, including Esc to close.
@@ -1554,9 +1556,9 @@ rental = rent + 50
             }
             return;
         }
-        if self.purge_id.is_some() {
+        if self.trash_purge.is_some() {
             if dismiss {
-                self.purge_id = None;
+                self.trash_purge = None;
             }
             return;
         }
@@ -1841,26 +1843,36 @@ rental = rent + 50
         }
     }
 
-    fn purge_trashed(&mut self, id: &str) {
-        let title = self
-            .trash
-            .iter()
-            .find(|t| t.id == id)
-            .map(|t| t.title.clone());
-        if self.store.purge(id) {
-            self.trash_at = None;
-            self.refresh_trash(true);
-            if self.preview.as_deref() == Some(id) {
-                self.preview = None;
-                self.focus_editor = true;
+    fn purge_trashed(&mut self, target: TrashPurge) {
+        let (ids, success) = match target {
+            TrashPurge::Page(id) => {
+                let title = self
+                    .trash
+                    .iter()
+                    .find(|item| item.id == id)
+                    .map(|item| item.title.as_str())
+                    .unwrap_or("page");
+                (vec![id], format!("Deleted “{title}” forever"))
             }
-            self.purge_id = None;
-            if let Some(title) = title {
-                self.toast = Some(Toast::info(format!(
-                    "Deleted \u{201c}{title}\u{201d} forever"
-                )));
+            TrashPurge::All(ids) => (ids, "Deleted the selected pages forever".to_string()),
+        };
+        let mut failed = false;
+        for id in ids {
+            if self.store.purge(&id) {
+                if self.preview.as_deref() == Some(id.as_str()) {
+                    self.preview = None;
+                    self.focus_editor = true;
+                }
+            } else {
+                failed = true;
             }
         }
+        self.refresh_trash(true);
+        self.toast = Some(if failed {
+            Toast::error("Couldn't delete every selected page. Try again.".to_string())
+        } else {
+            Toast::info(success)
+        });
     }
 
     fn refresh_trash(&mut self, force: bool) {
@@ -2266,12 +2278,79 @@ rental = rent + 50
         let Some(path) = dialog.save_file() else {
             return;
         };
+        if let Err(error) = self.store.save() {
+            self.toast = Some(Toast::error(format!(
+                "Couldn't save before exporting. {error}"
+            )));
+            return;
+        }
         match crate::backup::export_library(&root, settings::path().as_deref(), &path) {
             Ok(n) => {
                 let pages = if n == 1 { "page" } else { "pages" };
                 self.toast = Some(Toast::info(format!("Exported everything ({n} {pages}).")));
             }
             Err(e) => self.toast = Some(Toast::error(e)),
+        }
+    }
+
+    fn choose_backup(&mut self) {
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("Restore backup")
+            .add_filter("Omacus backup ZIP", &["zip"]);
+        if let Some(dir) = &self.settings.export_dir {
+            dialog = dialog.set_directory(dir);
+        }
+        if let Some(path) = dialog.pick_file() {
+            match crate::backup::Backup::read(&path) {
+                Ok(backup) => self.backup_to_restore = Some(backup),
+                Err(error) => self.toast = Some(Toast::error(error)),
+            }
+        }
+    }
+
+    fn show_restore_backup(&mut self, ctx: &egui::Context) {
+        let Some(backup) = &self.backup_to_restore else {
+            return;
+        };
+        let modal = egui::Modal::new(egui::Id::unique("restore-backup"))
+            .frame(design::dialog(&self.theme))
+            .backdrop_color(design::backdrop(&self.theme))
+            .show(ctx, |ui| {
+                ui.set_width(340.0);
+                ui.label(egui::RichText::new("Replace this library?").size(theme::token::TYPE_TITLE));
+                let noun = if backup.pages == 1 { "page" } else { "pages" };
+                ui.label(format!("This backup contains {} {noun}. It will replace the pages, folders, Recently deleted, and settings on this computer. Sync will be off here.", backup.pages));
+                ui.label("Close any other Omacus windows first. Reopen Omacus after restoring.");
+                ui.add_space(theme::token::SPACE_2);
+                ui.horizontal(|ui| {
+                    let confirm = ui.add_enabled_ui(self.sync_job.is_none(), |ui| {
+                        design::danger(ui, &self.theme, "Restore and quit").clicked()
+                    }).inner;
+                    let cancel = design::quiet(ui, &self.theme, "Cancel").clicked();
+                    (confirm, cancel)
+                }).inner
+            });
+        let (confirm, cancel) = modal.inner;
+        if confirm {
+            let result = self
+                .store
+                .library_root()
+                .ok_or_else(|| "No folder for pages.".to_string())
+                .and_then(|root| backup.restore(&root, settings::path().as_deref()));
+            match result {
+                Ok(()) => {
+                    self.quit_without_saving = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                Err(error) => {
+                    self.toast = Some(Toast::error(format!(
+                        "Couldn't restore the backup. {error}"
+                    )))
+                }
+            }
+            self.backup_to_restore = None;
+        } else if cancel || modal.should_close() {
+            self.backup_to_restore = None;
         }
     }
 
@@ -2330,6 +2409,7 @@ rental = rent + 50
             Some(help::Action::ExportEverything) => {
                 self.export_everything();
             }
+            Some(help::Action::RestoreBackup) => self.choose_backup(),
             Some(help::Action::AskReset) => self.reset_asked = true,
             None if dismissed && !self.sync.frozen() && tab == help::Tab::Sync => {
                 self.dismiss_sync_window();
@@ -2369,7 +2449,7 @@ rental = rent + 50
             });
             match result {
                 Ok(()) => {
-                    self.reset_done = true;
+                    self.quit_without_saving = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
                 Err(error) => {
@@ -3656,6 +3736,10 @@ rental = rent + 50
                 if !self.trash.is_empty() {
                     ui.add_space(14.0);
                     section_label(ui, &theme, "Recently deleted");
+                    if design::quiet(ui, &theme, "Empty Recently deleted…").clicked() {
+                        let ids = self.trash.iter().map(|item| item.id.clone()).collect();
+                        purge = Some(TrashPurge::All(ids));
+                    }
                     ui.add_space(4.0);
                     let trash = self.trash.clone();
                     for item in trash {
@@ -3699,7 +3783,7 @@ rental = rent + 50
                         }
                         match choice {
                             Some(TrashChoice::Restore) => restore = Some(item.id),
-                            Some(TrashChoice::Forever) => purge = Some(item.id),
+                            Some(TrashChoice::Forever) => purge = Some(TrashPurge::Page(item.id)),
                             None => {}
                         }
                     }
@@ -3821,8 +3905,8 @@ rental = rent + 50
         if let Some(id) = restore {
             self.restore_trashed(&id);
         }
-        if let Some(id) = purge {
-            self.purge_id = Some(id);
+        if let Some(target) = purge {
+            self.trash_purge = Some(target);
         }
     }
 
@@ -5287,7 +5371,7 @@ rental = rent + 50
                 );
                 let restore = design::primary(ui, &theme, "Restore");
                 if forever.clicked() {
-                    self.purge_id = Some(item.id.clone());
+                    self.trash_purge = Some(TrashPurge::Page(item.id.clone()));
                 }
                 if restore.clicked() {
                     let id = item.id.clone();
@@ -5900,21 +5984,35 @@ rental = rent + 50
     }
 
     fn show_purge(&mut self, ctx: &egui::Context) {
-        let Some(id) = self.purge_id.clone() else {
+        let Some(target) = &self.trash_purge else {
             return;
         };
-        let title = self
-            .trash
-            .iter()
-            .find(|t| t.id == id)
-            .map(|t| {
-                if t.locked {
-                    crate::sheets::LOCKED_TITLE.into()
-                } else {
-                    heading_of(&t.text)
-                }
-            })
-            .unwrap_or_else(|| "this page".into());
+        let (heading, description, confirm) = match target {
+            TrashPurge::Page(id) => {
+                let title = self
+                    .trash
+                    .iter()
+                    .find(|item| &item.id == id)
+                    .map(|item| {
+                        if item.locked {
+                            crate::sheets::LOCKED_TITLE.into()
+                        } else {
+                            heading_of(&item.text)
+                        }
+                    })
+                    .unwrap_or_else(|| "this page".into());
+                (
+                    format!("Delete “{title}” forever?"),
+                    "This removes it from Recently deleted. It can't be restored.",
+                    "Delete forever",
+                )
+            }
+            TrashPurge::All(_) => (
+                "Empty Recently deleted?".to_string(),
+                "These pages will be deleted from this computer. They can't be restored here.",
+                "Empty Recently deleted",
+            ),
+        };
         let theme = self.theme.clone();
         let mut purge = false;
         let mut cancel = false;
@@ -5925,21 +6023,15 @@ rental = rent + 50
             .show(ctx, |ui| {
                 ui.set_width(340.0);
                 ui.label(
-                    egui::RichText::new(format!("Delete \u{201c}{title}\u{201d} forever?"))
+                    egui::RichText::new(heading)
                         .size(theme::token::TYPE_TITLE)
                         .color(theme.foreground),
                 );
                 ui.add_space(6.0);
-                ui.label(
-                    egui::RichText::new(
-                        "This removes it from Recently deleted. It can't be restored.",
-                    )
-                    .size(13.0)
-                    .color(theme.dim),
-                );
+                ui.label(egui::RichText::new(description).size(13.0).color(theme.dim));
                 ui.add_space(14.0);
                 ui.horizontal(|ui| {
-                    purge = design::danger(ui, &theme, "Delete forever").clicked();
+                    purge = design::danger(ui, &theme, confirm).clicked();
                     cancel = design::quiet(ui, &theme, "Cancel").clicked();
                 });
             });
@@ -5947,16 +6039,18 @@ rental = rent + 50
             cancel = true;
         }
         if purge {
-            self.purge_trashed(&id);
+            if let Some(target) = self.trash_purge.take() {
+                self.purge_trashed(target);
+            }
         } else if cancel {
-            self.purge_id = None;
+            self.trash_purge = None;
         }
     }
 }
 
 impl eframe::App for OmacusApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        if self.reset_done {
+        if self.quit_without_saving {
             return;
         }
         let ctx = ui.ctx().clone();
@@ -6038,7 +6132,8 @@ impl eframe::App for OmacusApp {
         self.popup(&ctx);
         self.show_help(&ctx);
         self.show_reset(&ctx);
-        if self.reset_done {
+        self.show_restore_backup(&ctx);
+        if self.quit_without_saving {
             return;
         }
         self.show_update(&ctx);
@@ -6054,7 +6149,7 @@ impl eframe::App for OmacusApp {
         self.show_purge(&ctx);
         self.show_switcher(&ctx);
         self.show_toast(&ctx);
-        if !self.reset_asked {
+        if !self.reset_asked && self.backup_to_restore.is_none() {
             self.pump_sync();
         }
         if self.sync_job.is_some() {
@@ -6067,7 +6162,7 @@ impl eframe::App for OmacusApp {
     #[cfg(not(windows))]
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         sync::release_clipboard();
-        if !self.reset_done {
+        if !self.quit_without_saving {
             self.store.lock_now();
             self.save();
         }
@@ -6076,7 +6171,7 @@ impl eframe::App for OmacusApp {
     #[cfg(windows)]
     fn on_exit(&mut self) {
         sync::release_clipboard();
-        if !self.reset_done {
+        if !self.quit_without_saving {
             self.store.lock_now();
             self.save();
         }
@@ -7156,6 +7251,11 @@ fn sidebar_label_job(
 /// The orange mark on the open sheet, centered on the row.
 fn sidebar_accent(row: Rect) -> Rect {
     Rect::from_center_size(pos2(row.left() + 1.5, row.center().y), vec2(3.0, 16.0))
+}
+
+enum TrashPurge {
+    Page(String),
+    All(Vec<String>),
 }
 
 enum TrashChoice {

@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.13
+
+**See what went wrong when setting up sync**
+
+If the first upload fails, Omacus shows the reason on the setup screen and keeps your pages on this computer.
+
+**Empty Recently deleted**
+
+On desktop, you can permanently delete all the pages in Recently deleted on this computer at once.
+
+**Restore a desktop backup**
+
+In Settings, Restore backup opens a ZIP made by Export everything. Omacus asks before replacing your pages, folders, Recently deleted, and settings on this computer.
+
 ## 1.0.12
 
 **Choose which pages join sync**
