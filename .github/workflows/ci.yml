@@ -170,7 +170,7 @@ jobs:
             -e PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
             -v "$GITHUB_WORKSPACE:/work" \
             -w /work \
-            mcr.microsoft.com/playwright:v1.65.0-noble@sha256:9beb546099e11f52d62e505537914870e01a67e0e6b00ae41da4775324e73dbe \
+            mcr.microsoft.com/playwright:v1.65.1-noble@sha256:1507cbfc550a63a6b7396791ca4f00df17beb56342d2447b3f106c306f525579 \
             bash -c 'npm ci && npx playwright test'
           sudo chown -R "$(id -u):$(id -g)" node_modules
       - name: Prepare the web release
